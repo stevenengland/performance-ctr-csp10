@@ -1,0 +1,100 @@
+openapi: 3.1.0
+info:
+  title: Performance API
+  version: 0.1.0
+  description: >-
+    JSON API of the Performance drink counter. Fields are camelCase, timestamps
+    ISO-8601 UTC, decimals JSON numbers rounded to two places. Every error is
+    `application/problem+json` (RFC 9457) with a stable `urn:performance:problem:*`
+    type. While a migration runs, every route except health answers 503 with
+    `Retry-After`; after a failed migration it answers 503 without it.
+servers:
+  - url: /
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: Versions, schema and migration state; brings the schema up to date first
+      responses:
+        '200':
+          description: The installation's health
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '500':
+          $ref: '#/components/responses/Problem'
+components:
+  responses:
+    Problem:
+      description: An error, described as a problem
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required:
+        - appVersion
+        - phpVersion
+        - database
+        - schemaVersion
+        - migration
+        - minClientVersion
+      properties:
+        appVersion:
+          type: string
+          description: Version of the release that answered, `MAJOR.MINOR.PATCH` with optional build metadata
+          examples: ['0.1.0+3f2a1bc']
+        phpVersion:
+          type: string
+          examples: ['8.3.6']
+        database:
+          type: object
+          additionalProperties: false
+          required: [engine, version]
+          properties:
+            engine:
+              type: string
+              enum: [MySQL, MariaDB]
+            version:
+              type: string
+              examples: ['8.4.3']
+        schemaVersion:
+          type: integer
+          minimum: 0
+          description: Number of the newest migration up to which every migration is completed
+        migration:
+          $ref: '#/components/schemas/MigrationState'
+        minClientVersion:
+          type: string
+          description: The oldest web client version the API still serves; older clients must reload
+          examples: ['0.1.0']
+    MigrationState:
+      type: string
+      enum: [ok, running, failed]
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          enum:
+            - urn:performance:problem:not-found
+            - urn:performance:problem:method-not-allowed
+            - urn:performance:problem:internal
+            - urn:performance:problem:maintenance
+            - urn:performance:problem:migration-failed
+        title:
+          type: string
+          description: German, shown to the user as is
+        status:
+          type: integer
+        errors:
+          type: object
+          description: Field validation errors, keyed by field name
+          additionalProperties:
+            type: string

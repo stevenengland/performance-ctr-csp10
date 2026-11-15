@@ -1,0 +1,101 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Performance\Tests\Integration;
+
+use PDO;
+use Performance\Domain\Migrator;
+use Performance\Tests\Support\DatabaseTestCase;
+
+final class MigratorTest extends DatabaseTestCase
+{
+    public function testTheFirstRequestOnAnEmptyDatabaseAppliesEveryMigrationUnderTheLockRecordingStartedAndCompleted(): void
+    {
+        $app = $this->app($this->config($this->fixtureMigrations('lock-probe')));
+
+        $health = $this->body($this->get('/api/health', $app));
+
+        self::assertSame('ok', $health['migration']);
+        self::assertSame(2, $health['schemaVersion']);
+        $rows = $this->bookkeeping();
+        self::assertSame(['0001_create_schema_migrations', '0002_require_the_lock'], array_column($rows, 'version'));
+        foreach ($rows as $row) {
+            self::assertSame('completed', $row['state']);
+            self::assertNotNull($row['started_at']);
+            self::assertNotNull($row['completed_at']);
+        }
+    }
+
+    public function testARequestArrivingWhileAnotherSessionMigratesGets503WithRetryAfter(): void
+    {
+        $other = $this->otherSession();
+        $lock = $other->prepare('SELECT GET_LOCK(?, 0)');
+        $lock->execute([Migrator::lockName($other)]);
+
+        $response = $this->get('/api/anything');
+
+        self::assertSame(503, $response->getStatusCode());
+        self::assertSame('application/problem+json', $response->getHeaderLine('Content-Type'));
+        self::assertSame('5', $response->getHeaderLine('Retry-After'));
+        self::assertSame('urn:performance:problem:maintenance', $this->body($response)['type']);
+        $health = $this->body($this->get('/api/health'));
+        self::assertSame('running', $health['migration']);
+        self::assertSame(0, $health['schemaVersion']);
+    }
+
+    public function testAMigrationWhoseDdlRanButWasNeverRecordedCompletesOnTheNextRun(): void
+    {
+        $this->get('/api/health');
+        $other = $this->otherSession();
+        // A crash between the DDL and its bookkeeping: the table exists, the row says started.
+        $other->exec('CREATE TABLE crash_probe (id INT UNSIGNED NOT NULL PRIMARY KEY)');
+        $other->exec(
+            "INSERT INTO schema_migrations (version, state, started_at) VALUES ('0002_create_crash_probe', 'started', UTC_TIMESTAMP(3))",
+        );
+
+        $health = $this->body($this->get('/api/health', $this->app($this->config($this->fixtureMigrations('crash')))));
+
+        self::assertSame('ok', $health['migration']);
+        self::assertSame(2, $health['schemaVersion']);
+        self::assertSame('completed', $this->bookkeeping()[1]['state']);
+    }
+
+    public function testAFailingMigrationLeavesHealthReportingFailedAndTheApiAnswering503(): void
+    {
+        $app = $this->app($this->config($this->fixtureMigrations('failing')));
+
+        $health = $this->body($this->get('/api/health', $app));
+        $other = $this->get('/api/anything', $app);
+
+        self::assertSame('failed', $health['migration']);
+        self::assertSame(1, $health['schemaVersion']);
+        self::assertSame(503, $other->getStatusCode());
+        self::assertSame('application/problem+json', $other->getHeaderLine('Content-Type'));
+        self::assertSame('urn:performance:problem:migration-failed', $this->body($other)['type']);
+    }
+
+    public function testRunningAgainIsHarmless(): void
+    {
+        $this->get('/api/health');
+
+        $health = $this->body($this->get('/api/health'));
+
+        self::assertSame('ok', $health['migration']);
+        self::assertCount(1, $this->bookkeeping());
+    }
+
+    /**
+     * @return list<array{version: string, state: string, started_at: ?string, completed_at: ?string}>
+     */
+    private function bookkeeping(): array
+    {
+        $statement = $this->otherSession()->query(
+            'SELECT version, state, started_at, completed_at FROM schema_migrations ORDER BY version',
+        );
+        self::assertNotFalse($statement);
+
+        /** @var list<array{version: string, state: string, started_at: ?string, completed_at: ?string}> */
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
