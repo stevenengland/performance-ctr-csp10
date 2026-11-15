@@ -37,9 +37,22 @@ export const messages = {
     delta: (booked: string, added: number) =>
       `bisher ${booked}, neu dazu ${String(added)}`,
     save: 'Speichern',
-    /** The saved snackbar (§6.3): `2× Bier · Daniel`. */
-    saved: (quantity: number, drink: string, person: string) =>
-      `${String(quantity)}× ${drink} · ${person}`,
+    next: 'Weiter',
+    /** The quantity of a drink in text: `2× Bier` (§3.5). */
+    quantityOf: (quantity: number, drink: string) =>
+      `${String(quantity)}× ${drink}`,
+    factorQuestion: 'Faktor?',
+    noFactor: 'Kein Faktor',
+    countsOnce: 'zählt einfach',
+    /** Supporting text of a factor tile; `multiplier` is formatted without `×`: `zählt 1,5-fach`. */
+    countsTimes: (multiplier: string) => `zählt ${multiplier}-fach`,
+    /** Accessible name of a factor tile: `Happy Hour, ×2`. */
+    factorTile: (name: string, multiplier: string) => `${name}, ${multiplier}`,
+    /** The saved snackbar (§6.3): `2× Bier · Happy Hour ×2 · Daniel`, without the factor part for none. */
+    saved: (quantity: number, drink: string, person: string, factor?: string) =>
+      [`${String(quantity)}× ${drink}`, factor, person]
+        .filter((part) => part !== undefined)
+        .join(' · '),
     undo: 'Rückgängig',
     undone: 'Rückgängig gemacht',
     notSaved: 'Nicht gespeichert – keine Verbindung',
@@ -79,6 +92,28 @@ export const messages = {
     name: 'Name',
     points: 'Punkte',
     empty: 'Noch keine Getränke.',
+  },
+  faktoren: {
+    title: 'Faktoren',
+    create: 'Faktor anlegen',
+    edit: 'Faktor bearbeiten',
+    name: 'Name',
+    multiplier: 'Multiplikator',
+    empty: 'Noch keine Faktoren.',
+    editLabel: (name: string) => `${name} bearbeiten`,
+    deleteLabel: (name: string) => `${name} löschen`,
+  },
+  /** Deleting master data (§6.9). */
+  remove: {
+    title: (name: string) => `${name} löschen?`,
+    confirm: 'Löschen',
+    done: (name: string) => `${name} gelöscht`,
+    /** A deleted factor's entries stay and count ×1. */
+    factorBody: (name: string, entries: number) => {
+      if (entries === 0) return `${name} wird gelöscht.`;
+      if (entries === 1) return '1 Eintrag zählt danach ×1.';
+      return `${String(entries)} Einträge zählen danach ×1.`;
+    },
   },
   anmelden: {
     title: 'Anmelden',

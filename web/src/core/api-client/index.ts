@@ -4,6 +4,8 @@ export type Health = components['schemas']['Health'];
 export type Account = components['schemas']['Account'];
 export type Person = components['schemas']['Person'];
 export type Drink = components['schemas']['Drink'];
+export type Factor = components['schemas']['Factor'];
+export type FactorDetail = components['schemas']['FactorDetail'];
 export type Entry = components['schemas']['Entry'];
 export type NewEntry = components['schemas']['NewEntry'];
 export type Scoreboard = components['schemas']['Scoreboard'];
@@ -187,6 +189,47 @@ export function createDrink(
   return request<Drink>('/api/drinks', {
     method: 'POST',
     body: { name, points },
+  });
+}
+
+export async function listFactors(): Promise<Factor[]> {
+  return (await request<{ factors: Factor[] }>('/api/factors')).factors;
+}
+
+/** A factor with the number of entries that use it, for the delete dialog. */
+export function getFactor(id: number): Promise<FactorDetail> {
+  return request<FactorDetail>('/api/factors/{id}', {
+    params: { id: String(id) },
+  });
+}
+
+/** `multiplier` is `null` when the input was no number; the API then answers with its field error. */
+export function createFactor(
+  name: string,
+  multiplier: number | null,
+): Promise<Factor> {
+  return request<Factor>('/api/factors', {
+    method: 'POST',
+    body: { name, multiplier },
+  });
+}
+
+export function updateFactor(
+  id: number,
+  name: string,
+  multiplier: number | null,
+): Promise<Factor> {
+  return request<Factor>('/api/factors/{id}', {
+    method: 'PATCH',
+    params: { id: String(id) },
+    body: { name, multiplier },
+  });
+}
+
+export function deleteFactor(id: number): Promise<void> {
+  return request<undefined>('/api/factors/{id}', {
+    method: 'DELETE',
+    params: { id: String(id) },
   });
 }
 

@@ -69,6 +69,18 @@ export const routes: RouteRecordRaw[] = [
     },
   },
   {
+    // `:quantity` is the number of new drinks, 1–99; anything else is no step.
+    path: '/zaehlen/:personId(\\d+)/:drinkId(\\d+)/:quantity([1-9]\\d?)',
+    component: () => import('./features/zaehlen/FactorStep.vue'),
+    props: true,
+    meta: {
+      title: messages.navigation.zaehlen,
+      destination: 'zaehlen',
+      child: true,
+      step: 4,
+    },
+  },
+  {
     path: '/rangliste',
     component: () => import('./features/rangliste/RanglistePage.vue'),
     meta: {
@@ -96,6 +108,15 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('./features/verwalten/getraenke/GetraenkePage.vue'),
     meta: {
       title: messages.getraenke.title,
+      destination: 'verwalten',
+      child: true,
+    },
+  },
+  {
+    path: '/verwalten/faktoren',
+    component: () => import('./features/verwalten/faktoren/FaktorenPage.vue'),
+    meta: {
+      title: messages.faktoren.title,
       destination: 'verwalten',
       child: true,
     },

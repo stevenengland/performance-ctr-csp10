@@ -6,6 +6,7 @@ import { useSession } from '../../core/session';
 const sections = [
   { label: messages.verwalten.persons, to: '/verwalten/personen' },
   { label: messages.verwalten.drinks, to: '/verwalten/getraenke' },
+  { label: messages.verwalten.factors, to: '/verwalten/faktoren' },
 ];
 const account = useSession();
 </script>
@@ -18,7 +19,6 @@ const account = useSession();
         <v-icon :icon="mdiChevronRight" size="24" />
       </RouterLink>
     </li>
-    <li class="list__row type-row-title">{{ messages.verwalten.factors }}</li>
     <li v-if="account?.isAdmin">
       <RouterLink
         to="/verwalten/konten"

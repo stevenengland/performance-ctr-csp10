@@ -2,6 +2,7 @@ import type {
   Account,
   Drink,
   Entry,
+  Factor,
   Health,
   Person,
 } from '../src/core/api-client';
@@ -21,6 +22,7 @@ export interface Fixtures {
   signedIn: number | null;
   persons: Person[];
   drinks: Drink[];
+  factors: Factor[];
   entries: Entry[];
   /** Fingerprints of every entry id ever put, so a replay never recreates an undone entry. */
   entryRequests: Map<string, string>;
@@ -42,8 +44,12 @@ const DRINKS: [string, number][] = [
   ['Schnaps', 1.5],
   ['Wein', 2],
 ];
-/** Tonight so far: person, drink, quantity — in the order they were logged. */
-const LOG: [string, string, number][] = [
+const FACTORS: [string, number][] = [
+  ['Geburtstag', 1.5],
+  ['Happy Hour', 2],
+];
+/** Tonight so far: person, drink, quantity and factor — in the order they were logged. */
+const LOG: [string, string, number, string?][] = [
   ['Anna', 'Wein', 1],
   ['Daniel', 'Bier', 2],
   ['Mara', 'Aperol', 2],
@@ -51,8 +57,8 @@ const LOG: [string, string, number][] = [
   ['Anna', 'Bier', 3],
   ['Daniel', 'Margarita', 1],
   ['Tom', 'Radler', 1],
-  ['Daniel', 'Schnaps', 2],
-  ['Ben', 'Bier', 2],
+  ['Daniel', 'Schnaps', 2, 'Geburtstag'],
+  ['Ben', 'Bier', 2, 'Happy Hour'],
   ['Mara', 'Bier', 2],
   ['Anna', 'Wein', 2],
   ['Daniel', 'Aperol', 1],
@@ -63,16 +69,22 @@ const LOG: [string, string, number][] = [
 The evening's entries, spread between local midnight and now, so the preview never
 ages out of "today" whenever it is opened.
 */
-function sampleEntries(now: Date, persons: Person[], drinks: Drink[]): Entry[] {
+function sampleEntries(
+  now: Date,
+  persons: Person[],
+  drinks: Drink[],
+  factors: Factor[],
+): Entry[] {
   const midnight = startOfToday(now).getTime();
   const span = now.getTime() - midnight;
   const idOf = (list: { id: number; name: string }[], name: string) =>
     list.find((item) => item.name === name)?.id ?? 0;
-  return LOG.map(([person, drink, quantity], index) => ({
+  return LOG.map(([person, drink, quantity, factor], index) => ({
     id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
     personId: idOf(persons, person),
     drinkId: idOf(drinks, drink),
     quantity,
+    factorId: factor === undefined ? null : idOf(factors, factor),
     createdAt: new Date(
       midnight + Math.floor((span * (index + 1)) / (LOG.length + 1)),
     ).toISOString(),
@@ -87,13 +99,18 @@ export function sampleEvening(now: Date = new Date()): Fixtures {
     name,
     points,
   }));
-  const entries = sampleEntries(now, persons, drinks);
+  const factors = FACTORS.map(([name, multiplier], index) => ({
+    id: index + 1,
+    name,
+    multiplier,
+  }));
+  const entries = sampleEntries(now, persons, drinks, factors);
   return {
     health: {
       appVersion: `${__APP_VERSION__} (Vorschau)`,
       phpVersion: '8.3.0',
       database: { engine: 'MySQL', version: '8.4.0' },
-      schemaVersion: 9,
+      schemaVersion: 11,
       migration: 'ok',
       minClientVersion: '0.1.0',
     },
@@ -106,6 +123,7 @@ export function sampleEvening(now: Date = new Date()): Fixtures {
     signedIn: 1,
     persons,
     drinks,
+    factors,
     entries,
     entryRequests: new Map(),
   };

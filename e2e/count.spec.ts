@@ -4,6 +4,7 @@ import {
   type APIRequestContext,
   type Page,
 } from './support/playwright.ts';
+import { withoutFactors } from './support/factors.ts';
 import { signIn, uniqueName } from './support/session.ts';
 
 /** A person and a drink with names no earlier run used (the stack's database outlives a run). */
@@ -33,6 +34,7 @@ async function openQuantity(page: Page, person: string, drink: string) {
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);
+  await withoutFactors(page);
 });
 
 test('persons and drinks are created under Verwalten with inline errors and a decimal comma', async ({
@@ -80,7 +82,7 @@ test('persons and drinks are created under Verwalten with inline errors and a de
   ).toContainText('0,5 Punkte');
 });
 
-test('Daniel → Bier → + twice → Speichern saves 2 beers and returns to the name list', async ({
+test('without factors Daniel → Bier → + twice → Speichern saves 2 beers and returns to the name list', async ({
   page,
 }) => {
   const { person, drink } = await personAndDrink(page.request);

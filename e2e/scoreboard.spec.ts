@@ -5,6 +5,7 @@ import {
   type APIRequestContext,
   type Page,
 } from './support/playwright.ts';
+import { withoutFactors } from './support/factors.ts';
 import { signIn, signInVia, uniqueName } from './support/session.ts';
 
 /** The feed's polling interval while the Rangliste is visible. */
@@ -115,6 +116,7 @@ test('an entry added in one browser appears on another browser’s Rangliste wit
     ).toBeVisible();
     await expect(place(watcher, person)).toHaveCount(0);
 
+    await withoutFactors(page);
     await page.goto('/zaehlen');
     await page.getByRole('button', { name: new RegExp(`^${person},`) }).click();
     await page.getByRole('button', { name: new RegExp(`^${drink},`) }).click();

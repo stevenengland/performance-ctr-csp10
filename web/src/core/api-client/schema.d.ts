@@ -114,6 +114,49 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/factors': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every factor, alphabetical (ignoring case) */
+    get: operations['listFactors'];
+    put?: never;
+    /** Create a factor with its multiplier */
+    post: operations['createFactor'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/factors/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The factor's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    /** A factor with the number of entries that use it (for the delete dialog) */
+    get: operations['getFactor'];
+    put?: never;
+    post?: never;
+    /** Delete a factor; its entries stay and count ×1 from then on */
+    delete: operations['deleteFactor'];
+    options?: never;
+    head?: never;
+    /**
+     * Change a factor's name and multiplier
+     * @description Both fields are required. Scores always use the current multiplier, so the change applies to every entry that uses the factor.
+     */
+    patch: operations['updateFactor'];
+    trace?: never;
+  };
   '/api/entries/{id}': {
     parameters: {
       query?: never;
@@ -127,7 +170,7 @@ export interface paths {
     get?: never;
     /**
      * Add an entry, idempotently on its id
-     * @description The account and the server time (UTC) are recorded with the entry. A repeated request with the same id and content answers 200 with the original entry and creates nothing, even after the entry was deleted; the same id with different content answers 409. Ids are remembered for seven days. Any other id that is not a lower-case UUID v4 is 404.
+     * @description The account and the server time (UTC) are recorded with the entry. A repeated request with the same id and content (factor included) answers 200 with the original entry and creates nothing, even after the entry was deleted; the same id with different content answers 409. An unknown factor is 422. Ids are remembered for seven days. Any other id that is not a lower-case UUID v4 is 404.
      */
     put: operations['addEntry'];
     post?: never;
@@ -147,7 +190,7 @@ export interface paths {
     };
     /**
      * Standings since `from`, the start of the viewer's day
-     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × points; count = Σ quantity; per-drink counters likewise. The ETag names the data revision, which every write of entries, persons and drinks bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged.
+     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. The ETag names the data revision, which every write of entries, persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged.
      */
     get: operations['getScoreboard'];
     put?: never;
@@ -211,17 +254,42 @@ export interface components {
       name: components['schemas']['Name'];
       points: components['schemas']['Points'];
     };
+    /** @description Above 0 up to 99.99 with at most two decimals */
+    Multiplier: number;
+    Factor: {
+      id: number;
+      name: components['schemas']['Name'];
+      multiplier: components['schemas']['Multiplier'];
+    };
+    FactorDetail: {
+      id: number;
+      name: components['schemas']['Name'];
+      multiplier: components['schemas']['Multiplier'];
+      /** @description Entries of every day that use the factor */
+      entryCount: number;
+    };
+    FactorList: {
+      factors: components['schemas']['Factor'][];
+    };
+    NewFactor: {
+      name: components['schemas']['Name'];
+      multiplier: components['schemas']['Multiplier'];
+    };
     Quantity: number;
     NewEntry: {
       personId: number;
       drinkId: number;
       quantity: components['schemas']['Quantity'];
+      /** @description The chosen factor; missing or null for no factor (counts ×1) */
+      factorId?: number | null;
     };
     Entry: {
       id: string;
       personId: number;
       drinkId: number;
       quantity: components['schemas']['Quantity'];
+      /** @description The factor of the request; null for none */
+      factorId: number | null;
       /**
        * Format: date-time
        * @description Server time of the first request, UTC
@@ -579,6 +647,135 @@ export interface operations {
         };
       };
       401: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  listFactors: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The factors */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FactorList'];
+        };
+      };
+      401: components['responses']['Problem'];
+    };
+  };
+  createFactor: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewFactor'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Factor'];
+        };
+      };
+      401: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  getFactor: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The factor's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The factor */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FactorDetail'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  deleteFactor: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The factor's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  updateFactor: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The factor's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewFactor'];
+      };
+    };
+    responses: {
+      /** @description Changed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Factor'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
       409: components['responses']['Problem'];
       415: components['responses']['Problem'];
       422: components['responses']['Problem'];

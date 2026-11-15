@@ -17,6 +17,8 @@ const props = defineProps<{
   autofocus?: boolean;
   /** The on-screen keyboard to offer, e.g. `decimal` for points. */
   inputmode?: 'text' | 'decimal';
+  /** Shown before the value, e.g. `×` for a multiplier; not part of it. */
+  prefix?: string;
 }>();
 
 const id = useId();
@@ -35,6 +37,12 @@ onMounted(() => {
   <div class="app-field" :class="{ 'app-field--error': error }">
     <div class="app-field__box">
       <label :for="id" class="app-field__label type-caption">{{ label }}</label>
+      <span
+        v-if="prefix"
+        class="app-field__prefix type-body"
+        aria-hidden="true"
+        >{{ prefix }}</span
+      >
       <input
         :id="id"
         ref="input"
@@ -104,6 +112,15 @@ onMounted(() => {
   background: transparent;
   color: rgb(var(--v-theme-on-surface));
   outline: none;
+}
+
+.app-field__prefix {
+  padding: 25px 0 7px 14px;
+  color: rgb(var(--v-theme-on-surface-variant));
+}
+
+.app-field__prefix + .app-field__input {
+  padding-left: 2px;
 }
 
 .app-field__toggle {

@@ -5,10 +5,12 @@ import TallyMarks from './TallyMarks.vue';
 /**
 A counting tile (design spec §6.4), a real button. A person tile shows the name at
 the top and, at the bottom, the supporting text left and the numeral right. A drink
-tile shows name and numeral at the top, supporting text and tally at the bottom.
+tile shows name and numeral at the top, supporting text and tally at the bottom. A
+factor tile is raspberry, with name and multiplier at the top and supporting text
+at the bottom; a plain tile (`Kein Faktor`) has only name and supporting text.
 */
 const props = defineProps<{
-  variant: 'person' | 'drink';
+  variant: 'person' | 'drink' | 'factor' | 'plain';
   name: string;
   /** The accessible name, with the tile's state (§10). */
   label: string;
@@ -17,6 +19,9 @@ const props = defineProps<{
   numeral?: string;
   /** Strokes to draw (drink tiles). */
   tally?: number;
+  /** Amber while its choice is being saved (§3.1). */
+  pressed?: boolean;
+  disabled?: boolean;
 }>();
 const emit = defineEmits<{ click: [] }>();
 
@@ -33,14 +38,19 @@ const nameSize = computed(() => {
   <button
     type="button"
     class="tile count-tile"
+    :class="{
+      'count-tile--factor': variant === 'factor',
+      'tile--pressed': pressed,
+    }"
     :aria-label="label"
+    :disabled="disabled"
     @click="emit('click')"
   >
     <span class="count-tile__row">
       <span class="type-tile-name count-tile__name" :class="nameSize">{{
         name
       }}</span>
-      <span v-if="variant === 'drink' && numeral" class="type-numeral">{{
+      <span v-if="variant !== 'person' && numeral" class="type-numeral">{{
         numeral
       }}</span>
     </span>
@@ -87,6 +97,24 @@ const nameSize = computed(() => {
 
 .count-tile__support {
   color: rgb(var(--v-theme-on-surface-variant));
+}
+
+/* Factors are raspberry, without the coaster's edge (§3.1, §6.4). */
+.count-tile--factor {
+  background: rgb(var(--v-theme-tertiary-container));
+  box-shadow: none;
+  color: rgb(var(--v-theme-on-tertiary-container));
+}
+
+.count-tile--factor .count-tile__support {
+  color: inherit;
+}
+
+/* Amber means "this one", for factors too. */
+.count-tile--factor:active:not(:disabled),
+.count-tile--factor.tile--pressed {
+  background: rgb(var(--v-theme-primary-container));
+  color: rgb(var(--v-theme-on-primary-container));
 }
 
 .tile:active .count-tile__support,

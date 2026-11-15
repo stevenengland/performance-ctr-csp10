@@ -4,8 +4,10 @@ import { useRouter } from 'vue-router';
 import QuantityStepper from '../../components/QuantityStepper.vue';
 import {
   loadDrinks,
+  loadFactors,
   loadPersons,
   useDrinks,
+  useFactors,
   usePersons,
 } from '../../core/catalog';
 import { formatNumber } from '../../core/format';
@@ -18,12 +20,19 @@ import {
 } from '../../core/scoreboard-feed';
 import { showProblem } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
-import { leaveGoneStep, returnToNames, saveEntry } from './add-flow';
+import {
+  addFlowSteps,
+  factorStepPath,
+  leaveGoneStep,
+  returnToNames,
+  saveEntry,
+} from './add-flow';
 
 /**
-Step 3 — Anzahl (§7d): the stepper starts at what is booked today; `Speichern`
-saves the new drinks (no factors exist yet, so step 4 is skipped). Offline, nothing
-can be saved.
+Step 3 — Anzahl (§7d): the stepper starts at what is booked today. Once factors
+exist, `Weiter` goes on to the factor step with the number of new drinks; while
+none exist, `Speichern` saves them (step 4 is skipped). Offline, nothing can be
+saved.
 */
 const props = defineProps<{ personId: string; drinkId: string }>();
 
@@ -31,6 +40,7 @@ const router = useRouter();
 const online = useOnline();
 const persons = usePersons();
 const drinks = useDrinks();
+const factors = useFactors();
 const feed = useScoreboardFeed();
 const board = computed(() => feed.value.board);
 const personId = computed(() => Number(props.personId));
@@ -46,6 +56,18 @@ const booked = computed(() =>
 );
 const added = ref(0);
 const saving = ref(false);
+/** Unknown until the factors are loaded. */
+const withFactorStep = computed(() =>
+  factors.value === undefined ? undefined : addFlowSteps(factors.value) === 4,
+);
+const disabled = computed(
+  () =>
+    added.value === 0 ||
+    !person.value ||
+    !drink.value ||
+    withFactorStep.value === undefined ||
+    (!withFactorStep.value && !online.value),
+);
 
 provideTopBar(() => ({
   title: person.value?.name,
@@ -53,7 +75,13 @@ provideTopBar(() => ({
   score: formatNumber(scoreOf(board.value, personId.value)),
 }));
 
-async function save() {
+async function next() {
+  if (withFactorStep.value) {
+    await router.push(
+      factorStepPath(personId.value, drinkId.value, added.value),
+    );
+    return;
+  }
   if (!person.value || !drink.value) return;
   saving.value = true;
   await saveEntry(
@@ -61,16 +89,17 @@ async function save() {
       personId: personId.value,
       drinkId: drinkId.value,
       quantity: added.value,
+      factorId: null,
     },
     { drink: drink.value.name, person: person.value.name },
-    () => returnToNames(router, personId.value),
+    () => returnToNames(router),
   );
   saving.value = false;
 }
 
 onMounted(async () => {
   try {
-    await Promise.all([loadPersons(), loadDrinks()]);
+    await Promise.all([loadPersons(), loadDrinks(), loadFactors()]);
     if (!person.value || !drink.value) leaveGoneStep(router);
   } catch (failure) {
     showProblem(failure);
@@ -95,11 +124,11 @@ onMounted(async () => {
       color="primary"
       rounded="0"
       class="dialog-button type-row-title"
-      :disabled="added === 0 || !online || !person || !drink"
+      :disabled="disabled"
       :loading="saving"
-      @click="save"
+      @click="next"
     >
-      {{ messages.zaehlen.save }}
+      {{ withFactorStep ? messages.zaehlen.next : messages.zaehlen.save }}
     </v-btn>
   </section>
 </template>

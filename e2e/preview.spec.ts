@@ -56,24 +56,42 @@ test('the preview menu offers the update prompt and the reload floor', async ({
   await expect(page.getByRole('dialog')).toContainText('Bitte neu laden');
 });
 
-test('the fixture preview counts a drink on its sample evening and undoes it', async ({
+test('the fixture preview counts a drink with Happy Hour ×2 on its sample evening and undoes it', async ({
   page,
 }) => {
   await page.goto('/index.html');
-  await page.getByRole('button', { name: 'Daniel, 12 Punkte heute' }).click();
+  await page.getByRole('button', { name: 'Daniel, 13,5 Punkte heute' }).click();
   await page.getByRole('button', { name: 'Bier, 1 Punkt, heute 4' }).click();
   await page.getByRole('button', { name: 'Eins mehr' }).click();
   await page.getByRole('button', { name: 'Eins mehr' }).click();
-  await page.getByRole('button', { name: 'Speichern' }).click();
+  await page.getByRole('button', { name: 'Weiter' }).click();
+  await page.getByRole('button', { name: 'Happy Hour, ×2' }).click();
 
-  await expect(page.getByText('2× Bier · Daniel')).toBeVisible();
   await expect(
-    page.getByRole('button', { name: 'Daniel, 14 Punkte heute' }),
+    page.getByText('2× Bier · Happy Hour ×2 · Daniel'),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Daniel, 17,5 Punkte heute' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Rückgängig' }).click();
   await expect(
-    page.getByRole('button', { name: 'Daniel, 12 Punkte heute' }),
+    page.getByRole('button', { name: 'Daniel, 13,5 Punkte heute' }),
   ).toBeVisible();
+});
+
+test('the fixture preview manages its sample factors', async ({ page }) => {
+  await page.goto('/index.html#/verwalten');
+  await page.getByRole('link', { name: 'Faktoren' }).click();
+
+  const factors = page.getByRole('list', { name: 'Faktoren' });
+  await expect(factors.getByRole('listitem')).toHaveText([
+    /Geburtstag\s*×1,5/,
+    /Happy Hour\s*×2/,
+  ]);
+  await page.getByRole('button', { name: 'Happy Hour löschen' }).click();
+  await expect(page.getByRole('dialog')).toContainText(
+    '1 Eintrag zählt danach ×1.',
+  );
 });
 
 test('the fixture preview ranks its sample evening on the Rangliste', async ({
@@ -86,7 +104,7 @@ test('the fixture preview ranks its sample evening on the Rangliste', async ({
     .getByRole('listitem');
   await expect(places).toHaveCount(5);
   await expect(places.first()).toHaveAccessibleName(
-    'Platz 1, Daniel, 12 Punkte, 8 Getränke',
+    'Platz 1, Daniel, 13,5 Punkte, 9 Getränke',
   );
   await expect(places.last()).toHaveAccessibleName(
     'Platz 5, Tom, 0,5 Punkte, 1 Getränk',

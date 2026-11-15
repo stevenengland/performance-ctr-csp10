@@ -2,6 +2,7 @@ import {
   ApiProblem,
   deleteEntry,
   putEntry,
+  type Factor,
   type NewEntry,
 } from '../../core/api-client';
 import type { Router } from 'vue-router';
@@ -9,10 +10,12 @@ import { messages } from '../../core/messages';
 import { refreshScoreboard } from '../../core/scoreboard-feed';
 import { showSnackbar } from '../../core/snackbar';
 
-/** What the snackbar names: `2× Bier · Daniel`. */
+/** What the snackbar names: `2× Bier · Happy Hour ×2 · Daniel`. */
 export interface EntryLabels {
   drink: string;
   person: string;
+  /** The chosen factor with its multiplier; absent for none. */
+  factor?: string;
 }
 
 export type SaveOutcome =
@@ -25,7 +28,8 @@ function sameContent(a: NewEntry, b: NewEntry): boolean {
   return (
     a.personId === b.personId &&
     a.drinkId === b.drinkId &&
-    a.quantity === b.quantity
+    a.quantity === b.quantity &&
+    (a.factorId ?? null) === (b.factorId ?? null)
   );
 }
 
@@ -96,7 +100,12 @@ export async function saveEntry(
   if (outcome.kind === 'saved') {
     done();
     showSnackbar({
-      text: messages.zaehlen.saved(entry.quantity, labels.drink, labels.person),
+      text: messages.zaehlen.saved(
+        entry.quantity,
+        labels.drink,
+        labels.person,
+        labels.factor,
+      ),
       action: {
         label: messages.zaehlen.undo,
         run: () => void undoEntry(outcome.id),
@@ -119,11 +128,25 @@ export async function saveEntry(
   return false;
 }
 
+/**
+The add flow's steps (§6.1, §7d): names → drink → quantity → factor. The factor step
+is skipped while no factors exist; the quantity step then saves.
+*/
+export function addFlowSteps(factors: readonly Factor[]): 3 | 4 {
+  return factors.length > 0 ? 4 : 3;
+}
+
 export const NAMES_PATH = '/zaehlen';
 export const drinkStepPath = (personId: number) =>
   `${NAMES_PATH}/${String(personId)}`;
 export const quantityStepPath = (personId: number, drinkId: number) =>
   `${drinkStepPath(personId)}/${String(drinkId)}`;
+/** `quantity` is the number of new drinks. */
+export const factorStepPath = (
+  personId: number,
+  drinkId: number,
+  quantity: number,
+) => `${quantityStepPath(personId, drinkId)}/${String(quantity)}`;
 
 /** Whether the drink step in the history was opened from the name list in this session. */
 let startedOnNames = false;
@@ -139,13 +162,15 @@ export function choosePerson(
 
 /**
 Back to the name list after saving. When the flow was walked from the name list,
-the two steps are taken back off the history, so the system back gesture does not
-return into a finished flow; otherwise the step is replaced by the name list.
+the steps after it are taken back off the history, so the system back gesture does
+not return into a finished flow; otherwise the step is replaced by the name list.
 */
-export function returnToNames(router: Router, personId: number): void {
-  const back = router.options.history.state.back;
-  if (startedOnNames && back === drinkStepPath(personId)) {
-    router.go(-2);
+export function returnToNames(router: Router): void {
+  const path = router.currentRoute.value.path;
+  const previousStep = path.slice(0, path.lastIndexOf('/'));
+  const stepsWalked = path.slice(NAMES_PATH.length).split('/').length - 1;
+  if (startedOnNames && router.options.history.state.back === previousStep) {
+    router.go(-stepsWalked);
   } else {
     void router.replace(NAMES_PATH);
   }

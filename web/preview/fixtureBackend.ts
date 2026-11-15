@@ -1,4 +1,9 @@
-import type { Entry, ScoreRow, Scoreboard } from '../src/core/api-client';
+import type {
+  Entry,
+  Factor,
+  ScoreRow,
+  Scoreboard,
+} from '../src/core/api-client';
 import type { components } from '../src/core/api-client/schema';
 import type { FixtureAccount, Fixtures } from './fixtures';
 
@@ -76,6 +81,7 @@ const MIN_PASSWORD = 10;
 const MAX_USER_NAME = 40;
 const MAX_NAME = 40;
 const MAX_POINTS = 9999.99;
+const MAX_MULTIPLIER = 99.99;
 const MAX_QUANTITY = 99;
 const ENTRY_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -111,16 +117,27 @@ function nameError(name: string): string | undefined {
     : undefined;
 }
 
-function pointsError(points: unknown): string | undefined {
-  const valid =
-    typeof points === 'number' &&
-    points >= 0 &&
-    points <= MAX_POINTS &&
-    Math.abs(points * 100 - Math.round(points * 100)) < 1e-6;
-  return valid ? undefined : 'Zahl von 0 bis 9.999,99.';
+/** A number up to `max` with at most two decimals. */
+function isDecimal(value: unknown, max: number): value is number {
+  return (
+    typeof value === 'number' &&
+    value >= 0 &&
+    value <= max &&
+    Math.abs(value * 100 - Math.round(value * 100)) < 1e-6
+  );
 }
 
-/** The day's standings, aggregated like the API's Scoreboard. */
+function pointsError(points: unknown): string | undefined {
+  return isDecimal(points, MAX_POINTS) ? undefined : 'Zahl von 0 bis 9.999,99.';
+}
+
+function multiplierError(multiplier: unknown): string | undefined {
+  return isDecimal(multiplier, MAX_MULTIPLIER) && multiplier > 0
+    ? undefined
+    : 'Zahl über 0 bis 99,99.';
+}
+
+/** The day's standings, aggregated like the API's Scoreboard: factors at their current multiplier. */
 function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
   const rows = new Map<number, ScoreRow>();
   for (const entry of fixtures.entries) {
@@ -128,6 +145,9 @@ function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
     const person = fixtures.persons.find(({ id }) => id === entry.personId);
     const drink = fixtures.drinks.find(({ id }) => id === entry.drinkId);
     if (!person || !drink) continue;
+    const multiplier =
+      fixtures.factors.find(({ id }) => id === entry.factorId)?.multiplier ?? 1;
+    const counted = entry.quantity * multiplier;
     const row = rows.get(person.id) ?? {
       personId: person.id,
       name: person.name,
@@ -135,15 +155,15 @@ function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
       count: 0,
       drinks: [],
     };
-    row.score += entry.quantity * drink.points;
-    row.count += entry.quantity;
+    row.score += counted * drink.points;
+    row.count += counted;
     const counter = row.drinks.find(({ drinkId }) => drinkId === drink.id);
-    if (counter) counter.count += entry.quantity;
+    if (counter) counter.count += counted;
     else
       row.drinks.push({
         drinkId: drink.id,
         name: drink.name,
-        count: entry.quantity,
+        count: counted,
       });
     rows.set(person.id, row);
   }
@@ -153,7 +173,10 @@ function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
       .map((row) => ({
         ...row,
         score: round(row.score),
-        drinks: row.drinks.sort(byName),
+        count: round(row.count),
+        drinks: row.drinks
+          .map((drink) => ({ ...drink, count: round(drink.count) }))
+          .sort(byName),
       }))
       .sort((a, b) => b.score - a.score || byName(a, b)),
   };
@@ -179,12 +202,15 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id. */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/factors/<n>`. */
 function routeOf(path: string): { route: string; id: string } {
-  const match = /^\/api\/entries\/([^/]+)$/.exec(path);
-  return match?.[1] && ENTRY_ID.test(match[1])
-    ? { route: '/api/entries/{id}', id: match[1] }
-    : { route: path, id: '' };
+  const entry = /^\/api\/entries\/([^/]+)$/.exec(path)?.[1];
+  if (entry && ENTRY_ID.test(entry)) {
+    return { route: '/api/entries/{id}', id: entry };
+  }
+  const factor = /^\/api\/factors\/([1-9]\d*)$/.exec(path)?.[1];
+  if (factor) return { route: '/api/factors/{id}', id: factor };
+  return { route: path, id: '' };
 }
 
 /**
@@ -331,6 +357,53 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       }),
     ],
     [
+      'GET /api/factors',
+      guarded(() => json({ factors: [...fixtures.factors].sort(byName) })),
+    ],
+    [
+      'POST /api/factors',
+      guarded((_me, body) => {
+        const factor = {
+          id: nextId(fixtures.factors),
+          name: '',
+          multiplier: 0,
+        };
+        return saveFactor(fixtures, factor, body, 201);
+      }),
+    ],
+    [
+      'GET /api/factors/{id}',
+      guarded((_me, _body, { id }) => {
+        const factor = factorOf(fixtures, id);
+        if (!factor) return problem(PROBLEMS.notFound);
+        const entryCount = fixtures.entries.filter(
+          (entry) => entry.factorId === factor.id,
+        ).length;
+        return json({ ...factor, entryCount });
+      }),
+    ],
+    [
+      'PATCH /api/factors/{id}',
+      guarded((_me, body, { id }) => {
+        const factor = factorOf(fixtures, id);
+        if (!factor) return problem(PROBLEMS.notFound);
+        return saveFactor(fixtures, factor, body, 200);
+      }),
+    ],
+    [
+      'DELETE /api/factors/{id}',
+      guarded((_me, _body, { id }) => {
+        const factor = factorOf(fixtures, id);
+        if (!factor) return problem(PROBLEMS.notFound);
+        fixtures.factors.splice(fixtures.factors.indexOf(factor), 1);
+        // Like the foreign key: the factor's entries stay and count ×1.
+        for (const entry of fixtures.entries) {
+          if (entry.factorId === factor.id) entry.factorId = null;
+        }
+        return new Response(null, { status: 204 });
+      }),
+    ],
+    [
       'PUT /api/entries/{id}',
       guarded((_me, body, { id }) => putEntry(fixtures, id, body)),
     ],
@@ -363,6 +436,34 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
   ]);
 }
 
+function factorOf(fixtures: Fixtures, id: string): Factor | undefined {
+  return fixtures.factors.find((factor) => factor.id === Number(id));
+}
+
+/** Creates or changes a factor with the API's validation; a new one has no name yet. */
+function saveFactor(
+  fixtures: Fixtures,
+  factor: Factor,
+  body: Body,
+  status: 200 | 201,
+): Response {
+  const name = text(body, 'name').trim();
+  const errors: Record<string, string> = {};
+  const invalidName = nameError(name);
+  if (invalidName) errors.name = invalidName;
+  const invalidMultiplier = multiplierError(body.multiplier);
+  if (invalidMultiplier) errors.multiplier = invalidMultiplier;
+  if (Object.keys(errors).length > 0) return validation(errors);
+  const taken = fixtures.factors.some(
+    (other) => other.id !== factor.id && sameName(other.name, name),
+  );
+  if (taken) return problem(PROBLEMS.duplicateName);
+  factor.name = name;
+  factor.multiplier = body.multiplier as number;
+  if (!fixtures.factors.includes(factor)) fixtures.factors.push(factor);
+  return json(factor, status);
+}
+
 /** Adds an entry idempotently on its id, like the API's EntryLedger. */
 function putEntry(fixtures: Fixtures, id: string, body: Body): Response {
   const quantity = integer(body, 'quantity');
@@ -371,12 +472,19 @@ function putEntry(fixtures: Fixtures, id: string, body: Body): Response {
   }
   const personId = integer(body, 'personId');
   const drinkId = integer(body, 'drinkId');
-  const fingerprint = JSON.stringify([personId, drinkId, quantity]);
+  // Missing or null is no factor; anything else that is no integer is no factor that exists.
+  const factorId =
+    body.factorId === undefined || body.factorId === null
+      ? null
+      : (integer(body, 'factorId') ?? 0);
+  const fingerprint = JSON.stringify([personId, drinkId, quantity, factorId]);
   const known = fixtures.entryRequests.get(id);
   if (known !== undefined) {
     if (known !== fingerprint) return problem(PROBLEMS.entryConflict);
     const entry = fixtures.entries.find((candidate) => candidate.id === id);
-    return json(entry ?? { id, personId, drinkId, quantity, createdAt: '' });
+    return json(
+      entry ?? { id, personId, drinkId, quantity, factorId, createdAt: '' },
+    );
   }
   const errors: Record<string, string> = {};
   if (!fixtures.persons.some((person) => person.id === personId)) {
@@ -385,12 +493,19 @@ function putEntry(fixtures: Fixtures, id: string, body: Body): Response {
   if (!fixtures.drinks.some((drink) => drink.id === drinkId)) {
     errors.drinkId = 'Getränk nicht gefunden.';
   }
+  if (
+    factorId !== null &&
+    !fixtures.factors.some((factor) => factor.id === factorId)
+  ) {
+    errors.factorId = 'Faktor nicht gefunden.';
+  }
   if (Object.keys(errors).length > 0) return validation(errors);
   const entry: Entry = {
     id,
     personId: personId ?? 0,
     drinkId: drinkId ?? 0,
     quantity,
+    factorId,
     createdAt: new Date().toISOString(),
   };
   fixtures.entryRequests.set(id, fingerprint);

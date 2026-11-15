@@ -3,8 +3,13 @@ import {
   ApiProblem,
   createAccount,
   createDrink,
+  createFactor,
   createPerson,
   deleteEntry,
+  deleteFactor,
+  getFactor,
+  listFactors,
+  updateFactor,
   getHealth,
   getScoreboard,
   listDrinks,
@@ -42,7 +47,7 @@ describe('the fixture backend', () => {
   it('answers what it does not know with 503, like a server in maintenance', async () => {
     installFixtureBackend(sampleEvening());
 
-    const response = await fetch('/api/factors');
+    const response = await fetch('/api/verlauf');
 
     expect(response.status).toBe(503);
     expect(response.headers.get('Content-Type')).toBe(
@@ -124,11 +129,16 @@ describe('the fixture backend', () => {
     });
     const { rows } = await standings(todayFrom());
     expect(rows.map(({ name, score }) => [name, score])).toEqual([
-      ['Daniel', 12],
+      ['Daniel', 13.5],
       ['Anna', 9],
       ['Mara', 6],
-      ['Ben', 3],
+      ['Ben', 5],
       ['Tom', 0.5],
+    ]);
+    expect(rows[3]?.drinks).toEqual([{ drinkId: 2, name: 'Bier', count: 5 }]);
+    expect(await listFactors()).toEqual([
+      { id: 1, name: 'Geburtstag', multiplier: 1.5 },
+      { id: 2, name: 'Happy Hour', multiplier: 2 },
     ]);
     expect(rows[0]?.drinks).toContainEqual({
       drinkId: 2,
@@ -220,5 +230,64 @@ describe('the fixture backend', () => {
       name: 'Cola',
       points: 0.25,
     });
+  });
+
+  it('manages factors with the API’s validation and applies their current multiplier', async () => {
+    installFixtureBackend(sampleEvening());
+
+    await expect(createFactor('happy hour', 3)).rejects.toMatchObject({
+      status: 409,
+    });
+    await expect(createFactor('Rabatt', 0)).rejects.toMatchObject({
+      status: 422,
+      errors: { multiplier: 'Zahl über 0 bis 99,99.' },
+    });
+    const discount = await createFactor(' Rabatt ', 0.5);
+    expect(discount).toEqual({ id: 3, name: 'Rabatt', multiplier: 0.5 });
+    await putEntry('00000000-0000-4000-8000-000000000999', {
+      personId: 6,
+      drinkId: 4,
+      quantity: 2,
+      factorId: 3,
+    });
+    expect((await standings(todayFrom())).rows.at(-1)).toMatchObject({
+      name: 'Tom',
+      score: 1,
+      count: 2,
+    });
+
+    await updateFactor(3, 'Rabatt', 1.5);
+    expect(await getFactor(3)).toEqual({
+      id: 3,
+      name: 'Rabatt',
+      multiplier: 1.5,
+      entryCount: 1,
+    });
+    expect((await standings(todayFrom())).rows.at(-1)).toMatchObject({
+      name: 'Tom',
+      score: 2,
+    });
+
+    await deleteFactor(3);
+    expect((await standings(todayFrom())).rows.at(-1)).toMatchObject({
+      name: 'Tom',
+      score: 1.5,
+      count: 3,
+    });
+    await expect(getFactor(3)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('refuses an entry with an unknown factor and keeps the factor in the request', async () => {
+    installFixtureBackend(sampleEvening());
+    const id = '00000000-0000-4000-8000-000000000998';
+    const entry = { personId: 1, drinkId: 2, quantity: 1 };
+
+    await expect(putEntry(id, { ...entry, factorId: 9 })).rejects.toMatchObject(
+      { status: 422, errors: { factorId: 'Faktor nicht gefunden.' } },
+    );
+    await putEntry(id, { ...entry, factorId: 2 });
+    await expect(
+      putEntry(id, { ...entry, factorId: null }),
+    ).rejects.toMatchObject({ status: 409 });
   });
 });

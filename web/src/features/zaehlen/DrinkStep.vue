@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import CountTile from '../../components/CountTile.vue';
 import {
   loadDrinks,
+  loadFactors,
   loadPersons,
   useDrinks,
   usePersons,
@@ -44,7 +45,7 @@ function counter(drinkId: number): number {
 
 onMounted(async () => {
   try {
-    await Promise.all([loadPersons(), loadDrinks()]);
+    await Promise.all([loadPersons(), loadDrinks(), loadFactors()]);
     if (!person.value) leaveGoneStep(router);
   } catch (failure) {
     showProblem(failure);

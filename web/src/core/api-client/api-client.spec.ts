@@ -3,12 +3,15 @@ import {
   ApiProblem,
   createAccount,
   deleteEntry,
+  deleteFactor,
+  getFactor,
   getHealth,
   getScoreboard,
   getSession,
   onUnauthorized,
   putEntry,
   signOut,
+  updateFactor,
 } from './index';
 import type { Health } from './index';
 
@@ -166,6 +169,7 @@ describe('the API client', () => {
       personId: 1,
       drinkId: 2,
       quantity: 2,
+      factorId: null,
       createdAt: '2026-11-14T20:00:00.000Z',
     };
     const fetch = respond(entry, {
@@ -189,6 +193,40 @@ describe('the API client', () => {
     await expect(deleteEntry(entry.id)).resolves.toBeUndefined();
     expect(remove).toHaveBeenCalledWith(
       `/api/entries/${entry.id}`,
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('reads a factor with its entry count, edits it and deletes it at its id', async () => {
+    const detail = { id: 3, name: 'Happy Hour', multiplier: 2, entryCount: 5 };
+    const read = respond(detail, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    await expect(getFactor(3)).resolves.toEqual(detail);
+    expect(read).toHaveBeenCalledWith(
+      '/api/factors/3',
+      expect.objectContaining({ method: 'GET' }),
+    );
+
+    const edit = respond(
+      { id: 3, name: 'Happy Hour', multiplier: 1.5 },
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+    await updateFactor(3, 'Happy Hour', 1.5);
+    expect(edit).toHaveBeenCalledWith(
+      '/api/factors/3',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ name: 'Happy Hour', multiplier: 1.5 }),
+      }),
+    );
+
+    const remove = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', remove);
+    await expect(deleteFactor(3)).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledWith(
+      '/api/factors/3',
       expect.objectContaining({ method: 'DELETE' }),
     );
   });

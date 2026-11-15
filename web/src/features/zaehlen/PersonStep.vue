@@ -2,7 +2,7 @@
 import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import CountTile from '../../components/CountTile.vue';
-import { loadPersons, usePersons } from '../../core/catalog';
+import { loadFactors, loadPersons, usePersons } from '../../core/catalog';
 import { formatNumber } from '../../core/format';
 import { messages } from '../../core/messages';
 import { scoreOf, useScoreboardFeed } from '../../core/scoreboard-feed';
@@ -23,7 +23,8 @@ function score(personId: number): string | undefined {
 }
 
 onMounted(() => {
-  loadPersons().catch(showProblem);
+  // The factors decide how many steps the indicator shows (§6.1).
+  Promise.all([loadPersons(), loadFactors()]).catch(showProblem);
 });
 </script>
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { formatNumber, formatPoints, formatTime, parseDecimal } from './format';
+import {
+  formatMultiplier,
+  formatNumber,
+  formatPoints,
+  formatTime,
+  parseDecimal,
+} from './format';
 
 describe('de-DE formatting', () => {
   it.each([
@@ -28,6 +34,15 @@ describe('de-DE formatting', () => {
     [0, '0 Punkte'],
   ])('shows %d points as %s', (value, text) => {
     expect(formatPoints(value)).toBe(text);
+  });
+
+  it.each([
+    [2, '×2'],
+    [1.5, '×1,5'],
+    [0.25, '×0,25'],
+    [99.99, '×99,99'],
+  ])('shows multiplier %d as %s', (value, text) => {
+    expect(formatMultiplier(value)).toBe(text);
   });
 
   it.each([

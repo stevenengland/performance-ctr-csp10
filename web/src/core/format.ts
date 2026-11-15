@@ -24,6 +24,11 @@ export function formatPoints(value: number): string {
   return `${formatNumber(value)} ${value === 1 ? messages.points.one : messages.points.other}`;
 }
 
+/** A factor's multiplier: `×2`, `×1,5`. */
+export function formatMultiplier(value: number): string {
+  return `×${formatNumber(value)}`;
+}
+
 /** A decimal typed with a comma or a point (`0,5`, `0.5`); `null` when it is none. */
 export function parseDecimal(text: string): number | null {
   const trimmed = text.trim();

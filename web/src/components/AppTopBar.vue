@@ -2,11 +2,13 @@
 import { mdiAccountCircleOutline, mdiArrowLeft } from '@mdi/js';
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useFactors } from '../core/catalog';
 import { messages } from '../core/messages';
 import { useTopBarContent } from '../core/top-bar';
 
+const factors = useFactors();
 /** Steps of the add flow; the factor step (4) is skipped while no factors exist (§6.1). */
-const STEPS = 3;
+const steps = computed(() => (factors.value?.length ? 4 : 3));
 
 const route = useRoute();
 const router = useRouter();
@@ -64,12 +66,12 @@ function back() {
       class="top-bar__steps"
       role="progressbar"
       :aria-valuemin="1"
-      :aria-valuemax="STEPS"
+      :aria-valuemax="steps"
       :aria-valuenow="meta.step"
-      :aria-label="`Schritt ${meta.step} von ${STEPS}`"
+      :aria-label="`Schritt ${meta.step} von ${steps}`"
     >
       <span
-        v-for="step in STEPS"
+        v-for="step in steps"
         :key="step"
         class="top-bar__step"
         :class="{ 'top-bar__step--done': step <= meta.step }"

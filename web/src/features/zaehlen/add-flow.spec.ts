@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { dismissSnackbar, useSnackbar } from '../../core/snackbar';
-import { createEntrySaver, saveEntry, undoEntry } from './add-flow';
+import {
+  addFlowSteps,
+  createEntrySaver,
+  saveEntry,
+  undoEntry,
+} from './add-flow';
 
 const TWO_BEERS = { personId: 1, drinkId: 2, quantity: 2 };
 const LABELS = { drink: 'Bier', person: 'Daniel' };
@@ -157,6 +162,31 @@ describe('saving an entry', () => {
     expect(useSnackbar().value?.text).toBe('2× Bier · Daniel');
   });
 
+  it('takes a new id when the factor differs, since that is other content', async () => {
+    const calls = api(lost, created);
+    const save = createEntrySaver(ids());
+
+    await save({ ...TWO_BEERS, factorId: 1 });
+    await save({ ...TWO_BEERS, factorId: null });
+
+    expect(entryCalls(calls).map(({ url }) => url)).toEqual([
+      '/api/entries/id-1',
+      '/api/entries/id-2',
+    ]);
+  });
+
+  it('names the factor in the saved snackbar: 2× Bier · Happy Hour ×2 · Daniel', async () => {
+    api(created);
+
+    await saveEntry(
+      { ...TWO_BEERS, factorId: 1 },
+      { ...LABELS, factor: 'Happy Hour ×2' },
+      vi.fn(),
+    );
+
+    expect(useSnackbar().value?.text).toBe('2× Bier · Happy Hour ×2 · Daniel');
+  });
+
   it('shows a problem’s title', async () => {
     api(() =>
       problem(409, 'Eintrag wurde schon mit anderem Inhalt gespeichert.'),
@@ -200,5 +230,17 @@ describe('undoing an entry', () => {
       'DELETE',
       'DELETE',
     ]);
+  });
+});
+
+describe('the steps of the add flow', () => {
+  it('has the factor step as a fourth step once factors exist', () => {
+    expect(addFlowSteps([{ id: 1, name: 'Happy Hour', multiplier: 2 }])).toBe(
+      4,
+    );
+  });
+
+  it('skips the factor step while no factors exist, so the quantity saves', () => {
+    expect(addFlowSteps([])).toBe(3);
   });
 });
