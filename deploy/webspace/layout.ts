@@ -1,5 +1,5 @@
 import { posix } from 'node:path';
-import { ASSET_DIR, type Manifest } from '../contract/artifact.ts';
+import type { Manifest } from '../contract/artifact.ts';
 
 export const VERIFIED_MARKER = '.verified';
 
@@ -74,16 +74,14 @@ export function remotePaths(root: string, docroot: string): RemotePaths {
   };
 }
 
-const ASSET_PREFIX = `${ASSET_DIR}/`;
-
 /** The name of a hashed asset inside the asset folder, e.g. `assets/a.css` → `a.css`. */
-export function assetName(path: string): string {
-  return path.slice(ASSET_PREFIX.length);
+export function assetName(assetDir: string, path: string): string {
+  return path.slice(assetDir.length + 1);
 }
 
 /** The site path of an asset named in the asset folder, e.g. `a.css` → `assets/a.css`. */
-export function assetPath(name: string): string {
-  return `${ASSET_PREFIX}${name}`;
+export function assetPath(assetDir: string, name: string): string {
+  return `${assetDir}/${name}`;
 }
 
 export function partName(path: string): string {

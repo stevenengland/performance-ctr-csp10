@@ -40,8 +40,26 @@ describe('parsePolicy', () => {
       origin: 'https://www.example.test',
       base: '/app/',
       caching: CACHING,
+      assetDir: 'assets',
     });
   });
+
+  it("reads the hashed-asset folder from ASSET_DIR, defaulting to Vite's assets", () => {
+    expect(parsePolicy(env).assetDir).toBe('assets');
+    expect(parsePolicy({ ...env, ASSET_DIR: '' }).assetDir).toBe('assets');
+    expect(parsePolicy({ ...env, ASSET_DIR: '_build' }).assetDir).toBe(
+      '_build',
+    );
+  });
+
+  it.each(['assets/', '/assets', 'a/b', '.', '..', 'as sets', 'assets*'])(
+    'rejects hashed-asset folder %j naming the variable',
+    (assetDir) => {
+      expect(() => parsePolicy({ ...env, ASSET_DIR: assetDir })).toThrow(
+        /^Invalid repository variable ASSET_DIR: expected one folder name/,
+      );
+    },
+  );
 
   it('names a missing and an invalid SITE_URL', () => {
     expect(() => parsePolicy({ ...env, SITE_URL: '' })).toThrow(

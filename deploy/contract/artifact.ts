@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { isNonEmptyString, parseJson } from './parse.ts';
 import type { TargetPolicy } from './policy.ts';
 
-/** Folder of the web root that holds Vite's content-hashed build output. */
-export const ASSET_DIR = 'assets';
+/** Vite's folder for content-hashed build output (`build.assetsDir`); `ASSET_DIR` overrides it. */
+export const DEFAULT_ASSET_DIR = 'assets';
 
 /** Web-root files that name the current build and must never be served stale. */
 export const REVALIDATED_FILES = [
@@ -200,17 +200,24 @@ export function isSameManifest(a: Manifest, b: Manifest): boolean {
   );
 }
 
-export function isHashedAsset(path: string): boolean {
-  return path.startsWith(`${ASSET_DIR}/`);
+/** A file under the hashed-asset folder: immutable, uploaded beside the live ones and retained for rollback. */
+export function isHashedAsset(path: string, assetDir: string): boolean {
+  return path.startsWith(`${assetDir}/`);
 }
 
-export function hashedAssets(manifest: Manifest): ManifestEntry[] {
-  return manifest.files.filter((file) => isHashedAsset(file.path));
+export function hashedAssets(
+  manifest: Manifest,
+  assetDir: string,
+): ManifestEntry[] {
+  return manifest.files.filter((file) => isHashedAsset(file.path, assetDir));
 }
 
 /** Every file outside the hashed-asset folder: staged, then activated by rename. */
-export function pages(manifest: Manifest): ManifestEntry[] {
-  return manifest.files.filter((file) => !isHashedAsset(file.path));
+export function activatedFiles(
+  manifest: Manifest,
+  assetDir: string,
+): ManifestEntry[] {
+  return manifest.files.filter((file) => !isHashedAsset(file.path, assetDir));
 }
 
 export function isHtml(path: string): boolean {

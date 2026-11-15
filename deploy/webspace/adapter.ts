@@ -94,7 +94,7 @@ async function converge(
   const completed = new Set<PhaseName>();
   try {
     for (let iteration = 0; iteration < MAX_PHASES; iteration += 1) {
-      const remote = await observeRemote(session, paths);
+      const remote = await observeRemote(session, paths, policy.assetDir);
       if (iteration === 0) log(describeRemote(remote));
       const phase = planNext({
         remote,
@@ -128,7 +128,7 @@ async function rollbackTo(
   releaseId: string,
   policy: TargetPolicy,
 ): Promise<Outcome> {
-  const remote = await observeRemote(session, session.paths);
+  const remote = await observeRemote(session, session.paths, policy.assetDir);
   const retained = retainedReleases(remote.state).map((release) => release.id);
   if (!retained.includes(releaseId)) {
     throw new Error(
@@ -143,8 +143,11 @@ async function rollbackTo(
   return converge(session, artifact, retainedManifest, policy);
 }
 
-async function inspectRemote(session: Session): Promise<Inspection> {
-  const remote = await observeRemote(session, session.paths);
+async function inspectRemote(
+  session: Session,
+  policy: TargetPolicy,
+): Promise<Inspection> {
+  const remote = await observeRemote(session, session.paths, policy.assetDir);
   const active = activeRelease(remote.state);
   return {
     ...(active !== undefined && {
@@ -162,6 +165,6 @@ export function createAdapter(ports: AdapterPorts): DeployOperations {
       converge(session, artifact, artifact.manifest, policy),
     rollback: (artifact, releaseId, policy) =>
       rollbackTo(session, artifact, releaseId, policy),
-    inspect: () => inspectRemote(session),
+    inspect: (policy) => inspectRemote(session, policy),
   };
 }

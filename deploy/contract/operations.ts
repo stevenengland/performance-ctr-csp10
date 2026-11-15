@@ -25,5 +25,5 @@ export interface DeployOperations {
     releaseId: string,
     policy: TargetPolicy,
   ): Promise<Outcome>;
-  inspect(): Promise<Inspection>;
+  inspect(policy: TargetPolicy): Promise<Inspection>;
 }

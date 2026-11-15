@@ -1,5 +1,4 @@
 import {
-  ASSET_DIR,
   comparePaths,
   hashedAssets,
   isHtml,
@@ -41,7 +40,7 @@ function contentChecks(manifest: Manifest, policy: TargetPolicy): HttpCheck[] {
     ...headers(policy),
     { name: 'Cache-Control', value: policy.caching.assets },
   ];
-  const assets = hashedAssets(manifest).map((file) => ({
+  const assets = hashedAssets(manifest, policy.assetDir).map((file) => ({
     url: routeUrl(policy, file.path),
     expectStatus: [200],
     headers: assetHeaders,
@@ -76,7 +75,7 @@ export function httpChecks(
       expectStatus: [200],
       body: versionJson(manifest),
     },
-    { url: url(`${ASSET_DIR}/${MISSING_ASSET}`), expectStatus: [404] },
+    { url: url(`${policy.assetDir}/${MISSING_ASSET}`), expectStatus: [404] },
     ...HIDDEN_FILES.map((path) => ({
       url: url(path),
       expectStatus: [403, 404],

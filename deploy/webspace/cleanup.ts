@@ -1,8 +1,8 @@
 // The cleanup phase: what the deploy put into the served folder and the release no longer ships.
 
 import {
+  activatedFiles,
   comparePaths as compare,
-  pages,
   type Manifest,
 } from '../contract/artifact.ts';
 import { parentDirs, partName } from './layout.ts';
@@ -23,10 +23,10 @@ interface Pages {
   dirs: Set<string>;
 }
 
-// Hashed assets are not pages: the shared asset directory belongs to prune.
-function pagesOf(manifests: readonly Manifest[]): Pages {
+// Hashed assets are not activated files: the shared asset directory belongs to prune.
+function pagesOf(manifests: readonly Manifest[], assetDir: string): Pages {
   const paths = manifests.flatMap((manifest) =>
-    pages(manifest).map((file) => file.path),
+    activatedFiles(manifest, assetDir).map((file) => file.path),
   );
   return {
     files: new Set(paths),
@@ -36,8 +36,12 @@ function pagesOf(manifests: readonly Manifest[]): Pages {
 
 /** The deploy's own entries the release no longer ships; a recorded release's pages and the overlay are the deploy's. */
 function removable(input: PlanInput): { files: string[]; dirs: string[] } {
-  const owned = pagesOf([...input.remote.manifests.values(), input.manifest]);
-  const kept = pagesOf([input.manifest]);
+  const { assetDir } = input.policy;
+  const owned = pagesOf(
+    [...input.remote.manifests.values(), input.manifest],
+    assetDir,
+  );
+  const kept = pagesOf([input.manifest], assetDir);
   for (const file of OVERLAY_FILES) {
     owned.files.add(file).add(partName(file));
     kept.files.add(file);

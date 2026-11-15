@@ -74,6 +74,17 @@ describe('renderHtaccess', () => {
     expect(text).toContain('Header unset X-Powered-By\n');
   });
 
+  it('caches the configured hashed-asset folder forever, not assets/', () => {
+    const text = renderHtaccess({
+      ...targetPolicy('https://example.test'),
+      assetDir: 'static.v1',
+    });
+    expect(text).toContain(
+      String.raw`<If "%{REQUEST_URI} =~ m#^/static\.v1/#">`,
+    );
+    expect(text).not.toContain('/assets/');
+  });
+
   it('is base-aware', () => {
     const text = renderHtaccess(targetPolicy('https://example.test/sub'));
     expect(text).toContain('  RewriteBase /sub/');

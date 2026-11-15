@@ -1,5 +1,5 @@
 import { posix } from 'node:path';
-import { ASSET_DIR, hashedAssets, pages } from '../contract/artifact.ts';
+import { activatedFiles, hashedAssets } from '../contract/artifact.ts';
 import { httpChecks } from './checks.ts';
 import { renderHtaccess } from './htaccess.ts';
 import { assetName, partName, VERIFIED_MARKER, versionJson } from './layout.ts';
@@ -65,6 +65,7 @@ function isAlreadyActive(input: PlanInput): boolean {
 
 const markerPhase: Rule = (input) => {
   const { remote, manifest, paths } = input;
+  const { assetDir } = input.policy;
   if (inProgressRelease(remote.state)?.id === manifest.releaseId) {
     return;
   }
@@ -84,7 +85,7 @@ const markerPhase: Rule = (input) => {
     ...(hasDir(remote.root, '.deploy') ? [] : [paths.deploy]),
     ...(hasDir(remote.deploy, 'manifests') ? [] : [paths.manifests]),
     ...(hasDir(remote.deploy, 'staged') ? [] : [paths.staged]),
-    ...(hasDir(remote.site, ASSET_DIR) ? [] : [paths.siteFile(ASSET_DIR)]),
+    ...(hasDir(remote.site, assetDir) ? [] : [paths.siteFile(assetDir)]),
   ].map((path) => mkdir(path));
   return transferPhase(
     'marker',
@@ -106,9 +107,11 @@ const markerPhase: Rule = (input) => {
 
 const assetsPhase: Rule = (input) => {
   const { assets } = input.remote;
-  const hashed = hashedAssets(input.manifest);
+  const { assetDir } = input.policy;
+  const name = (file: { path: string }) => assetName(assetDir, file.path);
+  const hashed = hashedAssets(input.manifest, assetDir);
   const verified = hashed.filter(
-    (file) => assets.get(partName(assetName(file.path)))?.size === file.size,
+    (file) => assets.get(partName(name(file)))?.size === file.size,
   );
   if (verified.length > 0) {
     return transferPhase(
@@ -120,7 +123,7 @@ const assetsPhase: Rule = (input) => {
     );
   }
   const needed = hashed.filter(
-    (file) => assets.get(assetName(file.path))?.size !== file.size,
+    (file) => assets.get(name(file))?.size !== file.size,
   );
   return needed.length === 0
     ? undefined
@@ -144,7 +147,7 @@ const stagingPhase: Rule = (input) => {
   if (tree.has(VERIFIED_MARKER)) return;
   const id = input.manifest.releaseId;
   const { paths } = input;
-  const needed = pages(input.manifest).filter(
+  const needed = activatedFiles(input.manifest, input.policy.assetDir).filter(
     (file) => tree.get(file.path)?.size !== file.size,
   );
   if (needed.length === 0) {
@@ -176,9 +179,10 @@ const activationPhase: Rule = (input) => {
   const tree = stagedTree(input);
   const id = input.manifest.releaseId;
   const { paths } = input;
-  const remaining = pages(input.manifest).filter(
-    (file) => tree.get(file.path)?.dir === false,
-  );
+  const remaining = activatedFiles(
+    input.manifest,
+    input.policy.assetDir,
+  ).filter((file) => tree.get(file.path)?.dir === false);
   if (remaining.length === 0) return;
   const dirs = missingDirs(
     remaining.map((file) => file.path),

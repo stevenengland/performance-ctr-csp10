@@ -271,7 +271,7 @@ describe('a second deploy and a rollback', () => {
     const { fake, adapter, a, b } = await twoReleases();
     const before = fake.snapshot();
     const stepsBefore = fake.steps.length;
-    const inspection = await adapter.inspect();
+    const inspection = await adapter.inspect(policy);
     expect(inspection.active).toEqual({
       releaseId: b.manifest.releaseId,
       commit: b.manifest.commit,
@@ -318,7 +318,7 @@ describe('a target that names its served folder', () => {
     expect(fake.files.get('/remote/httpdocs/index.html')).toContain(
       'Release 1111111',
     );
-    const { active } = await adapter.inspect();
+    const { active } = await adapter.inspect(policy);
     expect(active).toEqual({
       releaseId: a.manifest.releaseId,
       commit: a.manifest.commit,
@@ -337,7 +337,7 @@ describe('a target that names its served folder', () => {
     expect(fake.files.has('/remote/httpdocs/assets/app.1111111.css')).toBe(
       true,
     );
-    const { active, retained } = await moved.adapter.inspect();
+    const { active, retained } = await moved.adapter.inspect(policy);
     expect(active?.releaseId).toBe(a.manifest.releaseId);
     expect(retained).toEqual([a.manifest.releaseId]);
   });
@@ -377,10 +377,38 @@ describe('a served folder that holds files the deploy did not upload', () => {
   });
 });
 
+describe('a configured hashed-asset folder', () => {
+  it("keeps the earlier release's assets in that folder and renders its caching rule", async () => {
+    const custom = { ...policy, assetDir: '_build' };
+    const { fake, local, adapter } = harness();
+    const a = await fakeArtifact(local, '/art/a', '1'.repeat(40), [], '_build');
+    const b = await fakeArtifact(local, '/art/b', '2'.repeat(40), [], '_build');
+    await adapter.deploy(a, custom);
+    await adapter.deploy(b, custom);
+    expect(
+      fake.files
+        .keys()
+        .filter((path) => path.startsWith('/remote/site/_build/'))
+        .toArray()
+        .toSorted(),
+    ).toEqual([
+      '/remote/site/_build/app.1111111.css',
+      '/remote/site/_build/app.1111111.js',
+      '/remote/site/_build/app.2222222.css',
+      '/remote/site/_build/app.2222222.js',
+    ]);
+    expect(fake.dirs.has('/remote/site/assets')).toBe(false);
+    expect(fake.files.get('/remote/site/.htaccess')).toBe(
+      renderHtaccess(custom),
+    );
+    expect(fake.files.get('/remote/site/.htaccess')).toContain('m#^/_build/#');
+  });
+});
+
 describe('inspect on an empty remote', () => {
   it('reports no active release and no retained ids', async () => {
     const { fake, adapter } = harness();
-    expect(await adapter.inspect()).toEqual({ retained: [] });
+    expect(await adapter.inspect(policy)).toEqual({ retained: [] });
     expect(fake.files.size).toBe(0);
   });
 });

@@ -1,8 +1,4 @@
-import {
-  API_ENTRY,
-  ASSET_DIR,
-  REVALIDATED_FILES,
-} from '../contract/artifact.ts';
+import { API_ENTRY, REVALIDATED_FILES } from '../contract/artifact.ts';
 import { headers, POWERED_BY } from '../contract/headers.ts';
 import type { TargetPolicy } from '../contract/policy.ts';
 
@@ -75,7 +71,7 @@ function caching(policy: TargetPolicy): string[] {
     `<FilesMatch "^(${names})$">`,
     `  Header always set Cache-Control "${policy.caching.revalidate}"`,
     '</FilesMatch>',
-    `<If "${REQUEST_URI} =~ m#^${policy.base}${ASSET_DIR}/#">`,
+    `<If "${REQUEST_URI} =~ m#^${policy.base}${escapeRegex(policy.assetDir)}/#">`,
     `  Header always set Cache-Control "${policy.caching.assets}"`,
     '</If>',
   ];

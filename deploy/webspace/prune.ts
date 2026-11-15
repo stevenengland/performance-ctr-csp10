@@ -33,12 +33,13 @@ export function prunePlan(
   manifests: ReadonlyMap<string, Manifest>,
   assets: Listing,
   now: Date,
+  assetDir: string,
 ): PrunePlan {
   const { kept: releases, dropped } = pruneLedger(state, now);
   const referenced = new Set(
     releases.flatMap((release) =>
-      hashedAssets(releaseManifest(manifests, release.id)).map((file) =>
-        assetName(file.path),
+      hashedAssets(releaseManifest(manifests, release.id), assetDir).map(
+        (file) => assetName(assetDir, file.path),
       ),
     ),
   );
@@ -67,14 +68,23 @@ function pruneCommands(input: PlanInput): {
   files: TempFile[];
 } {
   const { remote, paths, now } = input;
-  const prune = prunePlan(remote.state, remote.manifests, remote.assets, now);
+  const { assetDir } = input.policy;
+  const prune = prunePlan(
+    remote.state,
+    remote.manifests,
+    remote.assets,
+    now,
+    assetDir,
+  );
   const ledger = new Set(remote.state.releases.map((release) => release.id));
   const orphans = remote.manifests
     .keys()
     .filter((id) => !ledger.has(id))
     .toArray();
   const commands = [
-    ...prune.removeAssets.map((name) => rm(paths.siteFile(assetPath(name)))),
+    ...prune.removeAssets.map((name) =>
+      rm(paths.siteFile(assetPath(assetDir, name))),
+    ),
     ...[
       ...prune.removeManifests.filter((id) => remote.manifests.has(id)),
       ...orphans,
@@ -104,7 +114,7 @@ export const finishPhase: Rule = (input) => {
   const commands = [
     ...stagingLeftovers(input),
     ...partFiles(remote.assets).map((name) =>
-      rm(paths.siteFile(assetPath(name))),
+      rm(paths.siteFile(assetPath(input.policy.assetDir, name))),
     ),
     ...prune.commands,
   ];

@@ -1,9 +1,5 @@
 import { join, posix } from 'node:path';
-import {
-  ASSET_DIR,
-  parseManifest,
-  type Manifest,
-} from '../contract/artifact.ts';
+import { parseManifest, type Manifest } from '../contract/artifact.ts';
 import { manifestId, parseVersion, type RemotePaths } from './layout.ts';
 import { parseState } from './ledger.ts';
 import type { LocalFiles, FileCommand, FileTransport } from './ports.ts';
@@ -18,6 +14,7 @@ class Observation {
   private pending: Request[] = [];
   private readonly paths: RemotePaths;
   private readonly tmp: string;
+  private readonly assetDir: string;
   root: Listing = new Map();
   deploy: Listing = new Map();
   manifestFiles: Listing = new Map();
@@ -25,9 +22,10 @@ class Observation {
   readonly site = new Map<string, ListingEntry>();
   readonly staged = new Map<string, Map<string, ListingEntry>>();
 
-  constructor(paths: RemotePaths, tmp: string) {
+  constructor(paths: RemotePaths, tmp: string, assetDir: string) {
     this.paths = paths;
     this.tmp = tmp;
+    this.assetDir = assetDir;
     this.ls(paths.root, (listing) => {
       this.onRoot(listing);
     });
@@ -113,7 +111,7 @@ class Observation {
     for (const [name, entry] of listing) {
       const path = posix.join(relative, name);
       this.site.set(path, entry);
-      if (relative === '' && name === ASSET_DIR && entry.dir) {
+      if (relative === '' && name === this.assetDir && entry.dir) {
         this.ls(this.paths.siteFile(path), (assets) => {
           this.assets = assets;
         });
@@ -172,11 +170,12 @@ async function readManifests(
 export async function observeRemote(
   ports: { transport: FileTransport; files: LocalFiles },
   paths: RemotePaths,
+  assetDir: string,
 ): Promise<RemoteState> {
   const { transport, files } = ports;
   const tmp = await files.mkdtemp();
   try {
-    const observation = new Observation(paths, tmp);
+    const observation = new Observation(paths, tmp, assetDir);
     for (let wave = 1; ; wave += 1) {
       const requests = observation.takeWave();
       if (requests.length === 0) break;

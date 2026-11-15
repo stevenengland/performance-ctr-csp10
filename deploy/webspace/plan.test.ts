@@ -122,6 +122,66 @@ const nextTransfer = (...args: Parameters<typeof input>) =>
   transfer(planFor(...args));
 const nextOps = (...args: Parameters<typeof input>) => ops(planFor(...args));
 
+describe('a configured hashed-asset folder', () => {
+  const custom = { ...policy, assetDir: '_build' };
+  const files: [string, number][] = [
+    ['index.html', 10],
+    ['_build/app.js', 5],
+    ['assets/logo.svg', 7],
+  ];
+  const r3 = manifestFor('r3', files);
+  const started = startRelease(
+    emptyState(),
+    { id: 'r3', commit: r3.commit },
+    now,
+  );
+  const base = {
+    ...prepared,
+    state: started,
+    site: tree([['.htaccess', 1]], ['_build']),
+  };
+
+  it('uploads only the files under it as retained assets, into the folder of the same name', () => {
+    expect(nextOps(base, { manifest: r3, policy: custom })).toEqual([
+      'put /remote/site/_build/app.js.part',
+    ]);
+  });
+
+  it('stages and activates everything else, also a folder named assets', () => {
+    const phase = nextTransfer(
+      { ...base, assets: listing([['app.js', 5]]) },
+      { manifest: r3, policy: custom },
+    );
+    expect(phase.name).toBe('staging-upload');
+    expect(ops(phase)).toEqual([
+      'mkdir /remote/.deploy/staged/r3',
+      'mkdir /remote/.deploy/staged/r3/assets',
+      'put /remote/.deploy/staged/r3/assets/logo.svg',
+      'put /remote/.deploy/staged/r3/index.html',
+    ]);
+  });
+
+  it('creates the folder with the marker and prunes the assets it holds', () => {
+    const marker = nextTransfer(
+      { root: listing([], ['site']), site: tree([['.htaccess', 1]]) },
+      { manifest: r3, policy: custom },
+    );
+    expect(ops(marker)).toContain('mkdir /remote/site/_build');
+    expect(
+      prunePlan(
+        activateRelease(started, 'r3', now),
+        new Map([['r3', r3]]),
+        listing([
+          ['app.js', 5],
+          ['old.js', 5],
+        ]),
+        now,
+        '_build',
+      ).removeAssets,
+    ).toEqual(['old.js']);
+  });
+});
+
 describe('access overlay comes first on every run', () => {
   it('uploads .htaccess from the current policy before the marker, creating site/ when absent', () => {
     const phase = nextTransfer({ completed: [] });
@@ -606,7 +666,7 @@ describe('prune', () => {
       'r4',
       before,
     );
-    const plan = prunePlan(deployed, manifests, assets, now);
+    const plan = prunePlan(deployed, manifests, assets, now, 'assets');
     expect(plan.releases.map((r) => r.id)).toEqual(['r0', 'r1', 'r4']);
     expect(plan.removeManifests).toEqual([]);
     expect(plan.removeAssets).not.toContain('r0-only.css');
@@ -624,6 +684,7 @@ describe('prune', () => {
       manifests,
       assets,
       now,
+      'assets',
     );
     // r2 is neither retained (r3 and r1 were deactivated later) nor inside the window.
     expect(plan.removeManifests).toEqual(['r0', 'r2']);
@@ -643,6 +704,7 @@ describe('prune', () => {
       manifests,
       assets,
       now,
+      'assets',
     );
     expect(plan.removeManifests).toEqual(['r0', 'r1', 'rx']);
     expect(plan.removeAssets).toEqual([
@@ -690,6 +752,7 @@ describe('prune', () => {
           ['shared.css', 1],
         ]),
         now,
+        'assets',
       ),
     ).toEqual({
       releases: old.releases,

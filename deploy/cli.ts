@@ -8,6 +8,7 @@ import {
 } from './contract/artifact.ts';
 import { requiredVariable } from './contract/parse.ts';
 import {
+  parseAssetDir,
   parsePolicy,
   parseWebspaceSettings,
   targetPolicy,
@@ -25,7 +26,7 @@ import { parseCommand, type Command } from './cli-args.ts';
 const USAGE = `Usage: node deploy/cli.ts <command>
 
 Commands:
-  render-htaccess <site-url>                     Print the web root's .htaccess for the site URL
+  render-htaccess <site-url>                     Print the web root's .htaccess for the site URL (and ASSET_DIR)
   manifest --artifact <dir>                      Write <dir>/manifest.json for the web root in <dir>/web
   deploy --artifact <dir>                        Deploy the artifact to the production webspace
   rollback --artifact <dir> --release <id>       Activate a retained release again from its artifact
@@ -57,9 +58,16 @@ function requiredEnv(env: Env, name: string): string {
 }
 
 /** Kept as slice #4 shipped it: plain stderr, because e2e/stack/stage.sh pipes stdout into a file. */
-function renderCommand(siteUrl: string): number {
+function renderCommand(siteUrl: string, env: Env): number {
+  let assetDir: string;
   try {
-    process.stdout.write(renderHtaccess(targetPolicy(siteUrl)));
+    assetDir = parseAssetDir(env);
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`);
+    return EXIT_FAILURE;
+  }
+  try {
+    process.stdout.write(renderHtaccess(targetPolicy(siteUrl, assetDir)));
     return 0;
   } catch (error) {
     process.stderr.write(`Invalid site URL: ${(error as Error).message}\n`);
@@ -131,8 +139,8 @@ async function release(
 
 /** Prints the inspection alone on stdout: release ids and commits, nothing else from the host. */
 async function inspect(env: Env): Promise<void> {
-  const { adapter } = adapterFor(env);
-  process.stdout.write(`${JSON.stringify(await adapter.inspect())}\n`);
+  const { adapter, policy } = adapterFor(env);
+  process.stdout.write(`${JSON.stringify(await adapter.inspect(policy))}\n`);
 }
 
 async function main(argv: readonly string[], env: Env): Promise<number> {
@@ -142,7 +150,7 @@ async function main(argv: readonly string[], env: Env): Promise<number> {
     return EXIT_USAGE;
   }
   if (command.command === 'render-htaccess') {
-    return renderCommand(command.siteUrl);
+    return renderCommand(command.siteUrl, env);
   }
   try {
     switch (command.command) {

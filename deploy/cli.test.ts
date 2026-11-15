@@ -35,6 +35,22 @@ describe('deploy cli', () => {
     );
   });
 
+  it('renders the immutable caching rule for the ASSET_DIR folder', async () => {
+    const result = await exec(['render-htaccess', 'http://localhost:8080'], {
+      ASSET_DIR: '_build',
+    });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe(
+      renderHtaccess(targetPolicy('http://localhost:8080', '_build')),
+    );
+    expect(result.stdout).toContain('m#^/_build/#');
+    const invalid = await exec(['render-htaccess', 'http://localhost:8080'], {
+      ASSET_DIR: '../x',
+    });
+    expect(invalid.code).toBe(1);
+    expect(invalid.stderr).toMatch(/^Invalid repository variable ASSET_DIR/);
+  });
+
   it('rejects an invalid site URL without a stack trace', () => {
     const result = cli('render-htaccess', 'ftp://example.test');
     expect(result.status).toBe(1);

@@ -235,9 +235,10 @@ export async function fakeArtifact(
   dir: string,
   commit: string,
   extras?: string[],
+  assetDir?: string,
 ): Promise<Artifact> {
   const web = `${dir}/${WEB_DIR}`;
-  for (const [path, content] of fixtureSite(commit, extras)) {
+  for (const [path, content] of fixtureSite(commit, extras, assetDir)) {
     await local.writeFile(`${web}/${path}`, content);
   }
   return {

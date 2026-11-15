@@ -180,8 +180,11 @@ describe('isSameManifest', () => {
 
 describe('path classes', () => {
   it('classifies hashed assets and html', () => {
-    expect(isHashedAsset('assets/app.abc123.css')).toBe(true);
-    expect(isHashedAsset('index.html')).toBe(false);
+    expect(isHashedAsset('assets/app.abc123.css', 'assets')).toBe(true);
+    expect(isHashedAsset('index.html', 'assets')).toBe(false);
+    expect(isHashedAsset('assets/app.abc123.css', '_build')).toBe(false);
+    expect(isHashedAsset('_build/app.abc123.css', '_build')).toBe(true);
+    expect(isHashedAsset('assets-old/app.css', 'assets')).toBe(false);
     expect(isHtml('impressum/index.html')).toBe(true);
     expect(isHtml('assets/app.abc123.css')).toBe(false);
   });

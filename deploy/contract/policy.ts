@@ -1,3 +1,4 @@
+import { DEFAULT_ASSET_DIR } from './artifact.ts';
 import { isHostName, requiredVariable, type Env } from './parse.ts';
 
 export const CACHING = {
@@ -14,6 +15,8 @@ export interface TargetPolicy {
   /** The URL path the web root is served at, with leading and trailing slash. */
   base: string;
   caching: Caching;
+  /** The web-root folder of content-hashed files: cached forever, retained for rollback. */
+  assetDir: string;
 }
 
 /** Where the deploy writes on the one production webspace; the SFTP endpoint belongs to the transport. */
@@ -42,19 +45,49 @@ export function parseSiteUrl(value: string): { origin: string; base: string } {
   return { origin: url.origin, base: `${path}/` };
 }
 
-export function targetPolicy(siteUrl: string): TargetPolicy {
-  return { ...parseSiteUrl(siteUrl), caching: CACHING };
+export function targetPolicy(
+  siteUrl: string,
+  assetDir = DEFAULT_ASSET_DIR,
+): TargetPolicy {
+  return { ...parseSiteUrl(siteUrl), caching: CACHING, assetDir };
 }
 
 function required(env: Env, name: string): string {
   return requiredVariable(env, name, 'repository');
 }
 
-/** The production policy from the `SITE_URL` repository variable. */
+// Characters every transport passes unquoted; sftp batch lines split on whitespace and glob.
+const FOLDER_NAME = /^[\w.-]+$/;
+
+/** One folder name, not `.`, `..` or one of `reserved`; `fallback` when unset or empty. */
+function folderVariable(
+  env: Env,
+  name: string,
+  fallback: string,
+  reserved: readonly string[] = [],
+): string {
+  const value = env[name];
+  if (value === undefined || value === '') return fallback;
+  const excluded = ['.', '..', ...reserved];
+  if (!FOLDER_NAME.test(value) || excluded.includes(value)) {
+    throw new Error(
+      `Invalid repository variable ${name}: expected one folder name of letters, digits, ".", "_" and "-", not ${excluded.join(', ')}`,
+    );
+  }
+  return value;
+}
+
+/** The hashed-asset folder from `ASSET_DIR`; Vite's `assets` when unset. */
+export function parseAssetDir(env: Env): string {
+  return folderVariable(env, 'ASSET_DIR', DEFAULT_ASSET_DIR);
+}
+
+/** The production policy from `SITE_URL` and `ASSET_DIR`. */
 export function parsePolicy(env: Env): TargetPolicy {
+  const assetDir = parseAssetDir(env);
   const name = 'SITE_URL';
   try {
-    return targetPolicy(required(env, name));
+    return targetPolicy(required(env, name), assetDir);
   } catch (error) {
     const { message } = error as Error;
     if (message.startsWith('Missing')) throw error;
@@ -76,22 +109,6 @@ function aliases(env: Env, name: string): string[] {
   return names;
 }
 
-// Characters every transport passes unquoted; sftp batch lines split on whitespace and glob.
-const FOLDER_NAME = /^[\w.-]+$/;
-// `.` and `..` name no folder of their own; `.deploy` is what the deploy keeps beside the served folder.
-const NOT_A_DOCROOT = new Set(['.', '..', '.deploy']);
-
-function docroot(env: Env, name: string): string {
-  const value = env[name];
-  if (value === undefined || value === '') return 'site';
-  if (!FOLDER_NAME.test(value) || NOT_A_DOCROOT.has(value)) {
-    throw new Error(
-      `Invalid repository variable ${name}: expected one folder name of letters, digits, ".", "_" and "-", not ${[...NOT_A_DOCROOT].join(', ')}`,
-    );
-  }
-  return value;
-}
-
 function remoteRoot(env: Env, name: string): string {
   const value = env[name];
   if (value === undefined || value === '') return '/';
@@ -107,7 +124,8 @@ function remoteRoot(env: Env, name: string): string {
 export function parseWebspaceSettings(env: Env): WebspaceSettings {
   return {
     remoteRoot: remoteRoot(env, 'REMOTE_ROOT'),
-    docroot: docroot(env, 'DOCROOT'),
+    // `.deploy` is what the deploy keeps beside the served folder.
+    docroot: folderVariable(env, 'DOCROOT', 'site', ['.deploy']),
     aliases: aliases(env, 'SITE_ALIASES'),
   };
 }

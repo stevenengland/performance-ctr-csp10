@@ -70,6 +70,22 @@ describe('httpChecks', () => {
     ]);
   });
 
+  it('checks the immutable caching and the missing asset in the configured hashed-asset folder', () => {
+    const policy = { ...targetPolicy('http://h.test'), assetDir: '_build' };
+    const custom = { ...manifest, files: [...manifest.files] };
+    custom.files.push({ path: '_build/b.js', size: 1, sha256: sha });
+    const urls = httpChecks(custom, policy, [])
+      .filter((check) =>
+        check.headers?.some((header) => header.name === 'Cache-Control'),
+      )
+      .map((check) => check.url);
+    expect(urls).toEqual(['http://h.test/_build/b.js']);
+    expect(httpChecks(custom, policy, [])).toContainEqual({
+      url: 'http://h.test/_build/this-asset-does-not-exist.js',
+      expectStatus: [404],
+    });
+  });
+
   it('expects a redirect to the origin from each declared alias', () => {
     const policy = targetPolicy('https://h.test');
     const toOrigin = [{ name: 'Location', value: 'https://h.test/' }];
