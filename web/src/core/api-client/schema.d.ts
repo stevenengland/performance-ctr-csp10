@@ -493,6 +493,7 @@ export interface components {
         | 'urn:performance:problem:forbidden'
         | 'urn:performance:problem:duplicate-user-name'
         | 'urn:performance:problem:duplicate-name'
+        | 'urn:performance:problem:last-admin'
         | 'urn:performance:problem:entry-conflict'
         | 'urn:performance:problem:unsupported-media-type'
         | 'urn:performance:problem:validation'

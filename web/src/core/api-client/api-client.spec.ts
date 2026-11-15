@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiProblem,
   createAccount,
+  deleteAccount,
   deleteDrink,
   deleteEntry,
   deleteFactor,
@@ -16,6 +17,7 @@ import {
   onUnauthorized,
   putEntry,
   signOut,
+  updateAccount,
   updateDrink,
   updateFactor,
   updatePerson,
@@ -117,6 +119,57 @@ describe('the API client', () => {
           password: 'annas-startpasswort',
         }),
       }),
+    );
+  });
+
+  it('changes an account’s admin rights or resets its password with PATCH', async () => {
+    const fetch = respond(
+      { id: 2, userName: 'anna', isAdmin: true },
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+    await expect(updateAccount(2, { isAdmin: true })).resolves.toEqual({
+      id: 2,
+      userName: 'anna',
+      isAdmin: true,
+    });
+    await updateAccount(2, { password: 'neues-passwort-1' });
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      '/api/accounts/2',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ isAdmin: true }),
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/accounts/2',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ password: 'neues-passwort-1' }),
+      }),
+    );
+  });
+
+  it('deletes an account and reports the last admin as a problem', async () => {
+    respond(
+      {
+        type: 'urn:performance:problem:last-admin',
+        title: 'Der letzte Admin kann nicht entfernt werden.',
+        status: 409,
+      },
+      { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+    );
+
+    await expect(deleteAccount(1)).rejects.toMatchObject({
+      status: 409,
+      title: 'Der letzte Admin kann nicht entfernt werden.',
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/accounts/1',
+      expect.objectContaining({ method: 'DELETE' }),
     );
   });
 

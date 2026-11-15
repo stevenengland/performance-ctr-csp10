@@ -181,6 +181,25 @@ export const messages = {
     userName: 'Benutzername',
     startPassword: 'Startpasswort',
     admin: 'Admin',
+    /** The menu button of an account's row: `Aktionen für anna`. */
+    actions: (userName: string) => `Aktionen für ${userName}`,
+    resetPassword: 'Passwort zurücksetzen',
+    grantAdmin: 'Zum Admin machen',
+    revokeAdmin: 'Adminrechte entziehen',
+    remove: 'Löschen',
+    /** Supporting text of the menu entries that would remove the last admin. */
+    lastAdmin: 'Letzter Admin',
+    granted: (userName: string) => `${userName} ist jetzt Admin`,
+    revoked: (userName: string) => `${userName} ist kein Admin mehr`,
+    resetTitle: (userName: string) => `Passwort von ${userName} zurücksetzen`,
+    resetBody: (userName: string) =>
+      `${userName} wird auf allen Geräten abgemeldet.`,
+    newPassword: 'Neues Passwort',
+    resetDone: (userName: string) => `Passwort von ${userName} zurückgesetzt`,
+    /** The delete dialog (§6.9): `Konto anna löschen?` – `Einträge von anna bleiben erhalten.` */
+    removeTitle: (userName: string) => `Konto ${userName} löschen?`,
+    removeBody: (userName: string) =>
+      `Einträge von ${userName} bleiben erhalten.`,
   },
   konto: {
     title: 'Konto',

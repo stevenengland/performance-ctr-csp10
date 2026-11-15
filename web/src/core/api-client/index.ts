@@ -2,6 +2,7 @@ import type { components, paths } from './schema';
 
 export type Health = components['schemas']['Health'];
 export type Account = components['schemas']['Account'];
+export type AccountChange = components['schemas']['AccountChange'];
 export type Person = components['schemas']['Person'];
 export type PersonDetail = components['schemas']['PersonDetail'];
 export type Drink = components['schemas']['Drink'];
@@ -169,6 +170,26 @@ export function createAccount(
   return request<Account>('/api/accounts', {
     method: 'POST',
     body: { userName, password },
+  });
+}
+
+/** Grants or revokes admin rights, or resets the password (which signs the account out everywhere). */
+export function updateAccount(
+  id: number,
+  change: AccountChange,
+): Promise<Account> {
+  return request<Account>('/api/accounts/{id}', {
+    method: 'PATCH',
+    params: { id: String(id) },
+    body: change,
+  });
+}
+
+/** Deletes the account; the entries it logged stay. */
+export function deleteAccount(id: number): Promise<void> {
+  return request<undefined>('/api/accounts/{id}', {
+    method: 'DELETE',
+    params: { id: String(id) },
   });
 }
 

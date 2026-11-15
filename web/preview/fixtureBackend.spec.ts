@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   ApiProblem,
   createAccount,
+  deleteAccount,
+  updateAccount,
   createDrink,
   createFactor,
   createPerson,
@@ -116,6 +118,75 @@ describe('the fixture backend', () => {
       'jule',
       'mara',
     ]);
+  });
+
+  it('resets passwords and changes admin rights, keeping the last admin', async () => {
+    installFixtureBackend(sampleEvening());
+
+    await expect(updateAccount(2, { password: 'kurz' })).rejects.toMatchObject({
+      status: 422,
+      errors: { password: 'Mindestens 10 Zeichen.' },
+    });
+    await expect(updateAccount(1, { isAdmin: false })).rejects.toMatchObject({
+      status: 409,
+      title: 'Der letzte Admin kann nicht entfernt werden.',
+    });
+    await expect(updateAccount(2, { isAdmin: true })).resolves.toEqual({
+      id: 2,
+      userName: 'ben',
+      isAdmin: true,
+    });
+    await updateAccount(1, { isAdmin: false });
+    await expect(listAccounts()).rejects.toMatchObject({ status: 403 });
+    await signIn('ben', SAMPLE_PASSWORD);
+    await expect(updateAccount(2, { isAdmin: false })).rejects.toMatchObject({
+      status: 409,
+    });
+    await expect(updateAccount(9, { isAdmin: true })).rejects.toMatchObject({
+      status: 404,
+    });
+    await updateAccount(2, { password: 'neues-passwort-1' });
+
+    await expect(getSession()).rejects.toMatchObject({ status: 401 });
+    await signIn('ben', 'neues-passwort-1');
+    await expect(signIn('ben', SAMPLE_PASSWORD)).rejects.toMatchObject({
+      status: 401,
+    });
+  });
+
+  it('deletes accounts, keeping their entries without the account, but never the last admin', async () => {
+    installFixtureBackend(sampleEvening());
+    const before = await listEntries(3, todayFrom());
+
+    await expect(deleteAccount(1)).rejects.toMatchObject({ status: 409 });
+    await deleteAccount(2);
+
+    expect((await listAccounts()).map((a) => a.userName)).toEqual([
+      'anna',
+      'daniel',
+      'mara',
+    ]);
+    const after = await listEntries(3, todayFrom());
+    expect(after.map(({ id }) => id)).toEqual(before.map(({ id }) => id));
+    expect(
+      after
+        .filter((_entry, index) => before[index]?.accountName === 'ben')
+        .every(({ accountName }) => accountName === null),
+    ).toBe(true);
+    await expect(deleteAccount(2)).rejects.toMatchObject({ status: 404 });
+    await expect(signIn('ben', SAMPLE_PASSWORD)).rejects.toMatchObject({
+      status: 401,
+    });
+  });
+
+  it('signs out an account whose password is reset while it is signed in', async () => {
+    installFixtureBackend(sampleEvening());
+    await updateAccount(2, { isAdmin: true });
+    await signIn('ben', SAMPLE_PASSWORD);
+
+    await updateAccount(2, { password: 'neues-passwort-1' });
+
+    await expect(getSession()).rejects.toMatchObject({ status: 401 });
   });
 
   it('serves a sample evening of today: persons, drinks and their standings', async () => {

@@ -70,6 +70,11 @@ const PROBLEMS = {
     title: 'Eintrag wurde schon mit anderem Inhalt gespeichert.',
     status: 409,
   },
+  lastAdmin: {
+    type: 'urn:performance:problem:last-admin',
+    title: 'Der letzte Admin kann nicht entfernt werden.',
+    status: 409,
+  },
   notFound: {
     type: 'urn:performance:problem:not-found',
     title: 'Nicht gefunden',
@@ -244,13 +249,15 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/persons/<n>`, … */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/persons/<n>`, `/api/accounts/<n>`, … */
 function routeOf(path: string): { route: string; id: string } {
   const entry = /^\/api\/entries\/([^/]+)$/.exec(path)?.[1];
   if (entry && ENTRY_ID.test(entry)) {
     return { route: '/api/entries/{id}', id: entry };
   }
-  const item = /^\/api\/(persons|drinks|factors)\/([1-9]\d*)$/.exec(path);
+  const item = /^\/api\/(persons|drinks|factors|accounts)\/([1-9]\d*)$/.exec(
+    path,
+  );
   if (item?.[1] && item[2]) {
     return { route: `/api/${item[1]}/{id}`, id: item[2] };
   }
@@ -269,6 +276,17 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     );
   const signedIn = (): FixtureAccount | undefined =>
     fixtures.accounts.find(({ account }) => account.id === fixtures.signedIn);
+
+  const accountOf = (id: string) =>
+    fixtures.accounts.find(({ account }) => account.id === Number(id));
+  /** Whether removing the account's admin rights would leave no admin. */
+  const isLastAdmin = ({ account }: FixtureAccount) =>
+    account.isAdmin &&
+    fixtures.accounts.filter((other) => other.account.isAdmin).length === 1;
+  /** The preview has one session: it ends when its account is reset or deleted. */
+  const signOutEverywhere = ({ account }: FixtureAccount) => {
+    if (fixtures.signedIn === account.id) fixtures.signedIn = null;
+  };
 
   /** Wraps a route that needs a session (and maybe an admin). */
   const guarded =
@@ -413,6 +431,46 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         };
         fixtures.accounts.push({ account, password });
         return json(account, 201);
+      }, true),
+    ],
+    [
+      'PATCH /api/accounts/{id}',
+      guarded((_me, body, { id }) => {
+        const target = accountOf(id);
+        if (!target) return problem(PROBLEMS.notFound);
+        const { isAdmin } = body;
+        if (isAdmin != null && typeof isAdmin !== 'boolean') {
+          return validation({ isAdmin: 'Ja oder nein.' });
+        }
+        const password =
+          body.password == null ? undefined : text(body, 'password');
+        const weak =
+          password === undefined ? undefined : passwordError(password);
+        if (weak) return validation({ password: weak });
+        if (isAdmin === false && isLastAdmin(target)) {
+          return problem(PROBLEMS.lastAdmin);
+        }
+        if (typeof isAdmin === 'boolean') target.account.isAdmin = isAdmin;
+        if (password !== undefined) {
+          target.password = password;
+          signOutEverywhere(target);
+        }
+        return json(target.account);
+      }, true),
+    ],
+    [
+      'DELETE /api/accounts/{id}',
+      guarded((_me, _body, { id }) => {
+        const target = accountOf(id);
+        if (!target) return problem(PROBLEMS.notFound);
+        if (isLastAdmin(target)) return problem(PROBLEMS.lastAdmin);
+        fixtures.accounts.splice(fixtures.accounts.indexOf(target), 1);
+        signOutEverywhere(target);
+        // Like the foreign key: the account's entries stay, without it.
+        for (const entry of fixtures.entries) {
+          if (entry.accountId === target.account.id) entry.accountId = null;
+        }
+        return new Response(null, { status: 204 });
       }, true),
     ],
     ...catalogRoutes(
