@@ -1,0 +1,91 @@
+# Throwaway host probe for slice 1/1 (#2). Removed again once the findings are recorded:
+# it reads deploy secrets, which later only `_deploy.yml` may do.
+name: host-probe
+
+on:
+  push:
+    branches: [claude/exciting-einstein-xtpbdb]
+    paths:
+      - .github/workflows/host-probe.yml
+      - scripts/host-probe/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-probe
+  cancel-in-progress: false
+
+jobs:
+  presence:
+    name: Which PROD_ names are set (no values)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - id: check
+        name: Report variables and secrets by name only
+        run: |
+          set -euo pipefail
+          ok=true
+          report() { # name, is-variable, is-secret, requirement (any | secret | optional)
+            printf '| `%s` | %s | %s | %s |\n' "$1" "$2" "$3" "$4" >>"$GITHUB_STEP_SUMMARY"
+            if [ "$4" = any ] && [ "$2" != true ] && [ "$3" != true ]; then ok=false; fi
+            if [ "$4" = secret ] && [ "$3" != true ]; then ok=false; fi
+          }
+          {
+            echo "## PROD_ names (values never shown)"
+            echo ""
+            echo "| Name | Variable | Secret | Needed as |"
+            echo "|---|---|---|---|"
+          } >>"$GITHUB_STEP_SUMMARY"
+          report PROD_SITE_URL '${{ vars.PROD_SITE_URL != '' }}' '${{ secrets.PROD_SITE_URL != '' }}' any
+          report PROD_REMOTE_ROOT '${{ vars.PROD_REMOTE_ROOT != '' }}' '${{ secrets.PROD_REMOTE_ROOT != '' }}' optional
+          report PROD_DEPLOY_DOCROOT '${{ vars.PROD_DEPLOY_DOCROOT != '' }}' '${{ secrets.PROD_DEPLOY_DOCROOT != '' }}' optional
+          report PROD_DEPLOY_PROTOCOL '${{ vars.PROD_DEPLOY_PROTOCOL != '' }}' '${{ secrets.PROD_DEPLOY_PROTOCOL != '' }}' optional
+          report PROD_DEPLOY_HOST '${{ vars.PROD_DEPLOY_HOST != '' }}' '${{ secrets.PROD_DEPLOY_HOST != '' }}' any
+          report PROD_DEPLOY_PORT '${{ vars.PROD_DEPLOY_PORT != '' }}' '${{ secrets.PROD_DEPLOY_PORT != '' }}' optional
+          report PROD_DEPLOY_KNOWN_HOSTS '${{ vars.PROD_DEPLOY_KNOWN_HOSTS != '' }}' '${{ secrets.PROD_DEPLOY_KNOWN_HOSTS != '' }}' optional
+          report PROD_SITE_ALIASES '${{ vars.PROD_SITE_ALIASES != '' }}' '${{ secrets.PROD_SITE_ALIASES != '' }}' optional
+          report PROD_DEPLOY_USER '${{ vars.PROD_DEPLOY_USER != '' }}' '${{ secrets.PROD_DEPLOY_USER != '' }}' secret
+          report PROD_DEPLOY_PASSWORD '${{ vars.PROD_DEPLOY_PASSWORD != '' }}' '${{ secrets.PROD_DEPLOY_PASSWORD != '' }}' secret
+          report PROD_DB_HOST '${{ vars.PROD_DB_HOST != '' }}' '${{ secrets.PROD_DB_HOST != '' }}' any
+          report PROD_DB_NAME '${{ vars.PROD_DB_NAME != '' }}' '${{ secrets.PROD_DB_NAME != '' }}' any
+          report PROD_DB_USER '${{ vars.PROD_DB_USER != '' }}' '${{ secrets.PROD_DB_USER != '' }}' secret
+          report PROD_DB_PASSWORD '${{ vars.PROD_DB_PASSWORD != '' }}' '${{ secrets.PROD_DB_PASSWORD != '' }}' secret
+          report PROD_BOOTSTRAP_ADMIN_USER '${{ vars.PROD_BOOTSTRAP_ADMIN_USER != '' }}' '${{ secrets.PROD_BOOTSTRAP_ADMIN_USER != '' }}' optional
+          report PROD_BOOTSTRAP_ADMIN_PASSWORD_HASH '${{ vars.PROD_BOOTSTRAP_ADMIN_PASSWORD_HASH != '' }}' '${{ secrets.PROD_BOOTSTRAP_ADMIN_PASSWORD_HASH != '' }}' optional
+          echo "" >>"$GITHUB_STEP_SUMMARY"
+          echo "Probe may run: **$ok** (credentials must be secrets; hosts and names may be either)." >>"$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+          echo "ok=$ok" >>"$GITHUB_OUTPUT"
+
+  probe:
+    name: Probe the Strato host
+    needs: presence
+    if: needs.presence.outputs.ok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install sshpass
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null
+      - name: Run the probe
+        env:
+          SITE_URL: ${{ vars.PROD_SITE_URL || secrets.PROD_SITE_URL }}
+          REMOTE_ROOT: ${{ vars.PROD_REMOTE_ROOT || secrets.PROD_REMOTE_ROOT }}
+          DOCROOT: ${{ vars.PROD_DEPLOY_DOCROOT || secrets.PROD_DEPLOY_DOCROOT }}
+          DEPLOY_HOST: ${{ vars.PROD_DEPLOY_HOST || secrets.PROD_DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.PROD_DEPLOY_PORT || secrets.PROD_DEPLOY_PORT }}
+          DEPLOY_KNOWN_HOSTS: ${{ vars.PROD_DEPLOY_KNOWN_HOSTS || secrets.PROD_DEPLOY_KNOWN_HOSTS }}
+          SFTP_USER: ${{ secrets.PROD_DEPLOY_USER }}
+          SSHPASS: ${{ secrets.PROD_DEPLOY_PASSWORD }}
+          DB_HOST: ${{ vars.PROD_DB_HOST || secrets.PROD_DB_HOST }}
+          DB_NAME: ${{ vars.PROD_DB_NAME || secrets.PROD_DB_NAME }}
+          DB_USER: ${{ secrets.PROD_DB_USER }}
+          DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: bash scripts/host-probe/run.sh
