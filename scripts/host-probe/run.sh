@@ -20,9 +20,12 @@ trap 'rm -rf "$work"' EXIT
 : "${SITE_URL:?}" "${DEPLOY_HOST:?}" "${SFTP_USER:?}" "${SSHPASS:?}"
 : "${DB_HOST:?}" "${DB_NAME:?}" "${DB_USER:?}" "${DB_PASSWORD:?}"
 remote_root=${REMOTE_ROOT:-/}
-docroot=${DOCROOT:-site}
+docroot=${DOCROOT:?}
+docroot=${docroot#/}
+docroot=${docroot%/}
 port=${DEPLOY_PORT:-22}
 site=${SITE_URL%/}
+case $site in http://*|https://*) ;; *) site="https://$site" ;; esac
 site_host=${site#https://}
 site_host=${site_host#http://}
 site_host=${site_host%%/*}
