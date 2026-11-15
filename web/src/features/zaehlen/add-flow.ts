@@ -6,7 +6,7 @@ import {
 } from '../../core/api-client';
 import type { Router } from 'vue-router';
 import { messages } from '../../core/messages';
-import { refreshScoreboard } from '../../core/scoreboard';
+import { refreshScoreboard } from '../../core/scoreboard-feed';
 import { showSnackbar } from '../../core/snackbar';
 
 /** What the snackbar names: `2× Bier · Daniel`. */

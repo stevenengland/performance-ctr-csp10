@@ -75,21 +75,24 @@ export function onUnauthorized(listener: Unauthorized | undefined): void {
   unauthorized = listener;
 }
 
+const NOT_MODIFIED = 304;
+
+interface RequestInit {
+  method?: string;
+  body?: unknown;
+  /** Values of the path's `{placeholders}`. */
+  params?: Record<string, string>;
+  query?: Record<string, string>;
+  /** Asks for an answer only when it differs from the one with this ETag (304 otherwise). */
+  ifNoneMatch?: string;
+}
+
 /**
 The single fetch wrapper: every HTTP call of the app goes through here. It looks
 up the global `fetch` on every call, so whatever is installed at that time answers.
-A body is sent as JSON; 204 resolves to `undefined`.
+A body is sent as JSON. An error answer throws its ApiProblem; 304 passes.
 */
-async function request<T>(
-  path: ApiPath,
-  init: {
-    method?: string;
-    body?: unknown;
-    /** Values of the path's `{placeholders}`. */
-    params?: Record<string, string>;
-    query?: Record<string, string>;
-  } = {},
-): Promise<T> {
+async function send(path: ApiPath, init: RequestInit = {}): Promise<Response> {
   const resolved = path.replace(/\{(\w+)\}/g, (_, name: string) =>
     encodeURIComponent(init.params?.[name] ?? ''),
   );
@@ -99,16 +102,24 @@ async function request<T>(
   const url = `${import.meta.env.BASE_URL}${resolved.slice(1)}${query}`;
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (init.ifNoneMatch !== undefined)
+    headers['If-None-Match'] = init.ifNoneMatch;
   const response = await fetch(url, {
     method: init.method ?? 'GET',
     credentials: 'same-origin',
     headers,
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
-  if (!response.ok) {
+  if (!response.ok && response.status !== NOT_MODIFIED) {
     if (response.status === 401 && path !== '/api/session') unauthorized?.();
     throw await ApiProblem.from(response);
   }
+  return response;
+}
+
+/** A request whose answer is JSON; 204 resolves to `undefined`. */
+async function request<T>(path: ApiPath, init: RequestInit = {}): Promise<T> {
+  const response = await send(path, init);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
@@ -195,7 +206,27 @@ export function deleteEntry(id: string): Promise<void> {
   });
 }
 
-/** Standings since `from`, the start of the viewer's day as a UTC instant. */
-export function getScoreboard(from: string): Promise<Scoreboard> {
-  return request<Scoreboard>('/api/scoreboard', { query: { from } });
+/** Standings with the ETag that names them, to ask on condition of next time. */
+export interface ScoreboardAnswer {
+  board: Scoreboard;
+  etag: string | undefined;
+}
+
+/**
+Standings since `from`, the start of the viewer's day as a UTC instant. With the
+ETag of the standings already shown, `unchanged` means they still hold.
+*/
+export async function getScoreboard(
+  from: string,
+  etag?: string,
+): Promise<ScoreboardAnswer | 'unchanged'> {
+  const response = await send('/api/scoreboard', {
+    query: { from },
+    ifNoneMatch: etag,
+  });
+  if (response.status === NOT_MODIFIED) return 'unchanged';
+  return {
+    board: (await response.json()) as Scoreboard,
+    etag: response.headers.get('ETag') ?? undefined,
+  };
 }

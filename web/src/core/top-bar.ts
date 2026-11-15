@@ -7,6 +7,8 @@ export interface TopBarContent {
   context?: string;
   /** The chosen person's total score today, formatted (add-flow steps 2–4). */
   score?: string;
+  /** `Stand: HH:mm` while the shown data is stale (Rangliste, §6.6). */
+  stale?: string;
 }
 
 const shown = shallowRef<{ path: string; content: TopBarContent }>();

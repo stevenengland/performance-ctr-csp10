@@ -1,15 +1,11 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import CountTile from '../../components/CountTile.vue';
 import { loadPersons, usePersons } from '../../core/catalog';
 import { formatNumber } from '../../core/format';
 import { messages } from '../../core/messages';
-import {
-  refreshScoreboard,
-  scoreOf,
-  useScoreboard,
-} from '../../core/scoreboard';
+import { scoreOf, useScoreboardFeed } from '../../core/scoreboard-feed';
 import { showProblem } from '../../core/snackbar';
 import { choosePerson } from './add-flow';
 
@@ -18,7 +14,8 @@ const SKELETON_TILES = 4;
 
 const router = useRouter();
 const persons = usePersons();
-const board = useScoreboard();
+const feed = useScoreboardFeed();
+const board = computed(() => feed.value.board);
 
 function score(personId: number): string | undefined {
   const value = scoreOf(board.value, personId);
@@ -27,7 +24,6 @@ function score(personId: number): string | undefined {
 
 onMounted(() => {
   loadPersons().catch(showProblem);
-  void refreshScoreboard();
 });
 </script>
 

@@ -47,6 +47,9 @@ function back() {
           messages.zaehlen.scoreToday
         }}</span>
       </p>
+      <p v-if="content?.stale" class="type-caption top-bar__stale">
+        {{ content.stale }}
+      </p>
       <v-btn
         :icon="mdiAccountCircleOutline"
         :aria-label="messages.topBar.account"
@@ -122,6 +125,11 @@ function back() {
 
 .top-bar__score-caption {
   color: rgb(var(--v-theme-on-surface-variant));
+}
+
+.top-bar__stale {
+  flex: none;
+  color: rgb(var(--v-theme-error));
 }
 
 .top-bar__steps {

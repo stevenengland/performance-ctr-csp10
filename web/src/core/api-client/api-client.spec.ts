@@ -193,18 +193,44 @@ describe('the API client', () => {
     );
   });
 
-  it('asks the scoreboard for the given start of the day', async () => {
+  it('asks the scoreboard for the given start of the day and keeps its ETag', async () => {
     const fetch = respond(
       { rows: [] },
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ETag: '"7-1"' },
+      },
     );
 
     await expect(getScoreboard('2026-11-14T23:00:00.000Z')).resolves.toEqual({
-      rows: [],
+      board: { rows: [] },
+      etag: '"7-1"',
     });
     expect(fetch).toHaveBeenCalledWith(
       '/api/scoreboard?from=2026-11-14T23%3A00%3A00.000Z',
-      expect.anything(),
+      expect.objectContaining({
+        headers: expect.not.objectContaining({
+          'If-None-Match': expect.anything(),
+        }),
+      }),
+    );
+  });
+
+  it('asks for the scoreboard on condition of the last ETag; 304 means unchanged', async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(null, { status: 304, headers: { ETag: '"7-1"' } }),
+    );
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(
+      getScoreboard('2026-11-14T23:00:00.000Z', '"7-1"'),
+    ).resolves.toBe('unchanged');
+    expect(fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'If-None-Match': '"7-1"' }),
+      }),
     );
   });
 });

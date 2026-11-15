@@ -50,7 +50,17 @@ export const messages = {
   rangliste: {
     noDrinks: 'Heute noch keine Getränke.',
     count: 'Zählen',
+    /** A total count: `9 Getränke`, `1 Getränk`. */
+    drinks: (formatted: string, count: number) =>
+      `${formatted} ${count === 1 ? 'Getränk' : 'Getränke'}`,
+    /** Accessible name of a place (§7f): `Platz 1, Daniel, 13,5 Punkte, 9 Getränke`. */
+    label: (rank: number, name: string, points: string, drinks: string) =>
+      `Platz ${String(rank)}, ${name}, ${points}, ${drinks}`,
   },
+  /** The time of the last successful refresh while the latest one failed (§6.6). */
+  stand: (time: string) => `Stand: ${time}`,
+  /** A 503 with `Retry-After`: a migration is running (§6.8). */
+  maintenance: 'Wird aktualisiert – gleich wieder da',
   verwalten: {
     persons: 'Personen',
     drinks: 'Getränke',

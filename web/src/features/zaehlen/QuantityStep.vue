@@ -13,10 +13,9 @@ import { messages } from '../../core/messages';
 import { useOnline } from '../../core/online';
 import {
   counterOf,
-  refreshScoreboard,
   scoreOf,
-  useScoreboard,
-} from '../../core/scoreboard';
+  useScoreboardFeed,
+} from '../../core/scoreboard-feed';
 import { showProblem } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
 import { leaveGoneStep, returnToNames, saveEntry } from './add-flow';
@@ -32,7 +31,8 @@ const router = useRouter();
 const online = useOnline();
 const persons = usePersons();
 const drinks = useDrinks();
-const board = useScoreboard();
+const feed = useScoreboardFeed();
+const board = computed(() => feed.value.board);
 const personId = computed(() => Number(props.personId));
 const drinkId = computed(() => Number(props.drinkId));
 const person = computed(() =>
@@ -69,7 +69,6 @@ async function save() {
 }
 
 onMounted(async () => {
-  void refreshScoreboard();
   try {
     await Promise.all([loadPersons(), loadDrinks()]);
     if (!person.value || !drink.value) leaveGoneStep(router);

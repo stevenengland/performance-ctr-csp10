@@ -11,6 +11,7 @@ interface Request {
   /** The path's `{id}`, for routes that have one. */
   id: string;
   query: URLSearchParams;
+  headers: Headers;
 }
 type Handler = (request: Request) => Response;
 
@@ -190,7 +191,7 @@ function routeOf(path: string): { route: string; id: string } {
 The in-memory API: the same answers as the real one for the routes the app uses
 so far, with the session kept in memory (signing out and in again works).
 */
-function routesOf(fixtures: Fixtures) {
+function routesOf(fixtures: Fixtures, revision: () => number) {
   const find = (name: string) =>
     fixtures.accounts.find(
       ({ account }) =>
@@ -344,12 +345,19 @@ function routesOf(fixtures: Fixtures) {
     ],
     [
       'GET /api/scoreboard',
-      guarded((_me, _body, { query }) => {
+      guarded((_me, _body, { query, headers }) => {
         const from = new Date(query.get('from') ?? '');
         if (Number.isNaN(from.getTime())) {
           return validation({ from: 'Zeitpunkt nach ISO 8601 mit Zeitzone.' });
         }
-        return json(scoreboard(fixtures, from));
+        // Like the API: the revision and the window, so another day never answers 304.
+        const etag = `"${String(revision())}-${String(from.getTime())}"`;
+        if (headers.get('If-None-Match') === etag) {
+          return new Response(null, { status: 304, headers: { ETag: etag } });
+        }
+        const response = json(scoreboard(fixtures, from));
+        response.headers.set('ETag', etag);
+        return response;
       }),
     ],
   ]);
@@ -408,7 +416,8 @@ the real app runs on canned answers without network access. What it does not
 know answers 503, like a server in maintenance.
 */
 export function installFixtureBackend(fixtures: Fixtures): void {
-  const routes = routesOf(fixtures);
+  let revision = 0;
+  const routes = routesOf(fixtures, () => revision);
   globalThis.fetch = async (input, init) => {
     const method = (
       init?.method ??
@@ -418,10 +427,17 @@ export function installFixtureBackend(fixtures: Fixtures): void {
     const { route, id } = routeOf(apiPath(url));
     const handle = routes.get(`${method} ${route}`);
     if (!handle) return problem(PROBLEMS.maintenance);
-    return handle({
+    const response = handle({
       body: await bodyOf(input, init),
       id,
       query: url.searchParams,
+      headers: new Headers(
+        init?.headers ??
+          (input instanceof globalThis.Request ? input.headers : undefined),
+      ),
     });
+    // Every successful write counts as a change of the standings, like the API's data revision.
+    if (method !== 'GET' && response.ok) revision += 1;
+    return response;
   };
 }

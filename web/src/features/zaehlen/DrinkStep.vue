@@ -12,10 +12,9 @@ import { formatNumber, formatPoints } from '../../core/format';
 import { messages } from '../../core/messages';
 import {
   counterOf,
-  refreshScoreboard,
   scoreOf,
-  useScoreboard,
-} from '../../core/scoreboard';
+  useScoreboardFeed,
+} from '../../core/scoreboard-feed';
 import { showProblem } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
 import { leaveGoneStep, quantityStepPath } from './add-flow';
@@ -27,7 +26,8 @@ const SKELETON_TILES = 4;
 const router = useRouter();
 const persons = usePersons();
 const drinks = useDrinks();
-const board = useScoreboard();
+const feed = useScoreboardFeed();
+const board = computed(() => feed.value.board);
 const personId = computed(() => Number(props.personId));
 const person = computed(() =>
   persons.value?.find((candidate) => candidate.id === personId.value),
@@ -43,7 +43,6 @@ function counter(drinkId: number): number {
 }
 
 onMounted(async () => {
-  void refreshScoreboard();
   try {
     await Promise.all([loadPersons(), loadDrinks()]);
     if (!person.value) leaveGoneStep(router);

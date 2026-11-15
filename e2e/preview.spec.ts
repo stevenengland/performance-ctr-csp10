@@ -75,3 +75,20 @@ test('the fixture preview counts a drink on its sample evening and undoes it', a
     page.getByRole('button', { name: 'Daniel, 12 Punkte heute' }),
   ).toBeVisible();
 });
+
+test('the fixture preview ranks its sample evening on the Rangliste', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/rangliste');
+
+  const places = page
+    .getByRole('list', { name: 'Rangliste' })
+    .getByRole('listitem');
+  await expect(places).toHaveCount(5);
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Daniel, 12 Punkte, 8 Getränke',
+  );
+  await expect(places.last()).toHaveAccessibleName(
+    'Platz 5, Tom, 0,5 Punkte, 1 Getränk',
+  );
+});

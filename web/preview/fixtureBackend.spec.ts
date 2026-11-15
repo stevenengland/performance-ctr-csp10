@@ -19,6 +19,13 @@ import { todayFrom } from '../src/core/day-window';
 import { installFixtureBackend } from './fixtureBackend';
 import { SAMPLE_PASSWORD, sampleEvening } from './fixtures';
 
+/** The standings since `from`, asked without condition. */
+async function standings(from: string) {
+  const answer = await getScoreboard(from);
+  if (answer === 'unchanged') throw new Error('asked without condition');
+  return answer.board;
+}
+
 describe('the fixture backend', () => {
   const realFetch = globalThis.fetch;
   afterEach(() => {
@@ -115,7 +122,7 @@ describe('the fixture backend', () => {
       name: 'Bier',
       points: 1,
     });
-    const { rows } = await getScoreboard(todayFrom());
+    const { rows } = await standings(todayFrom());
     expect(rows.map(({ name, score }) => [name, score])).toEqual([
       ['Daniel', 12],
       ['Anna', 9],
@@ -135,7 +142,29 @@ describe('the fixture backend', () => {
 
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    expect(await getScoreboard(tomorrow.toISOString())).toEqual({ rows: [] });
+    expect(await standings(tomorrow.toISOString())).toEqual({ rows: [] });
+  });
+
+  it('answers the scoreboard with ETags from its in-memory revision', async () => {
+    installFixtureBackend(sampleEvening());
+    const first = await getScoreboard(todayFrom());
+    if (first === 'unchanged') throw new Error('asked without condition');
+
+    await expect(getScoreboard(todayFrom(), first.etag)).resolves.toBe(
+      'unchanged',
+    );
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await expect(getScoreboard(tomorrow, first.etag)).resolves.not.toBe(
+      'unchanged',
+    );
+    await putEntry('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e7', {
+      personId: 1,
+      drinkId: 2,
+      quantity: 1,
+    });
+    const after = await getScoreboard(todayFrom(), first.etag);
+    expect(after).not.toBe('unchanged');
+    expect(first.etag).toMatch(/^"\d+-\d+"$/);
   });
 
   it('adds entries idempotently and never brings an undone one back', async () => {
@@ -146,9 +175,7 @@ describe('the fixture backend', () => {
     const first = await putEntry(id, twoBeers);
     await expect(putEntry(id, twoBeers)).resolves.toEqual(first);
     const jule = async () =>
-      (await getScoreboard(todayFrom())).rows.find(
-        (row) => row.name === 'Jule',
-      );
+      (await standings(todayFrom())).rows.find((row) => row.name === 'Jule');
     expect((await jule())?.count).toBe(2);
 
     await expect(
