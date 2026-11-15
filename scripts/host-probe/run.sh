@@ -87,6 +87,14 @@ if command -v dig >/dev/null; then
   out "- Delegation at the .$tld registry: \`$(dig +norec +noall +authority NS "$site_host" @"$(dig +short NS "$tld." | head -1)" | awk '{print $5}' | sort | paste -sd ' ' -)\`"
 fi
 out "- Host key: $host_key_source; fingerprints: \`$fingerprints\`"
+if [ -z "${DEPLOY_KNOWN_HOSTS:-}" ]; then
+  # Public host keys, safe to show: the lines to store as the SFTP_KNOWN_HOSTS variable
+  # after comparing the fingerprints above with the ones recorded on issue #2.
+  out "- Lines for the \`SFTP_KNOWN_HOSTS\` variable (public keys):"
+  out '```'
+  out "$(grep -v '^#' "$known" | sort)"
+  out '```'
+fi
 
 # --- find the served folder when DOCROOT is not configured -------------------------------------
 if [ -z "$docroot" ]; then
