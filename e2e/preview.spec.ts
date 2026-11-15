@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test } from './support/playwright.ts';
+import { expect, test, type Page } from './support/playwright.ts';
 
 test('the fixture preview opens on the fixture backend without network access', async ({
   page,
@@ -186,4 +186,62 @@ test('the fixture preview opens another person’s Verlauf as a new screen', asy
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Jule');
   await expect(page.getByText('Heute keine Einträge.')).toBeVisible();
+});
+
+/** Opens an account's menu on Konten once any other menu has closed. */
+async function accountMenu(page: Page, userName: string) {
+  const menu = page.getByRole('menu');
+  await expect(menu).toHaveCount(0);
+  // The preview marker sits over the first row on compact windows: open by keyboard.
+  await page
+    .getByRole('button', { name: `Aktionen für ${userName}` })
+    .press('Enter');
+  return menu;
+}
+
+test('the fixture preview keeps its last admin and deletes an account, whose entries stay as “gelöschtes Konto”', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verwalten/konten');
+  let menu = await accountMenu(page, 'anna');
+  for (const entry of ['Adminrechte entziehen', 'Löschen']) {
+    await expect(
+      menu.getByRole('menuitem', { name: new RegExp(`^${entry}`) }),
+    ).toHaveAttribute('aria-disabled', 'true');
+  }
+  await page.keyboard.press('Escape');
+
+  menu = await accountMenu(page, 'ben');
+  await menu.getByRole('menuitem', { name: 'Zum Admin machen' }).click();
+  await expect(page.getByText('ben ist jetzt Admin')).toBeVisible();
+  menu = await accountMenu(page, 'anna');
+  await expect(
+    menu.getByRole('menuitem', { name: 'Adminrechte entziehen' }),
+  ).not.toHaveAttribute('aria-disabled', 'true');
+  await page.keyboard.press('Escape');
+
+  menu = await accountMenu(page, 'ben');
+  await menu.getByRole('menuitem', { name: 'Löschen' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Konto ben löschen?');
+  await expect(dialog).toContainText('Einträge von ben bleiben erhalten.');
+  await dialog.getByRole('button', { name: 'Löschen' }).click();
+  await expect(page.getByText('ben gelöscht')).toBeVisible();
+  await expect(
+    page.getByRole('list', { name: 'Konten' }).getByRole('listitem'),
+  ).toHaveText(['annaAdmin', 'daniel', 'mara']);
+
+  await page.goto('/index.html#/verlauf/3');
+  await expect(
+    page
+      .getByRole('list', { name: 'Einträge von Daniel' })
+      .getByRole('listitem')
+      .filter({ hasText: 'gelöschtes Konto' }),
+  ).toHaveCount(2);
+  await page.goto('/index.html#/rangliste');
+  await expect(
+    page.getByRole('link', {
+      name: 'Platz 1, Daniel, 13,5 Punkte, 9 Getränke',
+    }),
+  ).toBeVisible();
 });
