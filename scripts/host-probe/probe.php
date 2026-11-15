@@ -61,7 +61,7 @@ $result = [
 try {
     $db = $config['db'] ?? [];
     $pdo = new PDO(
-        sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4', $db['host'] ?? '', $db['name'] ?? ''),
+        sprintf('mysql:host=%s;%sdbname=%s;charset=utf8mb4', $db['host'] ?? '', ($db['port'] ?? '') !== '' ? 'port=' . $db['port'] . ';' : '', $db['name'] ?? ''),
         (string) ($db['user'] ?? ''),
         (string) ($db['pass'] ?? ''),
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_TIMEOUT => 10],

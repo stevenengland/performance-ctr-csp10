@@ -6,7 +6,8 @@
 # rename-overwrite and an .htaccess rewrite, then removes every file it created.
 #
 # Inputs (environment): SITE_URL, REMOTE_ROOT, DOCROOT, DEPLOY_HOST, DEPLOY_PORT,
-# DEPLOY_KNOWN_HOSTS (optional), SFTP_USER, SSHPASS, DB_HOST, DB_NAME, DB_USER, DB_PASSWORD.
+# DEPLOY_KNOWN_HOSTS (optional), SFTP_USER, SSHPASS, DB_HOST, DB_PORT (optional), DB_NAME,
+# DB_USER, DB_PASSWORD.
 # Secrets never reach argv or output: sftp reads them from 0600 files and the environment.
 # Output: findings as Markdown on stdout and in $GITHUB_STEP_SUMMARY when set.
 set -euo pipefail
@@ -41,7 +42,7 @@ sed "s#__CONFIG_RELATIVE__#$config_relative#" "$here/probe.php" >"$work/index.ph
 printf 'RewriteEngine On\nRewriteCond %%{REQUEST_FILENAME} !-f\nRewriteRule ^api/(.*)$ index.php?route=$1 [QSA,L]\n' >"$work/htaccess"
 printf 'A' >"$work/a.txt"
 printf 'B' >"$work/b.txt"
-( umask 077; TOKEN=$token jq -n '{token: env.TOKEN, db: {host: env.DB_HOST, name: env.DB_NAME, user: env.DB_USER, pass: env.DB_PASSWORD}}' >"$work/config.json" )
+( umask 077; TOKEN=$token jq -n '{token: env.TOKEN, db: {host: env.DB_HOST, port: (env.DB_PORT // ""), name: env.DB_NAME, user: env.DB_USER, pass: env.DB_PASSWORD}}' >"$work/config.json" )
 
 # --- ssh session -----------------------------------------------------------------------------
 known="$work/known_hosts"
