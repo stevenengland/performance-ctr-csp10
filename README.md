@@ -7,6 +7,8 @@ and [`docs/design/mockup.html`](docs/design/mockup.html). Decisions: [`docs/adr/
 
 **Fixture preview** (the review surface for UI changes, design spec §12):
 <https://claude.ai/artifact/5yJfcSYKRdp7hKZKq9tZ9S>
+It starts signed in as the sample admin `anna`; after `Abmelden`, the sample accounts sign in
+with `beispiel-passwort`.
 
 ## Requirements
 
@@ -34,7 +36,9 @@ Enable the hooks once: `git config core.hooksPath .githooks`.
 | `npm run lint:secrets` | secretlint over every tracked file |
 
 The e2e stack serves the built artifact with the rendered `.htaccess` on Apache + PHP +
-MySQL:
+MySQL. Its runtime configuration (`e2e/stack/config.php`) names the bootstrap admin the tests
+sign in with (`e2e-admin`, see `e2e/support/session.ts`); every route but health and sign-in
+needs a session:
 
 ```sh
 npm run build:artifact

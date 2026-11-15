@@ -175,7 +175,9 @@ step (28 → 24 → 20) before they ellipsize.
 
 - Icons (`@mdi/js`): Zählen `mdiGlassMugVariant`, Rangliste `mdiPodium`, Verwalten
   `mdiCogOutline`, Konto `mdiAccountCircleOutline`, back `mdiArrowLeft`, add `mdiPlus`, edit
-  `mdiPencilOutline`, delete `mdiDeleteOutline`, offline `mdiWifiOff`, update `mdiUpdate`.
+  `mdiPencilOutline`, delete `mdiDeleteOutline`, offline `mdiWifiOff`, update `mdiUpdate`,
+  change password `mdiLockReset`, sign out `mdiLogout`, show/hide password `mdiEyeOutline` /
+  `mdiEyeOffOutline`, a list row that opens a screen `mdiChevronRight`.
   Icon-only buttons always carry an `aria-label`.
 - **Tally marks (`TallyMarks` component):** an inline SVG that draws a count as bundles of five
   — four upright strokes and one diagonal across them — stroke 2.2, round caps, `currentColor`
@@ -228,8 +230,12 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
 - The add flow's steps are routes, so the system back gesture steps back one level.
 - A route parameter that no longer exists (person deleted on another phone) returns to step 1
   with the snackbar "Nicht mehr vorhanden".
-- Not signed in: every route except `/anmelden` redirects there and returns to the requested
-  route after sign-in.
+- Not signed in: every route except `/anmelden` redirects there
+  (`/anmelden?weiter=<requested route>`) and returns to the requested route after sign-in; a
+  signed-in user who opens `/anmelden` goes straight on. A 401 on any later request (signed out
+  on another device, password changed, session expired) leads to `/anmelden` the same way.
+  While the server cannot be reached the session is unknown and screens open anyway (the
+  installed app works offline; its requests fail on their own).
 
 ## 5. Responsive system
 
@@ -277,6 +283,7 @@ an older one.
 | Problem response | the problem's `title` | — |
 | Deleted item | `<Name> gelöscht` | — |
 | Update available | `Neue Version verfügbar` | `Neu laden` |
+| Own password changed | `Passwort geändert` | — |
 
 ### 6.4 Counting tiles
 
@@ -350,21 +357,27 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 
 ### 6.11 Form fields and validation
 
-Outlined text fields, corner 10 dp, 1.5 dp `outline` border (2 dp `primary` when focused);
-label inside the top of the field in `caption`; field errors from the problem's `errors` map shown as
-supporting text under the field in `error`; the submit button stays enabled and re-validates on
-the server.
+Outlined text fields, corner 10 dp, 1.5 dp `outline` border (2 dp `primary` when focused,
+2 dp `error` with an error); label inside the top of the field in `caption` (while the field is
+empty and unfocused it rests in the middle, as Material's floating label does); field errors from
+the problem's `errors` map shown as supporting text under the field in `error`; the submit button
+stays enabled and re-validates on the server. Password fields carry a trailing show/hide icon
+button (`Passwort anzeigen` / `Passwort verbergen`). Built as `AppTextField` on Vuetify's filled
+field, with its fill and underline replaced by the border. Forms in dialogs submit on Enter.
 
 ## 7. Screens
 
 ### 7a. Anmelden `/anmelden`
 
 - No card: on plain `surface`, vertically centred, left-aligned — the app name `Performance`
-  in the display face (64 dp, two lines), a row of tally marks under it (30 dp), then the
-  outlined fields `Benutzername` and `Passwort` (with show/hide) and a full-width filled button
-  `Anmelden`. Content max width 400 dp.
-- 401 → field-less error text `Benutzername oder Passwort falsch.`; 429 →
-  `Zu viele Versuche. Bitte später erneut.`
+  in the display face (64 dp, two lines, broken as `Perfor-` / `mance` at a soft hyphen), a
+  row of tally marks under it (30 dp), then the outlined fields `Benutzername` and `Passwort`
+  (with show/hide) and a full-width filled button `Anmelden`. Content max width 400 dp. No top
+  app bar and no navigation.
+- 401 → field-less error text (`support`, `error`, between the fields and the button)
+  `Benutzername oder Passwort falsch.` — the same for an unknown user name and a wrong
+  password; 429 → `Zu viele Versuche. Bitte später erneut.`; no connection →
+  `Keine Verbindung. Bitte später erneut.`; any other problem → its `title`.
 - Success → the originally requested route or `/zaehlen`.
 
 ### 7b. Zählen, step 1 — Namen `/zaehlen`
@@ -435,7 +448,8 @@ the server.
 ### 7h. Verwalten `/verwalten`
 
 - List: `Personen`, `Getränke`, `Faktoren`, and `Konten` (admins only), each with its count as
-  supporting text.
+  supporting text. A row that opens a screen ends in `mdiChevronRight`. (Slice 1/5 links
+  `Konten` only and shows no counts yet; the master-data slices add theirs.)
 
 ### 7i. Personen / Getränke / Faktoren
 
@@ -451,17 +465,32 @@ the server.
 
 ### 7j. Konten `/verwalten/konten` (admins only)
 
-- List of accounts: user name, `Admin` assist chip for admins; trailing menu with
-  `Passwort zurücksetzen`, `Zum Admin machen` / `Adminrechte entziehen`, `Löschen`.
-- Extended FAB `Konto anlegen`: dialog with `Benutzername` and `Startpasswort` (minimum 10
-  characters).
+- Title `Konten` with a back button; the navigation keeps `Verwalten` active. Non-admins
+  never see it: `/verwalten/konten` sends them to `/verwalten`.
+- List of accounts by user name: user name (`row-title`), `Admin` assist chip for admins
+  (outlined, corner 8 dp, `caption`); trailing menu with `Passwort zurücksetzen`,
+  `Zum Admin machen` / `Adminrechte entziehen`, `Löschen` (from slice 1/11 on). Skeleton rows
+  while loading.
+- Extended FAB `Konto anlegen`: dialog `Konto anlegen` with `Benutzername` and `Startpasswort`
+  (with show/hide; minimum 10 characters), buttons `Abbrechen` and `Speichern`. Field errors
+  inline (§6.11): 422 under its field, and a taken user name (409) under `Benutzername` as the
+  problem title `Benutzername ist bereits vergeben.` On success the dialog closes and the list
+  reloads.
 - Last admin: the menu entries that would remove the last admin are disabled with supporting
   text `Letzter Admin`; the server enforces it regardless (409 → problem title in the snackbar).
 
 ### 7k. Konto `/konto`
 
-- Signed-in user name; `Passwort ändern` (dialog: current, new, repeat; minimum 10);
-  `Abmelden`; app version and, in `support`, `Server: <app version>` from health.
+- Signed-in user name under `Angemeldet als` (`support`), with the `Admin` chip for admins;
+  then two list rows with a leading icon: `Passwort ändern` (`mdiLockReset`) and `Abmelden`
+  (`mdiLogout`); then app version and, in `support`, `Server: <app version>` from health.
+- `Passwort ändern` opens a dialog with `Aktuelles Passwort`, `Neues Passwort` and
+  `Neues Passwort wiederholen` (each with show/hide), buttons `Abbrechen` and `Speichern`.
+  A repeat that differs → `Passwörter stimmen nicht überein.` under the repeat field, without
+  a request; the server's 422 errors (`Passwort falsch.`, `Mindestens 10 Zeichen.`) under their
+  fields. Success closes the dialog with the snackbar `Passwort geändert`; the server signs the
+  account out on every other device.
+- `Abmelden` revokes the session on the server and opens `/anmelden`.
 - At the top, the app name in the display face (`name-hero`) with a decorative row of tally
   marks (30 dp, as on Anmelden). The version lines read `Version <app version>` (`row-title`) and
   `Server: <app version>` (`support`), or `Server: nicht erreichbar` when health cannot be read.
@@ -542,7 +571,8 @@ the shareable page a UI change is reviewed on before it reaches the host.
 - **Typed fixtures.** Response bodies are built by the unit-test builders and typed against the
   generated OpenAPI types, so a contract change breaks the preview build instead of leaving it
   showing shapes the API no longer sends. CI builds the preview on every pull request.
-- **Behaviour.** The fixture backend starts signed in as an admin, serves a sample evening
+- **Behaviour.** The fixture backend starts signed in as the admin `anna` (the sample
+  accounts `anna`, `ben`, `daniel`, `mara` sign in with `beispiel-passwort`), serves a sample evening
   (marked as sample data: persons, drinks, factors and entries timed relative to now, so the
   preview never ages out of "today"), keeps writes in memory for the session (adds, undo,
   deletes, CRUD), and answers anything else with 503.
