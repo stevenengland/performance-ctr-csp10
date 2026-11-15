@@ -1,0 +1,9 @@
+#!/bin/sh
+# Enable with: git config core.hooksPath .githooks
+set -eu
+files=$(git diff --cached --name-only --diff-filter=ACMR)
+if [ -n "$files" ]; then
+  # shellcheck disable=SC2086 # one argument per staged path
+  npx secretlint --maskSecrets $files
+fi
+npm run check
