@@ -2,12 +2,20 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   ApiProblem,
   createAccount,
+  createDrink,
+  createPerson,
+  deleteEntry,
   getHealth,
+  getScoreboard,
+  listDrinks,
+  listPersons,
+  putEntry,
   getSession,
   listAccounts,
   signIn,
   signOut,
 } from '../src/core/api-client';
+import { todayFrom } from '../src/core/day-window';
 import { installFixtureBackend } from './fixtureBackend';
 import { SAMPLE_PASSWORD, sampleEvening } from './fixtures';
 
@@ -27,7 +35,7 @@ describe('the fixture backend', () => {
   it('answers what it does not know with 503, like a server in maintenance', async () => {
     installFixtureBackend(sampleEvening());
 
-    const response = await fetch('/api/persons');
+    const response = await fetch('/api/factors');
 
     expect(response.status).toBe(503);
     expect(response.headers.get('Content-Type')).toBe(
@@ -89,5 +97,101 @@ describe('the fixture backend', () => {
       'jule',
       'mara',
     ]);
+  });
+
+  it('serves a sample evening of today: persons, drinks and their standings', async () => {
+    installFixtureBackend(sampleEvening());
+
+    expect((await listPersons()).map(({ name }) => name)).toEqual([
+      'Anna',
+      'Ben',
+      'Daniel',
+      'Jule',
+      'Mara',
+      'Tom',
+    ]);
+    expect(await listDrinks()).toContainEqual({
+      id: 2,
+      name: 'Bier',
+      points: 1,
+    });
+    const { rows } = await getScoreboard(todayFrom());
+    expect(rows.map(({ name, score }) => [name, score])).toEqual([
+      ['Daniel', 12],
+      ['Anna', 9],
+      ['Mara', 6],
+      ['Ben', 3],
+      ['Tom', 0.5],
+    ]);
+    expect(rows[0]?.drinks).toContainEqual({
+      drinkId: 2,
+      name: 'Bier',
+      count: 4,
+    });
+  });
+
+  it('counts only entries since from', async () => {
+    installFixtureBackend(sampleEvening());
+
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    expect(await getScoreboard(tomorrow.toISOString())).toEqual({ rows: [] });
+  });
+
+  it('adds entries idempotently and never brings an undone one back', async () => {
+    installFixtureBackend(sampleEvening());
+    const id = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
+    const twoBeers = { personId: 4, drinkId: 2, quantity: 2 };
+
+    const first = await putEntry(id, twoBeers);
+    await expect(putEntry(id, twoBeers)).resolves.toEqual(first);
+    const jule = async () =>
+      (await getScoreboard(todayFrom())).rows.find(
+        (row) => row.name === 'Jule',
+      );
+    expect((await jule())?.count).toBe(2);
+
+    await expect(
+      putEntry(id, { ...twoBeers, quantity: 3 }),
+    ).rejects.toMatchObject({ status: 409 });
+    await deleteEntry(id);
+    await putEntry(id, twoBeers);
+    expect(await jule()).toBeUndefined();
+    await expect(deleteEntry(id)).rejects.toMatchObject({ status: 404 });
+    await expect(
+      putEntry('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e6', {
+        ...twoBeers,
+        personId: 99,
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      errors: { personId: 'Person nicht gefunden.' },
+    });
+  });
+
+  it('creates persons and drinks with the API’s validation', async () => {
+    installFixtureBackend(sampleEvening());
+
+    await expect(createPerson('  ')).rejects.toMatchObject({
+      status: 422,
+      errors: { name: '1 bis 40 Zeichen.' },
+    });
+    await expect(createPerson('daniel')).rejects.toMatchObject({
+      status: 409,
+      title: 'Name ist bereits vergeben.',
+    });
+    await expect(createDrink('Cola', null)).rejects.toMatchObject({
+      status: 422,
+      errors: { points: 'Zahl von 0 bis 9.999,99.' },
+    });
+    await createPerson(' Zoe ');
+    await createDrink('Cola', 0.25);
+
+    expect((await listPersons()).at(-1)).toEqual({ id: 7, name: 'Zoe' });
+    expect(await listDrinks()).toContainEqual({
+      id: 7,
+      name: 'Cola',
+      points: 0.25,
+    });
   });
 });

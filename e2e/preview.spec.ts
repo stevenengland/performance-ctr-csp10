@@ -55,3 +55,23 @@ test('the preview menu offers the update prompt and the reload floor', async ({
     .click();
   await expect(page.getByRole('dialog')).toContainText('Bitte neu laden');
 });
+
+test('the fixture preview counts a drink on its sample evening and undoes it', async ({
+  page,
+}) => {
+  await page.goto('/index.html');
+  await page.getByRole('button', { name: 'Daniel, 12 Punkte heute' }).click();
+  await page.getByRole('button', { name: 'Bier, 1 Punkt, heute 4' }).click();
+  await page.getByRole('button', { name: 'Eins mehr' }).click();
+  await page.getByRole('button', { name: 'Eins mehr' }).click();
+  await page.getByRole('button', { name: 'Speichern' }).click();
+
+  await expect(page.getByText('2× Bier · Daniel')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Daniel, 14 Punkte heute' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Rückgängig' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Daniel, 12 Punkte heute' }),
+  ).toBeVisible();
+});

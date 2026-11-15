@@ -2,9 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiProblem,
   createAccount,
+  deleteEntry,
   getHealth,
+  getScoreboard,
   getSession,
   onUnauthorized,
+  putEntry,
   signOut,
 } from './index';
 import type { Health } from './index';
@@ -155,5 +158,53 @@ describe('the API client', () => {
       status: 401,
     });
     expect(ended).toHaveBeenCalledOnce();
+  });
+
+  it('puts an entry under its id and deletes it by that id', async () => {
+    const entry = {
+      id: '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5',
+      personId: 1,
+      drinkId: 2,
+      quantity: 2,
+      createdAt: '2026-11-14T20:00:00.000Z',
+    };
+    const fetch = respond(entry, {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(
+      putEntry(entry.id, { personId: 1, drinkId: 2, quantity: 2 }),
+    ).resolves.toEqual(entry);
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/entries/${entry.id}`,
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ personId: 1, drinkId: 2, quantity: 2 }),
+      }),
+    );
+
+    const remove = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', remove);
+    await expect(deleteEntry(entry.id)).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledWith(
+      `/api/entries/${entry.id}`,
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('asks the scoreboard for the given start of the day', async () => {
+    const fetch = respond(
+      { rows: [] },
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+    await expect(getScoreboard('2026-11-14T23:00:00.000Z')).resolves.toEqual({
+      rows: [],
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/scoreboard?from=2026-11-14T23%3A00%3A00.000Z',
+      expect.anything(),
+    );
   });
 });

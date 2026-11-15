@@ -12,9 +12,40 @@ export const messages = {
     account: 'Konto',
     today: 'Heute',
   },
+  points: { one: 'Punkt', other: 'Punkte' },
   zaehlen: {
     question: 'Für wen?',
     noPersons: 'Noch keine Personen.',
+    createPerson: 'Person anlegen',
+    scoreToday: 'Punkte heute',
+    nothingYet: 'noch nichts',
+    /** Accessible name of a person tile; `score` is formatted, absent without entries today. */
+    personTile: (name: string, score?: string) =>
+      score === undefined
+        ? `${name}, noch nichts`
+        : `${name}, ${score} Punkte heute`,
+    drinkQuestion: 'Welches Getränk?',
+    noDrinks: 'Noch keine Getränke.',
+    createDrink: 'Getränk anlegen',
+    /** Accessible name of a drink tile (§10): `Bier, 1 Punkt, heute 4`. */
+    drinkTile: (name: string, points: string, counter: string) =>
+      `${name}, ${points}, heute ${counter}`,
+    quantityQuestion: 'Wie viele?',
+    less: 'Eins weniger',
+    more: 'Eins mehr',
+    drinkToday: (drink: string) => `${drink} heute`,
+    delta: (booked: string, added: number) =>
+      `bisher ${booked}, neu dazu ${String(added)}`,
+    save: 'Speichern',
+    /** The saved snackbar (§6.3): `2× Bier · Daniel`. */
+    saved: (quantity: number, drink: string, person: string) =>
+      `${String(quantity)}× ${drink} · ${person}`,
+    undo: 'Rückgängig',
+    undone: 'Rückgängig gemacht',
+    notSaved: 'Nicht gespeichert – keine Verbindung',
+    notUndone: 'Nicht rückgängig gemacht – keine Verbindung',
+    retry: 'Erneut versuchen',
+    gone: 'Nicht mehr vorhanden',
   },
   rangliste: {
     noDrinks: 'Heute noch keine Getränke.',
@@ -25,6 +56,19 @@ export const messages = {
     drinks: 'Getränke',
     factors: 'Faktoren',
     accounts: 'Konten',
+  },
+  personen: {
+    title: 'Personen',
+    create: 'Person anlegen',
+    name: 'Name',
+    empty: 'Noch keine Personen.',
+  },
+  getraenke: {
+    title: 'Getränke',
+    create: 'Getränk anlegen',
+    name: 'Name',
+    points: 'Punkte',
+    empty: 'Noch keine Getränke.',
   },
   anmelden: {
     title: 'Anmelden',

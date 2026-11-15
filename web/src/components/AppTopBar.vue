@@ -3,12 +3,17 @@ import { mdiAccountCircleOutline, mdiArrowLeft } from '@mdi/js';
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { messages } from '../core/messages';
+import { useTopBarContent } from '../core/top-bar';
 
-const STEPS = 4;
+/** Steps of the add flow; the factor step (4) is skipped while no factors exist (§6.1). */
+const STEPS = 3;
 
 const route = useRoute();
 const router = useRouter();
 const meta = computed(() => route.meta);
+const content = useTopBarContent();
+const title = computed(() => content.value?.title ?? meta.value.title);
+const context = computed(() => content.value?.context ?? meta.value.context);
 const hasBack = computed(
   () => route.meta.destination === undefined || route.meta.child === true,
 );
@@ -31,11 +36,17 @@ function back() {
         @click="back"
       />
       <div class="top-bar__heading">
-        <h1 class="type-title">{{ meta.title }}</h1>
-        <p v-if="meta.context" class="type-label top-bar__context">
-          {{ meta.context }}
+        <h1 class="type-title">{{ title }}</h1>
+        <p v-if="context" class="type-label top-bar__context">
+          {{ context }}
         </p>
       </div>
+      <p v-if="content?.score !== undefined" class="top-bar__score">
+        <span class="type-title">{{ content.score }}</span>
+        <span class="type-caption top-bar__score-caption">{{
+          messages.zaehlen.scoreToday
+        }}</span>
+      </p>
       <v-btn
         :icon="mdiAccountCircleOutline"
         :aria-label="messages.topBar.account"
@@ -99,6 +110,18 @@ function back() {
 
 .top-bar__icon {
   flex: none;
+}
+
+.top-bar__score {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.top-bar__score-caption {
+  color: rgb(var(--v-theme-on-surface-variant));
 }
 
 .top-bar__steps {

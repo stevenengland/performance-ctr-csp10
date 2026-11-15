@@ -2,9 +2,9 @@
 import { ref, watch } from 'vue';
 import AppDialog from '../../../components/AppDialog.vue';
 import AppTextField from '../../../components/AppTextField.vue';
-import { ApiProblem, createAccount } from '../../../core/api-client';
+import { createAccount } from '../../../core/api-client';
+import { useCreateForm } from '../../../core/create-form';
 import { messages } from '../../../core/messages';
-import { showSnackbar } from '../../../core/snackbar';
 
 /** `Konto anlegen` (§7j): user name and start password; field errors from the server inline. */
 const open = defineModel<boolean>({ required: true });
@@ -12,8 +12,7 @@ const emit = defineEmits<{ created: [] }>();
 
 const userName = ref('');
 const password = ref('');
-const errors = ref<Partial<Record<string, string>>>({});
-const busy = ref(false);
+const { errors, busy, submit } = useCreateForm('userName');
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
@@ -21,42 +20,16 @@ watch(open, (isOpen) => {
   errors.value = {};
 });
 
-/** 422 carries field errors; a taken user name (409) belongs under the user name too. */
-function fieldErrors(
-  failure: ApiProblem,
-): Partial<Record<string, string>> | undefined {
-  if (failure.status === 422) return { ...failure.errors };
-  if (failure.status === 409) return { userName: failure.title };
-  return undefined;
-}
-
-async function submit() {
-  if (busy.value) return;
-  busy.value = true;
-  errors.value = {};
-  try {
-    await createAccount(userName.value, password.value);
+async function save() {
+  if (await submit(() => createAccount(userName.value, password.value))) {
     open.value = false;
     emit('created');
-  } catch (failure) {
-    const inline =
-      failure instanceof ApiProblem ? fieldErrors(failure) : undefined;
-    if (inline) errors.value = inline;
-    else
-      showSnackbar({
-        text:
-          failure instanceof ApiProblem
-            ? failure.title
-            : messages.anmelden.unreachable,
-      });
-  } finally {
-    busy.value = false;
   }
 }
 </script>
 
 <template>
-  <AppDialog v-model="open" :title="messages.konten.create" @submit="submit">
+  <AppDialog v-model="open" :title="messages.konten.create" @submit="save">
     <AppTextField
       v-model="userName"
       :label="messages.konten.userName"

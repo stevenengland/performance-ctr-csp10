@@ -15,6 +15,8 @@ const props = defineProps<{
   autocomplete?: string;
   error?: string;
   autofocus?: boolean;
+  /** The on-screen keyboard to offer, e.g. `decimal` for points. */
+  inputmode?: 'text' | 'decimal';
 }>();
 
 const id = useId();
@@ -40,6 +42,7 @@ onMounted(() => {
         class="app-field__input type-body"
         :type="type"
         :autocomplete="autocomplete"
+        :inputmode="inputmode"
         :aria-invalid="error ? 'true' : undefined"
         :aria-describedby="error ? `${id}-error` : undefined"
         autocapitalize="off"

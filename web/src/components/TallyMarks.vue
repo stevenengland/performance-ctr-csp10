@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-const props = withDefaults(defineProps<{ count: number; height?: number }>(), {
-  height: 18,
-});
+const props = withDefaults(
+  defineProps<{
+    count: number;
+    height?: number;
+    /** Strokes from this count on are drawn as new (`tertiary`), the ones before as booked. */
+    newFrom?: number;
+  }>(),
+  { height: 18, newFrom: undefined },
+);
 
 /** Above this the numeral stands alone. */
 const MAX_STROKES = 25;
@@ -64,6 +70,9 @@ const width = computed(() => strokes.value.length * GAP + 2);
       v-for="(stroke, index) in strokes"
       :key="index"
       :data-stroke="stroke.kind"
+      :class="{
+        'tally-marks__new': newFrom !== undefined && index >= newFrom,
+      }"
       :x1="stroke.x1"
       :y1="stroke.y1"
       :x2="stroke.x2"
@@ -80,5 +89,9 @@ const width = computed(() => strokes.value.length * GAP + 2);
   stroke-width: 2.2;
   stroke-linecap: round;
   fill: none;
+}
+
+.tally-marks__new {
+  stroke: rgb(var(--v-theme-tertiary));
 }
 </style>

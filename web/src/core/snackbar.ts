@@ -1,3 +1,4 @@
+import { ApiProblem } from './api-client';
 import { readonly, shallowRef } from 'vue';
 
 export const SNACKBAR_TIMEOUT_MS = 8000;
@@ -49,4 +50,14 @@ export function dismissSnackbar(): void {
 
 export function useSnackbar() {
   return readonly(current);
+}
+
+/**
+Shows a failed request's problem title. Without an answer it stays quiet: the
+offline banner already says so, and the screen keeps its last data.
+*/
+export function showProblem(failure: unknown): void {
+  if (failure instanceof ApiProblem && failure.status !== 401) {
+    showSnackbar({ text: failure.title });
+  }
 }

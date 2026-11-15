@@ -39,11 +39,33 @@ export const routes: RouteRecordRaw[] = [
   },
   {
     path: '/zaehlen',
-    component: () => import('./features/zaehlen/ZaehlenPage.vue'),
+    component: () => import('./features/zaehlen/PersonStep.vue'),
     meta: {
       title: messages.navigation.zaehlen,
       destination: 'zaehlen',
       step: 1,
+    },
+  },
+  {
+    path: '/zaehlen/:personId(\\d+)',
+    component: () => import('./features/zaehlen/DrinkStep.vue'),
+    props: true,
+    meta: {
+      title: messages.navigation.zaehlen,
+      destination: 'zaehlen',
+      child: true,
+      step: 2,
+    },
+  },
+  {
+    path: '/zaehlen/:personId(\\d+)/:drinkId(\\d+)',
+    component: () => import('./features/zaehlen/QuantityStep.vue'),
+    props: true,
+    meta: {
+      title: messages.navigation.zaehlen,
+      destination: 'zaehlen',
+      child: true,
+      step: 3,
     },
   },
   {
@@ -59,6 +81,24 @@ export const routes: RouteRecordRaw[] = [
     path: '/verwalten',
     component: () => import('./features/verwalten/VerwaltenPage.vue'),
     meta: { title: messages.navigation.verwalten, destination: 'verwalten' },
+  },
+  {
+    path: '/verwalten/personen',
+    component: () => import('./features/verwalten/personen/PersonenPage.vue'),
+    meta: {
+      title: messages.personen.title,
+      destination: 'verwalten',
+      child: true,
+    },
+  },
+  {
+    path: '/verwalten/getraenke',
+    component: () => import('./features/verwalten/getraenke/GetraenkePage.vue'),
+    meta: {
+      title: messages.getraenke.title,
+      destination: 'verwalten',
+      child: true,
+    },
   },
   {
     path: '/verwalten/konten',

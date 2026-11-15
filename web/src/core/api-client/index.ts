@@ -2,6 +2,12 @@ import type { components, paths } from './schema';
 
 export type Health = components['schemas']['Health'];
 export type Account = components['schemas']['Account'];
+export type Person = components['schemas']['Person'];
+export type Drink = components['schemas']['Drink'];
+export type Entry = components['schemas']['Entry'];
+export type NewEntry = components['schemas']['NewEntry'];
+export type Scoreboard = components['schemas']['Scoreboard'];
+export type ScoreRow = components['schemas']['ScoreRow'];
 export type ApiPath = keyof paths;
 /** Field errors of a 422 problem, keyed by the API field name. */
 export type FieldErrors = Readonly<Record<string, string>>;
@@ -76,9 +82,21 @@ A body is sent as JSON; 204 resolves to `undefined`.
 */
 async function request<T>(
   path: ApiPath,
-  init: { method?: string; body?: unknown } = {},
+  init: {
+    method?: string;
+    body?: unknown;
+    /** Values of the path's `{placeholders}`. */
+    params?: Record<string, string>;
+    query?: Record<string, string>;
+  } = {},
 ): Promise<T> {
-  const url = `${import.meta.env.BASE_URL}${path.slice(1)}`;
+  const resolved = path.replace(/\{(\w+)\}/g, (_, name: string) =>
+    encodeURIComponent(init.params?.[name] ?? ''),
+  );
+  const query = init.query
+    ? `?${new URLSearchParams(init.query).toString()}`
+    : '';
+  const url = `${import.meta.env.BASE_URL}${resolved.slice(1)}${query}`;
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
   const response = await fetch(url, {
@@ -136,4 +154,48 @@ export function createAccount(
     method: 'POST',
     body: { userName, password },
   });
+}
+
+export async function listPersons(): Promise<Person[]> {
+  return (await request<{ persons: Person[] }>('/api/persons')).persons;
+}
+
+export function createPerson(name: string): Promise<Person> {
+  return request<Person>('/api/persons', { method: 'POST', body: { name } });
+}
+
+export async function listDrinks(): Promise<Drink[]> {
+  return (await request<{ drinks: Drink[] }>('/api/drinks')).drinks;
+}
+
+/** `points` is `null` when the input was no number; the API then answers with its field error. */
+export function createDrink(
+  name: string,
+  points: number | null,
+): Promise<Drink> {
+  return request<Drink>('/api/drinks', {
+    method: 'POST',
+    body: { name, points },
+  });
+}
+
+/** Adds an entry under its client id: repeating it with the same id never adds a second one. */
+export function putEntry(id: string, entry: NewEntry): Promise<Entry> {
+  return request<Entry>('/api/entries/{id}', {
+    method: 'PUT',
+    params: { id },
+    body: entry,
+  });
+}
+
+export function deleteEntry(id: string): Promise<void> {
+  return request<undefined>('/api/entries/{id}', {
+    method: 'DELETE',
+    params: { id },
+  });
+}
+
+/** Standings since `from`, the start of the viewer's day as a UTC instant. */
+export function getScoreboard(from: string): Promise<Scoreboard> {
+  return request<Scoreboard>('/api/scoreboard', { query: { from } });
 }

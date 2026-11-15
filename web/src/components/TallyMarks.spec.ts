@@ -37,4 +37,12 @@ describe('TallyMarks', () => {
   it('has the requested height', () => {
     expect(strokes(3, 30).find('svg').attributes('height')).toBe('30');
   });
+
+  it('marks the strokes from a given count on as new, the rest as booked', () => {
+    const wrapper = mount(TallyMarks, { props: { count: 6, newFrom: 4 } });
+
+    expect(
+      wrapper.findAll('[data-stroke]').map((stroke) => stroke.classes()),
+    ).toEqual([[], [], [], [], ['tally-marks__new'], ['tally-marks__new']]);
+  });
 });
