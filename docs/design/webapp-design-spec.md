@@ -314,7 +314,8 @@ disappears after the next successful refresh.
 ### 6.7 Update prompt and reload floor
 
 - **Update prompt:** a waiting service worker shows the snackbar `Neue Version verfügbar` with
-  `Neu laden`; the app never reloads on its own.
+  `Neu laden`; the app never reloads on its own. Unlike other snackbars it does not time out: it stays until
+  the user taps `Neu laden` or a newer snackbar replaces it.
 - **Reload floor:** when health reports a `minClientVersion` above the running client, a
   non-dismissable dialog `Bitte neu laden` — `Diese Version ist veraltet.` — with one button
   `Neu laden`.
@@ -461,6 +462,9 @@ the server.
 
 - Signed-in user name; `Passwort ändern` (dialog: current, new, repeat; minimum 10);
   `Abmelden`; app version and, in `support`, `Server: <app version>` from health.
+- At the top, the app name in the display face (`name-hero`) with a decorative row of tally
+  marks (30 dp, as on Anmelden). The version lines read `Version <app version>` (`row-title`) and
+  `Server: <app version>` (`support`), or `Server: nicht erreichbar` when health cannot be read.
 
 ## 8. Key flows
 
