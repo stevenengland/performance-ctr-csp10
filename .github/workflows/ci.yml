@@ -275,8 +275,13 @@ jobs:
       - name: Lighthouse (signed in on a sample evening, before the e2e data)
         # Uses the runner's Google Chrome (lighthouserc.json chromePath).
         run: npx lhci autorun
-      - run: npx playwright install --with-deps chromium
+      # Also after a Lighthouse failure, so the run still reports the e2e results;
+      # the job fails either way.
+      - name: Install Playwright's Chromium
+        if: ${{ !cancelled() }}
+        run: npx playwright install --with-deps chromium
       - name: Playwright e2e (CSP guard)
+        if: ${{ !cancelled() }}
         run: npx playwright test --project 'stack-*'
       - name: Stack logs
         if: failure()
