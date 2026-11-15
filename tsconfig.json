@@ -3,7 +3,7 @@
     "target": "ES2024",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2024", "DOM"],
+    "lib": ["ES2024", "ESNext.Iterator", "DOM"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
@@ -19,7 +19,9 @@
     "deploy/**/*.ts",
     "scripts/**/*.ts",
     "e2e/**/*.ts",
+    "tests/**/*.ts",
     "playwright.config.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "vitest.deploy.config.ts"
   ]
 }
