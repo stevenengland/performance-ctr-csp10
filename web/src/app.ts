@@ -2,7 +2,9 @@ import '@fontsource/big-shoulders-display/latin-700';
 import '@fontsource/big-shoulders-display/latin-900';
 import '@fontsource/hanken-grotesk/latin-400';
 import '@fontsource/hanken-grotesk/latin-600';
-import 'vuetify/styles';
+// Only Vuetify's layers and core: the app uses no utility or palette classes.
+import 'vuetify/styles/layers';
+import 'vuetify/styles/core';
 import './styles/app.css';
 import { createApp } from 'vue';
 import type { RouterHistory } from 'vue-router';
