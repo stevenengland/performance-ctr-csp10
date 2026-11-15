@@ -29,6 +29,29 @@ describe('renderHtaccess', () => {
     expect(text).toContain('Strict-Transport-Security "max-age=31536000"');
   });
 
+  it('decides the redirect on Apache variables only, so it ends once the host itself has answered on https', () => {
+    // Strato terminates TLS in Apache itself (the probe saw HTTPS set and no
+    // X-Forwarded-Proto) and already redirects plain HTTP; a request on the origin
+    // over https therefore matches neither condition and is never redirected again.
+    const conditions = renderHtaccess(https)
+      .split('\n')
+      .filter((line) => line.trimStart().startsWith('RewriteCond'))
+      .slice(0, 2);
+    expect(conditions.join('\n')).not.toMatch(/X-Forwarded|HTTP:/i);
+    expect(conditions).toEqual([
+      '  RewriteCond %{HTTP_HOST} !=performance.example.test [OR]',
+      '  RewriteCond %{HTTPS} !=on',
+    ]);
+  });
+
+  it('carries no mod_php directives, which make the host (PHP as FastCGI) answer 500', () => {
+    for (const policy of [http, https]) {
+      expect(renderHtaccess(policy)).not.toMatch(
+        /^\s*(php_value|php_flag|php_admin_value|php_admin_flag)\b|mod_php/im,
+      );
+    }
+  });
+
   it('sends every request below api/ to the PHP entry pointer', () => {
     expect(renderHtaccess(http)).toContain(
       '  RewriteRule ^api/ api/index.php [END]',
