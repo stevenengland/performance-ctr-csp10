@@ -10,6 +10,16 @@ export function formatNumber(value: number): string {
   return numberFormat.format(value);
 }
 
+const inputFormat = new Intl.NumberFormat('de-DE', {
+  maximumFractionDigits: 2,
+  useGrouping: false,
+});
+
+/** A decimal to prefill a field with: like `formatNumber` but without grouping, so `parseDecimal` reads it back. */
+export function formatDecimalInput(value: number): string {
+  return inputFormat.format(value);
+}
+
 /** `HH:mm` in the browser's time zone unless one is given. */
 export function formatTime(instant: Date, timeZone?: string): string {
   return new Intl.DateTimeFormat('de-DE', {

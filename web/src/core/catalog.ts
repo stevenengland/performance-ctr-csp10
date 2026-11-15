@@ -31,6 +31,30 @@ export async function createDrink(
   await loadDrinks();
 }
 
+export async function updatePerson(id: number, name: string): Promise<void> {
+  await api.updatePerson(id, name);
+  await loadPersons();
+}
+
+export async function deletePerson(id: number): Promise<void> {
+  await api.deletePerson(id);
+  await loadPersons();
+}
+
+export async function updateDrink(
+  id: number,
+  name: string,
+  points: number | null,
+): Promise<void> {
+  await api.updateDrink(id, name, points);
+  await loadDrinks();
+}
+
+export async function deleteDrink(id: number): Promise<void> {
+  await api.deleteDrink(id);
+  await loadDrinks();
+}
+
 export async function loadFactors(): Promise<void> {
   factors.value = await api.listFactors();
 }

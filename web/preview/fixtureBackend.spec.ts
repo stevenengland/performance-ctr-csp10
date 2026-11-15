@@ -5,9 +5,15 @@ import {
   createDrink,
   createFactor,
   createPerson,
+  deleteDrink,
   deleteEntry,
   deleteFactor,
+  deletePerson,
+  getDrink,
   getFactor,
+  getPerson,
+  updateDrink,
+  updatePerson,
   listFactors,
   updateFactor,
   getHealth,
@@ -289,5 +295,73 @@ describe('the fixture backend', () => {
     await expect(
       putEntry(id, { ...entry, factorId: null }),
     ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('renames and deletes persons with the API’s validation, their entries going with them', async () => {
+    installFixtureBackend(sampleEvening());
+    const daniel = (await listPersons()).find(({ name }) => name === 'Daniel');
+    if (!daniel) throw new Error('no Daniel');
+
+    await expect(updatePerson(daniel.id, 'anna')).rejects.toMatchObject({
+      status: 409,
+      title: 'Name ist bereits vergeben.',
+    });
+    await expect(updatePerson(daniel.id, ' ')).rejects.toMatchObject({
+      status: 422,
+      errors: { name: '1 bis 40 Zeichen.' },
+    });
+    await expect(updatePerson(daniel.id, ' Dani ')).resolves.toEqual({
+      id: daniel.id,
+      name: 'Dani',
+    });
+    expect((await standings(todayFrom())).rows[0]?.name).toBe('Dani');
+    const { entryCount } = await getPerson(daniel.id);
+    expect(entryCount).toBeGreaterThan(0);
+
+    await deletePerson(daniel.id);
+
+    expect((await listPersons()).map(({ name }) => name)).not.toContain('Dani');
+    expect((await standings(todayFrom())).rows.map(({ name }) => name)).toEqual(
+      ['Anna', 'Mara', 'Ben', 'Tom'],
+    );
+    await expect(getPerson(daniel.id)).rejects.toMatchObject({ status: 404 });
+    await expect(deletePerson(daniel.id)).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it('edits and deletes drinks with the API’s validation; points count at their current value', async () => {
+    installFixtureBackend(sampleEvening());
+
+    await expect(updateDrink(2, 'Wein', 1)).rejects.toMatchObject({
+      status: 409,
+    });
+    await expect(updateDrink(2, 'Bier', 10_000)).rejects.toMatchObject({
+      status: 422,
+      errors: { points: 'Zahl von 0 bis 9.999,99.' },
+    });
+    await expect(updateDrink(2, 'Helles', 2)).resolves.toEqual({
+      id: 2,
+      name: 'Helles',
+      points: 2,
+    });
+    const ben = (await standings(todayFrom())).rows.find(
+      ({ name }) => name === 'Ben',
+    );
+    expect(ben).toMatchObject({
+      score: 10,
+      drinks: [{ drinkId: 2, name: 'Helles', count: 5 }],
+    });
+    expect((await getDrink(2)).entryCount).toBeGreaterThan(0);
+
+    await deleteDrink(2);
+
+    expect((await listDrinks()).map(({ id }) => id)).not.toContain(2);
+    const rows = (await standings(todayFrom())).rows;
+    expect(rows.map(({ name }) => name)).not.toContain('Ben');
+    expect(
+      rows.flatMap(({ drinks }) => drinks.map(({ drinkId }) => drinkId)),
+    ).not.toContain(2);
+    await expect(getDrink(2)).rejects.toMatchObject({ status: 404 });
   });
 });

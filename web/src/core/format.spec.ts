@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatDecimalInput,
   formatMultiplier,
   formatNumber,
   formatPoints,
@@ -44,6 +45,19 @@ describe('de-DE formatting', () => {
   ])('shows multiplier %d as %s', (value, text) => {
     expect(formatMultiplier(value)).toBe(text);
   });
+
+  it.each([
+    [9999.99, '9999,99'],
+    [1000, '1000'],
+    [1.5, '1,5'],
+    [2, '2'],
+  ])(
+    'prefills a field with %d as %s, which reads back as the same number',
+    (value, text) => {
+      expect(formatDecimalInput(value)).toBe(text);
+      expect(parseDecimal(formatDecimalInput(value))).toBe(value);
+    },
+  );
 
   it.each([
     ['0,5', 0.5],

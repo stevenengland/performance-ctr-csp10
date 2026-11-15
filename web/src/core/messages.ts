@@ -79,16 +79,27 @@ export const messages = {
     drinks: 'Getränke',
     factors: 'Faktoren',
     accounts: 'Konten',
+    /** The counts on the hub (§7h); `formatted` is the count in `de-DE`. */
+    personCount: (formatted: string, count: number) =>
+      `${formatted} ${count === 1 ? 'Person' : 'Personen'}`,
+    drinkCount: (formatted: string, count: number) =>
+      `${formatted} ${count === 1 ? 'Getränk' : 'Getränke'}`,
+    factorCount: (formatted: string, count: number) =>
+      `${formatted} ${count === 1 ? 'Faktor' : 'Faktoren'}`,
+    accountCount: (formatted: string, count: number) =>
+      `${formatted} ${count === 1 ? 'Konto' : 'Konten'}`,
   },
   personen: {
     title: 'Personen',
     create: 'Person anlegen',
+    edit: 'Person bearbeiten',
     name: 'Name',
     empty: 'Noch keine Personen.',
   },
   getraenke: {
     title: 'Getränke',
     create: 'Getränk anlegen',
+    edit: 'Getränk bearbeiten',
     name: 'Name',
     points: 'Punkte',
     empty: 'Noch keine Getränke.',
@@ -100,14 +111,24 @@ export const messages = {
     name: 'Name',
     multiplier: 'Multiplikator',
     empty: 'Noch keine Faktoren.',
-    editLabel: (name: string) => `${name} bearbeiten`,
-    deleteLabel: (name: string) => `${name} löschen`,
+  },
+  /** The icon buttons of a row in Personen, Getränke and Faktoren (§7i). */
+  row: {
+    edit: (name: string) => `${name} bearbeiten`,
+    remove: (name: string) => `${name} löschen`,
   },
   /** Deleting master data (§6.9). */
   remove: {
     title: (name: string) => `${name} löschen?`,
     confirm: 'Löschen',
     done: (name: string) => `${name} gelöscht`,
+    /** A deleted person's or drink's entries go with it. */
+    cascadeBody: (name: string, entries: number) => {
+      if (entries === 0) return `${name} wird gelöscht.`;
+      const counted =
+        entries === 1 ? '1 Eintrag' : `${String(entries)} Einträge`;
+      return `${name} und ${counted} werden gelöscht.`;
+    },
     /** A deleted factor's entries stay and count ×1. */
     factorBody: (name: string, entries: number) => {
       if (entries === 0) return `${name} wird gelöscht.`;

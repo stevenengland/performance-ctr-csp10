@@ -94,6 +94,33 @@ test('the fixture preview manages its sample factors', async ({ page }) => {
   );
 });
 
+test('the fixture preview renames a drink and deletes a person with their entries', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verwalten');
+  await expect(page.getByRole('link', { name: /^Personen/ })).toContainText(
+    '6 Personen',
+  );
+  await page.getByRole('link', { name: /^Getränke/ }).click();
+  await page.getByRole('button', { name: 'Radler bearbeiten' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Name').fill('Alster');
+  await dialog.getByRole('button', { name: 'Speichern' }).click();
+  await expect(
+    page.getByRole('list', { name: 'Getränke' }).getByRole('listitem').first(),
+  ).toHaveText(/Alster\s*0,5 Punkte/);
+
+  await page.goto('/index.html#/verwalten/personen');
+  await page.getByRole('button', { name: 'Daniel löschen' }).click();
+  await expect(dialog).toContainText('Daniel und 5 Einträge werden gelöscht.');
+  await dialog.getByRole('button', { name: 'Löschen' }).click();
+  await expect(page.getByText('Daniel gelöscht')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Rangliste' }).click();
+  await expect(page.getByText('Anna', { exact: true })).toBeVisible();
+  await expect(page.getByText('Daniel', { exact: true })).toHaveCount(0);
+});
+
 test('the fixture preview ranks its sample evening on the Rangliste', async ({
   page,
 }) => {

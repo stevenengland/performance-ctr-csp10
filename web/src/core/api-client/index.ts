@@ -3,7 +3,9 @@ import type { components, paths } from './schema';
 export type Health = components['schemas']['Health'];
 export type Account = components['schemas']['Account'];
 export type Person = components['schemas']['Person'];
+export type PersonDetail = components['schemas']['PersonDetail'];
 export type Drink = components['schemas']['Drink'];
+export type DrinkDetail = components['schemas']['DrinkDetail'];
 export type Factor = components['schemas']['Factor'];
 export type FactorDetail = components['schemas']['FactorDetail'];
 export type Entry = components['schemas']['Entry'];
@@ -177,6 +179,29 @@ export function createPerson(name: string): Promise<Person> {
   return request<Person>('/api/persons', { method: 'POST', body: { name } });
 }
 
+/** A person with the number of their entries, for the delete dialog. */
+export function getPerson(id: number): Promise<PersonDetail> {
+  return request<PersonDetail>('/api/persons/{id}', {
+    params: { id: String(id) },
+  });
+}
+
+export function updatePerson(id: number, name: string): Promise<Person> {
+  return request<Person>('/api/persons/{id}', {
+    method: 'PATCH',
+    params: { id: String(id) },
+    body: { name },
+  });
+}
+
+/** Deletes the person and all of their entries. */
+export function deletePerson(id: number): Promise<void> {
+  return request<undefined>('/api/persons/{id}', {
+    method: 'DELETE',
+    params: { id: String(id) },
+  });
+}
+
 export async function listDrinks(): Promise<Drink[]> {
   return (await request<{ drinks: Drink[] }>('/api/drinks')).drinks;
 }
@@ -189,6 +214,34 @@ export function createDrink(
   return request<Drink>('/api/drinks', {
     method: 'POST',
     body: { name, points },
+  });
+}
+
+/** A drink with the number of its entries, for the delete dialog. */
+export function getDrink(id: number): Promise<DrinkDetail> {
+  return request<DrinkDetail>('/api/drinks/{id}', {
+    params: { id: String(id) },
+  });
+}
+
+/** `points` is `null` when the input was no number; the API then answers with its field error. */
+export function updateDrink(
+  id: number,
+  name: string,
+  points: number | null,
+): Promise<Drink> {
+  return request<Drink>('/api/drinks/{id}', {
+    method: 'PATCH',
+    params: { id: String(id) },
+    body: { name, points },
+  });
+}
+
+/** Deletes the drink and all of its entries. */
+export function deleteDrink(id: number): Promise<void> {
+  return request<undefined>('/api/drinks/{id}', {
+    method: 'DELETE',
+    params: { id: String(id) },
   });
 }
 

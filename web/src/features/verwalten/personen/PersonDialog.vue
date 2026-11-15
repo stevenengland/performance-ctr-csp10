@@ -2,29 +2,39 @@
 import { ref, watch } from 'vue';
 import AppDialog from '../../../components/AppDialog.vue';
 import AppTextField from '../../../components/AppTextField.vue';
-import { createPerson } from '../../../core/catalog';
+import type { Person } from '../../../core/api-client';
+import { createPerson, updatePerson } from '../../../core/catalog';
 import { useCreateForm } from '../../../core/create-form';
 import { messages } from '../../../core/messages';
 
-/** `Person anlegen` (§7i): a name; field errors and a taken name inline. */
+/** `Person anlegen` / `Person bearbeiten` (§7i): a name; field errors and a taken name inline. */
 const open = defineModel<boolean>({ required: true });
+const props = defineProps<{ person?: Readonly<Person> }>();
 
 const name = ref('');
 const { errors, busy, submit } = useCreateForm('name');
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
-  name.value = '';
+  name.value = props.person?.name ?? '';
   errors.value = {};
 });
 
 async function save() {
-  if (await submit(() => createPerson(name.value))) open.value = false;
+  const { person } = props;
+  const done = await submit(() =>
+    person ? updatePerson(person.id, name.value) : createPerson(name.value),
+  );
+  if (done) open.value = false;
 }
 </script>
 
 <template>
-  <AppDialog v-model="open" :title="messages.personen.create" @submit="save">
+  <AppDialog
+    v-model="open"
+    :title="person ? messages.personen.edit : messages.personen.create"
+    @submit="save"
+  >
     <AppTextField
       v-model="name"
       :label="messages.personen.name"

@@ -2,16 +2,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiProblem,
   createAccount,
+  deleteDrink,
   deleteEntry,
   deleteFactor,
+  deletePerson,
+  getDrink,
   getFactor,
   getHealth,
   getScoreboard,
+  getPerson,
   getSession,
   onUnauthorized,
   putEntry,
   signOut,
+  updateDrink,
   updateFactor,
+  updatePerson,
 } from './index';
 import type { Health } from './index';
 
@@ -227,6 +233,77 @@ describe('the API client', () => {
     await expect(deleteFactor(3)).resolves.toBeUndefined();
     expect(remove).toHaveBeenCalledWith(
       '/api/factors/3',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('reads a person with the entry count, renames and deletes the person at its id', async () => {
+    const detail = { id: 2, name: 'Daniel', entryCount: 23 };
+    const read = respond(detail, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    await expect(getPerson(2)).resolves.toEqual(detail);
+    expect(read).toHaveBeenCalledWith(
+      '/api/persons/2',
+      expect.objectContaining({ method: 'GET' }),
+    );
+
+    const rename = respond(
+      { id: 2, name: 'Dani' },
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+    await expect(updatePerson(2, 'Dani')).resolves.toEqual({
+      id: 2,
+      name: 'Dani',
+    });
+    expect(rename).toHaveBeenCalledWith(
+      '/api/persons/2',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ name: 'Dani' }),
+      }),
+    );
+
+    const remove = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', remove);
+    await expect(deletePerson(2)).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledWith(
+      '/api/persons/2',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('reads a drink with its entry count, edits it and deletes it at its id', async () => {
+    const detail = { id: 4, name: 'Bier', points: 1, entryCount: 12 };
+    const read = respond(detail, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    await expect(getDrink(4)).resolves.toEqual(detail);
+    expect(read).toHaveBeenCalledWith(
+      '/api/drinks/4',
+      expect.objectContaining({ method: 'GET' }),
+    );
+
+    const edit = respond(
+      { id: 4, name: 'Helles', points: 1.25 },
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+    await updateDrink(4, 'Helles', 1.25);
+    expect(edit).toHaveBeenCalledWith(
+      '/api/drinks/4',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ name: 'Helles', points: 1.25 }),
+      }),
+    );
+
+    const remove = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', remove);
+    await expect(deleteDrink(4)).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledWith(
+      '/api/drinks/4',
       expect.objectContaining({ method: 'DELETE' }),
     );
   });

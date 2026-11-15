@@ -1,18 +1,32 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, shallowRef } from 'vue';
 import { useRoute } from 'vue-router';
 import AppFab from '../../../components/AppFab.vue';
-import { loadPersons, usePersons } from '../../../core/catalog';
+import CatalogList from '../../../components/CatalogList.vue';
+import ConfirmDialog from '../../../components/ConfirmDialog.vue';
+import { getPerson, type Person } from '../../../core/api-client';
+import { deletePerson, loadPersons, usePersons } from '../../../core/catalog';
+import { useConfirmedDelete } from '../../../core/confirmed-delete';
 import { messages } from '../../../core/messages';
 import { showProblem } from '../../../core/snackbar';
-import CreatePersonDialog from './CreatePersonDialog.vue';
+import PersonDialog from './PersonDialog.vue';
 
-/** Skeleton rows while the list loads (§6.10). */
-const SKELETON_ROWS = 3;
-
+/**
+Verwalten → Personen (§7i): persons alphabetically, each renamable and
+deletable; deleting says how many entries go with the person (§6.9).
+*/
 const persons = usePersons();
 /** `?anlegen` opens the create dialog (the add flow's empty state links here). */
-const creating = ref(useRoute().query.anlegen !== undefined);
+const editing = ref(useRoute().query.anlegen !== undefined);
+/** The person in the dialog; none for `Person anlegen`. */
+const edited = shallowRef<Readonly<Person>>();
+const removal = useConfirmedDelete(getPerson, deletePerson, loadPersons);
+const { open: confirming, target: removing, busy } = removal;
+
+function openDialog(person?: Readonly<Person>) {
+  edited.value = person;
+  editing.value = true;
+}
 
 onMounted(() => {
   loadPersons().catch(showProblem);
@@ -21,20 +35,27 @@ onMounted(() => {
 
 <template>
   <section class="catalog-page">
-    <ul v-if="persons === undefined" class="list" aria-busy="true">
-      <li v-for="row in SKELETON_ROWS" :key="row" class="list__row">
-        <span class="skeleton" />
-      </li>
-    </ul>
-    <p v-else-if="persons.length === 0" class="type-body empty-state">
-      {{ messages.personen.empty }}
-    </p>
-    <ul v-else class="list" :aria-label="messages.personen.title">
-      <li v-for="person in persons" :key="person.id" class="list__row">
-        <span class="type-row-title list__main">{{ person.name }}</span>
-      </li>
-    </ul>
-    <AppFab :label="messages.personen.create" @click="creating = true" />
-    <CreatePersonDialog v-model="creating" />
+    <CatalogList
+      :items="persons"
+      :label="messages.personen.title"
+      :empty="messages.personen.empty"
+      @edit="openDialog"
+      @remove="removal.ask"
+    />
+    <AppFab :label="messages.personen.create" @click="openDialog()" />
+    <PersonDialog v-model="editing" :person="edited" />
+    <ConfirmDialog
+      v-model="confirming"
+      :title="messages.remove.title(removing?.name ?? '')"
+      :body="
+        messages.remove.cascadeBody(
+          removing?.name ?? '',
+          removing?.entryCount ?? 0,
+        )
+      "
+      :action="messages.remove.confirm"
+      :busy="busy"
+      @confirm="removal.confirm"
+    />
   </section>
 </template>

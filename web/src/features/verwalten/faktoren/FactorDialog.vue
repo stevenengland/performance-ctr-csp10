@@ -5,7 +5,7 @@ import AppTextField from '../../../components/AppTextField.vue';
 import type { Factor } from '../../../core/api-client';
 import { createFactor, updateFactor } from '../../../core/catalog';
 import { useCreateForm } from '../../../core/create-form';
-import { formatNumber, parseDecimal } from '../../../core/format';
+import { formatDecimalInput, parseDecimal } from '../../../core/format';
 import { messages } from '../../../core/messages';
 
 /**
@@ -23,7 +23,9 @@ const { errors, busy, submit } = useCreateForm('name');
 watch(open, (isOpen) => {
   if (!isOpen) return;
   name.value = props.factor?.name ?? '';
-  multiplier.value = props.factor ? formatNumber(props.factor.multiplier) : '';
+  multiplier.value = props.factor
+    ? formatDecimalInput(props.factor.multiplier)
+    : '';
   errors.value = {};
 });
 

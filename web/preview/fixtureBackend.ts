@@ -1,9 +1,4 @@
-import type {
-  Entry,
-  Factor,
-  ScoreRow,
-  Scoreboard,
-} from '../src/core/api-client';
+import type { Entry, ScoreRow, Scoreboard } from '../src/core/api-client';
 import type { components } from '../src/core/api-client/schema';
 import type { FixtureAccount, Fixtures } from './fixtures';
 
@@ -202,14 +197,16 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/factors/<n>`. */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/persons/<n>`, … */
 function routeOf(path: string): { route: string; id: string } {
   const entry = /^\/api\/entries\/([^/]+)$/.exec(path)?.[1];
   if (entry && ENTRY_ID.test(entry)) {
     return { route: '/api/entries/{id}', id: entry };
   }
-  const factor = /^\/api\/factors\/([1-9]\d*)$/.exec(path)?.[1];
-  if (factor) return { route: '/api/factors/{id}', id: factor };
+  const item = /^\/api\/(persons|drinks|factors)\/([1-9]\d*)$/.exec(path);
+  if (item?.[1] && item[2]) {
+    return { route: `/api/${item[1]}/{id}`, id: item[2] };
+  }
   return { route: path, id: '' };
 }
 
@@ -241,6 +238,65 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
 
   const nextId = (items: { id: number }[]) =>
     Math.max(0, ...items.map(({ id }) => id)) + 1;
+
+  /**
+  List, create, read (with the entry count of every day), edit and delete of one
+  catalog collection; `remove` does what the API's foreign key does to entries.
+  */
+  function catalogRoutes<T extends Named>(
+    collection: 'persons' | 'drinks' | 'factors',
+    list: () => T[],
+    create: (id: number) => T,
+    rules: {
+      field?: Field<T>;
+      uses: (entry: Entry, item: T) => boolean;
+      remove: (item: T) => void;
+    },
+  ): [string, Handler][] {
+    const path = `/api/${collection}`;
+    const find = (id: string) => list().find((item) => item.id === Number(id));
+    return [
+      [
+        `GET ${path}`,
+        guarded(() => json({ [collection]: [...list()].sort(byName) })),
+      ],
+      [
+        `POST ${path}`,
+        guarded((_me, body) =>
+          saveNamed(list(), create(nextId(list())), body, 201, rules.field),
+        ),
+      ],
+      [
+        `GET ${path}/{id}`,
+        guarded((_me, _body, { id }) => {
+          const item = find(id);
+          if (!item) return problem(PROBLEMS.notFound);
+          const entryCount = fixtures.entries.filter((entry) =>
+            rules.uses(entry, item),
+          ).length;
+          return json({ ...item, entryCount });
+        }),
+      ],
+      [
+        `PATCH ${path}/{id}`,
+        guarded((_me, body, { id }) => {
+          const item = find(id);
+          if (!item) return problem(PROBLEMS.notFound);
+          return saveNamed(list(), item, body, 200, rules.field);
+        }),
+      ],
+      [
+        `DELETE ${path}/{id}`,
+        guarded((_me, _body, { id }) => {
+          const item = find(id);
+          if (!item) return problem(PROBLEMS.notFound);
+          list().splice(list().indexOf(item), 1);
+          rules.remove(item);
+          return new Response(null, { status: 204 });
+        }),
+      ],
+    ];
+  }
 
   return new Map<string, Handler>([
     ['GET /api/health', () => json(fixtures.health)],
@@ -312,97 +368,48 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         return json(account, 201);
       }, true),
     ],
-    [
-      'GET /api/persons',
-      guarded(() => json({ persons: [...fixtures.persons].sort(byName) })),
-    ],
-    [
-      'POST /api/persons',
-      guarded((_me, body) => {
-        const name = text(body, 'name').trim();
-        const error = nameError(name);
-        if (error) return validation({ name: error });
-        if (fixtures.persons.some((person) => sameName(person.name, name))) {
-          return problem(PROBLEMS.duplicateName);
-        }
-        const person = { id: nextId(fixtures.persons), name };
-        fixtures.persons.push(person);
-        return json(person, 201);
-      }),
-    ],
-    [
-      'GET /api/drinks',
-      guarded(() => json({ drinks: [...fixtures.drinks].sort(byName) })),
-    ],
-    [
-      'POST /api/drinks',
-      guarded((_me, body) => {
-        const name = text(body, 'name').trim();
-        const errors: Record<string, string> = {};
-        const invalidName = nameError(name);
-        if (invalidName) errors.name = invalidName;
-        const invalidPoints = pointsError(body.points);
-        if (invalidPoints) errors.points = invalidPoints;
-        if (Object.keys(errors).length > 0) return validation(errors);
-        if (fixtures.drinks.some((drink) => sameName(drink.name, name))) {
-          return problem(PROBLEMS.duplicateName);
-        }
-        const drink = {
-          id: nextId(fixtures.drinks),
-          name,
-          points: body.points as number,
-        };
-        fixtures.drinks.push(drink);
-        return json(drink, 201);
-      }),
-    ],
-    [
-      'GET /api/factors',
-      guarded(() => json({ factors: [...fixtures.factors].sort(byName) })),
-    ],
-    [
-      'POST /api/factors',
-      guarded((_me, body) => {
-        const factor = {
-          id: nextId(fixtures.factors),
-          name: '',
-          multiplier: 0,
-        };
-        return saveFactor(fixtures, factor, body, 201);
-      }),
-    ],
-    [
-      'GET /api/factors/{id}',
-      guarded((_me, _body, { id }) => {
-        const factor = factorOf(fixtures, id);
-        if (!factor) return problem(PROBLEMS.notFound);
-        const entryCount = fixtures.entries.filter(
-          (entry) => entry.factorId === factor.id,
-        ).length;
-        return json({ ...factor, entryCount });
-      }),
-    ],
-    [
-      'PATCH /api/factors/{id}',
-      guarded((_me, body, { id }) => {
-        const factor = factorOf(fixtures, id);
-        if (!factor) return problem(PROBLEMS.notFound);
-        return saveFactor(fixtures, factor, body, 200);
-      }),
-    ],
-    [
-      'DELETE /api/factors/{id}',
-      guarded((_me, _body, { id }) => {
-        const factor = factorOf(fixtures, id);
-        if (!factor) return problem(PROBLEMS.notFound);
-        fixtures.factors.splice(fixtures.factors.indexOf(factor), 1);
+    ...catalogRoutes(
+      'persons',
+      () => fixtures.persons,
+      (id) => ({ id, name: '' }),
+      {
+        uses: (entry, person) => entry.personId === person.id,
+        // Like the foreign key: the person's entries go with them.
+        remove: (person) =>
+          (fixtures.entries = fixtures.entries.filter(
+            (entry) => entry.personId !== person.id,
+          )),
+      },
+    ),
+    ...catalogRoutes(
+      'drinks',
+      () => fixtures.drinks,
+      (id) => ({ id, name: '', points: 0 }),
+      {
+        field: { name: 'points', error: pointsError },
+        uses: (entry, drink) => entry.drinkId === drink.id,
+        // Like the foreign key: the drink's entries go with it.
+        remove: (drink) =>
+          (fixtures.entries = fixtures.entries.filter(
+            (entry) => entry.drinkId !== drink.id,
+          )),
+      },
+    ),
+    ...catalogRoutes(
+      'factors',
+      () => fixtures.factors,
+      (id) => ({ id, name: '', multiplier: 0 }),
+      {
+        field: { name: 'multiplier', error: multiplierError },
+        uses: (entry, factor) => entry.factorId === factor.id,
         // Like the foreign key: the factor's entries stay and count ×1.
-        for (const entry of fixtures.entries) {
-          if (entry.factorId === factor.id) entry.factorId = null;
-        }
-        return new Response(null, { status: 204 });
-      }),
-    ],
+        remove: (factor) => {
+          for (const entry of fixtures.entries) {
+            if (entry.factorId === factor.id) entry.factorId = null;
+          }
+        },
+      },
+    ),
     [
       'PUT /api/entries/{id}',
       guarded((_me, body, { id }) => putEntry(fixtures, id, body)),
@@ -436,32 +443,42 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
   ]);
 }
 
-function factorOf(fixtures: Fixtures, id: string): Factor | undefined {
-  return fixtures.factors.find((factor) => factor.id === Number(id));
+interface Named {
+  id: number;
+  name: string;
 }
 
-/** Creates or changes a factor with the API's validation; a new one has no name yet. */
-function saveFactor(
-  fixtures: Fixtures,
-  factor: Factor,
+/** A catalog field besides the name: drinks' `points`, factors' `multiplier`. */
+interface Field<T> {
+  name: keyof T & string;
+  error: (value: unknown) => string | undefined;
+}
+
+/** Creates or changes a catalog item with the API's validation; a new one is not in `list` yet. */
+function saveNamed<T extends Named>(
+  list: T[],
+  item: T,
   body: Body,
   status: 200 | 201,
+  field?: Field<T>,
 ): Response {
   const name = text(body, 'name').trim();
   const errors: Record<string, string> = {};
   const invalidName = nameError(name);
   if (invalidName) errors.name = invalidName;
-  const invalidMultiplier = multiplierError(body.multiplier);
-  if (invalidMultiplier) errors.multiplier = invalidMultiplier;
+  const invalidField = field?.error(body[field.name]);
+  if (field && invalidField) errors[field.name] = invalidField;
   if (Object.keys(errors).length > 0) return validation(errors);
-  const taken = fixtures.factors.some(
-    (other) => other.id !== factor.id && sameName(other.name, name),
+  const taken = list.some(
+    (other) => other.id !== item.id && sameName(other.name, name),
   );
   if (taken) return problem(PROBLEMS.duplicateName);
-  factor.name = name;
-  factor.multiplier = body.multiplier as number;
-  if (!fixtures.factors.includes(factor)) fixtures.factors.push(factor);
-  return json(factor, status);
+  Object.assign(
+    item,
+    field ? { name, [field.name]: body[field.name] } : { name },
+  );
+  if (!list.includes(item)) list.push(item);
+  return json(item, status);
 }
 
 /** Adds an entry idempotently on its id, like the API's EntryLedger. */

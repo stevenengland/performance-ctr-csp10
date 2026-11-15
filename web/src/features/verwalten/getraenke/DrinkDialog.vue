@@ -2,16 +2,19 @@
 import { ref, watch } from 'vue';
 import AppDialog from '../../../components/AppDialog.vue';
 import AppTextField from '../../../components/AppTextField.vue';
-import { createDrink } from '../../../core/catalog';
+import type { Drink } from '../../../core/api-client';
+import { createDrink, updateDrink } from '../../../core/catalog';
 import { useCreateForm } from '../../../core/create-form';
-import { parseDecimal } from '../../../core/format';
+import { formatDecimalInput, parseDecimal } from '../../../core/format';
 import { messages } from '../../../core/messages';
 
 /**
-`Getränk anlegen` (§7i): name and points with a decimal comma or point. Input that is
-no number goes to the server as such, which answers with the field error.
+`Getränk anlegen` / `Getränk bearbeiten` (§7i): name and points with a decimal
+comma or point. Input that is no number goes to the server as such, which
+answers with the field error.
 */
 const open = defineModel<boolean>({ required: true });
+const props = defineProps<{ drink?: Readonly<Drink> }>();
 
 const name = ref('');
 const points = ref('');
@@ -19,19 +22,29 @@ const { errors, busy, submit } = useCreateForm('name');
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
-  name.value = points.value = '';
+  name.value = props.drink?.name ?? '';
+  points.value = props.drink ? formatDecimalInput(props.drink.points) : '';
   errors.value = {};
 });
 
 async function save() {
-  if (await submit(() => createDrink(name.value, parseDecimal(points.value)))) {
-    open.value = false;
-  }
+  const value = parseDecimal(points.value);
+  const { drink } = props;
+  const done = await submit(() =>
+    drink
+      ? updateDrink(drink.id, name.value, value)
+      : createDrink(name.value, value),
+  );
+  if (done) open.value = false;
 }
 </script>
 
 <template>
-  <AppDialog v-model="open" :title="messages.getraenke.create" @submit="save">
+  <AppDialog
+    v-model="open"
+    :title="drink ? messages.getraenke.edit : messages.getraenke.create"
+    @submit="save"
+  >
     <AppTextField
       v-model="name"
       :label="messages.getraenke.name"
