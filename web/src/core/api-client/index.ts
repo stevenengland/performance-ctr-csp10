@@ -10,6 +10,7 @@ export type Factor = components['schemas']['Factor'];
 export type FactorDetail = components['schemas']['FactorDetail'];
 export type Entry = components['schemas']['Entry'];
 export type NewEntry = components['schemas']['NewEntry'];
+export type HistoryEntry = components['schemas']['HistoryEntry'];
 export type Scoreboard = components['schemas']['Scoreboard'];
 export type ScoreRow = components['schemas']['ScoreRow'];
 export type ApiPath = keyof paths;
@@ -293,6 +294,18 @@ export function putEntry(id: string, entry: NewEntry): Promise<Entry> {
     params: { id },
     body: entry,
   });
+}
+
+/** A person's entries since `from`, the start of the viewer's day as a UTC instant, newest first. */
+export async function listEntries(
+  personId: number,
+  from: string,
+): Promise<HistoryEntry[]> {
+  return (
+    await request<{ entries: HistoryEntry[] }>('/api/entries', {
+      query: { personId: String(personId), from },
+    })
+  ).entries;
 }
 
 export function deleteEntry(id: string): Promise<void> {

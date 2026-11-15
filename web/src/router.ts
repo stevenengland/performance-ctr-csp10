@@ -90,6 +90,17 @@ export const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/verlauf/:personId(\\d+)',
+    component: () => import('./features/verlauf/VerlaufPage.vue'),
+    props: true,
+    meta: {
+      title: messages.verlauf.title,
+      context: messages.topBar.today,
+      destination: 'rangliste',
+      child: true,
+    },
+  },
+  {
     path: '/verwalten',
     component: () => import('./features/verwalten/VerwaltenPage.vue'),
     meta: { title: messages.navigation.verwalten, destination: 'verwalten' },

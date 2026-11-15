@@ -57,6 +57,22 @@ describe('the route guard', () => {
     expect((await open('/rangliste')).path).toBe('/rangliste');
   });
 
+  it('opens a person’s Verlauf under the Rangliste, for today, and nothing for an id that is none', async () => {
+    signedInAs({ id: 2, userName: 'anna', isAdmin: false });
+
+    const verlauf = await open('/verlauf/3');
+    const notAnId = await open('/verlauf/daniel');
+
+    expect(verlauf.path).toBe('/verlauf/3');
+    expect(verlauf.params.personId).toBe('3');
+    expect(verlauf.meta).toMatchObject({
+      context: 'Heute',
+      destination: 'rangliste',
+      child: true,
+    });
+    expect(notAnId.path).toBe('/zaehlen');
+  });
+
   it('keeps Konten to admins', async () => {
     signedInAs({ id: 2, userName: 'anna', isAdmin: false });
     expect((await open('/verwalten/konten')).path).toBe('/verwalten');

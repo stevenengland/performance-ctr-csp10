@@ -12,6 +12,7 @@ import {
   getScoreboard,
   getPerson,
   getSession,
+  listEntries,
   onUnauthorized,
   putEntry,
   signOut,
@@ -200,6 +201,31 @@ describe('the API client', () => {
     expect(remove).toHaveBeenCalledWith(
       `/api/entries/${entry.id}`,
       expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('lists a person’s entries since an instant', async () => {
+    const entries = [
+      {
+        id: '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5',
+        drink: { id: 2, name: 'Bier' },
+        quantity: 2,
+        factor: null,
+        createdAt: '2026-11-14T23:41:00.000Z',
+        accountName: null,
+      },
+    ];
+    const fetch = respond(
+      { entries },
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+    await expect(listEntries(3, '2026-11-14T23:00:00.000Z')).resolves.toEqual(
+      entries,
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/entries?personId=3&from=2026-11-14T23%3A00%3A00.000Z',
+      expect.objectContaining({ method: 'GET' }),
     );
   });
 

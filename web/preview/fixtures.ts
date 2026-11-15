@@ -14,6 +14,11 @@ export interface FixtureAccount {
   password: string;
 }
 
+/** An entry with the account that logged it (`null` once that account is deleted), as the database keeps it. */
+export interface FixtureEntry extends Entry {
+  accountId: number | null;
+}
+
 /** Canned answers of the fixture preview; typed against the generated API types. */
 export interface Fixtures {
   health: Health;
@@ -23,7 +28,7 @@ export interface Fixtures {
   persons: Person[];
   drinks: Drink[];
   factors: Factor[];
-  entries: Entry[];
+  entries: FixtureEntry[];
   /** Fingerprints of every entry id ever put, so a replay never recreates an undone entry. */
   entryRequests: Map<string, string>;
 }
@@ -48,21 +53,24 @@ const FACTORS: [string, number][] = [
   ['Geburtstag', 1.5],
   ['Happy Hour', 2],
 ];
-/** Tonight so far: person, drink, quantity and factor — in the order they were logged. */
-const LOG: [string, string, number, string?][] = [
-  ['Anna', 'Wein', 1],
-  ['Daniel', 'Bier', 2],
-  ['Mara', 'Aperol', 2],
-  ['Ben', 'Bier', 1],
-  ['Anna', 'Bier', 3],
-  ['Daniel', 'Margarita', 1],
-  ['Tom', 'Radler', 1],
-  ['Daniel', 'Schnaps', 2, 'Geburtstag'],
-  ['Ben', 'Bier', 2, 'Happy Hour'],
-  ['Mara', 'Bier', 2],
-  ['Anna', 'Wein', 2],
-  ['Daniel', 'Aperol', 1],
-  ['Daniel', 'Bier', 2],
+/**
+Tonight so far: person, drink, quantity, factor and the logging account — in the
+order they were logged. One account was deleted since (`null`).
+*/
+const LOG: [string, string, number, string | null, string | null][] = [
+  ['Anna', 'Wein', 1, null, 'anna'],
+  ['Daniel', 'Bier', 2, null, 'ben'],
+  ['Mara', 'Aperol', 2, null, 'mara'],
+  ['Ben', 'Bier', 1, null, 'ben'],
+  ['Anna', 'Bier', 3, null, 'anna'],
+  ['Daniel', 'Margarita', 1, null, 'daniel'],
+  ['Tom', 'Radler', 1, null, 'mara'],
+  ['Daniel', 'Schnaps', 2, 'Geburtstag', null],
+  ['Ben', 'Bier', 2, 'Happy Hour', 'anna'],
+  ['Mara', 'Bier', 2, null, 'mara'],
+  ['Anna', 'Wein', 2, null, 'ben'],
+  ['Daniel', 'Aperol', 1, null, 'anna'],
+  ['Daniel', 'Bier', 2, null, 'anna'],
 ];
 
 /**
@@ -74,17 +82,22 @@ function sampleEntries(
   persons: Person[],
   drinks: Drink[],
   factors: Factor[],
-): Entry[] {
+  accounts: FixtureAccount[],
+): FixtureEntry[] {
   const midnight = startOfToday(now).getTime();
   const span = now.getTime() - midnight;
   const idOf = (list: { id: number; name: string }[], name: string) =>
     list.find((item) => item.name === name)?.id ?? 0;
-  return LOG.map(([person, drink, quantity, factor], index) => ({
+  const accountOf = (userName: string | null) =>
+    accounts.find(({ account }) => account.userName === userName)?.account.id ??
+    null;
+  return LOG.map(([person, drink, quantity, factor, account], index) => ({
     id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
     personId: idOf(persons, person),
     drinkId: idOf(drinks, drink),
     quantity,
-    factorId: factor === undefined ? null : idOf(factors, factor),
+    factorId: factor === null ? null : idOf(factors, factor),
+    accountId: accountOf(account),
     createdAt: new Date(
       midnight + Math.floor((span * (index + 1)) / (LOG.length + 1)),
     ).toISOString(),
@@ -104,7 +117,13 @@ export function sampleEvening(now: Date = new Date()): Fixtures {
     name,
     multiplier,
   }));
-  const entries = sampleEntries(now, persons, drinks, factors);
+  const accounts = [
+    sample(1, 'anna', true),
+    sample(2, 'ben'),
+    sample(3, 'daniel'),
+    sample(4, 'mara'),
+  ];
+  const entries = sampleEntries(now, persons, drinks, factors, accounts);
   return {
     health: {
       appVersion: `${__APP_VERSION__} (Vorschau)`,
@@ -114,12 +133,7 @@ export function sampleEvening(now: Date = new Date()): Fixtures {
       migration: 'ok',
       minClientVersion: '0.1.0',
     },
-    accounts: [
-      sample(1, 'anna', true),
-      sample(2, 'ben'),
-      sample(3, 'daniel'),
-      sample(4, 'mara'),
-    ],
+    accounts,
     signedIn: 1,
     persons,
     drinks,

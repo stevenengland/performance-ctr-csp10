@@ -33,9 +33,9 @@ async function addEntry(
   expect(response.status()).toBe(201);
 }
 
-/** A person's place on the Rangliste: the leader card or a row, named `Platz n, <name>, …`. */
+/** A person's place on the Rangliste: the leader card or a row, a link named `Platz n, <name>, …`. */
 function place(page: Page, name: string) {
-  return page.getByRole('listitem', {
+  return page.getByRole('link', {
     name: new RegExp(`^Platz \\d+, ${name},`),
   });
 }

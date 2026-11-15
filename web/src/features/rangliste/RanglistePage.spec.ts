@@ -83,6 +83,11 @@ async function rangliste() {
         component: { render: () => null },
         meta: { title: 'Konto' },
       },
+      {
+        path: '/verlauf/:personId',
+        component: { render: () => null },
+        meta: { title: 'Verlauf' },
+      },
     ],
   });
   await router.push('/rangliste');
@@ -134,6 +139,21 @@ describe('the Rangliste', () => {
     expect(rows[1]?.text()).toContain('0,5');
     expect(rows[0]?.text()).toContain('Bier 3 · Wein 3');
     expect(wrapper.text()).not.toContain('Stand');
+  });
+
+  it('opens a person’s Verlauf from the leader card and from each row', async () => {
+    api(answer(evening));
+
+    wrapper = await rangliste();
+
+    const places = wrapper
+      .findAll('ol[aria-label="Rangliste"] > li > a')
+      .map((link) => [link.attributes('href'), link.attributes('aria-label')]);
+    expect(places).toEqual([
+      ['/verlauf/3', 'Platz 1, Daniel, 13,5 Punkte, 9 Getränke'],
+      ['/verlauf/1', 'Platz 2, Anna, 9 Punkte, 6 Getränke'],
+      ['/verlauf/6', 'Platz 3, Tom, 0,5 Punkte, 1 Getränk'],
+    ]);
   });
 
   it('says so when nobody drank today and offers Zählen', async () => {

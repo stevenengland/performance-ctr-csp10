@@ -19,6 +19,7 @@ import {
   getHealth,
   getScoreboard,
   listDrinks,
+  listEntries,
   listPersons,
   putEntry,
   getSession,
@@ -209,6 +210,71 @@ describe('the fixture backend', () => {
     ).rejects.toMatchObject({
       status: 422,
       errors: { personId: 'Person nicht gefunden.' },
+    });
+  });
+
+  it('lists a person’s entries since from, newest first, with drink, factor and account', async () => {
+    installFixtureBackend(sampleEvening());
+
+    const daniel = await listEntries(3, todayFrom());
+
+    expect(
+      daniel.map(({ quantity, drink, factor, accountName }) => [
+        `${String(quantity)}× ${drink.name}`,
+        factor?.name ?? null,
+        accountName,
+      ]),
+    ).toEqual([
+      ['2× Bier', null, 'anna'],
+      ['1× Aperol', null, 'anna'],
+      ['2× Schnaps', 'Geburtstag', null],
+      ['1× Margarita', null, 'daniel'],
+      ['2× Bier', null, 'ben'],
+    ]);
+    expect(daniel[2]?.factor).toEqual({
+      id: 1,
+      name: 'Geburtstag',
+      multiplier: 1.5,
+    });
+    const times = daniel.map(({ createdAt }) => createdAt);
+    expect(times).toEqual([...times].sort().reverse());
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await expect(listEntries(3, tomorrow)).resolves.toEqual([]);
+  });
+
+  it('records the signed-in account with a new entry and forgets a deleted one, like the API', async () => {
+    installFixtureBackend(sampleEvening());
+    const id = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e8';
+
+    const added = await putEntry(id, { personId: 4, drinkId: 2, quantity: 1 });
+    const [jule] = await listEntries(4, todayFrom());
+    await deleteEntry(id);
+
+    expect(Object.keys(added).sort()).toEqual([
+      'createdAt',
+      'drinkId',
+      'factorId',
+      'id',
+      'personId',
+      'quantity',
+    ]);
+    expect(jule).toMatchObject({ id, accountName: 'anna', factor: null });
+    await expect(listEntries(4, todayFrom())).resolves.toEqual([]);
+  });
+
+  it('refuses an entry list for an unknown person, a malformed person id or instant', async () => {
+    installFixtureBackend(sampleEvening());
+
+    await expect(listEntries(99, todayFrom())).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(listEntries(0, todayFrom())).rejects.toMatchObject({
+      status: 422,
+      errors: { personId: 'Person nicht gefunden.' },
+    });
+    await expect(listEntries(3, 'gestern')).rejects.toMatchObject({
+      status: 422,
+      errors: { from: 'Zeitpunkt nach ISO 8601 mit Zeitzone.' },
     });
   });
 

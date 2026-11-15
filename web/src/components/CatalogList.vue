@@ -5,13 +5,15 @@ import { messages } from '../core/messages';
 /**
 A master-data list (design spec §7i): skeleton rows while `items` is undefined,
 the empty sentence for none, and otherwise a row per item with its name, an
-optional supporting line and trailing edit and delete icon buttons.
+optional supporting line and trailing edit and delete icon buttons. With `link`,
+the name opens the item's own screen (a person's Verlauf).
 */
 defineProps<{
   items: readonly T[] | undefined;
   label: string;
   empty: string;
   support?: (item: T) => string;
+  link?: (item: T) => { to: string; label: string };
 }>();
 const emit = defineEmits<{ edit: [item: T]; remove: [item: T] }>();
 
@@ -30,7 +32,15 @@ const SKELETON_ROWS = 3;
   </p>
   <ul v-else class="list" :aria-label="label">
     <li v-for="item in items" :key="item.id" class="list__row">
-      <span class="list__main">
+      <RouterLink
+        v-if="link"
+        :to="link(item).to"
+        :aria-label="link(item).label"
+        class="list__main list__link"
+      >
+        <span class="type-row-title list__title">{{ item.name }}</span>
+      </RouterLink>
+      <span v-else class="list__main">
         <span class="type-row-title list__title">{{ item.name }}</span>
         <span v-if="support" class="type-support list__support">{{
           support(item)

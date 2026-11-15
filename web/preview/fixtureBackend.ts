@@ -1,6 +1,11 @@
-import type { Entry, ScoreRow, Scoreboard } from '../src/core/api-client';
+import type {
+  Entry,
+  HistoryEntry,
+  ScoreRow,
+  Scoreboard,
+} from '../src/core/api-client';
 import type { components } from '../src/core/api-client/schema';
-import type { FixtureAccount, Fixtures } from './fixtures';
+import type { FixtureAccount, FixtureEntry, Fixtures } from './fixtures';
 
 type Problem = components['schemas']['Problem'];
 type Body = Record<string, unknown>;
@@ -78,6 +83,8 @@ const MAX_NAME = 40;
 const MAX_POINTS = 9999.99;
 const MAX_MULTIPLIER = 99.99;
 const MAX_QUANTITY = 99;
+/** A positive integer id in a query, as the API's routes accept it. */
+const QUERY_ID = /^[1-9]\d{0,9}$/;
 const ENTRY_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -175,6 +182,46 @@ function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
       }))
       .sort((a, b) => b.score - a.score || byName(a, b)),
   };
+}
+
+/** A person's entries since `from`, newest first, like the API's EntryLedger. */
+function history(
+  fixtures: Fixtures,
+  personId: number,
+  from: Date,
+): HistoryEntry[] {
+  return fixtures.entries
+    .filter(
+      (entry) =>
+        entry.personId === personId && new Date(entry.createdAt) >= from,
+    )
+    .sort(
+      (a, b) =>
+        b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+    )
+    .map((entry) => {
+      const drink = fixtures.drinks.find(({ id }) => id === entry.drinkId);
+      const factor = fixtures.factors.find(({ id }) => id === entry.factorId);
+      const account = fixtures.accounts.find(
+        ({ account }) => account.id === entry.accountId,
+      );
+      return {
+        id: entry.id,
+        drink: { id: entry.drinkId, name: drink?.name ?? '' },
+        quantity: entry.quantity,
+        factor: factor
+          ? { id: factor.id, name: factor.name, multiplier: factor.multiplier }
+          : null,
+        createdAt: entry.createdAt,
+        accountName: account?.account.userName ?? null,
+      };
+    });
+}
+
+/** An entry as the API answers it, without what only the database keeps. */
+function entryOf(entry: FixtureEntry): Entry {
+  const { id, personId, drinkId, quantity, factorId, createdAt } = entry;
+  return { id, personId, drinkId, quantity, factorId, createdAt };
 }
 
 function passwordError(password: string): string | undefined {
@@ -411,8 +458,28 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       },
     ),
     [
+      'GET /api/entries',
+      guarded((_me, _body, { query }) => {
+        const personId = query.get('personId') ?? '';
+        if (!QUERY_ID.test(personId)) {
+          return validation({ personId: 'Person nicht gefunden.' });
+        }
+        const from = new Date(query.get('from') ?? '');
+        if (Number.isNaN(from.getTime())) {
+          return validation({ from: 'Zeitpunkt nach ISO 8601 mit Zeitzone.' });
+        }
+        const id = Number(personId);
+        if (!fixtures.persons.some((person) => person.id === id)) {
+          return problem(PROBLEMS.notFound);
+        }
+        return json({ entries: history(fixtures, id, from) });
+      }),
+    ],
+    [
       'PUT /api/entries/{id}',
-      guarded((_me, body, { id }) => putEntry(fixtures, id, body)),
+      guarded((me, body, { id }) =>
+        putEntry(fixtures, id, body, me.account.id),
+      ),
     ],
     [
       'DELETE /api/entries/{id}',
@@ -481,8 +548,13 @@ function saveNamed<T extends Named>(
   return json(item, status);
 }
 
-/** Adds an entry idempotently on its id, like the API's EntryLedger. */
-function putEntry(fixtures: Fixtures, id: string, body: Body): Response {
+/** Adds an entry idempotently on its id, like the API's EntryLedger, recording the account. */
+function putEntry(
+  fixtures: Fixtures,
+  id: string,
+  body: Body,
+  accountId: number,
+): Response {
   const quantity = integer(body, 'quantity');
   if (quantity === undefined || quantity < 1 || quantity > MAX_QUANTITY) {
     return validation({ quantity: `1 bis ${String(MAX_QUANTITY)}.` });
@@ -500,7 +572,9 @@ function putEntry(fixtures: Fixtures, id: string, body: Body): Response {
     if (known !== fingerprint) return problem(PROBLEMS.entryConflict);
     const entry = fixtures.entries.find((candidate) => candidate.id === id);
     return json(
-      entry ?? { id, personId, drinkId, quantity, factorId, createdAt: '' },
+      entry
+        ? entryOf(entry)
+        : { id, personId, drinkId, quantity, factorId, createdAt: '' },
     );
   }
   const errors: Record<string, string> = {};
@@ -517,17 +591,18 @@ function putEntry(fixtures: Fixtures, id: string, body: Body): Response {
     errors.factorId = 'Faktor nicht gefunden.';
   }
   if (Object.keys(errors).length > 0) return validation(errors);
-  const entry: Entry = {
+  const entry: FixtureEntry = {
     id,
     personId: personId ?? 0,
     drinkId: drinkId ?? 0,
     quantity,
     factorId,
     createdAt: new Date().toISOString(),
+    accountId,
   };
   fixtures.entryRequests.set(id, fingerprint);
   fixtures.entries.push(entry);
-  return json(entry, 201);
+  return json(entryOf(entry), 201);
 }
 
 async function bodyOf(

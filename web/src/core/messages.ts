@@ -70,6 +70,26 @@ export const messages = {
     label: (rank: number, name: string, points: string, drinks: string) =>
       `Platz ${String(rank)}, ${name}, ${points}, ${drinks}`,
   },
+  verlauf: {
+    title: 'Verlauf',
+    /** The list's accessible name: `Einträge von Daniel`. */
+    list: (person: string) => `Einträge von ${person}`,
+    empty: 'Heute keine Einträge.',
+    /** The logging account once it is deleted. */
+    deletedAccount: 'gelöschtes Konto',
+    /** A row's supporting line: `Happy Hour ×2 · 23:41 · anna`. */
+    details: (factor: string, time: string, account: string) =>
+      `${factor} · ${time} · ${account}`,
+    /** The delete icon button: `2× Bier um 23:41 löschen`. */
+    remove: (entry: string, time: string) => `${entry} um ${time} löschen`,
+    removeTitle: 'Eintrag löschen?',
+    /** The dialog body (§6.9): `2× Bier · Happy Hour ×2 um 23:41`, without the factor part for none. */
+    removeBody: (entry: string, time: string, factor?: string) =>
+      `${factor === undefined ? entry : `${entry} · ${factor}`} um ${time}`,
+    removed: 'Eintrag gelöscht',
+    /** The link from a person's row under Personen: `Verlauf von Daniel`. */
+    open: (person: string) => `Verlauf von ${person}`,
+  },
   /** The time of the last successful refresh while the latest one failed (§6.6). */
   stand: (time: string) => `Stand: ${time}`,
   /** A 503 with `Retry-After`: a migration is running (§6.8). */

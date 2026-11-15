@@ -35,7 +35,10 @@ const bare = computed(() => route.meta.public === true);
         <AppTopBar />
         <OfflineBanner v-if="!online" />
         <main class="shell__content">
-          <RouterView />
+          <!-- A new path is a new screen, also for another person's Verlauf. -->
+          <RouterView v-slot="{ Component, route: shown }">
+            <component :is="Component" :key="shown.path" />
+          </RouterView>
         </main>
       </div>
       <AppNavigation v-if="compact" variant="bar" />

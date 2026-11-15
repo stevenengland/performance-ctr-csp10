@@ -46,6 +46,16 @@ describe('Verwalten → Personen', () => {
     expect(buttonIn(document, 'Daniel löschen')).toBeTruthy();
   });
 
+  it('opens a person’s Verlauf from their row', async () => {
+    api([{ id: 2, name: 'Daniel' }]);
+
+    wrapper = await page();
+
+    const link = wrapper.get('a[aria-label="Verlauf von Daniel"]');
+    expect(link.attributes('href')).toBe('/verlauf/2');
+    expect(link.text()).toBe('Daniel');
+  });
+
   it('creates a person', async () => {
     const calls = api([]);
     wrapper = await page();

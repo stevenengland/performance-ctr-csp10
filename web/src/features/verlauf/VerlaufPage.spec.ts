@@ -1,0 +1,272 @@
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defineComponent, h } from 'vue';
+import {
+  createMemoryHistory,
+  createRouter,
+  RouterView,
+  type Router,
+} from 'vue-router';
+import AppTopBar from '../../components/AppTopBar.vue';
+import type { HistoryEntry, Person } from '../../core/api-client';
+import { dismissSnackbar, useSnackbar } from '../../core/snackbar';
+import { createAppVuetify } from '../../theme';
+import {
+  buttonIn,
+  click,
+  dialog,
+  json,
+  problem,
+  stubDialogEnvironment,
+} from '../verwalten/manage-page-harness';
+import VerlaufPage from './VerlaufPage.vue';
+
+const persons: Person[] = [
+  { id: 1, name: 'Anna' },
+  { id: 3, name: 'Daniel' },
+];
+
+/** Daniel's evening, newest first, as the API sends it. */
+function evening(): HistoryEntry[] {
+  return [
+    {
+      id: 'e3',
+      drink: { id: 2, name: 'Bier' },
+      quantity: 2,
+      factor: { id: 1, name: 'Happy Hour', multiplier: 2 },
+      createdAt: '2026-11-15T22:41:00.000Z',
+      accountName: 'anna',
+    },
+    {
+      id: 'e2',
+      drink: { id: 3, name: 'Margarita' },
+      quantity: 1,
+      factor: null,
+      createdAt: '2026-11-15T21:58:00.000Z',
+      accountName: 'daniel',
+    },
+    {
+      id: 'e1',
+      drink: { id: 4, name: 'Schnaps' },
+      quantity: 2,
+      factor: null,
+      createdAt: '2026-11-15T21:10:00.000Z',
+      accountName: null,
+    },
+  ];
+}
+
+interface Call {
+  method: string;
+  url: string;
+}
+
+/** A fake API: persons, the person's entries (deletes remove them) and the scoreboard. */
+function api(
+  entries: HistoryEntry[],
+  { deleteReply }: { deleteReply?: () => Response } = {},
+) {
+  const calls: Call[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init: RequestInit) => {
+      const method = init.method ?? 'GET';
+      calls.push({ method, url });
+      if (url === '/api/persons') return json({ persons });
+      if (url.startsWith('/api/scoreboard')) return json({ rows: [] });
+      if (url.startsWith('/api/entries?')) {
+        const personId = new URL(url, 'http://app').searchParams.get(
+          'personId',
+        );
+        return personId === '3'
+          ? json({ entries })
+          : problem(404, { title: 'Nicht gefunden.' });
+      }
+      if (method === 'DELETE') {
+        if (deleteReply) return deleteReply();
+        const id = url.split('/').pop();
+        entries.splice(
+          entries.findIndex((entry) => entry.id === id),
+          1,
+        );
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`unexpected ${method} ${url}`);
+    }),
+  );
+  return calls;
+}
+
+let router: Router;
+
+/** Verlauf in the shell's top bar, opened from the Rangliste. */
+async function verlauf(personId: number): Promise<VueWrapper> {
+  router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      {
+        path: '/verlauf/:personId(\\d+)',
+        component: VerlaufPage,
+        props: true,
+        meta: {
+          title: 'Verlauf',
+          context: 'Heute',
+          destination: 'rangliste',
+          child: true,
+        },
+      },
+      {
+        path: '/rangliste',
+        component: { render: () => null },
+        meta: { title: 'Rangliste' },
+      },
+      {
+        path: '/konto',
+        component: { render: () => null },
+        meta: { title: 'Konto' },
+      },
+    ],
+  });
+  await router.push('/rangliste');
+  await router.push(`/verlauf/${String(personId)}`);
+  const shell = defineComponent(() => () => [h(AppTopBar), h(RouterView)]);
+  const wrapper = mount(shell, {
+    global: { plugins: [router, createAppVuetify()] },
+    attachTo: document.body,
+  });
+  await flushPromises();
+  return wrapper;
+}
+
+const rows = (wrapper: VueWrapper) =>
+  wrapper.findAll('[data-test="entry"]').map((row) => row.text());
+
+describe('Verlauf', () => {
+  const zone = process.env.TZ;
+  let wrapper: VueWrapper | undefined;
+
+  beforeEach(() => {
+    process.env.TZ = 'Europe/Berlin';
+    vi.useFakeTimers({
+      now: new Date('2026-11-15T22:45:00Z'),
+      toFake: ['Date'],
+    });
+    dismissSnackbar();
+    stubDialogEnvironment();
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    document.body.innerHTML = '';
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    process.env.TZ = zone;
+  });
+
+  it('shows the person’s entries since local midnight, newest first, with drink, quantity, factor, local time and account', async () => {
+    const calls = api(evening());
+
+    wrapper = await verlauf(3);
+
+    expect(wrapper.get('h1').text()).toBe('Daniel');
+    expect(wrapper.get('.top-bar__context').text()).toBe('Heute');
+    expect(calls).toContainEqual({
+      method: 'GET',
+      url: '/api/entries?personId=3&from=2026-11-14T23%3A00%3A00.000Z',
+    });
+    expect(rows(wrapper)).toEqual([
+      '2× BierHappy Hour ×2 · 23:41 · anna',
+      '1× MargaritaKein Faktor · 22:58 · daniel',
+      '2× SchnapsKein Faktor · 22:10 · gelöschtes Konto',
+    ]);
+    expect(wrapper.find('ul[aria-label="Einträge von Daniel"]').exists()).toBe(
+      true,
+    );
+  });
+
+  it('says so when the person has no entries today', async () => {
+    api([]);
+
+    wrapper = await verlauf(3);
+
+    expect(wrapper.text()).toContain('Heute keine Einträge.');
+    expect(wrapper.findAll('[data-test="entry"]')).toHaveLength(0);
+  });
+
+  it('deletes an entry after the confirmation dialog and refreshes the scoreboard', async () => {
+    const calls = api(evening());
+    wrapper = await verlauf(3);
+
+    await click(buttonIn(document, '2× Bier um 23:41 löschen'));
+    expect(dialog().querySelector('h2')?.textContent).toBe('Eintrag löschen?');
+    expect(dialog().textContent).toContain('2× Bier · Happy Hour ×2 um 23:41');
+    await click(buttonIn(dialog(), 'Löschen'));
+
+    expect(calls).toContainEqual({ method: 'DELETE', url: '/api/entries/e3' });
+    expect(rows(wrapper)).toEqual([
+      '1× MargaritaKein Faktor · 22:58 · daniel',
+      '2× SchnapsKein Faktor · 22:10 · gelöschtes Konto',
+    ]);
+    expect(useSnackbar().value?.text).toBe('Eintrag gelöscht');
+    expect(calls.some(({ url }) => url.startsWith('/api/scoreboard'))).toBe(
+      true,
+    );
+  });
+
+  it('names an entry without a factor in the dialog by drink and time only', async () => {
+    api(evening());
+    wrapper = await verlauf(3);
+
+    await click(buttonIn(document, '1× Margarita um 22:58 löschen'));
+
+    expect(dialog().textContent).toContain('1× Margarita um 22:58');
+    expect(dialog().textContent).not.toContain('Kein Faktor');
+  });
+
+  it('keeps the entry when the dialog is cancelled', async () => {
+    const calls = api(evening());
+    wrapper = await verlauf(3);
+
+    await click(buttonIn(document, '2× Bier um 23:41 löschen'));
+    await click(buttonIn(dialog(), 'Abbrechen'));
+
+    expect(calls.some(({ method }) => method === 'DELETE')).toBe(false);
+    expect(rows(wrapper)).toHaveLength(3);
+  });
+
+  it('treats an entry deleted meanwhile on another phone as deleted', async () => {
+    api(evening(), {
+      deleteReply: () => problem(404, { title: 'Nicht gefunden.' }),
+    });
+    wrapper = await verlauf(3);
+
+    await click(buttonIn(document, '2× Bier um 23:41 löschen'));
+    await click(buttonIn(dialog(), 'Löschen'));
+
+    expect(useSnackbar().value?.text).toBe('Eintrag gelöscht');
+  });
+
+  it('shows the problem title and keeps the entry when the delete fails', async () => {
+    api(evening(), {
+      deleteReply: () => problem(503, { title: 'Wartung.' }),
+    });
+    wrapper = await verlauf(3);
+
+    await click(buttonIn(document, '2× Bier um 23:41 löschen'));
+    await click(buttonIn(dialog(), 'Löschen'));
+
+    expect(useSnackbar().value?.text).toBe('Wartung.');
+    expect(rows(wrapper)).toHaveLength(3);
+  });
+
+  it('returns to the Rangliste with “Nicht mehr vorhanden” when the person is gone', async () => {
+    api(evening());
+
+    wrapper = await verlauf(7);
+
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.path).toBe('/rangliste');
+    });
+    expect(useSnackbar().value?.text).toBe('Nicht mehr vorhanden');
+  });
+});
