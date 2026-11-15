@@ -12,9 +12,14 @@ export interface Outcome {
   commit: string;
 }
 
-/** The host's view of the target: what is live and what rollback may return to. */
+/**
+The host's view of the target: what is live, a release whose deploy started
+and did not finish (it may already have switched the API and migrated), and
+what rollback may return to.
+*/
 export interface Inspection {
   active?: { releaseId: string; commit: string };
+  inProgress?: { releaseId: string; commit: string };
   retained: string[];
 }
 

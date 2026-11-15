@@ -36,11 +36,20 @@
 6. **Ordering rule.** Before a deploy, `order` compares the artifact's commit with the live
    one: a descendant (or the same commit) deploys, an ancestor (a run that was overtaken)
    **skips** with a notice, anything else fails. `_deploy.yml` serialises deploys and
-   rollbacks in one concurrency group; `ci.yml` queues main runs.
+   rollbacks in one concurrency group; `ci.yml` queues main runs. *Amended in review round 2:*
+   `inspect` also reports the release that is **in progress** (`inProgress`), and `order`
+   applies the same rule against its commit; the strictest answer wins (fail, then skip, then
+   deploy). A deploy cut off after its health call (API switched, database migrated, shell and
+   ledger not) therefore skips a re-run of the older active commit instead of switching the API
+   back.
 7. **Same-schema rollback.** Before re-activating a retained release, rollback reads the live
    `schemaVersion` from health and refuses a release whose recorded schema version differs.
    A failed migration does not raise the reported version, so the previous release stays a
-   valid rollback target.
+   valid rollback target. *Amended in review round 2:* health reports the schema the
+   **database** is at. An older release used to report the newest of its own migration files
+   even when a newer release had completed later ones; now a completed migration the release
+   does not know raises the reported version, so the deploy's health check and this rollback
+   rule see the real schema.
 8. **Archive after the deploy.** `ci.yml`'s `archive` job creates the GitHub Release
    (`release-YYYYMMDD-HHMM`, UTC minute, at the deployed commit, titled with the release id)
    only when `_deploy.yml` reports `deployed=true`; a re-run finds it by title and re-uploads.
@@ -51,6 +60,16 @@
 10. **DNS only at Strato** (resolved on #2): no Cloudflare rules; the rendered `.htaccess`
     redirects plain HTTP and other host names to `SITE_URL` and sends HSTS, and the deploy's
     HTTP checks verify the redirect for an https origin.
+11. **Schema floor for a plain deploy** (review round 2). Before its first write, `deploy`
+    refuses a release whose schema version is below the live schema: below what live health
+    reports, or below the recorded schema version of the active or in-progress release, which
+    also holds while health does not answer (`deploy/contract/schema-floor.ts`). A release cut off
+    after its health call has switched the API and migrated, but the ledger still names the
+    older release active; without the floor a re-run of that older release switched the API
+    back to old PHP on the newer schema and, with health reporting the release's own files,
+    finished green. Rollback keeps its own equality rule (decision 7) and does not apply the
+    ledger fallback, so an emergency rollback is never blocked by a release that only got its
+    marker.
 
 ## Rejected alternatives
 
@@ -62,7 +81,11 @@
 - **Archiving a draft Release before the deploy** (projekt2406's promote flow): the issue
   archives after a successful deploy, and production has no promote step to verify a draft.
 - **Reading the live schema from `.deploy/` instead of health:** only the API knows which
-  migrations completed; the ledger knows what was deployed, not what ran.
+  migrations completed; the ledger knows what was deployed, not what ran. The schema floor
+  (decision 11) uses the ledger only as an additional lower bound, also for a health that does
+  not answer.
+- **Letting a plain deploy below the live schema through and relying on the post-switch health
+  check:** the API pointer has switched by then, so old PHP already serves the newer schema.
 
 ## Consequences
 

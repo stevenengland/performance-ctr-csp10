@@ -93,7 +93,10 @@ final class Migrator
     }
 
     /**
-     * The number of the newest migration up to which every migration is completed; 0 for none.
+     * The schema the database is at: the number of the newest migration up to which every
+     * migration of this release is completed, or, when a newer release already completed
+     * migrations this release does not know, the newest of those. An older release that
+     * answers on a newer schema then says so, instead of claiming its own version. 0 for none.
      */
     public function schemaVersion(): int
     {
@@ -104,6 +107,9 @@ final class Migrator
                 break;
             }
             $version = (int) substr($name, 0, 4);
+        }
+        foreach (array_diff($completed, array_keys($this->migrations)) as $unknown) {
+            $version = max($version, (int) substr($unknown, 0, 4));
         }
 
         return $version;

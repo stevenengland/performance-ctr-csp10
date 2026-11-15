@@ -731,8 +731,15 @@ describe('API-first activation', () => {
     await harness(fake, local, { http }).adapter.deploy(b, policy);
 
     const names = fake.steps.slice(before).map((s) => s.step);
-    const [call] = http.healthCalls;
-    expect(http.healthCalls).toHaveLength(1);
+    // The schema-floor check asks live health before the first write; the
+    // check of the new release follows the API pointer switch.
+    const [floor, call] = http.healthCalls;
+    expect(http.healthCalls).toHaveLength(2);
+    expect(
+      names
+        .slice(0, (floor?.afterStep ?? 0) - before)
+        .filter((n) => !n.startsWith('observe')),
+    ).toEqual([]);
     expect(call?.url).toBe('http://h.test/api/health');
     const afterStep = (call?.afterStep ?? 0) - before;
     expect(
@@ -922,5 +929,122 @@ describe('PHP release folders', () => {
         .filter((p) => p.includes('0.1.0-1111111'))
         .toArray(),
     ).toEqual([]);
+  });
+});
+
+describe('a newer release that switched the API but not the shell', () => {
+  /** The review's case: A at schema 1 is live, B at schema 2 migrated the database and was cut off at `shell`. */
+  async function interruptedNewer() {
+    const h = harness();
+    const at = (commit: string, schemaVersion: number) =>
+      fakeArtifact(
+        h.local,
+        `/art/${commit.slice(0, 1)}`,
+        commit,
+        undefined,
+        undefined,
+        { schemaVersion },
+      );
+    const a = await at('1'.repeat(40), 1);
+    const b = await at('2'.repeat(40), 2);
+    await h.adapter.deploy(a, policy);
+    const broken = interrupt(h.fake, { step: 'shell', count: 0 });
+    await expect(
+      harness(h.fake, h.local, {
+        transport: broken,
+        http: h.http,
+      }).adapter.deploy(b, policy),
+    ).rejects.toThrow(/simulated disconnect during shell/);
+    expect(served(h.fake, 'api/index.php')).toContain('/app/0.1.0-2222222/');
+    expect(h.http.completed).toContain('0002_step.php');
+    return { ...h, a, b };
+  }
+
+  it('inspect reports it as in progress beside the active release', async () => {
+    const { adapter, a, b } = await interruptedNewer();
+
+    expect(await adapter.inspect(policy)).toMatchObject({
+      active: { releaseId: a.manifest.releaseId, commit: a.manifest.commit },
+      inProgress: {
+        releaseId: b.manifest.releaseId,
+        commit: b.manifest.commit,
+      },
+    });
+  });
+
+  it('a plain deploy of the older release is refused before anything is written', async () => {
+    const { fake, adapter, a } = await interruptedNewer();
+    const before = fake.snapshot();
+
+    await expect(adapter.deploy(a, policy)).rejects.toThrow(
+      `release ${a.manifest.releaseId} expects schema version 1, but the live database is at schema version 2; a deploy never moves below the live schema: deploy the newer release again or fix forward`,
+    );
+    expect(fake.snapshot()).toEqual(before);
+    expect(served(fake, 'api/index.php')).toContain('/app/0.1.0-2222222/');
+  });
+
+  it('is refused also while health does not answer, from the in-progress release it records', async () => {
+    const { fake, local, a, b } = await interruptedNewer();
+    const down = new FakeHttp(fake);
+    down.health = (url) =>
+      Promise.reject(new Error(`health check failed: ${url} answered 500`));
+    const before = fake.snapshot();
+
+    await expect(
+      harness(fake, local, { http: down }).adapter.deploy(a, policy),
+    ).rejects.toThrow(
+      `release ${a.manifest.releaseId} expects schema version 1, but release ${b.manifest.releaseId} (in progress) expects schema version 2; a deploy never moves below the live schema: deploy the newer release again or fix forward`,
+    );
+    expect(fake.snapshot()).toEqual(before);
+  });
+
+  it('the newer release itself completes when it is deployed again', async () => {
+    const { fake, adapter, b } = await interruptedNewer();
+
+    await adapter.deploy(b, policy);
+
+    expect(served(fake, 'index.html')).toContain('2222222');
+    expect((await adapter.inspect(policy)).inProgress).toBeUndefined();
+  });
+
+  it('a retained release below the live schema is refused too, though the ledger calls it previous', async () => {
+    const { fake, adapter, a, b } = await interruptedNewer();
+    await adapter.deploy(b, policy);
+    const before = fake.snapshot();
+
+    await expect(adapter.deploy(a, policy)).rejects.toThrow(
+      /expects schema version 1, but the live database is at schema version 2/,
+    );
+    expect(fake.snapshot()).toEqual(before);
+  });
+});
+
+describe('health of an older release on a newer schema', () => {
+  it('reports the schema the database is at, not the release’s own newest migration', async () => {
+    const { fake, local, http, adapter } = harness();
+    const a = await fakeArtifact(local, '/art/a', '1'.repeat(40));
+    const b = await fakeArtifact(
+      local,
+      '/art/b',
+      '2'.repeat(40),
+      undefined,
+      undefined,
+      { schemaVersion: 2 },
+    );
+    await adapter.deploy(a, policy);
+    await adapter.deploy(b, policy);
+    // The API pointer names A's PHP again, which knows migration 1 only.
+    fake.files.set(
+      '/remote/site/api/index.php',
+      served(fake, 'api/index.php').replace(
+        b.manifest.app.folder,
+        a.manifest.app.folder,
+      ),
+    );
+
+    const report = await http.health('http://h.test/api/health');
+
+    expect(report.appVersion).toBe(a.manifest.app.appVersion);
+    expect(report.schemaVersion).toBe(2);
   });
 });

@@ -270,7 +270,11 @@ describe('cli order', () => {
   });
 
   /** Builds the artifact at `candidate` and orders it against `active` from inside the repository. */
-  async function orderAgainst(candidate: string, active?: string) {
+  async function orderAgainst(
+    candidate: string,
+    active?: string,
+    inProgress?: string,
+  ) {
     await exec(['manifest', '--artifact', dir], {
       ...manifestEnv,
       GITHUB_SHA: candidate,
@@ -280,6 +284,9 @@ describe('cli order', () => {
       inspection,
       JSON.stringify({
         ...(active && { active: { releaseId: 'r-active', commit: active } }),
+        ...(inProgress && {
+          inProgress: { releaseId: 'r-in-progress', commit: inProgress },
+        }),
         retained: [],
       }),
     );
@@ -309,6 +316,26 @@ describe('cli order', () => {
     expect(result.stderr).toBe(
       `::notice::deploy: production is at ${newer}, which is newer than ${older}; skipped so production never regresses\n`,
     );
+  });
+
+  it('skips a rerun of the active commit while a newer release is in progress', async () => {
+    const [older = '', newer = ''] = commits;
+    const result = await orderAgainst(older, older, newer);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe('skip=true\n');
+    expect(result.stderr).toBe(
+      `::notice::deploy: release ${newer} is in progress on production and is newer than ${older}; skipped so production never regresses\n`,
+    );
+  });
+
+  it('deploys the in-progress commit again, and past an older one in progress', async () => {
+    const [older = '', newer = ''] = commits;
+    for (const result of [
+      await orderAgainst(newer, older, newer),
+      await orderAgainst(newer, newer, older),
+    ]) {
+      expect(result).toEqual({ code: 0, stdout: 'skip=false\n', stderr: '' });
+    }
   });
 
   it('fails a commit outside the history of the active one', async () => {

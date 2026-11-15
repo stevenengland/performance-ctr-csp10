@@ -103,8 +103,21 @@ the SFTP and database secrets; #2 deletes it once its findings are recorded.
 2. When all checks are green, `deploy` calls `_deploy.yml`, which downloads that artifact,
    verifies the digest, reads the host ledger and applies the **ordering rule**: a run whose
    commit is older than the live one (it was overtaken) is skipped, a commit outside the live
-   commit's history fails, so production never regresses.
-3. `node deploy/cli.ts deploy` activates the release API-first:
+   commit's history fails, so production never regresses. The rule also compares the commit
+   with a release that is still **in progress** (`inspect` reports it as `inProgress`): a deploy
+   cut off after it switched the API may already have migrated the database, so a re-run of an
+   older commit is skipped too.
+3. Before its first write, `node deploy/cli.ts deploy` checks the **schema floor**: it refuses a
+   release whose schema version is below what live health reports, or below the active or
+   in-progress release in the ledger (which also holds while health does not answer). Nothing is
+   written then:
+
+   ```text
+   release <id> expects schema version 1, but the live database is at schema version 2;
+   a deploy never moves below the live schema: deploy the newer release again or fix forward
+   ```
+
+4. The deploy then activates the release API-first:
 
    ```text
    hashed assets → app/<release>/ → staged web files → config/runtime.php (put + rename)
@@ -115,7 +128,7 @@ the SFTP and database secrets; #2 deletes it once its findings are recorded.
    → version.json → HTTP checks → ledger records the release → prune
    ```
 
-4. `archive` makes the tested tarball a GitHub Release tagged `release-YYYYMMDD-HHMM` (UTC
+5. `archive` makes the tested tarball a GitHub Release tagged `release-YYYYMMDD-HHMM` (UTC
    minute of the archive), titled with the release id, at the deployed commit.
 
 Remote layout below the SFTP root:
@@ -150,6 +163,12 @@ its own API's floor and ask to reload forever.
     deploy's health call re-runs it; or
   - **roll back** to the previous release (below). A failed migration does not raise the schema
     version, so the previous release usually still matches it.
+- **Cut off after health, before the shell switched** (runner lost, SFTP dropped): the API
+  already runs the new release on its schema, the ledger still names the previous release
+  active and the new one in progress. **Re-run the new release's job** (or push a newer
+  commit). A re-run of an older commit is skipped by the ordering rule, and a plain deploy of a
+  release below the live schema is refused before it writes anything (schema floor); roll back
+  only to a release with the live schema.
 - **HTTP checks failed after the shell switched:** the release stays "in progress" in the ledger
   and nothing is pruned. Re-run the job, or roll back.
 
@@ -165,7 +184,9 @@ release <id> expects schema version 1, but the live database is at schema versio
 rollback only returns to a release with the live schema, fix forward instead
 ```
 
-There are no database backups; a schema change is never rolled back.
+There are no database backups; a schema change is never rolled back. Health reports the schema
+the database is really at: an older release whose PHP answers on a newer database reports the
+newer number, not its own newest migration.
 
 ## Live check
 

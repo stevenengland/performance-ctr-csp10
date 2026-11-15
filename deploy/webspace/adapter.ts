@@ -8,6 +8,7 @@ import {
   type Manifest,
 } from '../contract/artifact.ts';
 import { healthProblem, healthUrl } from '../contract/health.ts';
+import { schemaFloorProblem } from '../contract/schema-floor.ts';
 import type {
   Artifact,
   DeployOperations,
@@ -17,7 +18,12 @@ import type {
 import type { TargetPolicy, WebspaceSettings } from '../contract/policy.ts';
 import type { RuntimeConfig } from '../contract/runtime-config.ts';
 import { remotePaths, type RemotePaths } from './layout.ts';
-import { activeRelease, retainedReleases, summarize } from './ledger.ts';
+import {
+  activeRelease,
+  inProgressRelease,
+  retainedReleases,
+  summarize,
+} from './ledger.ts';
 import { observeRemote } from './observe.ts';
 import type { Phase, PhaseName } from './phase.ts';
 import { planNext } from './plan.ts';
@@ -101,12 +107,15 @@ async function converge(
   artifact: Artifact,
   manifest: Manifest,
   policy: TargetPolicy,
+  /** Runs after the artifact checks and before the first remote write. */
+  guard: () => Promise<void> = () => Promise.resolve(),
 ): Promise<Outcome> {
   const { files, paths, now, log, runtimeConfig } = session;
   if (runtimeConfig === undefined) {
     throw new Error('a deploy needs the runtime configuration');
   }
   await prepare(session, artifact, manifest, policy);
+  await guard();
   const tempDir = await files.mkdtemp();
   const completed = new Set<PhaseName>();
   try {
@@ -185,15 +194,66 @@ async function checkLiveSchema(
   }
 }
 
+/**
+A plain deploy never switches the API below the live schema (see
+`schemaFloorProblem`): live health reports the database's real schema, and the
+ledger's active and in-progress releases cover a health that does not answer.
+Runs before the first write, so a refused deploy changes nothing.
+*/
+async function checkSchemaFloor(
+  session: Session,
+  manifest: Manifest,
+  policy: TargetPolicy,
+): Promise<void> {
+  const remote = await observeRemote(session, session.paths, policy.assetDir);
+  const live = await session.http.health(healthUrl(policy)).then(
+    (report) => report.schemaVersion,
+    () => {
+      session.log(
+        'live health did not answer; the schema floor comes from the ledger',
+      );
+      return undefined;
+    },
+  );
+  const recorded = [
+    { release: activeRelease(remote.state), inProgress: false },
+    { release: inProgressRelease(remote.state), inProgress: true },
+  ].flatMap(({ release, inProgress }) =>
+    release === undefined
+      ? []
+      : [
+          {
+            releaseId: release.id,
+            schemaVersion: releaseManifest(remote.manifests, release.id).app
+              .schemaVersion,
+            inProgress,
+          },
+        ],
+  );
+  const problem = schemaFloorProblem({
+    candidate: {
+      releaseId: manifest.releaseId,
+      schemaVersion: manifest.app.schemaVersion,
+    },
+    live,
+    recorded,
+  });
+  if (problem !== undefined) throw new Error(problem);
+}
+
 async function inspectRemote(
   session: Session,
   policy: TargetPolicy,
 ): Promise<Inspection> {
   const remote = await observeRemote(session, session.paths, policy.assetDir);
   const active = activeRelease(remote.state);
+  const inProgress = inProgressRelease(remote.state);
   return {
     ...(active !== undefined && {
       active: { releaseId: active.id, commit: active.commit },
+    }),
+    ...(inProgress !== undefined && {
+      inProgress: { releaseId: inProgress.id, commit: inProgress.commit },
     }),
     retained: retainedReleases(remote.state).map((release) => release.id),
   };
@@ -204,7 +264,9 @@ export function createAdapter(ports: AdapterPorts): DeployOperations {
   const session = { ...ports, paths: remotePaths(remoteRoot, docroot) };
   return {
     deploy: (artifact, policy) =>
-      converge(session, artifact, artifact.manifest, policy),
+      converge(session, artifact, artifact.manifest, policy, () =>
+        checkSchemaFloor(session, artifact.manifest, policy),
+      ),
     rollback: (artifact, releaseId, policy) =>
       rollbackTo(session, artifact, releaseId, policy),
     inspect: (policy) => inspectRemote(session, policy),

@@ -298,6 +298,11 @@ export class FakeHttp implements HttpChecker {
     });
   }
 
+  /**
+  Applies the release's pending migrations, then reports the schema as `api/`
+  does: the release's own completed prefix, or a newer migration the database
+  completed that this release does not know.
+  */
   private migrate(
     remote: FakeRemote,
     dir: string,
@@ -305,18 +310,26 @@ export class FakeHttp implements HttpChecker {
     const migrations = [...remote.files]
       .filter(([path]) => posix.dirname(path) === dir)
       .toSorted(([a], [b]) => comparePaths(a, b));
+    const known = new Set(migrations.map(([path]) => posix.basename(path)));
+    const newest = (version: number) =>
+      Math.max(
+        version,
+        ...[...this.completed]
+          .filter((name) => !known.has(name))
+          .map((name) => Number(name.slice(0, 4))),
+      );
     let schemaVersion = 0;
     for (const [path, content] of migrations) {
       const name = posix.basename(path);
       if (!this.completed.has(name)) {
         if (content.includes(FAILING_MIGRATION)) {
-          return { schemaVersion, migration: 'failed' };
+          return { schemaVersion: newest(schemaVersion), migration: 'failed' };
         }
         this.completed.add(name);
       }
       schemaVersion = Number(name.slice(0, 4));
     }
-    return { schemaVersion, migration: 'ok' };
+    return { schemaVersion: newest(schemaVersion), migration: 'ok' };
   }
 }
 

@@ -11,7 +11,11 @@ import {
   type Manifest,
 } from './contract/artifact.ts';
 import { healthUrl } from './contract/health.ts';
-import { orderRelease, parseInspection } from './contract/ordering.ts';
+import {
+  orderRelease,
+  parseInspection,
+  strictest,
+} from './contract/ordering.ts';
 import { requiredVariable } from './contract/parse.ts';
 import {
   parseAssetDir,
@@ -41,7 +45,7 @@ Commands:
   manifest --artifact <dir>                      Write <dir>/manifest.json for <dir>/web and the PHP release <dir>/release.json names
   deploy --artifact <dir>                        Deploy the artifact to the production webspace
   rollback --artifact <dir> --release <id>       Activate a retained release with the live schema version again from its artifact
-  inspect                                        Print the active and retained releases as JSON
+  inspect                                        Print the active, in-progress and retained releases as JSON
   order --artifact <dir> --inspection <file>     Print skip=true|false: does the artifact move production forward?
   live-check                                     Check that production health answers with every field and migration ok
   release-tag                                    Print the GitHub Release tag for a deploy now (release-YYYYMMDD-HHMM)
@@ -179,15 +183,34 @@ async function order(
   const { commit: candidate } = await readArtifactManifest(args.artifact);
   const json = await localFiles.readFile(args.inspection);
   if (json === undefined) throw new Error(`${args.inspection} is missing`);
-  const { active } = parseInspection(json, args.inspection);
-  const decision = orderRelease({
-    candidate,
-    active: active?.commit ?? '',
-    ancestry:
-      active === undefined
-        ? { kind: 'none' }
-        : await ancestry(spawnProcess, '.', active.commit, candidate),
-  });
+  const { active, inProgress } = parseInspection(json, args.inspection);
+  const orders = [
+    orderRelease({
+      candidate,
+      active: active?.commit ?? '',
+      ancestry:
+        active === undefined
+          ? { kind: 'none' }
+          : await ancestry(spawnProcess, '.', active.commit, candidate),
+    }),
+  ];
+  // A newer release whose deploy was cut off may already serve the API on its schema.
+  if (inProgress !== undefined && inProgress.commit !== active?.commit) {
+    orders.push(
+      orderRelease({
+        candidate,
+        active: inProgress.commit,
+        ancestry: await ancestry(
+          spawnProcess,
+          '.',
+          inProgress.commit,
+          candidate,
+        ),
+        inProgress: true,
+      }),
+    );
+  }
+  const decision = strictest(orders);
   if (decision.action === 'fail') throw new Error(decision.message);
   if (decision.action === 'skip') {
     process.stderr.write(`::notice::deploy: ${decision.message}\n`);

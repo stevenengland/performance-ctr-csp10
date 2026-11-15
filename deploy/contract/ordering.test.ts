@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { orderRelease, parseInspection } from './ordering.ts';
+import { orderRelease, parseInspection, strictest } from './ordering.ts';
 
 const candidate = 'c'.repeat(40);
 const active = 'a'.repeat(40);
@@ -46,7 +46,44 @@ describe('orderRelease', () => {
   });
 });
 
+describe('an in-progress release', () => {
+  it('skips a candidate it is newer than, naming it', () => {
+    expect(
+      orderRelease({
+        candidate,
+        active,
+        ancestry: { kind: 'ancestor' },
+        inProgress: true,
+      }),
+    ).toEqual({
+      action: 'skip',
+      message: `release ${active} is in progress on production and is newer than ${candidate}; skipped so production never regresses`,
+    });
+  });
+
+  it('the strictest order wins: fail over skip over deploy', () => {
+    const deploy = { action: 'deploy' } as const;
+    const skip = { action: 'skip', message: 's' } as const;
+    const fail = { action: 'fail', message: 'f' } as const;
+    expect(strictest([deploy, deploy])).toEqual(deploy);
+    expect(strictest([deploy, skip])).toEqual(skip);
+    expect(strictest([skip, fail, deploy])).toEqual(fail);
+    expect(strictest([])).toEqual(deploy);
+  });
+});
+
 describe('parseInspection', () => {
+  it('reads an in-progress release beside the active one', () => {
+    const inspection = {
+      active: { releaseId: '20261022T193000Z-aaaaaaa', commit: active },
+      inProgress: { releaseId: '20261023T193000Z-ccccccc', commit: candidate },
+      retained: ['20261022T193000Z-aaaaaaa'],
+    };
+    expect(parseInspection(JSON.stringify(inspection), 'remote.json')).toEqual(
+      inspection,
+    );
+  });
+
   it('reads the active release and the retained ids', () => {
     const inspection = {
       active: { releaseId: '20261022T193000Z-aaaaaaa', commit: active },
@@ -74,6 +111,14 @@ describe('parseInspection', () => {
         retained: [],
       }),
       'active.commit',
+    ],
+    [
+      'an in-progress commit that is no sha',
+      JSON.stringify({
+        inProgress: { releaseId: 'x', commit: 'HEAD' },
+        retained: [],
+      }),
+      'inProgress.commit',
     ],
   ])('rejects %s', (_name, json, problem) => {
     expect(() => parseInspection(json, 'remote.json')).toThrow(

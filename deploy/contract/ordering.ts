@@ -18,14 +18,17 @@ export type Order =
 Production only moves forward: a deploy run that was overtaken by a newer
 commit skips, a commit outside main's history fails, and an order git cannot
 establish fails, never skips. Rollback goes backward on purpose and does not
-ask.
+ask. The candidate is ordered against the active commit and, as `inProgress`,
+against a release whose deploy started and did not finish: it may already
+have switched the API and migrated the database.
 */
 export function orderRelease(facts: {
   candidate: string;
   active: string;
   ancestry: Ancestry;
+  inProgress?: boolean;
 }): Order {
-  const { candidate, active, ancestry } = facts;
+  const { candidate, active, ancestry, inProgress = false } = facts;
   switch (ancestry.kind) {
     case 'none':
     case 'descendant': {
@@ -34,7 +37,9 @@ export function orderRelease(facts: {
     case 'ancestor': {
       return {
         action: 'skip',
-        message: `production is at ${active}, which is newer than ${candidate}; skipped so production never regresses`,
+        message: inProgress
+          ? `release ${active} is in progress on production and is newer than ${candidate}; skipped so production never regresses`
+          : `production is at ${active}, which is newer than ${candidate}; skipped so production never regresses`,
       };
     }
     case 'unknown': {
@@ -52,6 +57,21 @@ export function orderRelease(facts: {
   }
 }
 
+const SEVERITY: Record<Order['action'], number> = {
+  deploy: 0,
+  skip: 1,
+  fail: 2,
+};
+
+/** Of the orders against the active and the in-progress commit, the strictest: fail, then skip, then deploy. */
+export function strictest(orders: readonly Order[]): Order {
+  return orders.reduce<Order>(
+    (worst, order) =>
+      SEVERITY[order.action] > SEVERITY[worst.action] ? order : worst,
+    { action: 'deploy' },
+  );
+}
+
 /** Reads the one JSON line `cli inspect` printed. */
 export function parseInspection(json: string, file: string): Inspection {
   const malformed = (problem: string) =>
@@ -65,12 +85,21 @@ export function parseInspection(json: string, file: string): Inspection {
   if (!Array.isArray(retained) || !retained.every(isNonEmptyString)) {
     throw malformed('retained');
   }
-  const active = record.active;
-  if (active === undefined) return { retained };
-  const { releaseId, commit } = (active ?? {}) as Record<string, unknown>;
-  if (!isNonEmptyString(releaseId)) throw malformed('active.releaseId');
-  if (typeof commit !== 'string' || !COMMIT_SHA.test(commit)) {
-    throw malformed('active.commit');
-  }
-  return { active: { releaseId, commit }, retained };
+  const release = (field: 'active' | 'inProgress') => {
+    const value = record[field];
+    if (value === undefined) return undefined;
+    const { releaseId, commit } = (value ?? {}) as Record<string, unknown>;
+    if (!isNonEmptyString(releaseId)) throw malformed(`${field}.releaseId`);
+    if (typeof commit !== 'string' || !COMMIT_SHA.test(commit)) {
+      throw malformed(`${field}.commit`);
+    }
+    return { releaseId, commit };
+  };
+  const active = release('active');
+  const inProgress = release('inProgress');
+  return {
+    ...(active !== undefined && { active }),
+    ...(inProgress !== undefined && { inProgress }),
+    retained,
+  };
 }

@@ -29,6 +29,22 @@ final class HealthTest extends DatabaseTestCase
         self::assertSame('0.1.0', $health['minClientVersion']);
     }
 
+    /**
+     * A newer release migrated the database (here: 9001), then an older release's PHP
+     * answers again. Its health must report the schema the database is really at, not
+     * the newest of its own migration files, so the deploy sees the mismatch.
+     */
+    public function testAnOlderReleaseReportsTheNewerSchemaTheDatabaseIsAt(): void
+    {
+        $newer = $this->body($this->get('/api/health', $this->app($this->config($this->fixtureMigrations('crash')))));
+        self::assertSame(9001, $newer['schemaVersion']);
+
+        $older = $this->body($this->get('/api/health'));
+
+        self::assertSame(9001, $older['schemaVersion']);
+        self::assertSame('ok', $older['migration']);
+    }
+
     public function testAnswersUnknownApiRoutesWithA404Problem(): void
     {
         $response = $this->get('/api/does-not-exist');

@@ -577,9 +577,13 @@ describe('API-first activation on Apache + PHP + MySQL', () => {
     for (const before of ['assets-commit', 'app-upload', 'config-commit']) {
       expect(at(before), before).toBeLessThan(at('activation'));
     }
-    expect(at('activation')).toBeLessThan(at('health'));
-    expect(at('health')).toBeLessThan(at('shell'));
-    expect(phases.filter((event) => event === 'health')).toHaveLength(1);
+    // The schema floor asks live health before the first write; the new
+    // release's own check follows the API pointer switch.
+    expect(phases.filter((event) => event === 'health')).toHaveLength(2);
+    expect(phases.indexOf('health')).toBe(0);
+    const check = phases.lastIndexOf('health');
+    expect(at('activation')).toBeLessThan(check);
+    expect(check).toBeLessThan(at('shell'));
     // Health answered for the new release while browsers still got the old shell.
     expect(atHealth?.report).toMatchObject({
       appVersion: manifest.app.appVersion,
