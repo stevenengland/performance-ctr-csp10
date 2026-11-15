@@ -184,6 +184,67 @@ paths:
           $ref: '#/components/responses/Problem'
         '422':
           $ref: '#/components/responses/Problem'
+  /api/persons/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The person's id; anything but a positive integer is 404
+        schema:
+          type: integer
+          minimum: 1
+    get:
+      operationId: getPerson
+      summary: A person with the number of their entries (for the delete dialog)
+      responses:
+        '200':
+          description: The person
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonDetail'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: updatePerson
+      summary: Rename a person
+      description: >-
+        Validated like creating. Scores and lists show the new name from then on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewPerson'
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Person'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deletePerson
+      summary: Delete a person and all of their entries
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
   /api/drinks:
     get:
       operationId: listDrinks
@@ -220,6 +281,67 @@ paths:
         '415':
           $ref: '#/components/responses/Problem'
         '422':
+          $ref: '#/components/responses/Problem'
+  /api/drinks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The drink's id; anything but a positive integer is 404
+        schema:
+          type: integer
+          minimum: 1
+    get:
+      operationId: getDrink
+      summary: A drink with the number of its entries (for the delete dialog)
+      responses:
+        '200':
+          description: The drink
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DrinkDetail'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: updateDrink
+      summary: Change a drink's name and points
+      description: >-
+        Both fields are required. Scores always use the current points, so the change applies to every entry of the drink.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewDrink'
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Drink'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteDrink
+      summary: Delete a drink and all of its entries
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
           $ref: '#/components/responses/Problem'
   /api/factors:
     get:
@@ -509,6 +631,20 @@ components:
           minimum: 1
         name:
           $ref: '#/components/schemas/Name'
+    PersonDetail:
+      type: object
+      additionalProperties: false
+      required: [id, name, entryCount]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        entryCount:
+          type: integer
+          minimum: 0
+          description: Entries of every day that are the person's
     PersonList:
       type: object
       additionalProperties: false
@@ -542,6 +678,22 @@ components:
           $ref: '#/components/schemas/Name'
         points:
           $ref: '#/components/schemas/Points'
+    DrinkDetail:
+      type: object
+      additionalProperties: false
+      required: [id, name, points, entryCount]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        points:
+          $ref: '#/components/schemas/Points'
+        entryCount:
+          type: integer
+          minimum: 0
+          description: Entries of every day that are of the drink
     DrinkList:
       type: object
       additionalProperties: false

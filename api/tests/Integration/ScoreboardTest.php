@@ -170,6 +170,10 @@ final class ScoreboardTest extends DatabaseTestCase
         yield 'a new factor' => ['POST', '/api/factors', ['name' => 'Geburtstag', 'multiplier' => 1.5]];
         yield 'an edited factor' => ['PATCH', '/api/factors/1', ['name' => 'Happy Hour', 'multiplier' => 3]];
         yield 'a deleted factor' => ['DELETE', '/api/factors/1', null];
+        yield 'a renamed person' => ['PATCH', '/api/persons/1', ['name' => 'Dani']];
+        yield 'a deleted person' => ['DELETE', '/api/persons/1', null];
+        yield 'an edited drink' => ['PATCH', '/api/drinks/1', ['name' => 'Bier', 'points' => 2]];
+        yield 'a deleted drink' => ['DELETE', '/api/drinks/1', null];
     }
 
     /**
@@ -202,6 +206,13 @@ final class ScoreboardTest extends DatabaseTestCase
         yield 'a taken factor name' => ['POST', '/api/factors', ['name' => 'happy hour', 'multiplier' => 3]];
         yield 'an unknown factor' => ['PATCH', '/api/factors/9', ['name' => 'Geburtstag', 'multiplier' => 3]];
         yield 'a deleted unknown factor' => ['DELETE', '/api/factors/9', null];
+        yield 'an unknown person' => ['PATCH', '/api/persons/9', ['name' => 'Jule']];
+        yield 'a deleted unknown person' => ['DELETE', '/api/persons/9', null];
+        yield 'an invalid person name' => ['PATCH', '/api/persons/1', ['name' => '']];
+        yield 'a rename to a taken person name' => ['PATCH', '/api/persons/1', ['name' => 'anna']];
+        yield 'a rename to a taken drink name' => ['PATCH', '/api/drinks/1', ['name' => 'APEROL', 'points' => 1]];
+        yield 'an unknown drink' => ['PATCH', '/api/drinks/9', ['name' => 'Wein', 'points' => 2]];
+        yield 'a deleted unknown drink' => ['DELETE', '/api/drinks/9', null];
         yield 'an entry with an unknown factor' => ['PUT', '/api/entries/00000000-0000-4000-8000-000000000777', ['personId' => 1, 'drinkId' => 1, 'quantity' => 1, 'factorId' => 9]];
     }
 

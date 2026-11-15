@@ -36,10 +36,7 @@ final readonly class Catalog
      */
     public function createPerson(string $name): Person
     {
-        $name = trim($name);
-        if (!self::validName($name)) {
-            throw new ValidationFailed(['name' => self::nameError()]);
-        }
+        $name = self::validPerson($name);
 
         return new Person($this->insert('persons', ['name' => $name]), $name);
     }
@@ -50,18 +47,7 @@ final readonly class Catalog
      */
     public function createDrink(string $name, int|float|null $points): Drink
     {
-        $errors = [];
-        $name = trim($name);
-        if (!self::validName($name)) {
-            $errors['name'] = self::nameError();
-        }
-        if (!self::validPoints($points)) {
-            $errors['points'] = 'Zahl von 0 bis 9.999,99.';
-        }
-        if ($errors !== []) {
-            throw new ValidationFailed($errors);
-        }
-        $decimal = number_format((float) $points, 2, '.', '');
+        [$name, $decimal] = self::validDrink($name, $points);
 
         return new Drink($this->insert('drinks', ['name' => $name, 'points' => $decimal]), $name, $decimal);
     }
@@ -108,25 +94,79 @@ final readonly class Catalog
     }
 
     /**
+     * @throws NotFound when there is no such person
+     */
+    public function person(int $id): Person
+    {
+        $row = $this->one('SELECT id, name FROM persons WHERE id = ?', $id);
+
+        return new Person((int) $row['id'], (string) $row['name']);
+    }
+
+    /**
+     * @throws NotFound when there is no such drink
+     */
+    public function drink(int $id): Drink
+    {
+        $row = $this->one('SELECT id, name, points FROM drinks WHERE id = ?', $id);
+
+        return new Drink((int) $row['id'], (string) $row['name'], (string) $row['points']);
+    }
+
+    /**
      * @throws NotFound when there is no such factor
      */
     public function factor(int $id): Factor
     {
-        $row = $this->all('SELECT id, name, multiplier FROM factors WHERE id = ?', [$id])[0] ?? null;
-        if ($row === null) {
-            throw new NotFound((string) $id);
-        }
-
-        return self::factorOf($row);
+        return self::factorOf($this->one('SELECT id, name, multiplier FROM factors WHERE id = ?', $id));
     }
 
-    /** How many entries use the factor, all days: the delete dialog names them. */
+    /** How many entries of every day are the person's: deleting the person deletes them. */
+    public function entriesOfPerson(int $id): int
+    {
+        return $this->countEntries('person_id', $id);
+    }
+
+    /** How many entries of every day are of the drink: deleting the drink deletes them. */
+    public function entriesOfDrink(int $id): int
+    {
+        return $this->countEntries('drink_id', $id);
+    }
+
+    /** How many entries of every day use the factor: deleting the factor makes them count ×1. */
     public function entriesWithFactor(int $id): int
     {
-        $statement = $this->pdo->prepare('SELECT COUNT(*) FROM entries WHERE factor_id = ?');
-        $statement->execute([$id]);
+        return $this->countEntries('factor_id', $id);
+    }
 
-        return (int) $statement->fetchColumn();
+    /**
+     * Renames a person; scores and lists show the new name from then on.
+     *
+     * @throws ValidationFailed like createPerson
+     * @throws DuplicateName when another person has the name, ignoring case
+     * @throws NotFound when there is no such person
+     */
+    public function updatePerson(int $id, string $name): Person
+    {
+        $name = self::validPerson($name);
+        $this->update('persons', $id, ['name' => $name]);
+
+        return new Person($id, $name);
+    }
+
+    /**
+     * Changes a drink; its entries count with the new points from then on, every day included.
+     *
+     * @throws ValidationFailed like createDrink
+     * @throws DuplicateName when another drink has the name, ignoring case
+     * @throws NotFound when there is no such drink
+     */
+    public function updateDrink(int $id, string $name, int|float|null $points): Drink
+    {
+        [$name, $decimal] = self::validDrink($name, $points);
+        $this->update('drinks', $id, ['name' => $name, 'points' => $decimal]);
+
+        return new Drink($id, $name, $decimal);
     }
 
     /**
@@ -139,18 +179,29 @@ final readonly class Catalog
     public function updateFactor(int $id, string $name, int|float|null $multiplier): Factor
     {
         [$name, $decimal] = self::validFactor($name, $multiplier);
-        $now = Timestamp::of($this->clock->now());
-        try {
-            $this->revision->write(function () use ($id, $name, $decimal, $now): void {
-                $this->lock('factors', $id);
-                $this->pdo->prepare('UPDATE factors SET name = ?, multiplier = ?, updated_at = ? WHERE id = ?')
-                    ->execute([$name, $decimal, $now, $id]);
-            });
-        } catch (PDOException $failure) {
-            throw self::duplicateOr($failure, $name);
-        }
+        $this->update('factors', $id, ['name' => $name, 'multiplier' => $decimal]);
 
         return new Factor($id, $name, $decimal);
+    }
+
+    /**
+     * Deletes a person and all of the person's entries (the foreign key cascades).
+     *
+     * @throws NotFound when there is no such person
+     */
+    public function deletePerson(int $id): void
+    {
+        $this->delete('persons', $id);
+    }
+
+    /**
+     * Deletes a drink and all of its entries (the foreign key cascades).
+     *
+     * @throws NotFound when there is no such drink
+     */
+    public function deleteDrink(int $id): void
+    {
+        $this->delete('drinks', $id);
     }
 
     /**
@@ -160,13 +211,42 @@ final readonly class Catalog
      */
     public function deleteFactor(int $id): void
     {
-        $this->revision->write(function () use ($id): void {
-            $statement = $this->pdo->prepare('DELETE FROM factors WHERE id = ?');
-            $statement->execute([$id]);
-            if ($statement->rowCount() === 0) {
-                throw new NotFound((string) $id);
-            }
-        });
+        $this->delete('factors', $id);
+    }
+
+    /**
+     * @throws ValidationFailed
+     */
+    private static function validPerson(string $name): string
+    {
+        $name = trim($name);
+        if (!self::validName($name)) {
+            throw new ValidationFailed(['name' => self::nameError()]);
+        }
+
+        return $name;
+    }
+
+    /**
+     * @return array{string, string} the trimmed name and the points as a decimal with two places
+     *
+     * @throws ValidationFailed
+     */
+    private static function validDrink(string $name, int|float|null $points): array
+    {
+        $errors = [];
+        $name = trim($name);
+        if (!self::validName($name)) {
+            $errors['name'] = self::nameError();
+        }
+        if ($points === null || !self::validDecimal($points, self::MAX_POINTS)) {
+            $errors['points'] = 'Zahl von 0 bis 9.999,99.';
+        }
+        if ($errors !== []) {
+            throw new ValidationFailed($errors);
+        }
+
+        return [$name, number_format((float) $points, 2, '.', '')];
     }
 
     /**
@@ -201,12 +281,6 @@ final readonly class Catalog
     private static function nameError(): string
     {
         return sprintf('1 bis %d Zeichen.', self::MAX_NAME_LENGTH);
-    }
-
-    /** 0 to 9 999.99 with at most two decimals. */
-    private static function validPoints(int|float|null $points): bool
-    {
-        return $points !== null && self::validDecimal($points, self::MAX_POINTS);
     }
 
     /** 0 to `$max` with at most two decimals. */
@@ -247,17 +321,63 @@ final readonly class Catalog
     }
 
     /**
-     * Locks the row for the rest of the transaction.
+     * Changes a row's columns together with the revision bump.
+     *
+     * @param array<string, string> $columns
+     *
+     * @throws NotFound when there is no such row
+     * @throws DuplicateName when the new name is taken, ignoring case
+     */
+    private function update(string $table, int $id, array $columns): void
+    {
+        $now = Timestamp::of($this->clock->now());
+        $assignments = implode(', ', array_map(static fn(string $column): string => "{$column} = ?", array_keys($columns)));
+        try {
+            $this->revision->write(function () use ($table, $id, $columns, $assignments, $now): void {
+                // Locked first, so an unchanged row (same values) is still told apart from a missing one.
+                $this->one("SELECT id FROM {$table} WHERE id = ? FOR UPDATE", $id);
+                $this->pdo->prepare("UPDATE {$table} SET {$assignments}, updated_at = ? WHERE id = ?")
+                    ->execute([...array_values($columns), $now, $id]);
+            });
+        } catch (PDOException $failure) {
+            throw self::duplicateOr($failure, $columns['name'] ?? '');
+        }
+    }
+
+    /**
+     * Deletes a row together with the revision bump; foreign keys decide what happens to its entries.
      *
      * @throws NotFound when there is no such row
      */
-    private function lock(string $table, int $id): void
+    private function delete(string $table, int $id): void
     {
-        $statement = $this->pdo->prepare("SELECT id FROM {$table} WHERE id = ? FOR UPDATE");
+        $this->revision->write(function () use ($table, $id): void {
+            $statement = $this->pdo->prepare("DELETE FROM {$table} WHERE id = ?");
+            $statement->execute([$id]);
+            if ($statement->rowCount() === 0) {
+                throw new NotFound((string) $id);
+            }
+        });
+    }
+
+    /**
+     * The one row a query for an id finds.
+     *
+     * @return array<string, scalar|null>
+     *
+     * @throws NotFound when there is no such row
+     */
+    private function one(string $sql, int $id): array
+    {
+        return $this->all($sql, [$id])[0] ?? throw new NotFound((string) $id);
+    }
+
+    private function countEntries(string $column, int $id): int
+    {
+        $statement = $this->pdo->prepare("SELECT COUNT(*) FROM entries WHERE {$column} = ?");
         $statement->execute([$id]);
-        if ($statement->fetchColumn() === false) {
-            throw new NotFound((string) $id);
-        }
+
+        return (int) $statement->fetchColumn();
     }
 
     /** A taken name as DuplicateName; any other failure as it is. */

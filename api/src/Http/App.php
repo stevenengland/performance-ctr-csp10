@@ -44,6 +44,14 @@ final class App
         $app->post('/api/persons', $catalog->createPerson(...))->add($signedIn);
         $app->get('/api/drinks', $catalog->drinks(...))->add($signedIn);
         $app->post('/api/drinks', $catalog->createDrink(...))->add($signedIn);
+        $person = '/api/persons/{id:' . CatalogActions::ID_PATTERN . '}';
+        $app->get($person, $catalog->readPerson(...))->add($signedIn);
+        $app->patch($person, $catalog->updatePerson(...))->add($signedIn);
+        $app->delete($person, $catalog->deletePerson(...))->add($signedIn);
+        $drink = '/api/drinks/{id:' . CatalogActions::ID_PATTERN . '}';
+        $app->get($drink, $catalog->readDrink(...))->add($signedIn);
+        $app->patch($drink, $catalog->updateDrink(...))->add($signedIn);
+        $app->delete($drink, $catalog->deleteDrink(...))->add($signedIn);
         $app->get('/api/factors', $catalog->factors(...))->add($signedIn);
         $app->post('/api/factors', $catalog->createFactor(...))->add($signedIn);
         $factor = '/api/factors/{id:' . CatalogActions::ID_PATTERN . '}';

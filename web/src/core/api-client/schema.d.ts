@@ -96,6 +96,31 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/persons/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    /** A person with the number of their entries (for the delete dialog) */
+    get: operations['getPerson'];
+    put?: never;
+    post?: never;
+    /** Delete a person and all of their entries */
+    delete: operations['deletePerson'];
+    options?: never;
+    head?: never;
+    /**
+     * Rename a person
+     * @description Validated like creating. Scores and lists show the new name from then on.
+     */
+    patch: operations['updatePerson'];
+    trace?: never;
+  };
   '/api/drinks': {
     parameters: {
       query?: never;
@@ -112,6 +137,31 @@ export interface paths {
     options?: never;
     head?: never;
     patch?: never;
+    trace?: never;
+  };
+  '/api/drinks/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The drink's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    /** A drink with the number of its entries (for the delete dialog) */
+    get: operations['getDrink'];
+    put?: never;
+    post?: never;
+    /** Delete a drink and all of its entries */
+    delete: operations['deleteDrink'];
+    options?: never;
+    head?: never;
+    /**
+     * Change a drink's name and points
+     * @description Both fields are required. Scores always use the current points, so the change applies to every entry of the drink.
+     */
+    patch: operations['updateDrink'];
     trace?: never;
   };
   '/api/factors': {
@@ -234,6 +284,12 @@ export interface components {
       id: number;
       name: components['schemas']['Name'];
     };
+    PersonDetail: {
+      id: number;
+      name: components['schemas']['Name'];
+      /** @description Entries of every day that are the person's */
+      entryCount: number;
+    };
     PersonList: {
       persons: components['schemas']['Person'][];
     };
@@ -246,6 +302,13 @@ export interface components {
       id: number;
       name: components['schemas']['Name'];
       points: components['schemas']['Points'];
+    };
+    DrinkDetail: {
+      id: number;
+      name: components['schemas']['Name'];
+      points: components['schemas']['Points'];
+      /** @description Entries of every day that are of the drink */
+      entryCount: number;
     };
     DrinkList: {
       drinks: components['schemas']['Drink'][];
@@ -603,6 +666,86 @@ export interface operations {
       422: components['responses']['Problem'];
     };
   };
+  getPerson: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The person */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PersonDetail'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  deletePerson: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  updatePerson: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewPerson'];
+      };
+    };
+    responses: {
+      /** @description Changed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Person'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
   listDrinks: {
     parameters: {
       query?: never;
@@ -647,6 +790,86 @@ export interface operations {
         };
       };
       401: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  getDrink: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The drink's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The drink */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DrinkDetail'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  deleteDrink: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The drink's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  updateDrink: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The drink's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewDrink'];
+      };
+    };
+    responses: {
+      /** @description Changed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Drink'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
       409: components['responses']['Problem'];
       415: components['responses']['Problem'];
       422: components['responses']['Problem'];

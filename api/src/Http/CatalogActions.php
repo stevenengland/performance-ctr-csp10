@@ -11,7 +11,8 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * `/api/persons`, `/api/drinks` and `/api/factors`: list and create; factors also read, edit and delete.
+ * `/api/persons`, `/api/drinks` and `/api/factors`: list and create; `…/{id}` reads (with the
+ * number of entries of every day that reference the item), edits and deletes.
  */
 final readonly class CatalogActions
 {
@@ -42,6 +43,72 @@ final readonly class CatalogActions
         $drink = $this->database->catalog()->createDrink(Input::text($request, 'name'), Input::number($request, 'points'));
 
         return Json::write($response, self::drink($drink), 201);
+    }
+
+    /**
+     * @param array{id: string} $arguments
+     */
+    public function readPerson(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
+    {
+        $catalog = $this->database->catalog();
+        $id = (int) $arguments['id'];
+
+        return Json::write($response, [...self::person($catalog->person($id)), 'entryCount' => $catalog->entriesOfPerson($id)]);
+    }
+
+    /**
+     * @param array{id: string} $arguments
+     */
+    public function updatePerson(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
+    {
+        $person = $this->database->catalog()->updatePerson((int) $arguments['id'], Input::text($request, 'name'));
+
+        return Json::write($response, self::person($person));
+    }
+
+    /**
+     * @param array{id: string} $arguments
+     */
+    public function deletePerson(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
+    {
+        $this->database->catalog()->deletePerson((int) $arguments['id']);
+
+        return $response->withStatus(204);
+    }
+
+    /**
+     * @param array{id: string} $arguments
+     */
+    public function readDrink(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
+    {
+        $catalog = $this->database->catalog();
+        $id = (int) $arguments['id'];
+
+        return Json::write($response, [...self::drink($catalog->drink($id)), 'entryCount' => $catalog->entriesOfDrink($id)]);
+    }
+
+    /**
+     * @param array{id: string} $arguments
+     */
+    public function updateDrink(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
+    {
+        $drink = $this->database->catalog()->updateDrink(
+            (int) $arguments['id'],
+            Input::text($request, 'name'),
+            Input::number($request, 'points'),
+        );
+
+        return Json::write($response, self::drink($drink));
+    }
+
+    /**
+     * @param array{id: string} $arguments
+     */
+    public function deleteDrink(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
+    {
+        $this->database->catalog()->deleteDrink((int) $arguments['id']);
+
+        return $response->withStatus(204);
     }
 
     public function factors(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
