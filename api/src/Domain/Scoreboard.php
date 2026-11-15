@@ -9,8 +9,9 @@ use PDO;
 
 /**
  * The read model and single owner of aggregation: for every person with entries
- * since `from`, the score (Σ quantity × points), the count (Σ quantity) and the
- * per-drink counters, ranked by score, ties by name. Its version is the data
+ * since `from`, the score (Σ quantity × multiplier × points), the count
+ * (Σ quantity × multiplier) and the per-drink counters, ranked by score, ties by
+ * name. The multiplier is the factor's current one, 1 without a factor. Its version is the data
  * revision: while that stays, the standings for any `from` stay too.
  */
 final readonly class Scoreboard
@@ -34,8 +35,8 @@ final readonly class Scoreboard
         $since = Timestamp::of($from);
         $drinks = [];
         foreach ($this->rows(
-            'SELECT e.person_id, d.id AS drink_id, d.name, SUM(e.quantity) AS count
-             FROM entries e JOIN drinks d ON d.id = e.drink_id
+            'SELECT e.person_id, d.id AS drink_id, d.name, SUM(e.quantity * COALESCE(f.multiplier, 1)) AS count
+             FROM entries e JOIN drinks d ON d.id = e.drink_id LEFT JOIN factors f ON f.id = e.factor_id
              WHERE e.created_at >= ?
              GROUP BY e.person_id, d.id, d.name
              ORDER BY d.name, d.id',
@@ -53,8 +54,11 @@ final readonly class Scoreboard
                 $drinks[(int) $row['id']] ?? [],
             ),
             $this->rows(
-                'SELECT p.id, p.name, SUM(e.quantity * d.points) AS score, SUM(e.quantity) AS count
+                'SELECT p.id, p.name,
+                        SUM(e.quantity * COALESCE(f.multiplier, 1) * d.points) AS score,
+                        SUM(e.quantity * COALESCE(f.multiplier, 1)) AS count
                  FROM entries e JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
+                 LEFT JOIN factors f ON f.id = e.factor_id
                  WHERE e.created_at >= ?
                  GROUP BY p.id, p.name
                  ORDER BY score DESC, p.name, p.id',

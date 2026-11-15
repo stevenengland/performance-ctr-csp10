@@ -9,7 +9,7 @@ use Throwable;
 
 /**
  * A number that changes with every write that can change results (entries,
- * persons, drinks). The write and its bump share one transaction, so the
+ * persons, drinks, factors). The write and its bump share one transaction, so the
  * revision changes exactly when committed data did; readers compare it instead
  * of aggregating again.
  */

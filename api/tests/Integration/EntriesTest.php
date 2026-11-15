@@ -30,7 +30,7 @@ final class EntriesTest extends DatabaseTestCase
 
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
         self::assertSame(
-            ['id' => self::ENTRY, 'personId' => 1, 'drinkId' => 1, 'quantity' => 2, 'createdAt' => '2026-11-14T20:00:00.000Z'],
+            ['id' => self::ENTRY, 'personId' => 1, 'drinkId' => 1, 'quantity' => 2, 'factorId' => null, 'createdAt' => '2026-11-14T20:00:00.000Z'],
             $this->body($response),
         );
         self::assertSame(
@@ -54,6 +54,29 @@ final class EntriesTest extends DatabaseTestCase
             $this->body($neither)['errors'],
         );
         self::assertSame([], $this->rows('SELECT id FROM entries UNION ALL SELECT id FROM entry_requests'));
+    }
+
+    public function testAnUnknownFactorIs422AndRecordsNothing(): void
+    {
+        $unknown = $this->send('PUT', '/api/entries/' . self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 1, 'factorId' => 7], $this->session);
+        $notAnId = $this->send('PUT', '/api/entries/' . self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 1, 'factorId' => '1'], $this->session);
+
+        foreach ([$unknown, $notAnId] as $response) {
+            self::assertSame(422, $response->getStatusCode(), (string) $response->getBody());
+            self::assertSame(['factorId' => 'Faktor nicht gefunden.'], $this->body($response)['errors']);
+        }
+        self::assertSame([], $this->rows('SELECT id FROM entries UNION ALL SELECT id FROM entry_requests'));
+    }
+
+    public function testRecordsTheChosenFactor(): void
+    {
+        $this->send('POST', '/api/factors', ['name' => 'Happy Hour', 'multiplier' => 2], $this->session);
+
+        $response = $this->send('PUT', '/api/entries/' . self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2, 'factorId' => 1], $this->session);
+
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(1, $this->body($response)['factorId']);
+        self::assertSame([['factor_id' => 1]], $this->rows('SELECT factor_id FROM entries'));
     }
 
     /**

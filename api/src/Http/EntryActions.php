@@ -28,6 +28,7 @@ final readonly class EntryActions
             Input::integer($request, 'personId'),
             Input::integer($request, 'drinkId'),
             Input::integer($request, 'quantity'),
+            Input::optionalId($request, 'factorId'),
             SessionAuth::account($request)->id,
         );
 
@@ -45,7 +46,7 @@ final readonly class EntryActions
     }
 
     /**
-     * @return array{id: string, personId: int, drinkId: int, quantity: int, createdAt: string}
+     * @return array{id: string, personId: int, drinkId: int, quantity: int, factorId: int|null, createdAt: string}
      */
     private static function entry(Entry $entry): array
     {
@@ -54,6 +55,7 @@ final readonly class EntryActions
             'personId' => $entry->personId,
             'drinkId' => $entry->drinkId,
             'quantity' => $entry->quantity,
+            'factorId' => $entry->factorId,
             'createdAt' => Instant::format($entry->createdAt),
         ];
     }

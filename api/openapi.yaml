@@ -221,6 +221,105 @@ paths:
           $ref: '#/components/responses/Problem'
         '422':
           $ref: '#/components/responses/Problem'
+  /api/factors:
+    get:
+      operationId: listFactors
+      summary: Every factor, alphabetical (ignoring case)
+      responses:
+        '200':
+          description: The factors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactorList'
+        '401':
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createFactor
+      summary: Create a factor with its multiplier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewFactor'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Factor'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/factors/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The factor's id; anything but a positive integer is 404
+        schema:
+          type: integer
+          minimum: 1
+    get:
+      operationId: getFactor
+      summary: A factor with the number of entries that use it (for the delete dialog)
+      responses:
+        '200':
+          description: The factor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactorDetail'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: updateFactor
+      summary: Change a factor's name and multiplier
+      description: >-
+        Both fields are required. Scores always use the current multiplier, so the
+        change applies to every entry that uses the factor.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewFactor'
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Factor'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteFactor
+      summary: Delete a factor; its entries stay and count ×1 from then on
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
   /api/entries/{id}:
     parameters:
       - name: id
@@ -235,9 +334,9 @@ paths:
       summary: Add an entry, idempotently on its id
       description: >-
         The account and the server time (UTC) are recorded with the entry. A repeated
-        request with the same id and content answers 200 with the original entry and
-        creates nothing, even after the entry was deleted; the same id with different
-        content answers 409. Ids are remembered for seven days. Any other id that is not
+        request with the same id and content (factor included) answers 200 with the
+        original entry and creates nothing, even after the entry was deleted; the same
+        id with different content answers 409. An unknown factor is 422. Ids are remembered for seven days. Any other id that is not
         a lower-case UUID v4 is 404.
       requestBody:
         required: true
@@ -284,9 +383,10 @@ paths:
       summary: Standings since `from`, the start of the viewer's day
       description: >-
         Persons with entries since `from`, ranked by score (ties by name). score =
-        Σ quantity × points; count = Σ quantity; per-drink counters likewise.
-        The ETag names the data revision, which every write of entries, persons and
-        drinks bumps in its own transaction, and the window: `If-None-Match` with the
+        Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink
+        counters likewise. The multiplier is the factor's current one, 1 without a
+        factor. The ETag names the data revision, which every write of entries,
+        persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the
         last ETag answers 304 without aggregating while the revision is unchanged.
       parameters:
         - name: from
@@ -459,6 +559,57 @@ components:
           $ref: '#/components/schemas/Name'
         points:
           $ref: '#/components/schemas/Points'
+    Multiplier:
+      type: number
+      description: Above 0 up to 99.99 with at most two decimals
+      exclusiveMinimum: 0
+      maximum: 99.99
+      multipleOf: 0.01
+    Factor:
+      type: object
+      additionalProperties: false
+      required: [id, name, multiplier]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        multiplier:
+          $ref: '#/components/schemas/Multiplier'
+    FactorDetail:
+      type: object
+      additionalProperties: false
+      required: [id, name, multiplier, entryCount]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        multiplier:
+          $ref: '#/components/schemas/Multiplier'
+        entryCount:
+          type: integer
+          minimum: 0
+          description: Entries of every day that use the factor
+    FactorList:
+      type: object
+      additionalProperties: false
+      required: [factors]
+      properties:
+        factors:
+          type: array
+          items:
+            $ref: '#/components/schemas/Factor'
+    NewFactor:
+      type: object
+      required: [name, multiplier]
+      properties:
+        name:
+          $ref: '#/components/schemas/Name'
+        multiplier:
+          $ref: '#/components/schemas/Multiplier'
     Quantity:
       type: integer
       minimum: 1
@@ -473,10 +624,13 @@ components:
           type: integer
         quantity:
           $ref: '#/components/schemas/Quantity'
+        factorId:
+          type: [integer, 'null']
+          description: The chosen factor; missing or null for no factor (counts ×1)
     Entry:
       type: object
       additionalProperties: false
-      required: [id, personId, drinkId, quantity, createdAt]
+      required: [id, personId, drinkId, quantity, factorId, createdAt]
       properties:
         id:
           type: string
@@ -486,6 +640,9 @@ components:
           type: integer
         quantity:
           $ref: '#/components/schemas/Quantity'
+        factorId:
+          type: [integer, 'null']
+          description: The factor of the request; null for none
         createdAt:
           type: string
           format: date-time

@@ -73,6 +73,47 @@ final class IdempotencyTest extends DatabaseTestCase
         self::assertSame([['quantity' => 2]], $this->rows('SELECT quantity FROM entries'));
     }
 
+    public function testTheFactorIsPartOfTheRequestSoAnotherFactorUnderTheSameIdIs409(): void
+    {
+        $this->send('POST', '/api/factors', ['name' => 'Happy Hour', 'multiplier' => 2], $this->session);
+        $this->send('POST', '/api/factors', ['name' => 'Geburtstag', 'multiplier' => 1.5], $this->session);
+        $happyHour = [...self::TWO_BEERS, 'factorId' => 1];
+        $this->put($happyHour);
+
+        $same = $this->put($happyHour);
+        $birthday = $this->put([...self::TWO_BEERS, 'factorId' => 2]);
+        $none = $this->put(self::TWO_BEERS);
+
+        self::assertSame(200, $same->getStatusCode());
+        self::assertSame(1, $this->body($same)['factorId']);
+        self::assertSame(409, $birthday->getStatusCode());
+        self::assertSame(409, $none->getStatusCode());
+        self::assertSame([['factor_id' => 1]], $this->rows('SELECT factor_id FROM entries'));
+    }
+
+    public function testNoFactorAndAnExplicitNullAreTheSameRequest(): void
+    {
+        $this->put(self::TWO_BEERS);
+
+        $repeated = $this->put([...self::TWO_BEERS, 'factorId' => null]);
+
+        self::assertSame(200, $repeated->getStatusCode());
+    }
+
+    public function testAReplayAfterTheFactorWasDeletedAnswersTheOriginalOutcome(): void
+    {
+        $this->send('POST', '/api/factors', ['name' => 'Happy Hour', 'multiplier' => 2], $this->session);
+        $happyHour = [...self::TWO_BEERS, 'factorId' => 1];
+        $first = $this->put($happyHour);
+        $this->send('DELETE', '/api/factors/1', session: $this->session);
+
+        $replay = $this->put($happyHour);
+
+        self::assertSame(200, $replay->getStatusCode());
+        self::assertSame($this->body($first), $this->body($replay));
+        self::assertCount(1, $this->rows('SELECT id FROM entries'));
+    }
+
     public function testAReplayAfterTheEntryWasDeletedDoesNotRecreateIt(): void
     {
         $first = $this->put(self::TWO_BEERS);
@@ -106,7 +147,7 @@ final class IdempotencyTest extends DatabaseTestCase
     }
 
     /**
-     * @param array<string, int> $content
+     * @param array<string, int|null> $content
      */
     private function put(array $content, string $id = self::ENTRY): \Psr\Http\Message\ResponseInterface
     {

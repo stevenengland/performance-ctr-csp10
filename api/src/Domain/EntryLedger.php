@@ -30,22 +30,24 @@ final readonly class EntryLedger
     ) {}
 
     /**
-     * @throws ValidationFailed for a quantity outside 1–99 or a person or drink that does not exist
-     * @throws EntryConflict when the id was used before for different content
+     * @param int|null $factorId null for no factor (counts ×1)
+     *
+     * @throws ValidationFailed for a quantity outside 1–99 or a person, drink or factor that does not exist
+     * @throws EntryConflict when the id was used before for different content, factor included
      */
-    public function add(string $id, ?int $personId, ?int $drinkId, ?int $quantity, int $accountId): AddedEntry
+    public function add(string $id, ?int $personId, ?int $drinkId, ?int $quantity, ?int $factorId, int $accountId): AddedEntry
     {
         if ($quantity === null || $quantity < 1 || $quantity > self::MAX_QUANTITY) {
             throw new ValidationFailed(['quantity' => sprintf('1 bis %d.', self::MAX_QUANTITY)]);
         }
         $now = $this->clock->now();
         $this->purge($now);
-        $fingerprint = hash('sha256', json_encode([$personId, $drinkId, $quantity], JSON_THROW_ON_ERROR));
+        $fingerprint = self::fingerprint($personId, $drinkId, $quantity, $factorId);
 
         for ($attempt = 1; ; ++$attempt) {
             try {
                 // A missing id is a row that does not exist (ids start at 1): the foreign keys reject it.
-                return $this->record(new Entry($id, $personId ?? 0, $drinkId ?? 0, $quantity, $now), $fingerprint, $accountId);
+                return $this->record(new Entry($id, $personId ?? 0, $drinkId ?? 0, $quantity, $factorId, $now), $fingerprint, $accountId);
             } catch (PDOException $failure) {
                 // A deadlock between duplicates whose first request rolled back: try again.
                 if ($attempt === self::ATTEMPTS || !DatabaseError::is($failure, DatabaseError::DEADLOCK)) {
@@ -76,8 +78,16 @@ final readonly class EntryLedger
                 $this->pdo->prepare('INSERT INTO entry_requests (id, fingerprint, created_at) VALUES (?, ?, ?)')
                     ->execute([$entry->id, $fingerprint, Timestamp::of($entry->createdAt)]);
                 $this->pdo->prepare(
-                    'INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                )->execute([$entry->id, $entry->personId, $entry->drinkId, $entry->quantity, $accountId, Timestamp::of($entry->createdAt)]);
+                    'INSERT INTO entries (id, person_id, drink_id, quantity, factor_id, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                )->execute([
+                    $entry->id,
+                    $entry->personId,
+                    $entry->drinkId,
+                    $entry->quantity,
+                    $entry->factorId,
+                    $accountId,
+                    Timestamp::of($entry->createdAt),
+                ]);
             });
 
             return new AddedEntry($entry, true);
@@ -86,7 +96,11 @@ final readonly class EntryLedger
                 return $this->replay($entry, $fingerprint);
             }
             $missing = DatabaseError::is($failure, DatabaseError::MISSING_PARENT)
-                ? self::missing($this->exists('persons', $entry->personId), $this->exists('drinks', $entry->drinkId))
+                ? self::missing(
+                    $this->exists('persons', $entry->personId),
+                    $this->exists('drinks', $entry->drinkId),
+                    $entry->factorId === null || $this->exists('factors', $entry->factorId),
+                )
                 : [];
             if ($missing !== []) {
                 throw new ValidationFailed($missing);
@@ -107,7 +121,18 @@ final readonly class EntryLedger
         }
         $createdAt = new DateTimeImmutable($recordedAt, new DateTimeZone('UTC'));
 
-        return new AddedEntry(new Entry($entry->id, $entry->personId, $entry->drinkId, $entry->quantity, $createdAt), false);
+        return new AddedEntry(new Entry($entry->id, $entry->personId, $entry->drinkId, $entry->quantity, $entry->factorId, $createdAt), false);
+    }
+
+    /**
+     * The content a known id must repeat. Without a factor it is the shape from before
+     * factors existed, so requests recorded then still replay.
+     */
+    private static function fingerprint(?int $personId, ?int $drinkId, int $quantity, ?int $factorId): string
+    {
+        $content = $factorId === null ? [$personId, $drinkId, $quantity] : [$personId, $drinkId, $quantity, $factorId];
+
+        return hash('sha256', json_encode($content, JSON_THROW_ON_ERROR));
     }
 
     private function purge(DateTimeImmutable $now): void
@@ -127,11 +152,12 @@ final readonly class EntryLedger
     /**
      * @return array<string, string>
      */
-    private static function missing(bool $personExists, bool $drinkExists): array
+    private static function missing(bool $personExists, bool $drinkExists, bool $factorExists): array
     {
         return array_filter([
             'personId' => $personExists ? null : 'Person nicht gefunden.',
             'drinkId' => $drinkExists ? null : 'Getränk nicht gefunden.',
+            'factorId' => $factorExists ? null : 'Faktor nicht gefunden.',
         ]);
     }
 }

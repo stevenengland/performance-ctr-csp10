@@ -33,6 +33,17 @@ final class Input
         return is_int($value) ? $value : null;
     }
 
+    /**
+     * An optional reference: null when the field is missing or null; anything but an
+     * integer reads as 0, an id no row has, which the domain then reports as not found.
+     */
+    public static function optionalId(ServerRequestInterface $request, string $field): ?int
+    {
+        $value = self::value($request, $field);
+
+        return $value === null ? null : (is_int($value) ? $value : 0);
+    }
+
     private static function value(ServerRequestInterface $request, string $field): mixed
     {
         $body = $request->getParsedBody();

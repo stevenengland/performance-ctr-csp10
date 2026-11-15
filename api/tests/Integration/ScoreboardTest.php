@@ -23,6 +23,7 @@ final class ScoreboardTest extends DatabaseTestCase
         }
         $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $this->session);
         $this->send('POST', '/api/drinks', ['name' => 'Aperol', 'points' => 2.5], $this->session);
+        $this->send('POST', '/api/factors', ['name' => 'Happy Hour', 'multiplier' => 2], $this->session);
     }
 
     public function testCountsEachPersonsDrinksAndScoreSinceFromAndRanksByScore(): void
@@ -166,6 +167,9 @@ final class ScoreboardTest extends DatabaseTestCase
         yield 'a new drink' => ['POST', '/api/drinks', ['name' => 'Wein', 'points' => 2]];
         yield 'a new entry' => ['PUT', '/api/entries/00000000-0000-4000-8000-000000000777', ['personId' => 1, 'drinkId' => 1, 'quantity' => 1]];
         yield 'an undone entry' => ['DELETE', '/api/entries/00000000-0000-4000-8000-000000000001', null];
+        yield 'a new factor' => ['POST', '/api/factors', ['name' => 'Geburtstag', 'multiplier' => 1.5]];
+        yield 'an edited factor' => ['PATCH', '/api/factors/1', ['name' => 'Happy Hour', 'multiplier' => 3]];
+        yield 'a deleted factor' => ['DELETE', '/api/factors/1', null];
     }
 
     /**
@@ -195,6 +199,10 @@ final class ScoreboardTest extends DatabaseTestCase
         yield 'an entry for nobody' => ['PUT', '/api/entries/00000000-0000-4000-8000-000000000777', ['personId' => 99, 'drinkId' => 1, 'quantity' => 1]];
         yield 'a replayed entry' => ['PUT', '/api/entries/00000000-0000-4000-8000-000000000001', ['personId' => 1, 'drinkId' => 1, 'quantity' => 1]];
         yield 'an unknown entry' => ['DELETE', '/api/entries/00000000-0000-4000-8000-000000000555', null];
+        yield 'a taken factor name' => ['POST', '/api/factors', ['name' => 'happy hour', 'multiplier' => 3]];
+        yield 'an unknown factor' => ['PATCH', '/api/factors/9', ['name' => 'Geburtstag', 'multiplier' => 3]];
+        yield 'a deleted unknown factor' => ['DELETE', '/api/factors/9', null];
+        yield 'an entry with an unknown factor' => ['PUT', '/api/entries/00000000-0000-4000-8000-000000000777', ['personId' => 1, 'drinkId' => 1, 'quantity' => 1, 'factorId' => 9]];
     }
 
     /**
