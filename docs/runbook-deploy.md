@@ -5,56 +5,81 @@ reached over SFTP. Every green push to `main` deploys there; there is no staging
 rejected alternatives: [ADR 0003](adr/0003-production-rollout.md); the deploy CLI's origin:
 [ADR 0001](adr/0001-deploy-cli-import.md).
 
-## Runtime pins (PROVISIONAL)
+## Runtime pins
 
-The host probe (#2) has not reached PHP on the webspace yet (the domain's DNS did not point at
-Strato when this was written). Until it reports, these are **assumptions**, not findings:
+The host probe of #2 reached PHP on the webspace (round 2, run 43773611400; PHP re-probed in
+run 43774066616 after the owner switched the webspace's PHP version). CI and every local stand-in
+pin these, by digest; [ADR 0004](adr/0004-host-runtime.md) records the decisions:
 
-| What | Pin | Where it lives |
-|---|---|---|
-| PHP | 8.3 — `php:8.3-apache@sha256:a800bbd2…5472` (PHP 8.3.36) | `e2e/stack/Dockerfile` (e2e stack, deploy proof and PHPUnit all build this image) |
-| Database | MySQL 8.4 — `mysql:8.4@sha256:a81d0439…0902` (8.4.13) | `e2e/stack/compose.yml`, `tests/support/compose.yml`, `.github/workflows/ci.yml` (`phpunit` service) |
-| Composer platform | `config.platform.php` `8.3.6`, `require.php` `~8.3.0` | `api/composer.json` |
+| What | Host (probed) | Pin | Where it lives |
+|---|---|---|---|
+| PHP | 8.5.12, `cgi-fcgi` (FastCGI), opcache on with `validate_timestamps 1`, `revalidate_freq 0`, `open_basedir` none, `date.timezone` UTC | `php:8.5-apache@sha256:08af36df…2d46` (PHP 8.5.12) | `e2e/stack/Dockerfile` (e2e stack, deploy proof, PHPUnit, PHPStan and PHP-CS-Fixer all run on this image) |
+| Database | MariaDB 11.8.8 (InnoDB; server defaults utf8mb3, `sql_mode` empty, time zone `SYSTEM`) | `mariadb:11.8@sha256:d36f18d6…1707` (11.8.9: the image publishes no 11.8.8; same minor) | `e2e/stack/compose.yml`, `tests/support/compose.yml`, `.github/workflows/ci.yml` (`phpunit` job, `docker run`) |
+| Composer platform | — | `config.platform.php` `8.5.12`, `require.php` `~8.5.0` | `api/composer.json` |
+| Web server | Apache 2.4.71, `.htaccess` with `mod_rewrite` (`[END]` needs ≥ 2.3.9) | Apache of the PHP image | — |
 
-When #2 reports, swap all of them in one pull request: take the image digests for the host's
-PHP minor version and database engine/version from Docker Hub (or
-`docker-library/repo-info`), set `config.platform.php` to the host's exact PHP version, run
-`composer update` in `api/` and commit the resulting `composer.lock` (none is committed yet:
-Packagist was unreachable where the API was written, so `composer.json` pins every package,
-transitive ones included, and `scripts/composer-pins.ts` checks that; ADR 0002), and record
-the findings in an ADR. If the host runs MariaDB, replace
-the `mysql` images with `mariadb` ones; the SQL avoids MySQL-only syntax (ADR 0002).
+Every stand-in starts MariaDB the way the host's answers: `--sql-mode=` (empty),
+`--character-set-server=utf8mb3` and a non-UTC `--default-time-zone`. The API never relies on
+server defaults: every connection sets `utf8mb4` with the tables' `utf8mb4_unicode_ci`, a strict
+`sql_mode` (MySQL 8's default set) and time zone `+00:00` in one statement
+(`api/src/Http/Database.php`, tested by `api/tests/Integration/ConnectionTest.php`).
 
-## Open verifications (assumed to hold, not yet probed)
+The PHP image is built with `--disable-cgi`, so the stand-ins run mod_php while the host runs
+FastCGI: nothing may depend on mod_php. The rendered `.htaccess` carries no `php_value`/`php_flag`
+(which answer 500 under FastCGI; `deploy/webspace/htaccess.test.ts` guards it), the API sets
+`display_errors` with `ini_set` at runtime, uses cookie sessions (no `Authorization` header to
+pass through) and reads only `REMOTE_ADDR`, `REQUEST_URI` and `SCRIPT_NAME` from the server.
 
-The deploy layout depends on these host facts. The probe of #2 checks them; until then the
-deploy assumes all of them, and none of the fallbacks of #2 is built:
+To move a pin: take the digest of the host's PHP minor or MariaDB minor from
+`docker-library/repo-info` (`repos/php/remote/8.5-apache.md`, `repos/mariadb/remote/11.8.md`),
+change every place in the table (Dependabot refreshes the Dockerfile and the compose files, not
+`ci.yml`), and set `config.platform.php` to the host's exact PHP version. `api/composer.lock` is
+still not committed (Packagist was unreachable where the API was written; `composer.json` pins
+every package exactly and `scripts/composer-pins.ts` checks that, ADR 0002): generate it with
+`composer update` in `api/` on a machine with Packagist access and commit it.
 
-- **PHP can read a folder above the web root.** `app/<release>/` and `config/runtime.php` sit
-  beside `DOCROOT`, not inside it (`open_basedir` must allow the SFTP root).
-- **`GET_LOCK` works** for the migration lock.
-- **An `.htaccess` front-controller rewrite reaches PHP** (`/api/*` → `api/index.php`).
-- **An OpenSSH `sftp` rename replaces an existing file atomically** (activation and the config
-  rely on it).
-- **`%{HTTPS}` is `on` behind Strato's TLS**, so the rendered HTTP → HTTPS redirect does not loop.
-- **PHP runs as the SFTP user or can read its files** (uploads keep the local mode, `0644`).
-  `config/runtime.php` holds the database password and is therefore world-readable on the
-  host. Once #2 shows that PHP runs as the SFTP user, tighten it to `0600` (an sftp `chmod`
-  on the `.part` before the rename); if PHP runs as another user, ask Strato whether other
-  tenants can read `0644` files. Not changed yet: `0600` would break the deploy proof, whose
-  Apache runs as a different user than the SFTP account. **Owner decision.**
+## Host verifications
 
-If one fails, stop deploying and pick the fallback named on #2.
+Probed on #2 (round 2) and holding:
 
-### Open decision: accent-insensitive names
+- **PHP can read a folder above the web root**, and the folder above it is writable
+  (`open_basedir` none): `app/<release>/` and `config/runtime.php` sit beside `DOCROOT`.
+- **`GET_LOCK` works** (acquired, visible to `IS_USED_LOCK`, released) for the migration lock;
+  DDL, foreign keys and `information_schema` reads work, `utf8mb4_unicode_ci` exists.
+- **An `.htaccess` front-controller rewrite reaches PHP.**
+- **An OpenSSH `sftp` rename replaces an existing file atomically** (served afterwards: the new
+  content). With opcache's `revalidate_freq 0` and timestamp validation, PHP sees a renamed
+  `api/index.php` or `config/runtime.php` on the next request; release folders are new paths.
+  The API pointer switch needs nothing extra.
+- **`%{HTTPS}` is `on`**: Apache terminates TLS itself (PHP sees `HTTPS`, no
+  `X-Forwarded-Proto`), and the host already answers plain HTTP with a 301 to
+  `https://<apex>/`. The rendered rule therefore only acts on other host names (`www` → apex,
+  which the certificate also covers) and never loops.
+- **TLS:** Sectigo DV certificate for the apex and `www`, valid until 2027-05-14; Strato renews it.
+
+Still open:
+
+- **`SCRIPT_NAME` under the host's FastCGI.** `api/public/index.php` takes Slim's base path from
+  it (`/api/index.php` → base `/`). The probe's rewrite passed the route as a query parameter, so
+  it did not show what PHP sees after a path rewrite; the probe now reports `SCRIPT_NAME` and
+  the `REQUEST_URI` path of the rewritten request. The next probe run (it is needed for the
+  host-key lines anyway) settles it. If they differ from the expectation, health answers 404 and
+  the first deploy fails at its health check.
+- **Config file mode.** `config/runtime.php` holds the database password and is uploaded `0644`
+  (uploads keep the local mode). Whether PHP runs as the SFTP user is not probed yet: if it
+  does, tighten the file to `0600` (an sftp `chmod` on the `.part` before the rename); if not,
+  ask Strato whether other tenants can read `0644` files. Not changed yet: `0600` would break the
+  deploy proof, whose Apache runs as a different user than the SFTP account. **Owner decision.**
+
+If a verification fails, stop deploying and pick the fallback named on #2.
+
+### Decided: accent-insensitive names
 
 Every table uses `utf8mb4_unicode_ci`, which ignores accents and folds `ß` as well as case:
 `Jürgen` = `Jurgen`, `Strauß` = `Strauss`, `Bär` = `Bar`. The PRD only asks for uniqueness that
 ignores case, so two such persons, drinks, factors or user names collide with `409 Name ist
-bereits vergeben.`, and sign-in matches accent-folded user names. An accent-sensitive,
-case-insensitive collation (`utf8mb4_0900_as_ci` on MySQL 8; MariaDB names it differently)
-would fix it in a new guarded migration, but the host's database engine is still unknown (#2).
-**Owner decision**, together with the engine: keep the folding, or migrate once #2 reports.
+bereits vergeben.`, and sign-in matches accent-folded user names. **The owner decided to keep
+the folding** (MariaDB would offer `utf8mb4_uca1400_as_ci` for an accent-sensitive change).
 
 ## DNS and TLS
 
@@ -197,9 +222,9 @@ migration that is not `ok`. It reads no secrets.
 ## Local deploy proof
 
 `npm run test:deploy` runs the deploy CLI against `tests/support/compose.yml` (SFTP, Apache +
-PHP from `e2e/stack/Dockerfile`, MySQL), using the PHP release of the built artifact
+PHP from `e2e/stack/Dockerfile`, MariaDB), using the PHP release of the built artifact
 (`node scripts/build-artifact.ts` first, or `DEPLOY_TEST_ARTIFACT=<dir>`). Where the images
 cannot be pulled, `DEPLOY_TEST_EXTERNAL=1` uses servers set up by hand: a chrooted SFTP user
-`deploy` (password `deploy-test-password`) whose `/remote` is empty, Apache with mod_php serving
-`/remote/site` with `AllowOverride All` on port 8089, and an empty MySQL database
+`deploy` (password `deploy-test-password`) whose `/remote` is empty, Apache with PHP serving
+`/remote/site` with `AllowOverride All` on port 8089, and an empty MariaDB database on port 3306
 (`DEPLOY_TEST_DB_HOST`, `DEPLOY_TEST_DB_NAME`, `DEPLOY_TEST_DB_USER`, `DEPLOY_TEST_DB_PASS`).

@@ -12,10 +12,12 @@ with `beispiel-passwort`.
 
 ## Requirements
 
-Node 24 (`.nvmrc`), PHP 8.3 with `pdo_mysql`, Composer, a MySQL 8.4 server for the API
+Node 24 (`.nvmrc`), PHP 8.5 with `pdo_mysql`, Composer, a MariaDB 11.8 server for the API
 tests, Docker for the e2e stack and the deploy proof (plus `sshpass` and OpenSSH `sftp`).
-PHP 8.3 and MySQL 8.4 are **provisional** host versions until the host probe (#2) reports;
-the pins are listed in [`docs/runbook-deploy.md`](docs/runbook-deploy.md#runtime-pins-provisional).
+These are the host's versions as probed on #2 (PHP 8.5.12 as FastCGI, MariaDB 11.8.8); CI
+pins them by digest, see [`docs/runbook-deploy.md`](docs/runbook-deploy.md#runtime-pins).
+`api/composer.json` requires PHP `~8.5.0`, so Composer's platform check refuses older PHP for
+the vendor tools; CI runs every PHP tool in the pinned image.
 Enable the hooks once: `git config core.hooksPath .githooks` (pre-commit: secretlint on the staged files, `npm run check`; pre-push: `npm run check`, `npm test`, PHPStan and PHP-CS-Fixer).
 
 ## Commands
@@ -28,16 +30,16 @@ Enable the hooks once: `git config core.hooksPath .githooks` (pre-commit: secret
 | `npm run build:preview` | Fixture preview into `web/dist-preview/` (hash routing, relative paths, no service worker) |
 | `npm run api:types` | Regenerate `web/src/core/api-client/schema.d.ts` from `api/openapi.yaml` |
 | `npm run build:artifact` | The one deployable artifact: `dist/artifact/` (with its deploy `manifest.json`) and `dist/performance-<release>.tar.gz` + `.sha256` |
-| `cd api && composer test` | PHPUnit against MySQL (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`; it drops and recreates `DB_NAME`, default `performance_test`) |
+| `cd api && composer test` | PHPUnit against MariaDB (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`; it drops and recreates `DB_NAME`, default `performance_test`) |
 | `cd api && composer analyse && composer cs` | PHPStan (max) and PHP-CS-Fixer (PER-CS) |
 | `npm run test:e2e` | Playwright against the stack (`E2E_BASE_URL`, default `http://localhost:8080`); with `E2E_PREVIEW=1` it also serves `web/dist-preview/` for the preview projects |
 | `npx lhci autorun` | Lighthouse on the stack: Zählen, Rangliste and Verwalten signed in, Anmelden signed out (`e2e/support/lighthouse-sign-in.cjs` seeds a sample evening into an empty stack; run it before the e2e suite). Uses `/usr/bin/google-chrome`; override with `LHCI_COLLECT__CHROME_PATH` |
-| `npm run test:deploy` | Deploy proof: the deploy CLI with the built artifact's PHP release against SFTP + Apache/PHP + MySQL containers (`tests/support/compose.yml`); build the artifact first |
+| `npm run test:deploy` | Deploy proof: the deploy CLI with the built artifact's PHP release against SFTP + Apache/PHP + MariaDB containers (`tests/support/compose.yml`); build the artifact first |
 | `npm run lint:workflows` | actionlint and zizmor from digest-pinned images |
 | `npm run lint:secrets` | secretlint over every tracked file |
 
 The e2e stack serves the built artifact with the rendered `.htaccess` on Apache + PHP +
-MySQL. Its runtime configuration (`e2e/stack/config.php`) names the bootstrap admin the tests
+MariaDB. Its runtime configuration (`e2e/stack/config.php`) names the bootstrap admin the tests
 sign in with (`e2e-admin`, see `e2e/support/session.ts`); every route but health and sign-in
 needs a session:
 
@@ -53,7 +55,7 @@ npm run build:preview && E2E_PREVIEW=1 npm run test:e2e
 Every green push to `main` deploys to production and archives the artifact as a GitHub
 Release; `Rollback` (owner-only dispatch) re-activates a retained release with the live
 schema version; `Live check` checks production health weekly. Settings, activation order,
-failure handling and the provisional pins: [`docs/runbook-deploy.md`](docs/runbook-deploy.md).
+failure handling and the runtime pins: [`docs/runbook-deploy.md`](docs/runbook-deploy.md).
 
 `deploy/` was imported selectively from projekt2406 ([ADR 0001](docs/adr/0001-deploy-cli-import.md))
 and extended for the PHP release ([ADR 0003](docs/adr/0003-production-rollout.md)). It runs on

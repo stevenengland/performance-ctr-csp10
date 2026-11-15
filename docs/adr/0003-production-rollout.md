@@ -1,6 +1,6 @@
 # ADR 0003 — Production rollout: API-first activation, same-schema rollback, release archive
 
-- Status: accepted
+- Status: accepted; decision 9's provisional pins replaced by [ADR 0004](0004-host-runtime.md)
 - Date: 2026-11-15
 - Context: PRD #1, slice #5 (1/4), built while the host probe (#2) waits for DNS. Extends the
   deploy CLI of [ADR 0001](0001-deploy-cli-import.md) for the artifact of
@@ -94,4 +94,5 @@
 - Until #2 is closed, `host-probe.yml` also reads deploy secrets; `_deploy.yml` is the only
   other workflow that does.
 - The open host verifications (reading above the web root, `GET_LOCK`, rewrites, atomic
-  rename, `%{HTTPS}`) are assumed, not probed; the runbook lists them.
+  rename, `%{HTTPS}`) were assumed when this was written; round 2 of #2 confirmed them
+  ([ADR 0004](0004-host-runtime.md), runbook "Host verifications").

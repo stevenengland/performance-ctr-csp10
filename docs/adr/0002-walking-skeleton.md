@@ -1,6 +1,6 @@
 # ADR 0002 — Walking skeleton: provisional runtime, imported renderer, API edges
 
-- Status: accepted
+- Status: accepted; decision 1 superseded by [ADR 0004](0004-host-runtime.md) (host runtime)
 - Date: 2026-11-15
 - Context: PRD #1, slice #4 (walking skeleton), built before the host probe (#2) finished
 - Numbering: written as 0001; renumbered when slice #3 (1/2, implemented after this one)
