@@ -11,17 +11,21 @@ declare(strict_types=1);
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
 use Performance\Domain\SystemClock;
+use Performance\Http\Config;
+use Performance\Http\Database;
 
 require __DIR__ . '/../../vendor/autoload.php';
 
 [, $startAt, $id, $personId, $drinkId, $quantity, $accountId] = $argv;
 $env = static fn(string $name): string => (string) getenv($name);
-$pdo = new PDO(
+// The API's own session setup (Database::open), as a request would have.
+$pdo = Database::open(new Config(
     sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $env('DB_HOST'), $env('DB_PORT'), $env('DB_NAME')),
     $env('DB_USER'),
     $env('DB_PASS'),
-    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false],
-);
+    'race',
+    [],
+));
 $pdo->exec("SET time_zone = '+00:00'");
 $ledger = new EntryLedger($pdo, new SystemClock(), new DataRevision($pdo));
 time_sleep_until((float) $startAt);

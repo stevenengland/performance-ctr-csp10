@@ -37,7 +37,7 @@ final class Database
 
     public function pdo(): PDO
     {
-        return $this->pdo ??= $this->connect();
+        return $this->pdo ??= self::open($this->config);
     }
 
     public function migrator(): Migrator
@@ -75,19 +75,33 @@ final class Database
         return $this->revision ??= new DataRevision($this->pdo());
     }
 
-    private function connect(): PDO
+    /**
+     * The session settings the API relies on, set on every connection because the host's
+     * MariaDB does not: its `sql_mode` is empty (it would truncate an overlong value instead
+     * of refusing it), its session time zone is `SYSTEM` and its default charset utf8mb3.
+     * The collation is the tables' own, so literals and parameters never mix collations.
+     */
+    public const SESSION_SETUP = "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci,
+        SESSION sql_mode = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
+        SESSION time_zone = '+00:00'";
+
+    /**
+     * Opens a database session with the API's settings: exceptions, native prepared
+     * statements, and the session setup above in one round trip.
+     */
+    public static function open(Config $config): PDO
     {
         $pdo = new PDO(
-            $this->config->databaseDsn,
-            $this->config->databaseUser,
-            $this->config->databasePassword,
+            $config->databaseDsn,
+            $config->databaseUser,
+            $config->databasePassword,
             [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_EMULATE_PREPARES => false,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             ],
         );
-        $pdo->exec("SET time_zone = '+00:00'");
+        $pdo->exec(self::SESSION_SETUP);
 
         return $pdo;
     }
