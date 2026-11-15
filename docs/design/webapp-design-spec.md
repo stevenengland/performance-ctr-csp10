@@ -289,6 +289,8 @@ an older one.
 | Deleted entry (Verlauf) | `Eintrag gelöscht` | — |
 | Update available | `Neue Version verfügbar` | `Neu laden` |
 | Own password changed | `Passwort geändert` | — |
+| Password reset (Konten) | `Passwort von anna zurückgesetzt` | — |
+| Admin rights changed (Konten) | `anna ist jetzt Admin` / `anna ist kein Admin mehr` | — |
 
 ### 6.4 Counting tiles
 
@@ -537,16 +539,33 @@ submit on Enter.
 - Title `Konten` with a back button; the navigation keeps `Verwalten` active. Non-admins
   never see it: `/verwalten/konten` sends them to `/verwalten`.
 - List of accounts by user name: user name (`row-title`), `Admin` assist chip for admins
-  (outlined, corner 8 dp, `caption`); trailing menu with `Passwort zurücksetzen`,
-  `Zum Admin machen` / `Adminrechte entziehen`, `Löschen` (from slice 1/11 on). Skeleton rows
-  while loading.
+  (outlined, corner 8 dp, `caption`); a trailing menu button (`mdiDotsVertical`, named
+  `Aktionen für anna`) opens a menu on `surface-container` (corner 10 dp) with
+  `Passwort zurücksetzen`, `Zum Admin machen` / `Adminrechte entziehen` and `Löschen`.
+  Skeleton rows while loading.
+- `Passwort zurücksetzen` opens the dialog `Passwort von anna zurücksetzen` with the line
+  `anna wird auf allen Geräten abgemeldet.` and the field `Neues Passwort` (with show/hide),
+  buttons `Abbrechen` and `Speichern`. A short password → `Mindestens 10 Zeichen.` under the
+  field (422); success closes the dialog with the snackbar `Passwort von anna zurückgesetzt`.
+  The server signs the account out on every device.
+- `Zum Admin machen` / `Adminrechte entziehen` act at once, without a dialog: snackbar
+  `anna ist jetzt Admin` / `anna ist kein Admin mehr`, and the list reloads. An admin who
+  takes their own rights leaves Konten for `/verwalten`.
+- `Löschen` opens the confirmation dialog of §6.9 (`Konto anna löschen?` – `Einträge von anna
+  bleiben erhalten.`); afterwards the snackbar `anna gelöscht` and the list reloads. The
+  account's sessions end; its entries stay and Verlauf shows them as `gelöschtes Konto`
+  (§7g). Resetting one's own password or deleting one's own account signs this device out
+  too, which leads to Anmelden (§9, 401).
 - Extended FAB `Konto anlegen`: dialog `Konto anlegen` with `Benutzername` and `Startpasswort`
   (with show/hide; minimum 10 characters), buttons `Abbrechen` and `Speichern`. Field errors
   inline (§6.11): 422 under its field, and a taken user name (409) under `Benutzername` as the
   problem title `Benutzername ist bereits vergeben.` On success the dialog closes and the list
   reloads.
-- Last admin: the menu entries that would remove the last admin are disabled with supporting
-  text `Letzter Admin`; the server enforces it regardless (409 → problem title in the snackbar).
+- Last admin: while exactly one admin is listed, that account's `Adminrechte entziehen` and
+  `Löschen` are disabled (dimmed) with the supporting text `Letzter Admin`;
+  `Passwort zurücksetzen` stays available. The server enforces it regardless, also against
+  two admins removing each other at once (409 → problem title
+  `Der letzte Admin kann nicht entfernt werden.` in the snackbar).
 
 ### 7k. Konto `/konto`
 
