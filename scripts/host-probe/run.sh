@@ -20,7 +20,7 @@ trap 'rm -rf "$work"' EXIT
 : "${SITE_URL:?}" "${DEPLOY_HOST:?}" "${SFTP_USER:?}" "${SSHPASS:?}"
 : "${DB_HOST:?}" "${DB_NAME:?}" "${DB_USER:?}" "${DB_PASSWORD:?}"
 remote_root=${REMOTE_ROOT:-/}
-docroot=${DOCROOT:?}
+docroot=${DOCROOT:-}
 docroot=${docroot#/}
 docroot=${docroot%/}
 port=${DEPLOY_PORT:-22}
@@ -33,16 +33,10 @@ site_host=${site_host%%/*}
 rand=$(openssl rand -hex 8)
 token=$(openssl rand -hex 24)
 root=${remote_root%/}
-probe_dir="$root/$docroot/probe-$rand"
-config_remote="$root/probe-$rand.json"
-depth=$(( $(tr -cd '/' <<<"${docroot%/}" | wc -c) + 2 ))
-config_relative=$(printf '../%.0s' $(seq 1 "$depth"))"probe-$rand.json"
 
 out() { printf '%s\n' "$*"; if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$*" >>"$GITHUB_STEP_SUMMARY"; fi; }
 
 # --- files -----------------------------------------------------------------------------------
-sed "s#__CONFIG_RELATIVE__#$config_relative#" "$here/probe.php" >"$work/index.php"
-printf 'RewriteEngine On\nRewriteCond %%{REQUEST_FILENAME} !-f\nRewriteRule ^api/(.*)$ index.php?route=$1 [QSA,L]\n' >"$work/htaccess"
 printf 'A' >"$work/a.txt"
 printf 'B' >"$work/b.txt"
 ( umask 077; TOKEN=$token jq -n '{token: env.TOKEN, db: {host: env.DB_HOST, port: (env.DB_PORT // ""), name: env.DB_NAME, user: env.DB_USER, pass: env.DB_PASSWORD}}' >"$work/config.json" )
@@ -79,6 +73,55 @@ sftp_batch() { # $1 = batch file; returns sftp's exit code, stderr suppressed (m
   sshpass -e sftp -oBatchMode=no -F "$work/ssh_config" -b "$1" target >/dev/null 2>"$work/sftp.err"
 }
 
+cleanup() { sftp_batch "$work/cleanup" && cleaned=yes || cleaned=no; }
+cleaned=no
+
+out "## Strato host probe"
+out ""
+out "- Site: \`$site\`"
+out "- Host key: $host_key_source; fingerprints: \`$fingerprints\`"
+
+# --- find the served folder when DOCROOT is not configured -------------------------------------
+if [ -z "$docroot" ] && [ -z "${DOCROOT_SET:-}" ]; then
+  printf 'ls -l %s\n' "${root:-/}" >"$work/lsroot"
+  sshpass -e sftp -oBatchMode=no -F "$work/ssh_config" -b "$work/lsroot" target 2>/dev/null \
+    | awk '$1 ~ /^d/ {print $NF}' | grep -vE '^\.{1,2}$' | grep -vE '[[:space:]]' >"$work/dirs" || true
+  candidates=("") ; while IFS= read -r d; do candidates+=("$d"); done <"$work/dirs"
+  : >"$work/markers"; : >"$work/unmark"
+  for i in "${!candidates[@]}"; do
+    printf '%s' "$i" >"$work/marker-$i.txt"
+    target_dir="$root${candidates[$i]:+/${candidates[$i]}}"
+    printf -- '-put %s %s/probe-%s.txt\n' "$work/marker-$i.txt" "$target_dir" "$rand" >>"$work/markers"
+    printf -- '-rm %s/probe-%s.txt\n' "$target_dir" "$rand" >>"$work/unmark"
+  done
+  sftp_batch "$work/markers" || true
+  hit=$(curl -fsSk --max-time 20 "$site/probe-$rand.txt" || true)
+  sftp_batch "$work/unmark" || true
+  if [[ "$hit" =~ ^[0-9]+$ ]] && [ "$hit" -lt "${#candidates[@]}" ]; then
+    docroot=${candidates[$hit]}
+    out "- Served folder (found by marker): \`${docroot:-SFTP root}\` (checked the SFTP root and ${#candidates[@]} - 1 top-level folders)"
+  else
+    out "- Served folder: **not found** — no marker in the SFTP root or its top-level folders was served at \`$site\`"
+    exit 1
+  fi
+fi
+
+if [ -n "$docroot" ]; then
+  probe_dir="$root/$docroot/probe-$rand"
+  config_remote="$root/probe-$rand.json"
+  depth=$(( $(tr -cd '/' <<<"$docroot" | wc -c) + 2 ))
+  config_relative=$(printf '../%.0s' $(seq 1 "$depth"))"probe-$rand.json"
+  config_note="above the web root"
+else
+  probe_dir="$root/probe-$rand"
+  config_remote="$probe_dir/config.json"
+  config_relative="config.json"
+  config_note="inside the probe folder behind a deny rule (the web root is the SFTP root, so nothing above it is reachable)"
+fi
+sed "s#__CONFIG_RELATIVE__#$config_relative#" "$here/probe.php" >"$work/index.php"
+printf 'RewriteEngine On\nRewriteCond %%{REQUEST_FILENAME} !-f\nRewriteRule ^api/(.*)$ index.php?route=$1 [QSA,L]\n<Files "config.json">\n  Require all denied\n</Files>\n' >"$work/htaccess"
+out "- Probe config placed $config_note"
+
 cat >"$work/upload" <<EOF
 mkdir $probe_dir
 put $work/index.php $probe_dir/index.php
@@ -95,15 +138,9 @@ cat >"$work/cleanup" <<EOF
 -rm $probe_dir/rename-b.txt
 -rm $probe_dir/.htaccess
 -rm $probe_dir/index.php
--rmdir $probe_dir
 -rm $config_remote
+-rmdir $probe_dir
 EOF
-cleanup() { sftp_batch "$work/cleanup" && cleaned=yes || cleaned=no; }
-cleaned=no
-
-out "## Strato host probe"
-out ""
-out "- Host key: $host_key_source; fingerprints: \`$fingerprints\`"
 
 if sftp_batch "$work/upload"; then upload=yes; else upload=no; fi
 out "- SFTP login and upload into the web root and above it: **$upload**"
@@ -113,7 +150,7 @@ if [ "$upload" = no ]; then
 fi
 
 if sftp_batch "$work/rename"; then rename=yes; else rename=no; fi
-served=$(curl -fsS --max-time 20 "$site/probe-$rand/rename-a.txt" || true)
+served=$(curl -fsSk --max-time 20 "$site/probe-$rand/rename-a.txt" || true)
 out "- OpenSSH \`sftp\` rename onto an existing file: **$rename**; file served afterwards: \`${served:-none}\` (expected \`B\`)"
 
 https_status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$site/" || true)
@@ -124,9 +161,11 @@ out "- HTTPS: status \`$https_status\` on \`/\`, certificate verification result
 out "- Certificate: \`${cert:-not readable}\`"
 out "- Plain HTTP on \`/\`: \`$http_status\`"
 
-probe_json=$(curl -fsS --max-time 30 "$site/probe-$rand/index.php?t=$token" || echo '{"error":"probe not reachable"}')
-rewrite_json=$(curl -fsS --max-time 30 "$site/probe-$rand/api/hello?t=$token" || echo '{"error":"rewrite not reachable"}')
+probe_json=$(curl -fsSk --max-time 30 "$site/probe-$rand/index.php?t=$token" || echo '{"error":"probe not reachable"}')
+rewrite_json=$(curl -fsSk --max-time 30 "$site/probe-$rand/api/hello?t=$token" || echo '{"error":"rewrite not reachable"}')
 rewrite_route=$(jq -r '.server.route // "none"' <<<"$rewrite_json" 2>/dev/null || echo none)
+denied=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 "$site/probe-$rand/config.json" || true)
+[ -n "$docroot" ] || out "- Config file inside the web root answers HTTP \`$denied\` (expected 403)"
 out "- \`.htaccess\` front-controller rewrite reaches PHP: **$([ "$rewrite_route" = hello ] && echo yes || echo no)** (route seen: \`$rewrite_route\`)"
 out ""
 out "### PHP and database (probe response)"
@@ -138,6 +177,6 @@ out '```'
 cleanup
 out ""
 out "- Cleanup of all probe files: **$cleaned**"
-printf 'ls -1 %s\n' "$root/$docroot" >"$work/list"
+printf 'ls -1 %s\n' "${root}${docroot:+/$docroot}" >"$work/list"
 entries=$(sshpass -e sftp -oBatchMode=no -F "$work/ssh_config" -b "$work/list" target 2>/dev/null | grep -v '^sftp>' | grep -c . || true)
 out "- Visible entries left in the web root after cleanup: \`$entries\`"

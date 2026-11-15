@@ -149,7 +149,9 @@ jobs:
           } >>"$GITHUB_STEP_SUMMARY"
           for role in site_url docroot deploy_host sftp_user sftp_password db_host db_name db_user db_password remote_root deploy_port known_hosts db_port bootstrap_user bootstrap_secret; do
             case $role in
-              site_url|docroot|deploy_host|sftp_user|db_host|db_name|db_user) need=yes ;;
+              deploy_host|sftp_user|db_host|db_name|db_user) need=yes ;;
+              site_url) need="optional (default https://cybersecurityprofessionals.info)" ;;
+              docroot) need="optional (found by marker)" ;;
               sftp_password|db_password) need="yes, as secret" ;;
               *) need=optional ;;
             esac
@@ -177,7 +179,7 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null
       - name: Run the probe
         env:
-          SITE_URL: ${{ vars.SITE_URL || secrets.SITE_URL || vars.PROD_SITE_URL || secrets.PROD_SITE_URL || vars.APP_URL || secrets.APP_URL || vars.BASE_URL || secrets.BASE_URL || vars.URL || secrets.URL || vars.SITE || secrets.SITE || vars.SITE_DOMAIN || secrets.SITE_DOMAIN || vars.DOMAIN || secrets.DOMAIN || vars.APP_DOMAIN || secrets.APP_DOMAIN || vars.PUBLIC_URL || secrets.PUBLIC_URL || vars.WEB_URL || secrets.WEB_URL || vars.SITE_HOST || secrets.SITE_HOST || vars.WEB_HOST || secrets.WEB_HOST || vars.APP_HOST || secrets.APP_HOST || vars.SUBDOMAIN || secrets.SUBDOMAIN }}
+          SITE_URL: ${{ vars.SITE_URL || secrets.SITE_URL || vars.PROD_SITE_URL || secrets.PROD_SITE_URL || vars.APP_URL || secrets.APP_URL || vars.BASE_URL || secrets.BASE_URL || vars.URL || secrets.URL || vars.SITE || secrets.SITE || vars.SITE_DOMAIN || secrets.SITE_DOMAIN || vars.DOMAIN || secrets.DOMAIN || vars.APP_DOMAIN || secrets.APP_DOMAIN || vars.PUBLIC_URL || secrets.PUBLIC_URL || vars.WEB_URL || secrets.WEB_URL || vars.SITE_HOST || secrets.SITE_HOST || vars.WEB_HOST || secrets.WEB_HOST || vars.APP_HOST || secrets.APP_HOST || vars.SUBDOMAIN || secrets.SUBDOMAIN || 'https://cybersecurityprofessionals.info' }}
           REMOTE_ROOT: ${{ vars.REMOTE_ROOT || secrets.REMOTE_ROOT || vars.DEPLOY_REMOTE_ROOT || secrets.DEPLOY_REMOTE_ROOT || vars.PROD_REMOTE_ROOT || secrets.PROD_REMOTE_ROOT }}
           DOCROOT: ${{ vars.DOCROOT || secrets.DOCROOT || vars.DEPLOY_DOCROOT || secrets.DEPLOY_DOCROOT || vars.WEB_ROOT || secrets.WEB_ROOT || vars.WEBROOT || secrets.WEBROOT || vars.PROD_DEPLOY_DOCROOT || secrets.PROD_DEPLOY_DOCROOT || vars.SFTP_PATH || secrets.SFTP_PATH || vars.SFTP_DIR || secrets.SFTP_DIR || vars.SFTP_REMOTE_PATH || secrets.SFTP_REMOTE_PATH || vars.SFTP_ROOT || secrets.SFTP_ROOT || vars.REMOTE_PATH || secrets.REMOTE_PATH || vars.REMOTE_DIR || secrets.REMOTE_DIR || vars.DEPLOY_PATH || secrets.DEPLOY_PATH || vars.DEPLOY_DIR || secrets.DEPLOY_DIR || vars.TARGET_DIR || secrets.TARGET_DIR || vars.TARGET_PATH || secrets.TARGET_PATH || vars.PUBLIC_DIR || secrets.PUBLIC_DIR }}
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST || secrets.DEPLOY_HOST || vars.SFTP_HOST || secrets.SFTP_HOST || vars.SSH_HOST || secrets.SSH_HOST || vars.FTP_HOST || secrets.FTP_HOST || vars.PROD_DEPLOY_HOST || secrets.PROD_DEPLOY_HOST }}
