@@ -21,10 +21,6 @@ final readonly class Accounts
      */
     private const UNKNOWN_USER_HASH = '$2y$10$Wdlo7D986U3W5wuCoDcDAu8CEr7KJSGm4wklvd3t/GWbtV8p0Cpgi';
 
-    /** MySQL's duplicate-key and deadlock error codes. */
-    private const DUPLICATE_KEY = 1062;
-    private const DEADLOCK = 1213;
-
     public function __construct(
         private PDO $pdo,
         private Clock $clock,
@@ -49,7 +45,7 @@ final readonly class Accounts
                  WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE is_admin = 1)',
             )->execute([trim($admin->userName), $admin->passwordHash, $now, $now]);
         } catch (PDOException $failure) {
-            if (!in_array(self::driverCode($failure), [self::DUPLICATE_KEY, self::DEADLOCK], true)) {
+            if (!DatabaseError::is($failure, DatabaseError::DUPLICATE_KEY, DatabaseError::DEADLOCK)) {
                 throw $failure;
             }
         }
@@ -81,7 +77,7 @@ final readonly class Accounts
                 'INSERT INTO accounts (user_name, password_hash, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
             )->execute([$userName, PasswordPolicy::hash($password), (int) $isAdmin, $now, $now]);
         } catch (PDOException $failure) {
-            if (self::driverCode($failure) === self::DUPLICATE_KEY) {
+            if (DatabaseError::is($failure, DatabaseError::DUPLICATE_KEY)) {
                 throw new DuplicateUserName($userName, 0, $failure);
             }
             throw $failure;
@@ -170,12 +166,5 @@ final readonly class Accounts
 
         /** @var array<string, mixed>|false $row */
         return $row === false ? null : $row;
-    }
-
-    private static function driverCode(PDOException $failure): ?int
-    {
-        $code = $failure->errorInfo[1] ?? null;
-
-        return is_int($code) ? $code : null;
     }
 }

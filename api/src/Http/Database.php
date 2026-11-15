@@ -6,8 +6,11 @@ namespace Performance\Http;
 
 use PDO;
 use Performance\Domain\Accounts;
+use Performance\Domain\Catalog\Catalog;
 use Performance\Domain\Clock;
+use Performance\Domain\EntryLedger;
 use Performance\Domain\Migrator;
+use Performance\Domain\Scoreboard;
 use Performance\Domain\Sessions;
 
 /**
@@ -21,6 +24,9 @@ final class Database
     private ?Migrator $migrator = null;
     private ?Accounts $accounts = null;
     private ?Sessions $sessions = null;
+    private ?Catalog $catalog = null;
+    private ?EntryLedger $entries = null;
+    private ?Scoreboard $scoreboard = null;
 
     public function __construct(
         private readonly Config $config,
@@ -45,6 +51,21 @@ final class Database
     public function sessions(): Sessions
     {
         return $this->sessions ??= new Sessions($this->pdo(), $this->accounts(), $this->clock);
+    }
+
+    public function catalog(): Catalog
+    {
+        return $this->catalog ??= new Catalog($this->pdo(), $this->clock);
+    }
+
+    public function entries(): EntryLedger
+    {
+        return $this->entries ??= new EntryLedger($this->pdo(), $this->clock);
+    }
+
+    public function scoreboard(): Scoreboard
+    {
+        return $this->scoreboard ??= new Scoreboard($this->pdo());
     }
 
     private function connect(): PDO

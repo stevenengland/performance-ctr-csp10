@@ -48,6 +48,16 @@ final readonly class Problem
         return new self('duplicate-user-name', 'Benutzername ist bereits vergeben.', 409);
     }
 
+    public static function duplicateName(): self
+    {
+        return new self('duplicate-name', 'Name ist bereits vergeben.', 409);
+    }
+
+    public static function entryConflict(): self
+    {
+        return new self('entry-conflict', 'Eintrag wurde schon mit anderem Inhalt gespeichert.', 409);
+    }
+
     public static function unsupportedMediaType(): self
     {
         return new self('unsupported-media-type', 'Nur JSON wird angenommen', 415);

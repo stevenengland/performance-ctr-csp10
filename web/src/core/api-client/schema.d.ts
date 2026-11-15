@@ -78,6 +78,86 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/persons': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every person, alphabetical (ignoring case) */
+    get: operations['listPersons'];
+    put?: never;
+    /** Create a person */
+    post: operations['createPerson'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/drinks': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every drink, alphabetical (ignoring case) */
+    get: operations['listDrinks'];
+    put?: never;
+    /** Create a drink with its alcohol base points */
+    post: operations['createDrink'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/entries/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The entry's client-generated UUID v4 (lower case), also the retry key */
+        id: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Add an entry, idempotently on its id
+     * @description The account and the server time (UTC) are recorded with the entry. A repeated request with the same id and content answers 200 with the original entry and creates nothing, even after the entry was deleted; the same id with different content answers 409. Ids are remembered for seven days. Any other id that is not a lower-case UUID v4 is 404.
+     */
+    put: operations['addEntry'];
+    post?: never;
+    /** Delete an entry (undo); its id stays known, so a late retry cannot bring it back */
+    delete: operations['deleteEntry'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/scoreboard': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Standings since `from`, the start of the viewer's day
+     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × points; count = Σ quantity; per-drink counters likewise.
+     */
+    get: operations['getScoreboard'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -104,6 +184,67 @@ export interface components {
       userName: string;
       /** @description The start password */
       password: string;
+    };
+    /** @description Trimmed; 1–40 characters; unique regardless of case */
+    Name: string;
+    Person: {
+      id: number;
+      name: components['schemas']['Name'];
+    };
+    PersonList: {
+      persons: components['schemas']['Person'][];
+    };
+    NewPerson: {
+      name: components['schemas']['Name'];
+    };
+    /** @description Alcohol base points, 0–9 999.99 with at most two decimals */
+    Points: number;
+    Drink: {
+      id: number;
+      name: components['schemas']['Name'];
+      points: components['schemas']['Points'];
+    };
+    DrinkList: {
+      drinks: components['schemas']['Drink'][];
+    };
+    NewDrink: {
+      name: components['schemas']['Name'];
+      points: components['schemas']['Points'];
+    };
+    Quantity: number;
+    NewEntry: {
+      personId: number;
+      drinkId: number;
+      quantity: components['schemas']['Quantity'];
+    };
+    Entry: {
+      id: string;
+      personId: number;
+      drinkId: number;
+      quantity: components['schemas']['Quantity'];
+      /**
+       * Format: date-time
+       * @description Server time of the first request, UTC
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+    };
+    Scoreboard: {
+      /** @description Ranked by score, ties by name; persons without entries are absent */
+      rows: components['schemas']['ScoreRow'][];
+    };
+    ScoreRow: {
+      personId: number;
+      name: string;
+      score: number;
+      count: number;
+      /** @description By drink name; only drinks with entries */
+      drinks: components['schemas']['DrinkCount'][];
+    };
+    DrinkCount: {
+      drinkId: number;
+      name: string;
+      count: number;
     };
     Health: {
       /**
@@ -141,6 +282,8 @@ export interface components {
         | 'urn:performance:problem:invalid-credentials'
         | 'urn:performance:problem:forbidden'
         | 'urn:performance:problem:duplicate-user-name'
+        | 'urn:performance:problem:duplicate-name'
+        | 'urn:performance:problem:entry-conflict'
         | 'urn:performance:problem:unsupported-media-type'
         | 'urn:performance:problem:validation'
         | 'urn:performance:problem:too-many-attempts'
@@ -340,6 +483,193 @@ export interface operations {
       403: components['responses']['Problem'];
       409: components['responses']['Problem'];
       415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  listPersons: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The persons */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PersonList'];
+        };
+      };
+      401: components['responses']['Problem'];
+    };
+  };
+  createPerson: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewPerson'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Person'];
+        };
+      };
+      401: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  listDrinks: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The drinks */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DrinkList'];
+        };
+      };
+      401: components['responses']['Problem'];
+    };
+  };
+  createDrink: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewDrink'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Drink'];
+        };
+      };
+      401: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  addEntry: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The entry's client-generated UUID v4 (lower case), also the retry key */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewEntry'];
+      };
+    };
+    responses: {
+      /** @description Already added by an earlier request with this id */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Entry'];
+        };
+      };
+      /** @description Added */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Entry'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  deleteEntry: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The entry's client-generated UUID v4 (lower case), also the retry key */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  getScoreboard: {
+    parameters: {
+      query: {
+        /** @description Local midnight of the viewer's day as an ISO-8601 instant with offset */
+        from: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The standings */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Scoreboard'];
+        };
+      };
+      401: components['responses']['Problem'];
       422: components['responses']['Problem'];
     };
   };

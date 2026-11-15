@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Performance\Http;
 
+use Performance\Domain\Catalog\DuplicateName;
 use Performance\Domain\DuplicateUserName;
+use Performance\Domain\EntryConflict;
+use Performance\Domain\NotFound;
 use Performance\Domain\InvalidCredentials;
 use Performance\Domain\TooManyAttempts;
 use Performance\Domain\ValidationFailed;
@@ -31,6 +34,9 @@ final readonly class ProblemDetailsHandler
             $exception instanceof HttpMethodNotAllowedException => Problem::methodNotAllowed(),
             $exception instanceof ValidationFailed => Problem::validation($exception->errors),
             $exception instanceof DuplicateUserName => Problem::duplicateUserName(),
+            $exception instanceof DuplicateName => Problem::duplicateName(),
+            $exception instanceof EntryConflict => Problem::entryConflict(),
+            $exception instanceof NotFound => Problem::notFound(),
             $exception instanceof InvalidCredentials => Problem::invalidCredentials(),
             $exception instanceof TooManyAttempts => Problem::tooManyAttempts(),
             default => Problem::internal(),

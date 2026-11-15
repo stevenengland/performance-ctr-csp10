@@ -15,7 +15,7 @@ test('health reports the versions, schema and migration state of the stack', asy
       engine: expect.stringMatching(/^(MySQL|MariaDB)$/),
       version: expect.stringMatching(/^\d+\.\d+\.\d+$/),
     },
-    schemaVersion: 4,
+    schemaVersion: 8,
     migration: 'ok',
     minClientVersion: expect.stringMatching(/^\d+\.\d+\.\d+$/),
   });

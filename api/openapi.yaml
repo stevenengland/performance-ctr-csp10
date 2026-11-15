@@ -147,6 +147,164 @@ paths:
           $ref: '#/components/responses/Problem'
         '422':
           $ref: '#/components/responses/Problem'
+  /api/persons:
+    get:
+      operationId: listPersons
+      summary: Every person, alphabetical (ignoring case)
+      responses:
+        '200':
+          description: The persons
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonList'
+        '401':
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createPerson
+      summary: Create a person
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewPerson'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Person'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/drinks:
+    get:
+      operationId: listDrinks
+      summary: Every drink, alphabetical (ignoring case)
+      responses:
+        '200':
+          description: The drinks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DrinkList'
+        '401':
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createDrink
+      summary: Create a drink with its alcohol base points
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewDrink'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Drink'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/entries/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The entry's client-generated UUID v4 (lower case), also the retry key
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    put:
+      operationId: addEntry
+      summary: Add an entry, idempotently on its id
+      description: >-
+        The account and the server time (UTC) are recorded with the entry. A repeated
+        request with the same id and content answers 200 with the original entry and
+        creates nothing, even after the entry was deleted; the same id with different
+        content answers 409. Ids are remembered for seven days. Any other id that is not
+        a lower-case UUID v4 is 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewEntry'
+      responses:
+        '200':
+          description: Already added by an earlier request with this id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entry'
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entry'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteEntry
+      summary: Delete an entry (undo); its id stays known, so a late retry cannot bring it back
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/scoreboard:
+    get:
+      operationId: getScoreboard
+      summary: Standings since `from`, the start of the viewer's day
+      description: >-
+        Persons with entries since `from`, ranked by score (ties by name). score =
+        Σ quantity × points; count = Σ quantity; per-drink counters likewise.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: Local midnight of the viewer's day as an ISO-8601 instant with offset
+          schema:
+            type: string
+            format: date-time
+            examples: ['2026-11-14T23:00:00.000Z']
+      responses:
+        '200':
+          description: The standings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scoreboard'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     session:
@@ -214,6 +372,142 @@ components:
           type: string
           description: The start password
           minLength: 10
+    Name:
+      type: string
+      description: Trimmed; 1–40 characters; unique regardless of case
+      minLength: 1
+      maxLength: 40
+    Person:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+    PersonList:
+      type: object
+      additionalProperties: false
+      required: [persons]
+      properties:
+        persons:
+          type: array
+          items:
+            $ref: '#/components/schemas/Person'
+    NewPerson:
+      type: object
+      required: [name]
+      properties:
+        name:
+          $ref: '#/components/schemas/Name'
+    Points:
+      type: number
+      description: Alcohol base points, 0–9 999.99 with at most two decimals
+      minimum: 0
+      maximum: 9999.99
+      multipleOf: 0.01
+    Drink:
+      type: object
+      additionalProperties: false
+      required: [id, name, points]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        points:
+          $ref: '#/components/schemas/Points'
+    DrinkList:
+      type: object
+      additionalProperties: false
+      required: [drinks]
+      properties:
+        drinks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Drink'
+    NewDrink:
+      type: object
+      required: [name, points]
+      properties:
+        name:
+          $ref: '#/components/schemas/Name'
+        points:
+          $ref: '#/components/schemas/Points'
+    Quantity:
+      type: integer
+      minimum: 1
+      maximum: 99
+    NewEntry:
+      type: object
+      required: [personId, drinkId, quantity]
+      properties:
+        personId:
+          type: integer
+        drinkId:
+          type: integer
+        quantity:
+          $ref: '#/components/schemas/Quantity'
+    Entry:
+      type: object
+      additionalProperties: false
+      required: [id, personId, drinkId, quantity, createdAt]
+      properties:
+        id:
+          type: string
+        personId:
+          type: integer
+        drinkId:
+          type: integer
+        quantity:
+          $ref: '#/components/schemas/Quantity'
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the first request, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+    Scoreboard:
+      type: object
+      additionalProperties: false
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          description: Ranked by score, ties by name; persons without entries are absent
+          items:
+            $ref: '#/components/schemas/ScoreRow'
+    ScoreRow:
+      type: object
+      additionalProperties: false
+      required: [personId, name, score, count, drinks]
+      properties:
+        personId:
+          type: integer
+        name:
+          type: string
+        score:
+          type: number
+        count:
+          type: number
+        drinks:
+          type: array
+          description: By drink name; only drinks with entries
+          items:
+            $ref: '#/components/schemas/DrinkCount'
+    DrinkCount:
+      type: object
+      additionalProperties: false
+      required: [drinkId, name, count]
+      properties:
+        drinkId:
+          type: integer
+        name:
+          type: string
+        count:
+          type: number
     Health:
       type: object
       additionalProperties: false
@@ -269,6 +563,8 @@ components:
             - urn:performance:problem:invalid-credentials
             - urn:performance:problem:forbidden
             - urn:performance:problem:duplicate-user-name
+            - urn:performance:problem:duplicate-name
+            - urn:performance:problem:entry-conflict
             - urn:performance:problem:unsupported-media-type
             - urn:performance:problem:validation
             - urn:performance:problem:too-many-attempts

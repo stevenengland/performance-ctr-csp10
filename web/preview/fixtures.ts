@@ -28,7 +28,7 @@ export function sampleEvening(): Fixtures {
       appVersion: `${__APP_VERSION__} (Vorschau)`,
       phpVersion: '8.3.0',
       database: { engine: 'MySQL', version: '8.4.0' },
-      schemaVersion: 4,
+      schemaVersion: 8,
       migration: 'ok',
       minClientVersion: '0.1.0',
     },

@@ -27,6 +27,8 @@ final class App
         $adminOnly = new AdminOnly($responses);
         $session = new SessionActions($database, $config->bootstrapAdmin);
         $accounts = new AccountActions($database);
+        $catalog = new CatalogActions($database);
+        $entries = new EntryActions($database);
 
         // Open routes: health and sign-in. Every other route requires a session.
         $app->get('/api/health', new HealthAction($database, $config->appVersion));
@@ -38,6 +40,14 @@ final class App
         // Route middleware added last runs first: SessionAuth, then AdminOnly.
         $app->get('/api/accounts', $accounts->list(...))->add($adminOnly)->add($signedIn);
         $app->post('/api/accounts', $accounts->create(...))->add($adminOnly)->add($signedIn);
+        $app->get('/api/persons', $catalog->persons(...))->add($signedIn);
+        $app->post('/api/persons', $catalog->createPerson(...))->add($signedIn);
+        $app->get('/api/drinks', $catalog->drinks(...))->add($signedIn);
+        $app->post('/api/drinks', $catalog->createDrink(...))->add($signedIn);
+        $entry = '/api/entries/{id:' . EntryActions::ID_PATTERN . '}';
+        $app->put($entry, $entries->put(...))->add($signedIn);
+        $app->delete($entry, $entries->delete(...))->add($signedIn);
+        $app->get('/api/scoreboard', new ScoreboardAction($database))->add($signedIn);
 
         // Inside routing, so an unknown route or method stays 404/405 whatever its body.
         $app->add(new JsonBody($responses));
