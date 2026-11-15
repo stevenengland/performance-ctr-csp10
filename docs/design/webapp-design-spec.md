@@ -183,7 +183,7 @@ step (28 → 24 → 20) before they ellipsize.
   derived from its index, so it looks hand-drawn but never changes between renders. It draws
   the whole part of the value (a counter of 4,5 draws four); above 25 it is omitted and the
   numeral stands alone. It is decorative: `aria-hidden`, the number next to it carries the
-  meaning. Heights: 18 dp on drink and quantity tiles, 22 dp on person tiles, 26 dp on the
+  meaning. Heights: 18 dp on drink and quantity tiles, 26 dp on the
   leader card, 30 dp on Anmelden.
 - **Motion:** step transitions slide horizontally (forward left, back right, 200 ms, standard
   easing). A tapped tile turns amber immediately. When a count rises, only the new strokes draw
@@ -281,8 +281,9 @@ an older one.
 height 104 dp, padding 12 × 14 dp, a 3 dp inset bottom edge in `outline-variant`, content
 left-aligned. Pressed or saving: `primary-container` / `on-primary-container`, edge removed.
 
-- **Person tile:** name (`tile-name`) at the top; at the bottom the person's tally for today
-  (all drinks, 22 dp), or `noch nichts` in `support` when there is none.
+- **Person tile:** name (`tile-name`) at the top; at the bottom `Punkte heute` in `support` on
+  the left and the person's total score for today (`numeral`) on the right, or just
+  `noch nichts` in `support` when there are no entries today. No tally marks here.
 - **Drink tile:** top row — name left, today's counter for the chosen person right (`numeral`,
   omitted at 0); bottom row — points in `support` (`1 Punkt`, `3 Punkte`, `0,5 Punkte`) left,
   tally (18 dp) right.
@@ -362,8 +363,8 @@ the server.
 ### 7b. Zählen, step 1 — Namen `/zaehlen`
 
 - Title `Zählen`; step indicator at 1. Question `Für wen?` in `question`.
-- Grid of person tiles (§6.4), alphabetical, each with the person's tally for today (from the
-  scoreboard feed).
+- Grid of person tiles (§6.4), alphabetical, each with the person's total score for today
+  (from the scoreboard feed).
 - Empty: `Noch keine Personen.` + button `Person anlegen` → `/verwalten/personen` with the create
   dialog open.
 
