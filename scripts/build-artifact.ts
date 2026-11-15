@@ -77,7 +77,9 @@ for (const part of ['src', 'migrations', 'public', 'composer.json']) {
 try {
   cpSync(join(root, 'api/composer.lock'), join(releaseRoot, 'composer.lock'));
 } catch {
-  // No lock committed yet: Composer resolves the exact pins of composer.json.
+  // No lock committed yet (Packagist was unreachable where the API was written; ADR
+  // 0002): composer.json pins every package, transitive ones included, exactly, and
+  // the pin check below fails the build if anything resolves to an unpinned version.
 }
 run('composer', [
   'install',
@@ -87,6 +89,7 @@ run('composer', [
   '--no-progress',
   `--working-dir=${releaseRoot}`,
 ]);
+run(process.execPath, ['scripts/composer-pins.ts', releaseRoot]);
 writeFileSync(
   join(releaseRoot, 'release.php'),
   `<?php\n\ndeclare(strict_types=1);\n\nreturn ['appVersion' => ${JSON.stringify(appVersion)}];\n`,

@@ -44,6 +44,12 @@
 
 ## Consequences
 
-- `api/composer.lock` is not committed yet: Packagist was unreachable from the session
-  that built this slice. CI resolves the exact pins of `composer.json`; the first session
-  with Packagist access commits the lock.
+- `api/composer.lock` is not committed yet: Packagist was unreachable from the sessions
+  that built the API. Pinning only the direct packages left the transitive ones floating, so
+  `api/composer.json` now pins **every** package exactly, transitive and dev ones included,
+  and `scripts/composer-pins.ts` fails the CI `static` job and the artifact build when an
+  installed package is unpinned or not at its pin. Every `composer install` therefore
+  resolves the same versions. This is still weaker than a lock: the lock also records each
+  package's source commit, so a re-tagged release would not slip through. The lock must be
+  generated (`composer update` in `api/`) and committed from a machine with Packagist
+  access; after that, CI and the build install from the lock.

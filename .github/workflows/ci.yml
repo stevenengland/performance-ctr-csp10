@@ -88,6 +88,8 @@ jobs:
       - name: Composer
         working-directory: api
         run: composer install --no-interaction --no-progress
+      - name: Every PHP package pinned exactly
+        run: node scripts/composer-pins.ts api
       - name: PHPStan (max)
         working-directory: api
         run: composer analyse -- --no-progress

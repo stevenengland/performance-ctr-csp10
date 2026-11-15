@@ -19,7 +19,10 @@ Strato when this was written). Until it reports, these are **assumptions**, not 
 When #2 reports, swap all of them in one pull request: take the image digests for the host's
 PHP minor version and database engine/version from Docker Hub (or
 `docker-library/repo-info`), set `config.platform.php` to the host's exact PHP version, run
-`composer update --lock`, and record the findings in an ADR. If the host runs MariaDB, replace
+`composer update` in `api/` and commit the resulting `composer.lock` (none is committed yet:
+Packagist was unreachable where the API was written, so `composer.json` pins every package,
+transitive ones included, and `scripts/composer-pins.ts` checks that; ADR 0002), and record
+the findings in an ADR. If the host runs MariaDB, replace
 the `mysql` images with `mariadb` ones; the SQL avoids MySQL-only syntax (ADR 0002).
 
 ## Open verifications (assumed to hold, not yet probed)
