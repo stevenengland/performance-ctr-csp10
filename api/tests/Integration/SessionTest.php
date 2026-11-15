@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Performance\Tests\Integration;
 
+use Performance\Domain\Sessions;
 use Performance\Tests\Support\DatabaseTestCase;
 use Psr\Http\Message\ResponseInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -217,6 +218,7 @@ final class SessionTest extends DatabaseTestCase
         $throttled = $this->attempt(self::ADMIN, self::ADMIN_PASSWORD);
 
         self::assertSame(429, $throttled->getStatusCode());
+        self::assertSame((string) (Sessions::FAILURE_WINDOW_MINUTES * 60), $throttled->getHeaderLine('Retry-After'));
         self::assertSame(
             ['type' => 'urn:performance:problem:too-many-attempts', 'title' => 'Zu viele Versuche. Bitte später erneut.', 'status' => 429],
             $this->body($throttled),
@@ -251,6 +253,28 @@ final class SessionTest extends DatabaseTestCase
         self::assertSame(415, $response->getStatusCode());
         self::assertSame('application/problem+json', $response->getHeaderLine('Content-Type'));
         self::assertSame('urn:performance:problem:unsupported-media-type', $this->body($response)['type']);
+    }
+
+    public function testAFormPostWithoutASessionIs401BeforeItsBodyIsLookedAt(): void
+    {
+        foreach (['/api/persons', '/api/accounts'] as $path) {
+            $request = (new ServerRequestFactory())->createServerRequest('POST', $path)
+                ->withHeader('Content-Type', 'application/x-www-form-urlencoded');
+            $request->getBody()->write('name=Daniel');
+
+            self::assertSame(401, $this->app()->handle($request)->getStatusCode(), $path);
+        }
+    }
+
+    public function testAFormPostWithASessionIs415(): void
+    {
+        $session = $this->signIn();
+        $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/persons')
+            ->withHeader('Content-Type', 'application/x-www-form-urlencoded')
+            ->withCookieParams(['session' => $session]);
+        $request->getBody()->write('name=Daniel');
+
+        self::assertSame(415, $this->app()->handle($request)->getStatusCode());
     }
 
     public function testABodyWithoutAContentTypeIs415(): void

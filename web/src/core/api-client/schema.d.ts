@@ -522,6 +522,17 @@ export interface components {
         'application/problem+json': components['schemas']['Problem'];
       };
     };
+    /** @description Five failed sign-ins for this user name and address in 15 minutes */
+    TooManyAttempts: {
+      headers: {
+        /** @description Seconds until the window of the oldest failure has passed, at most */
+        'Retry-After'?: number;
+        [name: string]: unknown;
+      };
+      content: {
+        'application/problem+json': components['schemas']['Problem'];
+      };
+    };
   };
   parameters: never;
   requestBodies: never;
@@ -599,7 +610,7 @@ export interface operations {
       400: components['responses']['Problem'];
       401: components['responses']['Problem'];
       415: components['responses']['Problem'];
-      429: components['responses']['Problem'];
+      429: components['responses']['TooManyAttempts'];
     };
   };
   signOut: {

@@ -48,6 +48,7 @@ final class HealthTest extends DatabaseTestCase
         $response = $this->app()->handle($request);
 
         self::assertSame(405, $response->getStatusCode());
+        self::assertSame('GET', $response->getHeaderLine('Allow'));
         self::assertSame('application/problem+json', $response->getHeaderLine('Content-Type'));
         self::assertSame('urn:performance:problem:method-not-allowed', $this->body($response)['type']);
     }

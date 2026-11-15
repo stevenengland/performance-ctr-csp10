@@ -7,9 +7,10 @@ namespace Performance\Http;
 use Performance\Domain\Catalog\DuplicateName;
 use Performance\Domain\DuplicateUserName;
 use Performance\Domain\EntryConflict;
-use Performance\Domain\NotFound;
 use Performance\Domain\InvalidCredentials;
+use Performance\Domain\NotFound;
 use Performance\Domain\LastAdmin;
+use Performance\Domain\Sessions;
 use Performance\Domain\TooManyAttempts;
 use Performance\Domain\ValidationFailed;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -47,6 +48,13 @@ final readonly class ProblemDetailsHandler
             error_log(sprintf('Unhandled %s: %s', $exception::class, $exception->getMessage()));
         }
 
-        return $problem->write($this->responses->createResponse());
+        $response = $problem->write($this->responses->createResponse());
+
+        return match (true) {
+            $exception instanceof HttpMethodNotAllowedException => $response->withHeader('Allow', implode(', ', $exception->getAllowedMethods())),
+            // The longest a client has to wait: until the window of the oldest failure has passed.
+            $exception instanceof TooManyAttempts => $response->withHeader('Retry-After', (string) (Sessions::FAILURE_WINDOW_MINUTES * 60)),
+            default => $response,
+        };
     }
 }

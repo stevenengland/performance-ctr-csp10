@@ -10,6 +10,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Slim\App as SlimApp;
+use Slim\Interfaces\RouteInterface;
 use Slim\Psr7\Factory\ResponseFactory;
 
 /**
@@ -25,6 +26,12 @@ final class App
         $app->setBasePath($basePath);
         $signedIn = new SessionAuth($database, $responses);
         $adminOnly = new AdminOnly($responses);
+        $jsonBody = new JsonBody($responses);
+        // Route middleware added last runs first: SessionAuth, then AdminOnly, then
+        // JsonBody, so a request without a session is 401 before its body is looked at.
+        // Unknown routes and methods stay 404/405 whatever their body.
+        $member = static fn(RouteInterface $route): RouteInterface => $route->add($jsonBody)->add($signedIn);
+        $admin = static fn(RouteInterface $route): RouteInterface => $route->add($jsonBody)->add($adminOnly)->add($signedIn);
         $session = new SessionActions($database, $config->bootstrapAdmin);
         $accounts = new AccountActions($database);
         $catalog = new CatalogActions($database);
@@ -32,43 +39,40 @@ final class App
 
         // Open routes: health and sign-in. Every other route requires a session.
         $app->get('/api/health', new HealthAction($database, $config->appVersion));
-        $app->post('/api/session', $session->signIn(...));
+        $app->post('/api/session', $session->signIn(...))->add($jsonBody);
 
-        $app->get('/api/session', $session->current(...))->add($signedIn);
-        $app->delete('/api/session', $session->signOut(...))->add($signedIn);
-        $app->put('/api/session/password', $session->changePassword(...))->add($signedIn);
-        // Route middleware added last runs first: SessionAuth, then AdminOnly.
-        $app->get('/api/accounts', $accounts->list(...))->add($adminOnly)->add($signedIn);
-        $app->post('/api/accounts', $accounts->create(...))->add($adminOnly)->add($signedIn);
+        $member($app->get('/api/session', $session->current(...)));
+        $member($app->delete('/api/session', $session->signOut(...)));
+        $member($app->put('/api/session/password', $session->changePassword(...)));
+        $admin($app->get('/api/accounts', $accounts->list(...)));
+        $admin($app->post('/api/accounts', $accounts->create(...)));
         $account = '/api/accounts/{id:' . CatalogActions::ID_PATTERN . '}';
-        $app->patch($account, $accounts->update(...))->add($adminOnly)->add($signedIn);
-        $app->delete($account, $accounts->delete(...))->add($adminOnly)->add($signedIn);
-        $app->get('/api/persons', $catalog->persons(...))->add($signedIn);
-        $app->post('/api/persons', $catalog->createPerson(...))->add($signedIn);
-        $app->get('/api/drinks', $catalog->drinks(...))->add($signedIn);
-        $app->post('/api/drinks', $catalog->createDrink(...))->add($signedIn);
+        $admin($app->patch($account, $accounts->update(...)));
+        $admin($app->delete($account, $accounts->delete(...)));
+        $member($app->get('/api/persons', $catalog->persons(...)));
+        $member($app->post('/api/persons', $catalog->createPerson(...)));
+        $member($app->get('/api/drinks', $catalog->drinks(...)));
+        $member($app->post('/api/drinks', $catalog->createDrink(...)));
         $person = '/api/persons/{id:' . CatalogActions::ID_PATTERN . '}';
-        $app->get($person, $catalog->readPerson(...))->add($signedIn);
-        $app->patch($person, $catalog->updatePerson(...))->add($signedIn);
-        $app->delete($person, $catalog->deletePerson(...))->add($signedIn);
+        $member($app->get($person, $catalog->readPerson(...)));
+        $member($app->patch($person, $catalog->updatePerson(...)));
+        $member($app->delete($person, $catalog->deletePerson(...)));
         $drink = '/api/drinks/{id:' . CatalogActions::ID_PATTERN . '}';
-        $app->get($drink, $catalog->readDrink(...))->add($signedIn);
-        $app->patch($drink, $catalog->updateDrink(...))->add($signedIn);
-        $app->delete($drink, $catalog->deleteDrink(...))->add($signedIn);
-        $app->get('/api/factors', $catalog->factors(...))->add($signedIn);
-        $app->post('/api/factors', $catalog->createFactor(...))->add($signedIn);
+        $member($app->get($drink, $catalog->readDrink(...)));
+        $member($app->patch($drink, $catalog->updateDrink(...)));
+        $member($app->delete($drink, $catalog->deleteDrink(...)));
+        $member($app->get('/api/factors', $catalog->factors(...)));
+        $member($app->post('/api/factors', $catalog->createFactor(...)));
         $factor = '/api/factors/{id:' . CatalogActions::ID_PATTERN . '}';
-        $app->get($factor, $catalog->readFactor(...))->add($signedIn);
-        $app->patch($factor, $catalog->updateFactor(...))->add($signedIn);
-        $app->delete($factor, $catalog->deleteFactor(...))->add($signedIn);
-        $app->get('/api/entries', $entries->list(...))->add($signedIn);
+        $member($app->get($factor, $catalog->readFactor(...)));
+        $member($app->patch($factor, $catalog->updateFactor(...)));
+        $member($app->delete($factor, $catalog->deleteFactor(...)));
+        $member($app->get('/api/entries', $entries->list(...)));
         $entry = '/api/entries/{id:' . EntryActions::ID_PATTERN . '}';
-        $app->put($entry, $entries->put(...))->add($signedIn);
-        $app->delete($entry, $entries->delete(...))->add($signedIn);
-        $app->get('/api/scoreboard', new ScoreboardAction($database))->add($signedIn);
+        $member($app->put($entry, $entries->put(...)));
+        $member($app->delete($entry, $entries->delete(...)));
+        $member($app->get('/api/scoreboard', new ScoreboardAction($database)));
 
-        // Inside routing, so an unknown route or method stays 404/405 whatever its body.
-        $app->add(new JsonBody($responses));
         $app->addRoutingMiddleware();
         $app->add(new MigrationGate($database, $responses, $basePath . '/api/health'));
         $app->addErrorMiddleware(false, false, false)

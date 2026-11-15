@@ -66,7 +66,7 @@ paths:
         '415':
           $ref: '#/components/responses/Problem'
         '429':
-          $ref: '#/components/responses/Problem'
+          $ref: '#/components/responses/TooManyAttempts'
     get:
       operationId: getSession
       summary: The signed-in account
@@ -653,6 +653,17 @@ components:
   responses:
     Problem:
       description: An error, described as a problem
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    TooManyAttempts:
+      description: Five failed sign-ins for this user name and address in 15 minutes
+      headers:
+        Retry-After:
+          description: Seconds until the window of the oldest failure has passed, at most
+          schema:
+            type: integer
       content:
         application/problem+json:
           schema:
