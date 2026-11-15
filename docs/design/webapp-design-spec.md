@@ -157,7 +157,7 @@ Two self-hosted families (`@fontsource`, latin subset, no CDN):
 | `row-title` | Text 600 | 16 / 24 | List row primary text, buttons |
 | `label` | Text 600 | 14 / 20 | Snackbar, bar context line, text buttons |
 | `support` | Text 400 | 13 / 18 | Supporting text on tiles and rows |
-| `caption` | Text 600 | 12 / 16 | Navigation labels, `Stand HH:mm`, field labels |
+| `caption` | Text 600 | 12 / 16 | Navigation labels, `Stand: HH:mm`, field labels |
 
 All numerals use `font-variant-numeric: tabular-nums`. Tile names that do not fit shrink one
 step (28 → 24 → 20) before they ellipsize.
@@ -262,7 +262,7 @@ button on every screen below a navigation destination, and the account icon on t
 steps 2–4 the bar also shows, right-aligned before the account icon, the chosen person's
 total score for today — all drinks, factors applied — as a numeral (`title`) over the caption
 `Punkte heute` (from the scoreboard feed; `0` when there are no entries). On the
-Rangliste the bar also shows `Stand HH:mm` in `error` when data is stale (§6.6).
+Rangliste the bar also shows `Stand: HH:mm` in `error` when data is stale (§6.6).
 
 ### 6.2 Navigation bar / rail
 
@@ -322,6 +322,13 @@ When the latest scoreboard refresh failed, the last data stays visible and `Stan
 (time of the last successful refresh) appears in `caption`, `error`, at the right of the top app bar. It
 disappears after the next successful refresh.
 
+The *ScoreboardFeed* (`core/scoreboard-feed.ts`) behind it runs while a screen that shows
+scores or counters is open (Rangliste and the add flow) and the page is visible: it asks every
+10 s with `If-None-Match` (304 keeps the standings), at once on focus, on becoming visible and
+after the device's own writes, and never while hidden. Each request computes `from` anew, so
+the next refresh after local midnight shows the new day; an answer overtaken by a newer request
+or a new day is dropped. After a failure it retries after 5, 10, 20, 40, then every 60 s.
+
 ### 6.7 Update prompt and reload floor
 
 - **Update prompt:** a waiting service worker shows the snackbar `Neue Version verfügbar` with
@@ -337,7 +344,8 @@ disappears after the next successful refresh.
 
 While the API answers 503 with `Retry-After` (a migration is running), screens keep their last
 data and show the snackbar `Wird aktualisiert – gleich wieder da`; requests retry after the
-given delay.
+given delay (the scoreboard feed retries after exactly the `Retry-After` seconds and shows
+`Stand: HH:mm` meanwhile).
 
 ### 6.9 Confirmation dialog
 
@@ -441,9 +449,16 @@ submit on Enter.
     (`Bier 4 · Margarita 1`, `support`).
   - **Ranks 2+ — rows** separated by `outline-variant` hairlines: rank numeral (`title`,
     `on-surface-variant`), name (`rank-name`) with per-drink counters beneath (`support`),
-    and on the right the score (`numeral`) with the total count beneath (`caption`).
-- Tapping the card or a row opens `/verlauf/:personId`; both are buttons with the accessible
-  name `Platz 1, Daniel, 13,5 Punkte, 9 Getränke`.
+    and on the right the score (`numeral`) with the total count beneath (12 dp, Text 400,
+    `on-surface-variant`, as in the mockup).
+  - The rank is the position in the API's order (score, ties by name); tied persons get
+    consecutive ranks. Per-drink counters are listed alphabetically, as the API sends them.
+    A total count of one reads `1 Getränk`.
+- Card and rows form one ordered list `Rangliste`; each place has the accessible name
+  `Platz 1, Daniel, 13,5 Punkte, 9 Getränke`. Tapping the card or a row opens
+  `/verlauf/:personId` (both become buttons with that name in slice 1/10, which builds the
+  Verlauf; slice 1/7 shows them as list items).
+- Loading: a skeleton card and three skeleton rows.
 - Persons without entries today are not listed.
 - Empty: `Heute noch keine Getränke.` + button `Zählen` → `/zaehlen`.
 - Stale indicator (§6.6) in the top app bar.
@@ -570,7 +585,7 @@ submit on Enter.
 | Faktor | `GET /api/factors`, `PUT /api/entries/{uuid}` | Choice saves |
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
 | Personen / Getränke (create, slice 1/6) | `GET/POST /api/persons`, `GET/POST /api/drinks` | |
-| Rangliste | `GET /api/scoreboard?from=` (ETag) | Feed polls every 10 s while visible |
+| Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window |
 | Verlauf | `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
