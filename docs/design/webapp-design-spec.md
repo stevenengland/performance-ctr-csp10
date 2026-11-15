@@ -290,8 +290,11 @@ left-aligned. Pressed or saving: `primary-container` / `on-primary-container`, e
 - **Drink tile:** top row — name left, today's counter for the chosen person right (`numeral`,
   omitted at 0); bottom row — points in `support` (`1 Punkt`, `3 Punkte`, `0,5 Punkte`) left,
   tally (18 dp) right.
-- **Quantity tile:** numeral centred (`numeral-xl`) with its tally (18 dp) beneath; minimum
-  height 112 dp; three columns in every window class.
+- **Quantity stepper** (step 3, replaces fixed quantity tiles — owner decision 2026-11-15): a
+  row of a `−` tile (88 dp square), the count in the display face (128 dp) with the caption
+  `<Getränk> heute`, and a `+` tile (88 dp, amber). Under it a 34 dp tally of the count — the
+  strokes already booked in `on-surface`, the new ones in `tertiary` — with the line
+  `bisher 4, neu dazu 2`, then a full-width filled button.
 - **Factor tile:** full width, one column. `Kein Faktor` is a normal tile with the supporting
   text `zählt einfach`; each factor is `tertiary-container` / `on-tertiary-container`, no edge,
   name left and multiplier right (`numeral`, `×2`).
@@ -382,10 +385,15 @@ the server.
 ### 7d. Zählen, step 3 — Anzahl `/zaehlen/:personId/:drinkId`
 
 - Title bar: `Daniel` with the context line `Bier`; step indicator at 3. Question `Wie viele?`.
-- Quantity tiles 1–5 in three columns (3 + 2) and an underlined text button `Andere Anzahl`
-  centred below, opening a dialog
-  with a number field (1–99) and `Weiter`.
-- With no factors defined, choosing the quantity saves (step 4 is skipped).
+- **Quantity stepper** (§6.4), replacing the 1–5 buttons and `Andere Anzahl` named in PRD #1
+  and the slice issues (owner decision 2026-11-15; this section wins). The count starts at
+  what is already booked today for this person and drink (the counter from the scoreboard
+  feed, factors applied); `+` adds one new drink, `−` takes one new drink back. `−` is
+  disabled at the booked count — booked drinks are corrected with `Rückgängig` or in the
+  Verlauf — and `+` stops at 99 new drinks. The button reads `Weiter` (or `Speichern` when
+  no factors exist, in which case it saves) and is disabled until at least one drink is new;
+  the quantity sent to the API is the number of new drinks.
+- With no factors defined, `Speichern` saves (step 4 is skipped).
 
 ### 7e. Zählen, step 4 — Faktor `/zaehlen/:personId/:drinkId/:quantity`
 

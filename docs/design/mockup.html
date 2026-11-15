@@ -68,6 +68,18 @@ figcaption{font:600 14px var(--text);margin-bottom:10px;color:var(--on-surface-v
 .tile.pressed .sub{color:inherit}
 .tile.factor{background:var(--tertiary-container);color:var(--on-tertiary-container);box-shadow:none}
 .tile.factor .sub{color:inherit}
+.stepper{display:grid;grid-template-columns:88px 1fr 88px;gap:12px;align-items:center;margin-top:8px}
+.stepper .tile{min-height:88px;align-items:center;justify-content:center}
+.stepper .tile .num{font-size:56px}
+.count{text-align:center}
+.count b{display:block;font:900 128px/0.9 var(--display);font-variant-numeric:tabular-nums}
+.count small{font:600 13px var(--text);color:var(--on-surface-variant)}
+.delta{display:flex;flex-direction:column;align-items:center;gap:8px;margin:28px 0 24px;font:600 14px var(--text);color:var(--on-surface-variant)}
+.t2{position:relative;display:block;height:34px}
+.t2 .tally{height:34px;position:absolute;left:0;top:0}
+.t2 .new .tally{color:var(--tertiary)}
+.t2 .old{position:absolute;left:0;top:0;height:34px;overflow:hidden}
+.t2 .old .tally{color:var(--on-surface)}
 .qty{grid-template-columns:repeat(3,1fr)}
 .qty .tile{min-height:112px;align-items:center;justify-content:center}
 .qty .num{font-size:64px}
@@ -161,6 +173,7 @@ function tally(n,h=22){
   }
   return `<svg class="tally" viewBox="0 0 ${x} ${h}" width="${x*h/22}" height="${h}" role="img" aria-label="${n} Striche"><path d="${p}" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round"/></svg>`;
 }
+function tally2(o,n){const all=tally(o+n,34),old=tally(o,34);const w=x=>+x.match(/viewBox="0 0 (\d+)/)[1];return `<span class="t2" style="width:${w(all)*34/22}px"><span class="new">${all}</span><span class="old" style="width:${(w(old)-3)*34/22}px">${all}</span></span>`}
 const nav=on=>`<nav class="nav">${[["Zählen","mug"],["Rangliste","podium"],["Verwalten","cog"]].map(([l,i])=>`<a href="#" class="${l===on?"on":""}"><span>${ic(i)}</span>${l}</a>`).join("")}</nav>`;
 const bar=(t,ctx,back,extra="")=>`<div class="bar">${back?`<span class="icon">${ic("back")}</span>`:""}<h2>${t}${ctx?`<span class="ctx">${ctx}</span>`:""}</h2>${extra}<span class="icon">${ic("user")}</span></div>`;
 const steps=n=>`<div class="steps">${[1,2,3,4].map(i=>`<i class="${i<=n?"on":""}"></i>`).join("")}</div>`;
@@ -171,7 +184,7 @@ const drinks=[["Aperol",2,1],["Bier",1,4,"pressed"],["Margarita",3,1],["Radler",
 const screens=[
 ["Zählen · Für wen?",`${bar("Zählen")}${steps(1)}<div class="q">Für wen?</div><div class="body"><div class="grid">${persons.map(([n,c])=>`<button class="tile"><span class="name">${n}</span>${c?`<span class="row"><span class="sub">Punkte heute</span><span class="num">${c}</span></span>`:`<span class="sub">noch nichts</span>`}</button>`).join("")}</div></div><div class="snack">2× Bier · Happy Hour ×2 · Daniel<b>Rückgängig</b></div>${nav("Zählen")}`],
 ["Zählen · Welches Getränk?",`${bar("Daniel","",true,tot)}${steps(2)}<div class="q">Welches Getränk?</div><div class="body"><div class="grid">${drinks.map(([n,p,c,cls])=>`<button class="tile ${cls||""}"><span class="row"><span class="name">${n}</span><span class="num">${c||""}</span></span><span class="row"><span class="sub">${p} ${p===1?"Punkt":"Punkte"}</span>${tally(c,18)}</span></button>`).join("")}</div></div>${nav("Zählen")}`],
-["Zählen · Wie viele?",`${bar("Daniel","Bier",true,tot)}${steps(3)}<div class="q">Wie viele?</div><div class="body"><div class="grid qty">${[1,2,3,4,5].map(n=>`<button class="tile ${n===2?"pressed":""}"><span class="num">${n}</span>${tally(n,18)}</button>`).join("")}</div><button class="link">Andere Anzahl</button></div>${nav("Zählen")}`],
+["Zählen · Wie viele?",`${bar("Daniel","Bier",true,tot)}${steps(3)}<div class="q">Wie viele?</div><div class="body"><div class="stepper"><button class="tile" aria-label="Eins weniger"><span class="num">−</span></button><div class="count"><b>6</b><small>Bier heute</small></div><button class="tile pressed" aria-label="Eins mehr"><span class="num">+</span></button></div><div class="delta">${tally2(4,2)}<span>bisher 4, neu dazu 2</span></div><div class="btn">Weiter</div></div>${nav("Zählen")}`],
 ["Zählen · Faktor? (offline)",`${bar("Daniel","2× Bier",true,tot)}${steps(4)}<div class="banner" style="margin-top:8px">${ic("off")}Offline. Getränke können gerade nicht gespeichert werden.</div><div class="q">Faktor?</div><div class="body"><div class="grid" style="grid-template-columns:1fr"><button class="tile"><span class="name">Kein Faktor</span><span class="sub">zählt einfach</span></button><button class="tile factor"><span class="row"><span class="name">Happy Hour</span><span class="num">×2</span></span><span class="sub">zählt doppelt</span></button><button class="tile factor"><span class="row"><span class="name">Geburtstag</span><span class="num">×1,5</span></span><span class="sub">zählt anderthalbfach</span></button></div></div>${nav("Zählen")}`],
 ["Rangliste",`${bar("Rangliste","Heute",false,`<span class="stand">Stand 23:41</span>`)}<div class="body" style="padding-top:8px"><div class="leader"><div class="top"><div><div class="name">Daniel</div>${tally(9,26)}</div><div class="score">13,5</div></div><div class="meta"><span>9 Getränke</span><span style="font-weight:400">Bier 4 · Margarita 1 · Schnaps 2 · Aperol 2</span></div></div>${[[2,"Anna","Bier 3 · Wein 3","9",6],[3,"Mara","Aperol 2 · Bier 2","6",4],[4,"Ben","Bier 3","3",3],[5,"Tom","Radler 1","0,5",1]].map(([p,n,s,sc,c])=>`<div class="rank"><div class="pos">${p}</div><div><div class="name">${n}</div><div class="sub">${s}</div></div><div><div class="score">${sc}</div><div class="cnt">${c} Getränke</div></div></div>`).join("")}</div>${nav("Rangliste")}`],
 ["Verlauf · Eintrag löschen",`${bar("Daniel","Heute",true)}<div class="body">${[["2× Bier","Happy Hour ×2 · 23:41 · anna"],["1× Margarita","Kein Faktor · 22:58 · daniel"],["2× Schnaps","Kein Faktor, 22:10, gelöschtes Konto"],["2× Aperol","Kein Faktor · 21:32 · anna"]].map(([t,s])=>`<div class="item"><div class="main"><div class="t">${t}</div><div class="s">${s}</div></div><span class="icon">${ic("del")}</span></div>`).join("")}</div>${nav("Rangliste")}<div class="scrim"><div class="dialog"><h3>Eintrag löschen?</h3><p>2× Bier · Happy Hour ×2 um 23:41</p><div class="acts"><span>Abbrechen</span><span class="danger">Löschen</span></div></div></div>`],
