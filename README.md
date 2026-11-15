@@ -16,7 +16,7 @@ Node 24 (`.nvmrc`), PHP 8.3 with `pdo_mysql`, Composer, a MySQL 8.4 server for t
 tests, Docker for the e2e stack and the deploy proof (plus `sshpass` and OpenSSH `sftp`).
 PHP 8.3 and MySQL 8.4 are **provisional** host versions until the host probe (#2) reports;
 the pins are listed in [`docs/runbook-deploy.md`](docs/runbook-deploy.md#runtime-pins-provisional).
-Enable the hooks once: `git config core.hooksPath .githooks`.
+Enable the hooks once: `git config core.hooksPath .githooks` (pre-commit: secretlint on the staged files, `npm run check`; pre-push: `npm run check`, `npm test`, PHPStan and PHP-CS-Fixer).
 
 ## Commands
 
