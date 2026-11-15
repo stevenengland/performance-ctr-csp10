@@ -184,7 +184,7 @@ test('a non-admin gets 403 on account routes and sees no Konten entry', async ({
   await expect(
     page.getByRole('heading', { name: 'Verwalten', level: 1 }),
   ).toBeVisible();
-  await expect(page.getByText('Personen')).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Personen/ })).toBeVisible();
   await expect(page.getByText('Konten')).toHaveCount(0);
   await page.goto('/verwalten/konten');
   await expect(page).toHaveURL(/\/verwalten$/);
