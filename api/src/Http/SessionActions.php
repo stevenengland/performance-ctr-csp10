@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Performance\Http;
 
 use Performance\Domain\BootstrapAdmin;
+use Performance\Domain\Sessions;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -53,8 +54,8 @@ final readonly class SessionActions
             $account->id,
             Input::text($request, 'currentPassword'),
             Input::text($request, 'newPassword'),
+            Sessions::tokenHash(SessionAuth::token($request)),
         );
-        $this->database->sessions()->revokeOthers($account->id, SessionAuth::token($request));
 
         return $response->withStatus(204);
     }

@@ -15,6 +15,7 @@ use Throwable;
 final readonly class Accounts
 {
     public const MAX_USER_NAME_LENGTH = 40;
+    private const WRONG_PASSWORD = 'Passwort falsch.';
 
     public function __construct(
         private PDO $pdo,
@@ -82,34 +83,78 @@ final readonly class Accounts
     }
 
     /**
-     * The account whose password matches; null for an unknown name or a wrong password,
-     * which take the same time.
+     * The credential of the account whose password matches; null for an unknown name or a
+     * wrong password, which take the same time. Nothing is locked while bcrypt runs, so
+     * the credential holds only as long as `whileCredentialHolds` finds the same hash.
      */
-    public function authenticate(string $userName, string $password): ?Account
+    public function verify(string $userName, string $password): ?Credential
     {
         $row = $this->row('SELECT id, user_name, is_admin, password_hash FROM accounts WHERE user_name = ?', [trim($userName)]);
         $hash = is_string($row['password_hash'] ?? null) ? $row['password_hash'] : PasswordPolicy::unknownUserHash();
         if (!password_verify($password, $hash) || $row === null) {
             return null;
         }
-        $account = Account::fromRow($row);
-        if (password_needs_rehash($hash, PASSWORD_DEFAULT)) {
-            $this->storePassword($account->id, $password);
-        }
+        $rehash = password_needs_rehash($hash, PASSWORD_DEFAULT) ? PasswordPolicy::hash($password) : null;
 
-        return $account;
+        return new Credential(Account::fromRow($row), $hash, $rehash);
     }
 
     /**
+     * Runs `$action` in a transaction that holds the account's row lock and only while the
+     * account still has the hash the credential was verified against. A reset, a password
+     * change or a deletion takes the same lock, so it either finishes first (and the
+     * credential no longer holds) or waits until `$action` committed (and then revokes
+     * what it did).
+     *
+     * @template T
+     *
+     * @param callable(Account): T $action
+     *
+     * @return T
+     *
+     * @throws InvalidCredentials when the password changed or the account is gone meanwhile
+     */
+    public function whileCredentialHolds(Credential $credential, callable $action): mixed
+    {
+        $this->pdo->beginTransaction();
+        try {
+            $row = $this->row(
+                'SELECT id, user_name, is_admin, password_hash FROM accounts WHERE id = ? FOR UPDATE',
+                [$credential->account->id],
+            );
+            if ($row === null || ($row['password_hash'] ?? null) !== $credential->verifiedHash) {
+                throw new InvalidCredentials();
+            }
+            if ($credential->rehash !== null) {
+                $this->pdo->prepare('UPDATE accounts SET password_hash = ?, updated_at = ? WHERE id = ?')
+                    ->execute([$credential->rehash, Timestamp::of($this->clock->now()), $credential->account->id]);
+            }
+            $result = $action(Account::fromRow($row));
+            $this->pdo->commit();
+
+            return $result;
+        } catch (Throwable $failure) {
+            $this->pdo->rollBack();
+            throw $failure;
+        }
+    }
+
+    /**
+     * Changes the account's own password and signs it out on every device but the one
+     * that holds `$keptTokenHash`, in one transaction on the locked account row, so a
+     * sign-in that verified the old password cannot get a session afterwards. bcrypt runs
+     * before the lock; only when the hash changed meanwhile is the current password
+     * checked again under the lock.
+     *
      * @throws ValidationFailed for a wrong current password or a new one that breaks the policy
      */
-    public function changePassword(int $accountId, string $currentPassword, string $newPassword): void
+    public function changePassword(int $accountId, string $currentPassword, string $newPassword, string $keptTokenHash): void
     {
         $row = $this->row('SELECT password_hash FROM accounts WHERE id = ?', [$accountId]);
         $hash = is_string($row['password_hash'] ?? null) ? $row['password_hash'] : PasswordPolicy::unknownUserHash();
         $errors = [];
         if (!password_verify($currentPassword, $hash)) {
-            $errors['currentPassword'] = 'Passwort falsch.';
+            $errors['currentPassword'] = self::WRONG_PASSWORD;
         }
         $policyError = PasswordPolicy::violation($newPassword);
         if ($policyError !== null) {
@@ -118,7 +163,24 @@ final readonly class Accounts
         if ($errors !== []) {
             throw new ValidationFailed($errors);
         }
-        $this->storePassword($accountId, $newPassword);
+        $newHash = PasswordPolicy::hash($newPassword);
+
+        $this->pdo->beginTransaction();
+        try {
+            $locked = $this->row('SELECT password_hash FROM accounts WHERE id = ? FOR UPDATE', [$accountId]);
+            $lockedHash = $locked['password_hash'] ?? null;
+            if (!is_string($lockedHash) || ($lockedHash !== $hash && !password_verify($currentPassword, $lockedHash))) {
+                throw new ValidationFailed(['currentPassword' => self::WRONG_PASSWORD]);
+            }
+            $this->pdo->prepare('UPDATE accounts SET password_hash = ?, updated_at = ? WHERE id = ?')
+                ->execute([$newHash, Timestamp::of($this->clock->now()), $accountId]);
+            $this->pdo->prepare('DELETE FROM sessions WHERE account_id = ? AND token_hash <> ?')
+                ->execute([$accountId, $keptTokenHash]);
+            $this->pdo->commit();
+        } catch (Throwable $failure) {
+            $this->pdo->rollBack();
+            throw $failure;
+        }
     }
 
     /**
@@ -245,12 +307,6 @@ final readonly class Accounts
     private function adminExists(): bool
     {
         return $this->row('SELECT 1 AS found FROM accounts WHERE is_admin = 1 LIMIT 1', []) !== null;
-    }
-
-    private function storePassword(int $accountId, string $password): void
-    {
-        $this->pdo->prepare('UPDATE accounts SET password_hash = ?, updated_at = ? WHERE id = ?')
-            ->execute([PasswordPolicy::hash($password), Timestamp::of($this->clock->now()), $accountId]);
     }
 
     /**

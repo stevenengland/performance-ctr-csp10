@@ -36,14 +36,28 @@ final readonly class Sessions
     {
         $userName = mb_substr(trim($userName), 0, 255, 'UTF-8');
         $this->reserveAttempt($userName, $clientAddress);
-        $account = $this->accounts->authenticate($userName, $password);
-        if ($account === null) {
+        $credential = $this->accounts->verify($userName, $password);
+        if ($credential === null) {
             // The reservation stays as the recorded failure.
             throw new InvalidCredentials();
         }
+        // A password reset or change in the meantime refuses it, and the reservation stays.
+        $session = $this->start($credential);
         $this->forgetFailures($userName, $clientAddress);
 
-        return $this->issue($account);
+        return $session;
+    }
+
+    /**
+     * Issues the session while the account's row is locked and its hash is still the one
+     * the password was verified against, so it cannot outlive a concurrent reset or
+     * change (which revokes sessions under the same lock).
+     *
+     * @throws InvalidCredentials when the password changed or the account was deleted meanwhile
+     */
+    public function start(Credential $credential): IssuedSession
+    {
+        return $this->accounts->whileCredentialHolds($credential, $this->issue(...));
     }
 
     /**
@@ -56,27 +70,26 @@ final readonly class Sessions
             'SELECT a.id, a.user_name, a.is_admin FROM sessions s JOIN accounts a ON a.id = s.account_id
              WHERE s.token_hash = ? AND s.expires_at > ?',
         );
-        $statement->execute([self::hash($token), Timestamp::of($now)]);
+        $statement->execute([self::tokenHash($token), Timestamp::of($now)]);
         $row = $statement->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) {
             return null;
         }
         $this->pdo->prepare('UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ?')
-            ->execute([Timestamp::of($now), Timestamp::of($now->add(self::lifetime())), self::hash($token)]);
+            ->execute([Timestamp::of($now), Timestamp::of($now->add(self::lifetime())), self::tokenHash($token)]);
 
         return Account::fromRow($row);
     }
 
     public function revoke(string $token): void
     {
-        $this->pdo->prepare('DELETE FROM sessions WHERE token_hash = ?')->execute([self::hash($token)]);
+        $this->pdo->prepare('DELETE FROM sessions WHERE token_hash = ?')->execute([self::tokenHash($token)]);
     }
 
-    /** Signs the account out everywhere except on the device that holds the given token. */
-    public function revokeOthers(int $accountId, string $keptToken): void
+    /** What the database stores of a token: its SHA-256 hash. */
+    public static function tokenHash(string $token): string
     {
-        $this->pdo->prepare('DELETE FROM sessions WHERE account_id = ? AND token_hash <> ?')
-            ->execute([$accountId, self::hash($keptToken)]);
+        return hash('sha256', $token);
     }
 
     public static function lifetimeSeconds(): int
@@ -93,7 +106,7 @@ final readonly class Sessions
         $this->pdo->prepare(
             'INSERT INTO sessions (token_hash, account_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)',
         )->execute([
-            self::hash($token),
+            self::tokenHash($token),
             $account->id,
             Timestamp::of($now),
             Timestamp::of($now),
@@ -145,10 +158,5 @@ final readonly class Sessions
     private static function lifetime(): DateInterval
     {
         return new DateInterval(sprintf('P%dD', self::LIFETIME_DAYS));
-    }
-
-    private static function hash(string $token): string
-    {
-        return hash('sha256', $token);
     }
 }
