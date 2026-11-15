@@ -56,7 +56,7 @@ connection. One or two of them are admins.
 |---|---|
 | Framework | Vue 3 + TypeScript (strict), `<script setup lang="ts">`, Composition API |
 | Build | Vite |
-| Components | Vuetify 3 (`md3` blueprint as the base), themed per §3; app components for tiles, leader card and tally marks |
+| Components | Vuetify 4 (4.3.3, pinned in `web/package.json`; `md3` blueprint as the base), themed per §3; app components for tiles, leader card and tally marks |
 | Routing | Vue Router, history mode (hash mode in the fixture preview only) |
 | PWA | vite-plugin-pwa (Workbox), prompt-style updates, full precache |
 | Icons | Material Design Icons via `@mdi/js` (SVG paths, no icon font) |
