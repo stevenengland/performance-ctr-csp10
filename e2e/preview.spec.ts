@@ -173,3 +173,17 @@ test('the fixture preview shows and deletes entries on a person’s Verlauf', as
     page.getByRole('list', { name: 'Rangliste' }).getByRole('link').first(),
   ).toHaveAccessibleName('Platz 1, Daniel, 11,5 Punkte, 7 Getränke');
 });
+
+test('the fixture preview opens another person’s Verlauf as a new screen', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verlauf/3');
+  await expect(
+    page.getByRole('list', { name: 'Einträge von Daniel' }),
+  ).toBeVisible();
+
+  await page.goto('/index.html#/verlauf/4');
+
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Jule');
+  await expect(page.getByText('Heute keine Einträge.')).toBeVisible();
+});
