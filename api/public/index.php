@@ -15,6 +15,11 @@ use Slim\ResponseEmitter;
  * lives in `config/runtime.php` beside the web root and the `app/` folder,
  * rendered by the deploy from GitHub secrets.
  */
+// Warnings, notices and deprecations go to the error log, never into a JSON response,
+// whatever the host's php.ini says.
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+
 $releaseRoot = dirname(__DIR__);
 require $releaseRoot . '/vendor/autoload.php';
 
