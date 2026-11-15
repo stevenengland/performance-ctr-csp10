@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /** Folder of a PHP release below `app/`: the version with build metadata joined by `-`. */
 export function releaseFolder(appVersion: string): string {
   const folder = appVersion.replace('+', '-');
@@ -5,6 +7,26 @@ export function releaseFolder(appVersion: string): string {
     throw new Error(`Unusable app version for a release folder: ${appVersion}`);
   }
   return folder;
+}
+
+/**
+The PHP release folder's name: the release plus a digest of its files (path and bytes,
+in path order). A rebuild of the same commit with other bytes (say another vendor/)
+gets another folder, so the deploy, which skips a folder that is already verified on
+the host, never runs files this build did not test; identical bytes share the folder.
+*/
+export function appFolder(
+  release: string,
+  files: readonly { path: string; bytes: Uint8Array }[],
+): string {
+  const digest = createHash('sha256');
+  for (const { path, bytes } of [...files].sort((a, b) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+  )) {
+    const content = createHash('sha256').update(bytes).digest('hex');
+    digest.update(`${path}\0${content}\n`);
+  }
+  return `${release}-${digest.digest('hex').slice(0, 12)}`;
 }
 
 /**

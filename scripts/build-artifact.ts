@@ -3,7 +3,8 @@ Builds the one deployable artifact (PRD #1: tested bytes are shipped bytes):
 
   dist/artifact/
     web/                 the web root: SPA build + api/index.php pointer
-    app/<release>/       the PHP release: src, migrations, public, vendor (--no-dev)
+    app/<release>-<digest>/  the PHP release: src, migrations, public, vendor (--no-dev),
+                         named after its content (scripts/artifact.ts appFolder)
     release.json         app version, release folder, schema version
     manifest.json        the deploy manifest of web/ and app/<release>/ (deploy/cli.ts manifest)
   dist/performance-<release>.tar.gz (+ .sha256)
@@ -22,13 +23,15 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { env } from 'node:process';
 import {
   apiPointer,
+  appFolder,
   meetsFloor,
   minClientVersion,
   releaseFolder,
@@ -82,10 +85,9 @@ run('npm', ['run', 'build'], { APP_VERSION: appVersion });
 
 const webRoot = join(artifact, 'web');
 cpSync(join(root, 'web/dist'), webRoot, { recursive: true });
-mkdirSync(join(webRoot, 'api'));
-writeFileSync(join(webRoot, 'api/index.php'), apiPointer(release));
 
-const releaseRoot = join(artifact, 'app', release);
+// Built under a temporary name, then named after its content (appFolder).
+const releaseRoot = join(artifact, 'app', '.building');
 for (const part of ['src', 'migrations', 'public', 'composer.json']) {
   cpSync(join(root, 'api', part), join(releaseRoot, part), { recursive: true });
 }
@@ -109,9 +111,21 @@ writeFileSync(
   join(releaseRoot, 'release.php'),
   `<?php\n\ndeclare(strict_types=1);\n\nreturn ['appVersion' => ${JSON.stringify(appVersion)}];\n`,
 );
+const folder = appFolder(
+  release,
+  readdirSync(releaseRoot, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => {
+      const path = join(entry.parentPath, entry.name);
+      return { path: relative(releaseRoot, path), bytes: readFileSync(path) };
+    }),
+);
+renameSync(releaseRoot, join(artifact, 'app', folder));
+mkdirSync(join(webRoot, 'api'));
+writeFileSync(join(webRoot, 'api/index.php'), apiPointer(folder));
 writeFileSync(
   join(artifact, 'release.json'),
-  `${JSON.stringify({ appVersion, release, schemaVersion: schemaVersion(migrations) }, null, 2)}\n`,
+  `${JSON.stringify({ appVersion, release: folder, schemaVersion: schemaVersion(migrations) }, null, 2)}\n`,
 );
 run(process.execPath, ['deploy/cli.ts', 'manifest', '--artifact', artifact], {
   GITHUB_SHA: env.GITHUB_SHA ?? git('rev-parse', 'HEAD'),

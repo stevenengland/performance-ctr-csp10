@@ -41,7 +41,9 @@
 5. **Problem types are URNs** (`urn:performance:problem:<slug>`): stable regardless of
    the host name, which may change to `performance.csp10.de`.
 6. **Versions.** The app version is `<web package version>+<commit>`; the release folder
-   replaces `+` with `-`. `minClientVersion` lives in `api/src/Http/Compatibility.php`;
+   replaces `+` with `-` and appends a 12-digit digest of the folder's files, so a rebuild
+   of the same commit with other bytes (another `vendor/`) gets its own folder instead of
+   reusing one the deploy already verified on the host. `minClientVersion` lives in `api/src/Http/Compatibility.php`;
    clients compare `MAJOR.MINOR.PATCH` only.
 
 ## Consequences

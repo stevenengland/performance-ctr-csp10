@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   apiPointer,
+  appFolder,
   meetsFloor,
   minClientVersion,
   releaseFolder,
@@ -55,5 +56,31 @@ describe('the artifact', () => {
     const floor = minClientVersion(repo('api/src/Http/Compatibility.php'));
 
     expect(meetsFloor(version, floor), `${version} < ${floor}`).toBe(true);
+  });
+
+  it('names the PHP release folder after its content, so a rebuild with other bytes never reuses an uploaded folder', () => {
+    const autoload = { path: 'vendor/autoload.php', bytes: Buffer.from('a') };
+    const files = [
+      autoload,
+      { path: 'public/index.php', bytes: Buffer.from('b') },
+    ];
+    const folder = appFolder('0.1.0-3f2a1bc', files);
+
+    expect(folder).toMatch(/^0\.1\.0-3f2a1bc-[0-9a-f]{12}$/);
+    expect(appFolder('0.1.0-3f2a1bc', [...files].reverse())).toBe(folder);
+    expect(
+      appFolder('0.1.0-3f2a1bc', [
+        autoload,
+        { path: 'public/index.php', bytes: Buffer.from('c') },
+      ]),
+    ).not.toBe(folder);
+    expect(
+      appFolder('0.1.0-3f2a1bc', [
+        {
+          path: 'vendor/autoload.phppublic/index.php',
+          bytes: Buffer.from('ab'),
+        },
+      ]),
+    ).not.toBe(folder);
   });
 });
