@@ -79,6 +79,13 @@ cleaned=no
 out "## Strato host probe"
 out ""
 out "- Site: \`$site\`"
+if command -v dig >/dev/null; then
+  for resolver in 1.1.1.1 8.8.8.8; do
+    out "- DNS via $resolver: NS \`$(dig +short NS "$site_host" @"$resolver" | sort | paste -sd ' ' -)\`, A \`$(dig +short A "$site_host" @"$resolver" | paste -sd ' ' -)\`, AAAA \`$(dig +short AAAA "$site_host" @"$resolver" | paste -sd ' ' -)\`"
+  done
+  tld=${site_host##*.}
+  out "- Delegation at the .$tld registry: \`$(dig +norec +noall +authority NS "$site_host" @"$(dig +short NS "$tld." | head -1)" | awk '{print $5}' | sort | paste -sd ' ' -)\`"
+fi
 out "- Host key: $host_key_source; fingerprints: \`$fingerprints\`"
 
 # --- find the served folder when DOCROOT is not configured -------------------------------------
