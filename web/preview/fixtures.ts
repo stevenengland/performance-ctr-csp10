@@ -127,8 +127,8 @@ export function sampleEvening(now: Date = new Date()): Fixtures {
   return {
     health: {
       appVersion: `${__APP_VERSION__} (Vorschau)`,
-      phpVersion: '8.3.0',
-      database: { engine: 'MySQL', version: '8.4.0' },
+      phpVersion: '8.5.12',
+      database: { engine: 'MariaDB', version: '11.8.8' },
       schemaVersion: __SCHEMA_VERSION__,
       migration: 'ok',
       minClientVersion: __MIN_CLIENT_VERSION__,

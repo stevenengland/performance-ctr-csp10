@@ -15,7 +15,7 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 
 /**
  * Drives the application's request handler in memory against a fresh, empty
- * database on the MySQL server named by the DB_* environment variables.
+ * database on the MariaDB server named by the DB_* environment variables.
  */
 abstract class DatabaseTestCase extends TestCase
 {

@@ -3,8 +3,8 @@ import { healthProblem, healthUrl, parseHealth } from './health.ts';
 
 const report = {
   appVersion: '0.1.0+3736c2a',
-  phpVersion: '8.3.36',
-  database: { engine: 'MySQL', version: '8.4.13' },
+  phpVersion: '8.5.12',
+  database: { engine: 'MariaDB', version: '11.8.8' },
   schemaVersion: 4,
   migration: 'ok',
   minClientVersion: '0.1.0',
@@ -18,8 +18,8 @@ describe('parseHealth', () => {
   it.each([
     ['appVersion', { ...report, appVersion: '' }],
     ['phpVersion', { ...report, phpVersion: 8 }],
-    ['database', { ...report, database: 'MySQL' }],
-    ['database', { ...report, database: { engine: 'MySQL' } }],
+    ['database', { ...report, database: 'MariaDB' }],
+    ['database', { ...report, database: { engine: 'MariaDB' } }],
     ['schemaVersion', { ...report, schemaVersion: '4' }],
     ['migration', { ...report, migration: 'done' }],
     ['minClientVersion', { ...report, minClientVersion: undefined }],

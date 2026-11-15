@@ -5,7 +5,7 @@
 # as on Strato. The SFTP user is chrooted to its home and writes under
 # /remote; Apache serves <volume>/site with the rendered .htaccess, and the
 # PHP release the API pointer names (<volume>/app/<release>) reads
-# <volume>/config/runtime.php and talks to MySQL.
+# <volume>/config/runtime.php and talks to MariaDB.
 services:
   sftp:
     image: atmoz/sftp:alpine@sha256:43dd1c023cf1bae487127d4b54660b0aee6e94c188a6599be36fb89ba115f961
@@ -29,30 +29,32 @@ services:
       timeout: 2s
       retries: 30
   db:
-    # Provisional pin, the same as e2e/stack/compose.yml (docs/runbook-deploy.md).
-    image: mysql:8.4@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
+    # MariaDB 11.8 as on the host (11.8.8 probed; the image is 11.8.9), the same pin in
+    # e2e/stack/compose.yml, tests/support/compose.yml and ci.yml (docs/runbook-deploy.md).
+    image: mariadb:11.8@sha256:d36f18d65a0459510b8b0f643b226a6d299e3206486e2b64ff20754a6d291707
+    # Started as the host's server answers (probe of #2): empty sql_mode, utf8mb3
+    # defaults and a session time zone other than UTC. The API sets what it needs
+    # per connection (api/src/Http/Database.php), so this proves it does.
+    command:
+      - --sql-mode=
+      - --character-set-server=utf8mb3
+      - --collation-server=utf8mb3_general_ci
+      - --default-time-zone=+01:00
     environment:
-      MYSQL_DATABASE: deploy_proof
-      MYSQL_USER: performance
-      MYSQL_PASSWORD: deploy-proof-db-password
+      MARIADB_DATABASE: deploy_proof
+      MARIADB_USER: performance
+      MARIADB_PASSWORD: deploy-proof-db-password
       # A fixed, throwaway root password: a random one is printed into the (public) CI log.
-      MYSQL_ROOT_PASSWORD: root
+      MARIADB_ROOT_PASSWORD: root
     healthcheck:
-      test:
-        [
-          'CMD',
-          'mysqladmin',
-          'ping',
-          '-h',
-          '127.0.0.1',
-          '-uperformance',
-          '-pdeploy-proof-db-password',
-        ]
+      # The image's own check: a TCP connection once the init scripts are done.
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
       interval: 2s
       timeout: 2s
       retries: 60
   apache:
-    # The host stand-in of the e2e stack: Apache + mod_php + pdo_mysql
+    # The host stand-in of the e2e stack: Apache + PHP (mod_php; the host runs
+    # FastCGI, see e2e/stack/Dockerfile) + pdo_mysql
     # serving <remote>/site, with app/, config/ and .deploy/ beside it and
     # never served (e2e/stack/performance.conf).
     build: ../../e2e/stack

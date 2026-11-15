@@ -290,8 +290,8 @@ export class FakeHttp implements HttpChecker {
       )?.[1] ?? '0.0.0-dev';
     return Promise.resolve({
       appVersion,
-      phpVersion: '8.3.36',
-      database: { engine: 'MySQL', version: '8.4.13' },
+      phpVersion: '8.5.12',
+      database: { engine: 'MariaDB', version: '11.8.8' },
       ...this.migrate(remote, `${release}/migrations`),
       minClientVersion: '0.1.0',
       ...this.healthOverride,

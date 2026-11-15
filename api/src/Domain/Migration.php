@@ -7,7 +7,7 @@ namespace Performance\Domain;
 use PDO;
 
 /**
- * One forward-only schema change. MySQL commits DDL implicitly, so the guard
+ * One forward-only schema change. MariaDB (like MySQL) commits DDL implicitly, so the guard
  * lets the migrator re-run a migration whose DDL ran before a crash.
  */
 interface Migration

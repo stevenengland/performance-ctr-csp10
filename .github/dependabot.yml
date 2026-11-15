@@ -1,7 +1,7 @@
 # One grouped pull request per ecosystem and week. Exact pins and digests are
 # the convention; Dependabot keeps them current without noise.
 #
-# PHP and MySQL follow the host, not the newest release (docs/runbook-deploy.md,
+# PHP and MariaDB follow the host, not the newest release (docs/runbook-deploy.md,
 # "Runtime pins"): Dependabot refreshes their digests and patch versions but
 # never moves them to another minor or major version.
 version: 2
@@ -45,9 +45,11 @@ updates:
     schedule:
       interval: weekly
     ignore:
-      - dependency-name: mysql
+      - dependency-name: mariadb
         update-types:
           ['version-update:semver-major', 'version-update:semver-minor']
+    # ci.yml starts the same MariaDB image with `docker run`, which Dependabot does
+    # not read: copy a refreshed digest there by hand.
     groups:
       compose-images:
         patterns: ['*']

@@ -4,7 +4,7 @@
     "type": "project",
     "license": "proprietary",
     "require": {
-        "php": "~8.3.0",
+        "php": "~8.5.0",
         "ext-json": "*",
         "ext-mbstring": "*",
         "ext-pdo": "*",
@@ -101,7 +101,7 @@
     },
     "config": {
         "platform": {
-            "php": "8.3.6"
+            "php": "8.5.12"
         },
         "sort-packages": true,
         "optimize-autoloader": true

@@ -1,8 +1,10 @@
-# Host stand-in: Apache + mod_php with pdo_mysql, as on Strato. The PHP image is
-# a PROVISIONAL pin (php:8.3-apache, PHP 8.3.36) until the host probe (#2)
-# reports the host's version; see docs/runbook-deploy.md, "Runtime pins". The
-# e2e stack, the deploy proof and the PHPUnit job all run on this image.
-FROM php:8.3-apache@sha256:a800bbd2c0aa322702259ed475556b2cbc311076a8d3c4bba9bfe96838745472
+# Host stand-in: Apache + PHP with pdo_mysql. PHP is pinned by digest to the host's
+# version (php:8.5-apache, PHP 8.5.12, as probed on Strato; docs/runbook-deploy.md,
+# "Runtime pins"). The e2e stack, the deploy proof, PHPUnit and the PHP static checks
+# all run on this image. Strato runs PHP as FastCGI (cgi-fcgi); the official image
+# only ships mod_php (built --disable-cgi), so nothing in .htaccess or the API may
+# rely on mod_php (deploy/webspace/htaccess.test.ts, ADR 0004).
+FROM php:8.5-apache@sha256:08af36df144462d84c7f16190557eec06cb9f656882685610b712a15eec54d46
 RUN docker-php-ext-install pdo_mysql \
  && a2enmod rewrite headers \
  && a2dissite 000-default

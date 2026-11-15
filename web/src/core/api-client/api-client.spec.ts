@@ -26,8 +26,8 @@ import type { Health } from './index';
 
 const health: Health = {
   appVersion: '0.1.0+abc',
-  phpVersion: '8.3.6',
-  database: { engine: 'MySQL', version: '8.4.3' },
+  phpVersion: '8.5.12',
+  database: { engine: 'MariaDB', version: '11.8.8' },
   schemaVersion: 1,
   migration: 'ok',
   minClientVersion: '0.1.0',

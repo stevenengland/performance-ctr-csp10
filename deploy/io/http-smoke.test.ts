@@ -6,8 +6,8 @@ let server: Server;
 let origin: string;
 const report = {
   appVersion: '0.1.0+3736c2a',
-  phpVersion: '8.3.36',
-  database: { engine: 'MySQL', version: '8.4.13' },
+  phpVersion: '8.5.12',
+  database: { engine: 'MariaDB', version: '11.8.8' },
   schemaVersion: 1,
   migration: 'ok',
   minClientVersion: '0.1.0',

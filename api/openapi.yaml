@@ -1023,7 +1023,7 @@ components:
           examples: ['0.1.0+3f2a1bc']
         phpVersion:
           type: string
-          examples: ['8.3.6']
+          examples: ['8.5.12']
         database:
           type: object
           additionalProperties: false
@@ -1034,7 +1034,7 @@ components:
               enum: [MySQL, MariaDB]
             version:
               type: string
-              examples: ['8.4.3']
+              examples: ['11.8.8']
         schemaVersion:
           type: integer
           minimum: 0

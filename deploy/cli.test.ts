@@ -351,8 +351,8 @@ describe('cli live-check', () => {
   let origin: string;
   const health: Record<string, unknown> = {
     appVersion: '0.1.0+aaaaaaa',
-    phpVersion: '8.3.36',
-    database: { engine: 'MySQL', version: '8.4.13' },
+    phpVersion: '8.5.12',
+    database: { engine: 'MariaDB', version: '11.8.8' },
     schemaVersion: 1,
     migration: 'ok',
     minClientVersion: '0.1.0',
@@ -387,7 +387,7 @@ describe('cli live-check', () => {
     const result = await exec(['live-check'], { SITE_URL: origin });
     expect(result.code).toBe(0);
     expect(result.stdout).toBe(
-      `live-check: ${origin}/api/health: app 0.1.0+aaaaaaa, PHP 8.3.36, MySQL 8.4.13, schema version 1, migration ok\n`,
+      `live-check: ${origin}/api/health: app 0.1.0+aaaaaaa, PHP 8.5.12, MariaDB 11.8.8, schema version 1, migration ok\n`,
     );
   });
 

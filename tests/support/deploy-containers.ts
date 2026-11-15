@@ -36,8 +36,8 @@ export interface Containers {
 }
 
 /**
-`DEPLOY_TEST_EXTERNAL=1` uses an SFTP server, an Apache with mod_php and a
-MySQL that are already running instead of the compose services, for machines
+`DEPLOY_TEST_EXTERNAL=1` uses an SFTP server, an Apache with PHP and a
+MariaDB that are already running instead of the compose services, for machines
 that cannot pull the images. They must match tests/support/compose.yml: the
 login above, chrooted so that `/remote` is writable and empty, Apache serving
 `/remote/site` with `AllowOverride All` and PHP, and an empty database that

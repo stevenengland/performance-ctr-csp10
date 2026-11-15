@@ -556,7 +556,7 @@ function recorded(
   };
 }
 
-describe('API-first activation on Apache + PHP + MySQL', () => {
+describe('API-first activation on Apache + PHP + MariaDB', () => {
   it('uploads assets and the PHP release and renders the config, switches the API pointer, migrates through health, and switches the shell last', async () => {
     const live = (await servedVersion()) as { release: string };
     const liveShell = await textOf('/');

@@ -57,7 +57,7 @@ final class Migrator
     }
 
     /**
-     * The lock is server-wide in MySQL, so its name carries the database name.
+     * The lock is server-wide in MariaDB (and MySQL), so its name carries the database name.
      */
     public static function lockName(PDO $pdo): string
     {
@@ -163,7 +163,7 @@ final class Migrator
         $rows = [];
         foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
             if (is_array($row) && is_string($row['version'] ?? null) && is_string($row['state'] ?? null)) {
-                // MySQL answers the comparison as 1 or 0, as an int or a string by driver mode.
+                // The server answers the comparison as 1 or 0, as an int or a string by driver mode.
                 $rows[$row['version']] = ['state' => $row['state'], 'recent' => in_array($row['recent'] ?? null, [1, '1'], true)];
             }
         }

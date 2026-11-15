@@ -463,12 +463,12 @@ export interface components {
        * @example 0.1.0+3f2a1bc
        */
       appVersion: string;
-      /** @example 8.3.6 */
+      /** @example 8.5.12 */
       phpVersion: string;
       database: {
         /** @enum {string} */
         engine: 'MySQL' | 'MariaDB';
-        /** @example 8.4.3 */
+        /** @example 11.8.8 */
         version: string;
       };
       /** @description Number of the newest migration up to which every migration is completed */

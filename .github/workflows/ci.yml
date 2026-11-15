@@ -1,12 +1,14 @@
 # Checks every pull request and every push to main. One job builds the
 # artifact; the e2e job and the deploy proof test those bytes. The deploy
-# proof runs the deploy CLI against SFTP + Apache/PHP + MySQL containers; the
+# proof runs the deploy CLI against SFTP + Apache/PHP + MariaDB containers; the
 # workflow linters check this folder. On a push to main, once every check is
 # green, production is deployed through _deploy.yml (the only workflow that
 # reads the deploy secrets) and the artifact is archived as a GitHub Release.
 #
-# PHP and MySQL run on the images pinned in e2e/stack (PROVISIONAL until the
-# host probe #2 reports; docs/runbook-deploy.md, "Runtime pins").
+# PHP 8.5 and MariaDB 11.8 run on the images pinned by digest in e2e/stack, as
+# probed on the host (#2; docs/runbook-deploy.md, "Runtime pins"). Every PHP
+# tool runs on that image: api/composer.json requires PHP ~8.5.0, so Composer's
+# platform check refuses the runner's own PHP.
 name: ci
 
 on:
@@ -90,12 +92,19 @@ jobs:
         run: composer install --no-interaction --no-progress
       - name: Every PHP package pinned exactly
         run: node scripts/composer-pins.ts api
-      - name: PHPStan (max)
-        working-directory: api
-        run: composer analyse -- --no-progress
-      - name: PHP-CS-Fixer
-        working-directory: api
-        run: composer cs
+      - name: The pinned PHP image (e2e/stack/Dockerfile)
+        run: docker build --tag performance-php e2e/stack
+      # The runner's Composer (a phar) runs the composer.json scripts on the image's PHP.
+      - name: PHPStan (max) on the pinned PHP
+        run: |
+          docker run --rm --volume "$PWD/api:/app" --workdir /app \
+            --volume "$(command -v composer):/usr/local/bin/composer:ro" --env COMPOSER_ALLOW_SUPERUSER=1 \
+            performance-php sh -c 'php -v && composer analyse -- --no-progress'
+      - name: PHP-CS-Fixer on the pinned PHP
+        run: |
+          docker run --rm --volume "$PWD/api:/app" --workdir /app \
+            --volume "$(command -v composer):/usr/local/bin/composer:ro" --env COMPOSER_ALLOW_SUPERUSER=1 \
+            performance-php composer cs
 
   unit:
     name: Vitest
@@ -114,10 +123,10 @@ jobs:
 
   deploy-proof:
     # Container proof of the deploy CLI on the built artifact's PHP release:
-    # real OpenSSH sftp against an SFTP server, Apache + PHP and MySQL sharing
+    # real OpenSSH sftp against an SFTP server, Apache + PHP and MariaDB sharing
     # the remote root (tests/support/compose.yml): activation order, config
     # rendering, a failing migration and same-schema rollback.
-    name: Deploy proof (SFTP + Apache/PHP + MySQL)
+    name: Deploy proof (SFTP + Apache/PHP + MariaDB)
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -183,29 +192,39 @@ jobs:
             'error[excessive-permissions]'
 
   phpunit:
-    name: PHPUnit (pinned PHP + MySQL)
+    name: PHPUnit (pinned PHP + MariaDB)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    services:
-      mysql:
-        # Provisional pin, the same as e2e/stack/compose.yml (docs/runbook-deploy.md).
-        image: mysql:8.4@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
-        env:
-          MYSQL_ROOT_PASSWORD: root
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd "mysqladmin ping -h 127.0.0.1 -proot"
-          --health-interval 2s --health-timeout 2s --health-retries 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Not a service container: those take no server options, and the server must
+      # start as the host's answers (empty sql_mode, utf8mb3, a non-UTC time zone),
+      # so the tests prove the API's per-connection settings. The same pin and
+      # options as e2e/stack/compose.yml and tests/support/compose.yml.
+      - name: MariaDB 11.8 started as on the host
+        run: |
+          docker run --detach --name db --publish 127.0.0.1:3306:3306 \
+            --env MARIADB_ROOT_PASSWORD=root \
+            --health-cmd 'healthcheck.sh --connect --innodb_initialized' \
+            --health-interval 2s --health-timeout 2s --health-retries 60 \
+            mariadb:11.8@sha256:d36f18d65a0459510b8b0f643b226a6d299e3206486e2b64ff20754a6d291707 \
+            --sql-mode= --character-set-server=utf8mb3 --collation-server=utf8mb3_general_ci \
+            --default-time-zone=+01:00
       - name: Composer
         working-directory: api
         run: composer install --no-interaction --no-progress
       - name: The pinned PHP image (e2e/stack/Dockerfile)
         run: docker build --tag performance-php e2e/stack
+      - name: Wait for MariaDB
+        run: |
+          for _ in $(seq 120); do
+            [ "$(docker inspect --format '{{.State.Health.Status}}' db)" = healthy ] && exit 0
+            sleep 1
+          done
+          docker logs db
+          exit 1
       - name: PHPUnit on the pinned PHP image
         run: |
           docker run --rm --network host --volume "$PWD/api:/app" --workdir /app \
@@ -270,7 +289,7 @@ jobs:
           tar -xzf ./*.tar.gz -C artifact
       - name: Stage the webspace with the rendered .htaccess
         run: e2e/stack/stage.sh dist/artifact "$STACK_ROOT" http://localhost:8080
-      - name: Start Apache + PHP + MySQL
+      - name: Start Apache + PHP + MariaDB
         run: docker compose -f e2e/stack/compose.yml up --build --detach --wait
       - name: Lighthouse (signed in on a sample evening, before the e2e data)
         # Uses the runner's Google Chrome (lighthouserc.json chromePath).
