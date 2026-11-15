@@ -308,7 +308,11 @@ left-aligned. Pressed or saving: `primary-container` / `on-primary-container`, e
   `bisher 4, neu dazu 2`, then a full-width filled button.
 - **Factor tile:** full width, one column. `Kein Faktor` is a normal tile with the supporting
   text `zählt einfach`; each factor is `tertiary-container` / `on-tertiary-container`, no edge,
-  name left and multiplier right (`numeral`, `×2`).
+  name left and multiplier right (`numeral`, `×2`), with the supporting text `zählt 2-fach`
+  (`zählt 1,5-fach`; one form for every multiplier, where the mockup first had `zählt doppelt`
+  and `zählt anderthalbfach`). The tile being saved turns amber like any other tile; disabled
+  tiles are dimmed (38 % opacity). Accessible names: `Kein Faktor, zählt einfach`,
+  `Happy Hour, ×2`.
 
 ### 6.5 Offline banner
 
@@ -356,7 +360,7 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 |---|---|---|
 | Person | `Daniel löschen?` | `Daniel und 23 Einträge werden gelöscht.` (no entries: `Daniel wird gelöscht.`) |
 | Drink | `Bier löschen?` | `Bier und 12 Einträge werden gelöscht.` |
-| Factor | `Happy Hour löschen?` | `5 Einträge zählen danach ×1.` |
+| Factor | `Happy Hour löschen?` | `5 Einträge zählen danach ×1.` (one: `1 Eintrag zählt danach ×1.`; none: `Happy Hour wird gelöscht.`) |
 | Entry | `Eintrag löschen?` | `2× Bier · Happy Hour ×2 um 23:41` |
 | Account | `Konto anna löschen?` | `Einträge von anna bleiben erhalten.` |
 
@@ -418,8 +422,10 @@ submit on Enter.
   feed, factors applied); `+` adds one new drink, `−` takes one new drink back. `−` is
   disabled at the booked count — booked drinks are corrected with `Rückgängig` or in the
   Verlauf — and `+` stops at 99 new drinks. The button reads `Weiter` (or `Speichern` when
-  no factors exist, in which case it saves) and is disabled until at least one drink is new;
-  the quantity sent to the API is the number of new drinks.
+  no factors exist, in which case it saves) and is disabled until at least one drink is new
+  and the factors are known; the quantity sent to the API is the number of new drinks.
+  `Weiter` opens step 4 at `/zaehlen/:personId/:drinkId/<new drinks>` and stays enabled
+  offline (step 4 then disables its tiles).
 - With no factors defined, `Speichern` saves (step 4 is skipped) and the step indicator has
   three segments. Offline, `Speichern` is disabled under the offline banner.
 - After saving, the steps walked from the name list are taken back off the history, so the
@@ -438,6 +444,12 @@ submit on Enter.
 - Save failure: stay on the step, buttons enabled again, snackbar with `Erneut versuchen`
   (retries with the same UUID).
 - Offline: buttons disabled under the offline banner.
+- `:quantity` is the number of new drinks, 1–99; any other value is no step (→ `/zaehlen`).
+  The factors come from `GET /api/factors` (shared with Verwalten); the step indicator has
+  four segments on every step once one exists. After saving, all three walked steps leave
+  the history (§7d).
+- Like the stepper, the column keeps a phone's width (max 480 dp, left-aligned) on medium and
+  expanded windows.
 
 ### 7f. Rangliste `/rangliste`
 
@@ -475,8 +487,8 @@ submit on Enter.
 
 - List: `Personen`, `Getränke`, `Faktoren`, and `Konten` (admins only), each with its count as
   supporting text. A row that opens a screen ends in `mdiChevronRight`. (Slice 1/5 links
-  `Konten`, slice 1/6 `Personen` and `Getränke`; the counts and `Faktoren` come with the
-  master-data slices.)
+  `Konten`, slice 1/6 `Personen` and `Getränke`, slice 1/8 `Faktoren`; the counts come with
+  slice 1/9.)
 
 ### 7i. Personen / Getränke / Faktoren
 
@@ -489,9 +501,16 @@ submit on Enter.
   (decimal, shown with `×` prefix). Buttons `Abbrechen` and `Speichern`.
 - Delete: confirmation dialog with the entry count (§6.9).
 - Validation errors inline (§6.11); duplicate name → `Name ist bereits vergeben.`; points
-  outside 0–9 999,99 (or no number) → `Zahl von 0 bis 9.999,99.`, from the server.
-- Slice 1/6 builds the lists (name; drinks with points) and the create dialogs only; edit and
-  delete come with slice 1/9.
+  outside 0–9 999,99 (or no number) → `Zahl von 0 bis 9.999,99.`; a multiplier outside
+  0 (exclusive) – 99,99 (or no number) → `Zahl über 0 bis 99,99.`, from the server.
+- The edit dialog is titled `Faktor bearbeiten` and starts with the current values (the
+  multiplier with a decimal comma). The icon buttons are named `Happy Hour bearbeiten` and
+  `Happy Hour löschen`. Before the delete dialog opens, `GET …/{id}` reads the entry count
+  (entries of every day, since all of them change); after deleting, the snackbar
+  `Happy Hour gelöscht` (§6.3).
+- Slice 1/6 builds the lists (name; drinks with points) and the create dialogs only; slice
+  1/8 builds Faktoren whole (list, create, edit, delete); edit and delete of persons and
+  drinks come with slice 1/9.
 
 ### 7j. Konten `/verwalten/konten` (admins only)
 
@@ -587,7 +606,7 @@ submit on Enter.
 | Personen / Getränke (create, slice 1/6) | `GET/POST /api/persons`, `GET/POST /api/drinks` | |
 | Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window |
 | Verlauf | `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | |
-| Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count |
+| Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count; `PATCH` takes all fields (factors: `name`, `multiplier`) |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
 | Update / reload floor | `GET /api/health` | `minClientVersion` |
 
