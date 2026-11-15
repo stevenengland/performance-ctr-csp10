@@ -1,4 +1,5 @@
 import type { ManifestEntry } from '../contract/artifact.ts';
+import type { HealthReport } from '../contract/health.ts';
 import type { Header } from '../contract/headers.ts';
 
 export type FileCommand =
@@ -42,6 +43,11 @@ export interface HttpCheck {
 
 export interface HttpChecker {
   run(checks: readonly HttpCheck[]): Promise<void>;
+  /**
+  The health report at `url` once no migration is running any more; throws
+  when it does not answer 200 with every health field.
+  */
+  health(url: string): Promise<HealthReport>;
 }
 
 export interface LocalFiles {

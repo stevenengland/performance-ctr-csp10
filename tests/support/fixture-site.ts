@@ -1,8 +1,16 @@
+import { apiPointer } from '../../scripts/artifact.ts';
+
+/** The PHP release folder a fixture commit's web root points its API at. */
+export function fixtureAppFolder(commit: string): string {
+  return `0.1.0-${commit.slice(0, 7)}`;
+}
+
 /**
 The synthetic SPA build behind every fixture artifact, by web-root path: the
-shell, its service worker and manifest, one extra file per name in `extras`
-and hashed assets unique to the commit. Files of different releases have
-equal lengths on purpose, so only content tells them apart.
+shell, its service worker and manifest, the API entry pointer naming the
+commit's PHP release, one extra file per name in `extras` and hashed assets
+unique to the commit. Files of different releases have equal lengths on
+purpose, so only content tells them apart.
 */
 export function fixtureSite(
   commit: string,
@@ -17,6 +25,7 @@ export function fixtureSite(
     ],
     ['manifest.webmanifest', `{"name":"Performance ${sha7}"}`],
     ['sw.js', `// service worker ${sha7}\n`],
+    ['api/index.php', apiPointer(fixtureAppFolder(commit))],
     ...extras.map((path): [string, string] => [
       path,
       `<svg xmlns="http://www.w3.org/2000/svg"><title>${sha7} ${path}</title></svg>`,

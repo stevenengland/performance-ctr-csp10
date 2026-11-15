@@ -12,7 +12,8 @@ use Slim\ResponseEmitter;
 /*
  * Thin SAPI adapter of one PHP release (`app/<release>/public/index.php`). The
  * web root's `api/index.php` pointer requires it; the runtime configuration
- * lives in `config.php` beside the web root and the `app/` folder.
+ * lives in `config/runtime.php` beside the web root and the `app/` folder,
+ * rendered by the deploy from GitHub secrets.
  */
 $releaseRoot = dirname(__DIR__);
 require $releaseRoot . '/vendor/autoload.php';
@@ -20,7 +21,7 @@ require $releaseRoot . '/vendor/autoload.php';
 $scriptName = $_SERVER['SCRIPT_NAME'] ?? null;
 $basePath = rtrim(dirname(is_string($scriptName) ? $scriptName : '/api/index.php', 2), '/');
 $configFile = getenv('PERFORMANCE_CONFIG');
-$configFile = is_string($configFile) && $configFile !== '' ? $configFile : dirname($releaseRoot, 2) . '/config.php';
+$configFile = is_string($configFile) && $configFile !== '' ? $configFile : dirname($releaseRoot, 2) . '/config/runtime.php';
 
 try {
     $app = App::create(Config::load($configFile, $releaseRoot), $basePath);

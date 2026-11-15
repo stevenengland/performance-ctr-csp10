@@ -1,11 +1,13 @@
 import { join } from 'node:path';
 import {
+  APP_DIR,
   checkCompatibility,
   isSameManifest,
   verifyManifest,
   WEB_DIR,
   type Manifest,
 } from '../contract/artifact.ts';
+import { healthProblem, healthUrl } from '../contract/health.ts';
 import type {
   Artifact,
   DeployOperations,
@@ -13,6 +15,7 @@ import type {
   Outcome,
 } from '../contract/operations.ts';
 import type { TargetPolicy, WebspaceSettings } from '../contract/policy.ts';
+import type { RuntimeConfig } from '../contract/runtime-config.ts';
 import { remotePaths, type RemotePaths } from './layout.ts';
 import { activeRelease, retainedReleases, summarize } from './ledger.ts';
 import { observeRemote } from './observe.ts';
@@ -26,6 +29,8 @@ export interface AdapterPorts {
   http: HttpChecker;
   files: LocalFiles;
   settings: WebspaceSettings;
+  /** What the API reads at runtime; deploy and rollback render it, inspect needs none. */
+  runtimeConfig?: RuntimeConfig;
   now: () => Date;
   log: (line: string) => void;
 }
@@ -60,10 +65,12 @@ async function prepare(
     );
   }
   checkCompatibility(manifest, policy);
-  verifyManifest(
-    manifest,
-    await session.files.artifactFiles(join(artifact.dir, WEB_DIR)),
-  );
+  verifyManifest(manifest, {
+    web: await session.files.artifactFiles(join(artifact.dir, WEB_DIR)),
+    app: await session.files.artifactFiles(
+      join(artifact.dir, APP_DIR, manifest.app.folder),
+    ),
+  });
 }
 
 async function execute(
@@ -73,6 +80,13 @@ async function execute(
 ): Promise<void> {
   if (phase.kind === 'http') {
     await http.run(phase.checks);
+    return;
+  }
+  if (phase.kind === 'health') {
+    const problem = healthProblem(await http.health(phase.url), phase.expected);
+    if (problem !== undefined) {
+      throw new Error(`health check failed: ${phase.url} reports ${problem}`);
+    }
     return;
   }
   for (const file of phase.files) {
@@ -88,18 +102,27 @@ async function converge(
   manifest: Manifest,
   policy: TargetPolicy,
 ): Promise<Outcome> {
-  const { files, paths, now, log } = session;
+  const { files, paths, now, log, runtimeConfig } = session;
+  if (runtimeConfig === undefined) {
+    throw new Error('a deploy needs the runtime configuration');
+  }
   await prepare(session, artifact, manifest, policy);
   const tempDir = await files.mkdtemp();
   const completed = new Set<PhaseName>();
   try {
     for (let iteration = 0; iteration < MAX_PHASES; iteration += 1) {
-      const remote = await observeRemote(session, paths, policy.assetDir);
+      const remote = await observeRemote(
+        session,
+        paths,
+        policy.assetDir,
+        manifest.app.folder,
+      );
       if (iteration === 0) log(describeRemote(remote));
       const phase = planNext({
         remote,
         manifest,
         policy,
+        runtimeConfig,
         aliases: session.settings.aliases,
         paths,
         artifactDir: artifact.dir,
@@ -140,7 +163,26 @@ async function rollbackTo(
   if (!isSameManifest(retainedManifest, artifact.manifest)) {
     throw new Error(`artifact does not match retained release ${releaseId}`);
   }
+  await checkLiveSchema(session, retainedManifest, policy);
   return converge(session, artifact, retainedManifest, policy);
+}
+
+/**
+Rollback never crosses a schema change (fix forward instead): the live API
+must report the schema version the retained release expects.
+*/
+async function checkLiveSchema(
+  { http }: Session,
+  manifest: Manifest,
+  policy: TargetPolicy,
+): Promise<void> {
+  const expected = manifest.app.schemaVersion;
+  const live = (await http.health(healthUrl(policy))).schemaVersion;
+  if (live !== expected) {
+    throw new Error(
+      `release ${manifest.releaseId} expects schema version ${String(expected)}, but the live database is at schema version ${String(live)}; rollback only returns to a release with the live schema, fix forward instead`,
+    );
+  }
 }
 
 async function inspectRemote(

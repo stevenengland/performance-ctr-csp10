@@ -18,6 +18,12 @@ const manifest = buildManifest({
     { path: 'sw.js', size: 1, sha256: sha },
     { path: 'assets/a.css', size: 1, sha256: sha },
   ],
+  app: {
+    folder: '0.1.0-3333333',
+    appVersion: '0.1.0+3333333',
+    schemaVersion: 1,
+    files: [{ path: 'composer.json', size: 1, sha256: sha }],
+  },
 });
 const assetCaching = {
   name: 'Cache-Control',
@@ -67,6 +73,11 @@ describe('httpChecks', () => {
       },
       { url: 'http://h.test/.deploy/state.json', expectStatus: [403, 404] },
       { url: 'http://h.test/.htaccess', expectStatus: [403, 404] },
+      { url: 'http://h.test/config/runtime.php', expectStatus: [403, 404] },
+      {
+        url: 'http://h.test/app/0.1.0-3333333/composer.json',
+        expectStatus: [403, 404],
+      },
     ]);
   });
 
@@ -86,15 +97,29 @@ describe('httpChecks', () => {
     });
   });
 
-  it('expects a redirect to the origin from each declared alias', () => {
+  it('expects a redirect to the https origin from plain http and from each declared alias', () => {
     const policy = targetPolicy('https://h.test');
     const toOrigin = [{ name: 'Location', value: 'https://h.test/' }];
     expect(
       redirects(httpChecks(manifest, policy, ['www.h.test', 'alt.test'])),
     ).toEqual([
+      { url: 'http://h.test/', expectStatus: [301], headers: toOrigin },
       { url: 'https://www.h.test/', expectStatus: [301], headers: toOrigin },
       { url: 'https://alt.test/', expectStatus: [301], headers: toOrigin },
     ]);
-    expect(redirects(httpChecks(manifest, policy, []))).toEqual([]);
+    expect(redirects(httpChecks(manifest, policy, []))).toEqual([
+      { url: 'http://h.test/', expectStatus: [301], headers: toOrigin },
+    ]);
+    expect(
+      redirects(httpChecks(manifest, targetPolicy('http://h.test'), [])),
+    ).toEqual([]);
+  });
+
+  it('expects HSTS on the pages of an https origin', () => {
+    const [shell] = httpChecks(manifest, targetPolicy('https://h.test'), []);
+    expect(shell?.headers).toContainEqual({
+      name: 'Strict-Transport-Security',
+      value: 'max-age=31536000',
+    });
   });
 });

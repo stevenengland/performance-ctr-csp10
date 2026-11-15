@@ -4,12 +4,36 @@ import { createHttpChecker, httpChecker } from './http-smoke.ts';
 
 let server: Server;
 let origin: string;
+const report = {
+  appVersion: '0.1.0+3736c2a',
+  phpVersion: '8.3.36',
+  database: { engine: 'MySQL', version: '8.4.13' },
+  schemaVersion: 1,
+  migration: 'ok',
+  minClientVersion: '0.1.0',
+};
+/** Health answers `running` this many more times before `ok`. */
+let running = 0;
 
 beforeAll(async () => {
   server = createServer((req, res) => {
     if (req.url === '/hang') return;
     if (req.url === '/') {
       res.writeHead(200, { 'X-Content-Type-Options': 'nosniff' }).end('ok');
+      return;
+    }
+    if (req.url === '/api/health') {
+      const migration = running > 0 ? 'running' : 'ok';
+      running -= 1;
+      res.writeHead(200).end(JSON.stringify({ ...report, migration }));
+      return;
+    }
+    if (req.url === '/broken/api/health') {
+      res.writeHead(200).end(JSON.stringify({ ...report, schemaVersion: 'x' }));
+      return;
+    }
+    if (req.url === '/down/api/health') {
+      res.writeHead(500).end('{}');
       return;
     }
     if (req.url === '/version.json') {
@@ -105,6 +129,41 @@ describe('httpChecker', () => {
     ]);
     await expect(run).rejects.toThrow(
       `http check failed: ${origin}/hang timed out after 50 ms`,
+    );
+  });
+});
+
+describe('httpChecker.health', () => {
+  const fast = createHttpChecker({ runningAttempts: 3, runningDelayMs: 1 });
+
+  it('returns the report health answers', async () => {
+    running = 0;
+    await expect(fast.health(`${origin}/api/health`)).resolves.toEqual(report);
+  });
+
+  it('asks again while a migration is running', async () => {
+    running = 2;
+    await expect(fast.health(`${origin}/api/health`)).resolves.toMatchObject({
+      migration: 'ok',
+    });
+  });
+
+  it('gives up waiting and returns the running report', async () => {
+    running = 5;
+    await expect(fast.health(`${origin}/api/health`)).resolves.toMatchObject({
+      migration: 'running',
+    });
+  });
+
+  it('fails naming the url when health does not answer 200', async () => {
+    await expect(fast.health(`${origin}/down/api/health`)).rejects.toThrow(
+      `health check failed: ${origin}/down/api/health answered 500`,
+    );
+  });
+
+  it('fails naming the field health answered without', async () => {
+    await expect(fast.health(`${origin}/broken/api/health`)).rejects.toThrow(
+      `health check failed: ${origin}/broken/api/health health response is malformed: schemaVersion`,
     );
   });
 });

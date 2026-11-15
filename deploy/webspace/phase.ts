@@ -2,11 +2,14 @@
 
 import { posix } from 'node:path';
 import {
+  APP_DIR,
   comparePaths as compare,
   WEB_DIR,
   type Manifest,
 } from '../contract/artifact.ts';
+import type { ExpectedHealth } from '../contract/health.ts';
 import type { TargetPolicy } from '../contract/policy.ts';
+import type { RuntimeConfig } from '../contract/runtime-config.ts';
 import {
   isPartName,
   parentDirs,
@@ -22,15 +25,22 @@ export type PhaseName =
   | 'marker'
   | 'assets-upload'
   | 'assets-commit'
+  | 'app-upload'
+  | 'app-verified'
   | 'staging-upload'
   | 'staging-verified'
+  | 'config-upload'
+  | 'config-commit'
   | 'activation'
+  | 'health-check'
+  | 'shell'
   | 'version-upload'
   | 'version-commit'
   | 'cleanup'
   | 'http-checks'
   | 'record'
-  | 'finish';
+  | 'finish'
+  | 'trash';
 
 export interface TempFile {
   name: string;
@@ -45,12 +55,19 @@ export type Phase =
       commands: FileCommand[];
     }
   | { kind: 'http'; name: 'http-checks'; checks: HttpCheck[] }
+  | {
+      kind: 'health';
+      name: 'health-check';
+      url: string;
+      expected: ExpectedHealth;
+    }
   | { kind: 'done' };
 
 export interface PlanInput {
   remote: RemoteState;
   manifest: Manifest;
   policy: TargetPolicy;
+  runtimeConfig: RuntimeConfig;
   /** Declared host names that must redirect to the origin. */
   aliases: readonly string[];
   paths: RemotePaths;
@@ -80,6 +97,16 @@ export function tempPath(input: PlanInput, name: string): string {
 
 export function webPath(input: PlanInput, path: string): string {
   return posix.join(input.artifactDir, WEB_DIR, path);
+}
+
+/** A file of the manifest's PHP release in the local artifact. */
+export function appPath(input: PlanInput, path: string): string {
+  return posix.join(
+    input.artifactDir,
+    APP_DIR,
+    input.manifest.app.folder,
+    path,
+  );
 }
 
 export function hasDir(listing: Listing, name: string): boolean {
@@ -166,7 +193,11 @@ export function uploadThenRename(
   );
 }
 
-function removeTree(tree: Tree, file: (path: string) => string): FileCommand[] {
+/** Removes every file, then every folder deepest first; the tree's own folder stays. */
+export function removeTree(
+  tree: Tree,
+  file: (path: string) => string,
+): FileCommand[] {
   const entries = [...tree];
   const files = entries
     .filter(([, entry]) => !entry.dir)

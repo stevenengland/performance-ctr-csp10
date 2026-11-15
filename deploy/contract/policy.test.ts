@@ -10,6 +10,7 @@ import {
 const env: Env = {
   SITE_URL: 'https://www.example.test',
   REMOTE_ROOT: '/prod',
+  DOCROOT: 'site',
 };
 
 describe('parseSiteUrl', () => {
@@ -81,19 +82,32 @@ describe('parseWebspaceSettings', () => {
   });
 
   it('defaults the remote root to the SFTP root and reads empty values as unset', () => {
-    expect(parseWebspaceSettings({ REMOTE_ROOT: '', DOCROOT: '' })).toEqual({
+    expect(
+      parseWebspaceSettings({ REMOTE_ROOT: '', DOCROOT: 'performance' }),
+    ).toEqual({
       remoteRoot: '/',
-      docroot: 'site',
+      docroot: 'performance',
       aliases: [],
     });
   });
 
+  it('needs the served folder, never guessing one', () => {
+    expect(() => parseWebspaceSettings({})).toThrow(
+      /^Missing repository variable DOCROOT$/,
+    );
+    expect(() => parseWebspaceSettings({ DOCROOT: '' })).toThrow(
+      /^Missing repository variable DOCROOT$/,
+    );
+  });
+
   it('needs no host, port, login or known hosts', () => {
-    expect(() => parseWebspaceSettings({})).not.toThrow();
+    expect(() => parseWebspaceSettings({ DOCROOT: 'site' })).not.toThrow();
   });
 
   it('rejects a relative remote root naming the variable', () => {
-    expect(() => parseWebspaceSettings({ REMOTE_ROOT: 'prod' })).toThrow(
+    expect(() =>
+      parseWebspaceSettings({ REMOTE_ROOT: 'prod', DOCROOT: 'site' }),
+    ).toThrow(
       /^Invalid repository variable REMOTE_ROOT: expected an absolute path$/,
     );
   });
@@ -111,6 +125,8 @@ describe('parseWebspaceSettings', () => {
     '.',
     '..',
     '.deploy',
+    'app',
+    'config',
     'httpdocs\n',
     'http\tdocs',
     'http\u{7F}docs',

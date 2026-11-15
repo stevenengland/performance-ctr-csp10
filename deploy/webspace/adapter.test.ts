@@ -5,11 +5,13 @@ import {
   FakeLocalFiles,
   FakeRemote,
   fakeArtifact,
+  fakeRuntimeConfig,
 } from '../../tests/support/fake-remote.ts';
 import { interrupt } from '../../tests/support/interrupt.ts';
 import { createAdapter } from './adapter.ts';
 import { httpChecks } from './checks.ts';
 import { renderHtaccess } from './htaccess.ts';
+import { renderRuntimeConfig } from './runtime-config.ts';
 import { parseState, PRUNE_WINDOW_MS, retainedReleases } from './ledger.ts';
 import type { FileTransport } from './ports.ts';
 
@@ -34,13 +36,15 @@ function harness(
   } = {},
 ) {
   const fake = remote ?? new FakeRemote(local);
-  const http = options.http ?? new FakeHttp();
+  const site = `/remote/${(options.settings ?? settings).docroot}`;
+  const http = options.http ?? new FakeHttp(fake, site);
   const log: string[] = [];
   const adapter = createAdapter({
     transport: options.transport ?? fake,
     http,
     files: local,
     settings: options.settings ?? settings,
+    runtimeConfig: fakeRuntimeConfig,
     now: options.clock ?? (() => now),
     log: (l) => {
       log.push(l);
@@ -68,14 +72,25 @@ describe('a deploy on an empty remote', () => {
       'marker',
       'assets-upload',
       'assets-commit',
+      'app-upload',
+      'app-verified',
       'staging-upload',
       'staging-verified',
+      'config-upload',
+      'config-commit',
       'activation',
+      'shell',
       'version-upload',
       'version-commit',
       'record',
       'finish',
     ]);
+    expect(fake.files.get('/remote/config/runtime.php')).toBe(
+      renderRuntimeConfig(fakeRuntimeConfig),
+    );
+    expect(fake.files.get('/remote/app/0.1.0-1111111/release.php')).toContain(
+      '0.1.0+1111111',
+    );
     expect(fake.files.get('/remote/site/.htaccess')).toBe(
       renderHtaccess(policy),
     );
@@ -176,43 +191,49 @@ describe('a second deploy and a rollback', () => {
     ).toMatchObject({ deactivatedAt: now.toISOString() });
   });
 
-  it('a rollback cut off at any command boundary completes when it is re-run', async () => {
-    const { fake: seed, local, a } = await twoReleases();
-    const seeded = seed.snapshot();
-    const reference = harness(FakeRemote.from(seeded, local), local);
-    await reference.adapter.rollback(a, a.manifest.releaseId, policy);
-    const expected = reference.fake.snapshot();
-    const total = reference.fake.steps.reduce(
-      (n, s) => n + s.commands.length,
-      0,
-    );
+  it(
+    'a rollback cut off at any command boundary completes when it is re-run',
+    {
+      timeout: 60_000,
+    },
+    async () => {
+      const { fake: seed, local, a } = await twoReleases();
+      const seeded = seed.snapshot();
+      const reference = harness(FakeRemote.from(seeded, local), local);
+      await reference.adapter.rollback(a, a.manifest.releaseId, policy);
+      const expected = reference.fake.snapshot();
+      const total = reference.fake.steps.reduce(
+        (n, s) => n + s.commands.length,
+        0,
+      );
 
-    for (let k = 0; k <= total; k += 1) {
-      const fake = FakeRemote.from(seeded, local);
-      const broken = interrupt(fake, { count: k });
-      await expect(
-        harness(fake, local, { transport: broken }).adapter.rollback(
+      for (let k = 0; k <= total; k += 1) {
+        const fake = FakeRemote.from(seeded, local);
+        const broken = interrupt(fake, { count: k });
+        await expect(
+          harness(fake, local, { transport: broken }).adapter.rollback(
+            a,
+            a.manifest.releaseId,
+            policy,
+          ),
+          `k=${String(k)}`,
+        ).rejects.toThrow(/simulated disconnect/);
+        await harness(fake, local).adapter.rollback(
           a,
           a.manifest.releaseId,
           policy,
-        ),
-        `k=${String(k)}`,
-      ).rejects.toThrow(/simulated disconnect/);
-      await harness(fake, local).adapter.rollback(
-        a,
-        a.manifest.releaseId,
-        policy,
-      );
-      expect(fake.snapshot(), `final state after k=${String(k)}`).toEqual(
-        expected,
-      );
-    }
-  });
+        );
+        expect(fake.snapshot(), `final state after k=${String(k)}`).toEqual(
+          expected,
+        );
+      }
+    },
+  );
 
   it('refuses to roll back to a release that never went live, even while it is in progress', async () => {
     const { fake, local, adapter } = await twoReleases();
     const c = await fakeArtifact(local, '/art/c', '3'.repeat(40));
-    const failing = new FakeHttp();
+    const failing = new FakeHttp(fake);
     failing.failWith = 'http check failed: simulated';
     await expect(
       harness(fake, local, { http: failing }).adapter.deploy(c, policy),
@@ -261,7 +282,10 @@ describe('a second deploy and a rollback', () => {
     expect(rerun.filter((s) => !s.startsWith('observe'))).toEqual([
       'access-upload',
       'access-commit',
+      'config-upload',
+      'config-commit',
     ]);
+    expect(http.healthCalls.at(-1)?.url).toBe('http://h.test/api/health');
     expect(http.calls.at(-1)).toEqual(
       httpChecks(b.manifest, policy, ['www.h.test', 'alt.h.test']),
     );
@@ -414,57 +438,63 @@ describe('inspect on an empty remote', () => {
 });
 
 describe('recovery after a disconnect at every command boundary', () => {
-  it('a re-run always ends in the uninterrupted final state while the docroot keeps index.html', async () => {
-    // Reference: A active, then B deployed without interruption.
-    const seedLocal = new FakeLocalFiles();
-    const seed = harness(undefined, seedLocal);
-    const a = await fakeArtifact(
-      seedLocal,
-      '/art/a',
-      '1'.repeat(40),
-      extras('impressum', 'alt'),
-    );
-    const b = await fakeArtifact(
-      seedLocal,
-      '/art/b',
-      '2'.repeat(40),
-      extras('impressum', 'kontakt'),
-    );
-    await seed.adapter.deploy(a, policy);
-    const seeded = seed.fake.snapshot();
-    const reference = harness(FakeRemote.from(seeded, seedLocal), seedLocal);
-    await reference.adapter.deploy(b, policy);
-    const expected = reference.fake.snapshot();
-    const total = reference.fake.steps.reduce(
-      (n, s) => n + s.commands.length,
-      0,
-    );
-    expect(total).toBeGreaterThan(40);
-
-    for (let k = 0; k <= total; k += 1) {
-      const fake = FakeRemote.from(seeded, seedLocal);
-      const broken = interrupt(fake, { count: k });
-      const first = harness(fake, seedLocal, { transport: broken });
-      await expect(
-        first.adapter.deploy(b, policy),
-        `k=${String(k)}`,
-      ).rejects.toThrow(/simulated disconnect/);
-      expect(broken.fired, `k=${String(k)}`).toBe(true);
-      expect(
-        fake.files.has('/remote/site/index.html'),
-        `docroot at k=${String(k)}`,
-      ).toBe(true);
-      expect(
-        fake.files.has('/remote/site/.htaccess'),
-        `.htaccess at k=${String(k)}`,
-      ).toBe(true);
-      const second = harness(fake, seedLocal);
-      await second.adapter.deploy(b, policy);
-      expect(fake.snapshot(), `final state after k=${String(k)}`).toEqual(
-        expected,
+  it(
+    'a re-run always ends in the uninterrupted final state while the docroot keeps index.html',
+    {
+      timeout: 60_000,
+    },
+    async () => {
+      // Reference: A active, then B deployed without interruption.
+      const seedLocal = new FakeLocalFiles();
+      const seed = harness(undefined, seedLocal);
+      const a = await fakeArtifact(
+        seedLocal,
+        '/art/a',
+        '1'.repeat(40),
+        extras('impressum', 'alt'),
       );
-    }
-  });
+      const b = await fakeArtifact(
+        seedLocal,
+        '/art/b',
+        '2'.repeat(40),
+        extras('impressum', 'kontakt'),
+      );
+      await seed.adapter.deploy(a, policy);
+      const seeded = seed.fake.snapshot();
+      const reference = harness(FakeRemote.from(seeded, seedLocal), seedLocal);
+      await reference.adapter.deploy(b, policy);
+      const expected = reference.fake.snapshot();
+      const total = reference.fake.steps.reduce(
+        (n, s) => n + s.commands.length,
+        0,
+      );
+      expect(total).toBeGreaterThan(40);
+
+      for (let k = 0; k <= total; k += 1) {
+        const fake = FakeRemote.from(seeded, seedLocal);
+        const broken = interrupt(fake, { count: k });
+        const first = harness(fake, seedLocal, { transport: broken });
+        await expect(
+          first.adapter.deploy(b, policy),
+          `k=${String(k)}`,
+        ).rejects.toThrow(/simulated disconnect/);
+        expect(broken.fired, `k=${String(k)}`).toBe(true);
+        expect(
+          fake.files.has('/remote/site/index.html'),
+          `docroot at k=${String(k)}`,
+        ).toBe(true);
+        expect(
+          fake.files.has('/remote/site/.htaccess'),
+          `.htaccess at k=${String(k)}`,
+        ).toBe(true);
+        const second = harness(fake, seedLocal);
+        await second.adapter.deploy(b, policy);
+        expect(fake.snapshot(), `final state after k=${String(k)}`).toEqual(
+          expected,
+        );
+      }
+    },
+  );
 });
 
 async function abandonedB() {
@@ -566,7 +596,7 @@ describe('failed http checks', () => {
     const a = await fakeArtifact(local, '/art/a', '1'.repeat(40));
     await h.adapter.deploy(a, policy);
     const e = await fakeArtifact(local, '/art/e', '5'.repeat(40));
-    const http = new FakeHttp();
+    const http = new FakeHttp(h.fake);
     http.failWith = 'http check failed: simulated';
     const failing = harness(h.fake, local, { http });
     const stepsBefore = h.fake.steps.length;
@@ -627,7 +657,7 @@ describe('a stale staging marker from an earlier attempt', () => {
       ),
     ).rejects.toThrow(/finish/);
     // Y goes live but fails its checks, then the operator rolls back to A.
-    const failing = new FakeHttp();
+    const failing = new FakeHttp(fake);
     failing.failWith = 'http check failed: simulated';
     await expect(
       harness(fake, local, { http: failing }).adapter.deploy(y, policy),
@@ -673,5 +703,224 @@ describe('a failed observation', () => {
       'observe-1',
       'observe-2',
     ]);
+  });
+});
+
+const served = (fake: FakeRemote, path: string) =>
+  fake.files.get(`/remote/site/${path}`) ?? '';
+
+describe('API-first activation', () => {
+  const shell = ['index.html', 'manifest.webmanifest', 'sw.js'];
+
+  it('switches the API pointer, asks health, and only then switches the shell', async () => {
+    const { fake, local, adapter } = harness();
+    const a = await fakeArtifact(local, '/art/a', '1'.repeat(40));
+    await adapter.deploy(a, policy);
+    const b = await fakeArtifact(local, '/art/b', '2'.repeat(40));
+    let atHealth: { pointer: string; shell: string[] } | undefined;
+    const http = new FakeHttp(fake);
+    const health = http.health.bind(http);
+    http.health = (url) => {
+      atHealth = {
+        pointer: served(fake, 'api/index.php'),
+        shell: shell.map((path) => served(fake, path)),
+      };
+      return health(url);
+    };
+    const before = fake.steps.length;
+    await harness(fake, local, { http }).adapter.deploy(b, policy);
+
+    const names = fake.steps.slice(before).map((s) => s.step);
+    const [call] = http.healthCalls;
+    expect(http.healthCalls).toHaveLength(1);
+    expect(call?.url).toBe('http://h.test/api/health');
+    const afterStep = (call?.afterStep ?? 0) - before;
+    expect(
+      names.slice(0, afterStep).filter((n) => !n.startsWith('observe')),
+    ).toEqual([
+      'access-upload',
+      'access-commit',
+      'marker',
+      'assets-upload',
+      'assets-commit',
+      'app-upload',
+      'app-verified',
+      'staging-upload',
+      'staging-verified',
+      'config-upload',
+      'config-commit',
+      'activation',
+    ]);
+    expect(names.slice(afterStep)).toContain('shell');
+    expect(atHealth?.pointer).toContain('/app/0.1.0-2222222/');
+    expect(atHealth?.shell.every((body) => body.includes('1111111'))).toBe(
+      true,
+    );
+    const shellStep = fake.steps.find((s) => s.step === 'shell');
+    expect(shellStep?.commands.map((c) => c.op === 'rename' && c.to)).toEqual(
+      shell.map((path) => `/remote/site/${path}`),
+    );
+    for (const path of shell) expect(served(fake, path)).toContain('2222222');
+  });
+
+  it.each([
+    [
+      'reports another app version',
+      { reportedVersion: '0.0.9+0000000' },
+      'health check failed: http://h.test/api/health reports app version 0.0.9+0000000, expected 0.1.0+2222222',
+    ],
+    [
+      'fails its migration',
+      { schemaVersion: 2, failing: true },
+      'health check failed: http://h.test/api/health reports migration failed at schema version 1',
+    ],
+  ])(
+    'fails the deploy and leaves the shell unswitched when the new release %s',
+    async (_case, app, message) => {
+      const { fake, local, adapter } = harness();
+      const a = await fakeArtifact(local, '/art/a', '1'.repeat(40));
+      await adapter.deploy(a, policy);
+      const b = await fakeArtifact(
+        local,
+        '/art/b',
+        '2'.repeat(40),
+        undefined,
+        undefined,
+        app,
+      );
+      const before = fake.steps.length;
+      await expect(adapter.deploy(b, policy)).rejects.toThrow(message);
+      expect(fake.steps.slice(before).map((s) => s.step)).not.toContain(
+        'shell',
+      );
+      for (const path of shell) {
+        expect(served(fake, path), path).toContain('1111111');
+      }
+      expect(served(fake, 'api/index.php')).toContain('/app/0.1.0-2222222/');
+      expect(JSON.parse(served(fake, 'version.json'))).toMatchObject({
+        release: a.manifest.releaseId,
+      });
+      expect(
+        state(fake).releases.find((r) => r.id === b.manifest.releaseId),
+      ).not.toHaveProperty('activatedAt');
+    },
+  );
+
+  it('recovers from a failed migration with a corrected release', async () => {
+    const { fake, local, adapter } = harness();
+    const broken = await fakeArtifact(
+      local,
+      '/art/b',
+      '2'.repeat(40),
+      undefined,
+      undefined,
+      { schemaVersion: 2, failing: true },
+    );
+    await expect(adapter.deploy(broken, policy)).rejects.toThrow(
+      /migration failed/,
+    );
+    const fixed = await fakeArtifact(
+      local,
+      '/art/c',
+      '3'.repeat(40),
+      undefined,
+      undefined,
+      { schemaVersion: 2 },
+    );
+    await adapter.deploy(fixed, policy);
+    expect(served(fake, 'index.html')).toContain('3333333');
+  });
+
+  it('needs the runtime configuration before touching the remote', async () => {
+    const local = new FakeLocalFiles();
+    const fake = new FakeRemote(local);
+    const adapter = createAdapter({
+      transport: fake,
+      http: new FakeHttp(fake),
+      files: local,
+      settings,
+      now: () => now,
+      log: () => undefined,
+    });
+    const a = await fakeArtifact(local, '/art/a', '1'.repeat(40));
+    await expect(adapter.deploy(a, policy)).rejects.toThrow(
+      'a deploy needs the runtime configuration',
+    );
+    expect(fake.steps).toEqual([]);
+  });
+});
+
+describe('same-schema rollback', () => {
+  async function schemaReleases() {
+    const h = harness();
+    const at = (commit: string, schemaVersion: number) =>
+      fakeArtifact(
+        h.local,
+        `/art/${commit.slice(0, 1)}`,
+        commit,
+        undefined,
+        undefined,
+        { schemaVersion },
+      );
+    const a = await at('1'.repeat(40), 1);
+    const b = await at('2'.repeat(40), 2);
+    const c = await at('3'.repeat(40), 2);
+    for (const release of [a, b, c]) await h.adapter.deploy(release, policy);
+    return { ...h, a, b, c };
+  }
+
+  it('refuses a retained release whose schema differs from the live one, without writing', async () => {
+    const { fake, adapter, a } = await schemaReleases();
+    const before = fake.snapshot();
+    await expect(
+      adapter.rollback(a, a.manifest.releaseId, policy),
+    ).rejects.toThrow(
+      `release ${a.manifest.releaseId} expects schema version 1, but the live database is at schema version 2; rollback only returns to a release with the live schema, fix forward instead`,
+    );
+    expect(fake.snapshot()).toEqual(before);
+  });
+
+  it('reactivates a retained release with the live schema', async () => {
+    const { fake, adapter, b } = await schemaReleases();
+    await adapter.rollback(b, b.manifest.releaseId, policy);
+    expect(served(fake, 'index.html')).toContain('2222222');
+    expect(served(fake, 'api/index.php')).toContain('/app/0.1.0-2222222/');
+  });
+});
+
+describe('PHP release folders', () => {
+  it('are kept for the retained releases and pruned with the rest', async () => {
+    const { fake, local } = harness();
+    const deployAt = async (commit: string, at: Date) => {
+      const artifact = await fakeArtifact(
+        local,
+        `/art/${commit.slice(0, 1)}`,
+        commit,
+      );
+      await harness(fake, local, { clock: () => at }).adapter.deploy(
+        artifact,
+        policy,
+      );
+    };
+    const minutes = (n: number) => new Date(now.getTime() + n * 60_000);
+    await deployAt('1'.repeat(40), now);
+    await deployAt('2'.repeat(40), minutes(1));
+    await deployAt('3'.repeat(40), minutes(2));
+    const later = new Date(minutes(2).getTime() + PRUNE_WINDOW_MS);
+    await deployAt('4'.repeat(40), later);
+    const folders = [...fake.dirs]
+      .filter((dir) => /^\/remote\/app\/[^/]+$/.test(dir))
+      .toSorted();
+    expect(folders).toEqual([
+      '/remote/app/0.1.0-2222222',
+      '/remote/app/0.1.0-3333333',
+      '/remote/app/0.1.0-4444444',
+    ]);
+    expect(
+      fake.files
+        .keys()
+        .filter((p) => p.includes('0.1.0-1111111'))
+        .toArray(),
+    ).toEqual([]);
   });
 });

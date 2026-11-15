@@ -24,6 +24,16 @@ export interface RemoteState {
   site: Tree;
   assets: Listing;
   staged: ReadonlyMap<string, Tree>;
+  /** The PHP release folders below `app/`. */
+  apps: Listing;
+  /**
+  The tree of the PHP release folder being deployed: its top level alone once
+  it holds `.verified`, every file before that.
+  */
+  release: Tree;
+  /** PHP release folders moved to `.deploy/trash/` by prune, with their whole trees. */
+  trash: ReadonlyMap<string, Tree>;
+  config: Listing;
   version: string | undefined;
 }
 

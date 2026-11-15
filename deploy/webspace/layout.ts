@@ -2,6 +2,8 @@ import { posix } from 'node:path';
 import type { Manifest } from '../contract/artifact.ts';
 
 export const VERIFIED_MARKER = '.verified';
+/** The API's runtime configuration inside `config/`, rendered on every deploy. */
+export const RUNTIME_CONFIG = 'runtime.php';
 
 export interface RemotePaths {
   root: string;
@@ -11,10 +13,17 @@ export interface RemotePaths {
   state: string;
   manifests: string;
   staged: string;
+  trash: string;
   manifest(id: string): string;
   stagedDir(id: string): string;
   stagedFile(id: string, path: string): string;
   siteFile(path: string): string;
+  /** The PHP releases, one folder each, beside the served folder. */
+  app: string;
+  appDir(folder: string): string;
+  appFile(folder: string, path: string): string;
+  config: string;
+  runtimeConfig: string;
 }
 
 const MANIFEST_SUFFIX = '.json';
@@ -60,6 +69,9 @@ export function remotePaths(root: string, docroot: string): RemotePaths {
   const site = posix.join(root, docroot);
   const manifests = posix.join(deploy, 'manifests');
   const staged = posix.join(deploy, 'staged');
+  const trash = posix.join(deploy, 'trash');
+  const app = posix.join(root, 'app');
+  const config = posix.join(root, 'config');
   return {
     root,
     site,
@@ -67,10 +79,16 @@ export function remotePaths(root: string, docroot: string): RemotePaths {
     state: posix.join(deploy, 'state.json'),
     manifests,
     staged,
+    trash,
     manifest: (id) => posix.join(manifests, manifestFile(id)),
     stagedDir: (id) => posix.join(staged, id),
     stagedFile: (id, path) => posix.join(staged, id, path),
     siteFile: (path) => posix.join(site, path),
+    app,
+    appDir: (folder) => posix.join(app, folder),
+    appFile: (folder, path) => posix.join(app, folder, path),
+    config,
+    runtimeConfig: posix.join(config, RUNTIME_CONFIG),
   };
 }
 

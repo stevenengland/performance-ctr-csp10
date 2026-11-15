@@ -5,9 +5,12 @@ import {
   checkCompatibility,
   isHashedAsset,
   isHtml,
+  isShellFile,
   manifestDigest,
   parseManifest,
+  parseRelease,
   releaseId,
+  releaseTag,
   isSameManifest,
   verifyManifest,
   type ManifestEntry,
@@ -19,6 +22,15 @@ const files: ManifestEntry[] = [
   { path: 'assets/app.abc123.css', size: 7, sha256: sha('css') },
   { path: 'impressum/index.html', size: 9, sha256: sha('impressum') },
 ];
+const app = {
+  folder: '0.1.0-3736c2a',
+  appVersion: '0.1.0+3736c2a',
+  schemaVersion: 4,
+  files: [
+    { path: 'public/index.php', size: 30, sha256: sha('entry') },
+    { path: 'migrations/0001_a.php', size: 20, sha256: sha('m1') },
+  ],
+};
 const input = {
   commit: '3736c2a9f1e2d3c4b5a6978877665544332211aa',
   runId: '123456',
@@ -26,7 +38,9 @@ const input = {
   buildTime: new Date('2026-10-22T19:30:00Z'),
   base: '/',
   files,
+  app,
 };
+const actual = { web: files, app: app.files };
 
 describe('releaseId', () => {
   it('is the UTC build time plus the short commit', () => {
@@ -36,17 +50,42 @@ describe('releaseId', () => {
   });
 });
 
+describe('releaseTag', () => {
+  it('names the archive by the UTC minute of the deploy', () => {
+    expect(releaseTag(new Date('2026-11-15T09:07:59.999Z'))).toBe(
+      'release-20261115-0907',
+    );
+    expect(releaseTag(new Date('2026-01-02T23:59:00+02:00'))).toBe(
+      'release-20260102-2159',
+    );
+  });
+});
+
 describe('manifestDigest', () => {
-  it('hashes the sorted path/size/sha lines', () => {
+  it('hashes the sorted web lines, the PHP release identity and its sorted files', () => {
     const expected = sha(
       [
         `assets/app.abc123.css\t7\t${sha('css')}`,
         `impressum/index.html\t9\t${sha('impressum')}`,
         `index.html\t12\t${sha('index')}`,
+        'app\t0.1.0-3736c2a\t0.1.0+3736c2a\t4',
+        `app/migrations/0001_a.php\t20\t${sha('m1')}`,
+        `app/public/index.php\t30\t${sha('entry')}`,
       ].join('\n') + '\n',
     );
-    expect(manifestDigest(files)).toBe(expected);
-    expect(manifestDigest(files.toReversed())).toBe(expected);
+    expect(manifestDigest(files, app)).toBe(expected);
+    expect(
+      manifestDigest(files.toReversed(), {
+        ...app,
+        files: app.files.toReversed(),
+      }),
+    ).toBe(expected);
+  });
+
+  it('changes with the schema version', () => {
+    expect(manifestDigest(files, { ...app, schemaVersion: 5 })).not.toBe(
+      manifestDigest(files, app),
+    );
   });
 });
 
@@ -60,13 +99,56 @@ describe('buildManifest', () => {
       runAttempt: '1',
       buildTime: '2026-10-22T19:30:00.000Z',
       base: '/',
-      digest: manifestDigest(files),
+      digest: manifestDigest(files, app),
     });
     expect(manifest.files.map((file) => file.path)).toEqual([
       'assets/app.abc123.css',
       'impressum/index.html',
       'index.html',
     ]);
+  });
+
+  it('records the PHP release with its schema version and sorted files', () => {
+    const manifest = buildManifest(input);
+    expect(manifest.app).toEqual({
+      folder: '0.1.0-3736c2a',
+      appVersion: '0.1.0+3736c2a',
+      schemaVersion: 4,
+      files: [app.files[1], app.files[0]],
+    });
+  });
+});
+
+describe('parseRelease', () => {
+  it("reads the build's release folder, app version and schema version", () => {
+    expect(
+      parseRelease(
+        JSON.stringify({
+          appVersion: '0.1.0+3736c2a',
+          release: '0.1.0-3736c2a',
+          schemaVersion: 4,
+        }),
+      ),
+    ).toEqual({
+      folder: '0.1.0-3736c2a',
+      appVersion: '0.1.0+3736c2a',
+      schemaVersion: 4,
+    });
+  });
+
+  it.each([
+    ['release', { appVersion: 'v', release: '../x', schemaVersion: 1 }],
+    ['appVersion', { appVersion: '', release: 'r', schemaVersion: 1 }],
+    ['schemaVersion', { appVersion: 'v', release: 'r', schemaVersion: '1' }],
+    ['schemaVersion', { appVersion: 'v', release: 'r', schemaVersion: -1 }],
+  ])('rejects a malformed release.json (%s)', (field, value) => {
+    expect(() => parseRelease(JSON.stringify(value))).toThrow(
+      `release.json is malformed: ${field}`,
+    );
+  });
+
+  it('rejects a missing release.json', () => {
+    expect(() => parseRelease(undefined)).toThrow('release.json is missing');
   });
 });
 
@@ -100,6 +182,25 @@ describe('parseManifest', () => {
     ],
     ['commit', JSON.stringify({ ...buildManifest(input), commit: '' })],
     ['base', JSON.stringify({ ...buildManifest(input), base: 7 })],
+    ['app', JSON.stringify({ ...buildManifest(input), app: undefined })],
+    [
+      'app.folder',
+      JSON.stringify({
+        ...buildManifest(input),
+        app: { ...app, folder: '..' },
+      }),
+    ],
+    [
+      'app.schemaVersion',
+      JSON.stringify({
+        ...buildManifest(input),
+        app: { ...app, schemaVersion: 1.5 },
+      }),
+    ],
+    [
+      'app.files',
+      JSON.stringify({ ...buildManifest(input), app: { ...app, files: {} } }),
+    ],
   ])('rejects a malformed manifest (%s)', (field, json) => {
     expect(() => parseManifest(json)).toThrow(
       new RegExp(String.raw`manifest\.json is malformed: ${field}`),
@@ -112,32 +213,46 @@ describe('verifyManifest', () => {
 
   it('accepts an artifact that matches', () => {
     expect(() => {
-      verifyManifest(manifest, files);
+      verifyManifest(manifest, actual);
     }).not.toThrow();
   });
 
   it('rejects a digest mismatch', () => {
     expect(() => {
-      verifyManifest({ ...manifest, digest: 'f'.repeat(64) }, files);
+      verifyManifest({ ...manifest, digest: 'f'.repeat(64) }, actual);
     }).toThrow(/manifest\.json digest mismatch/);
   });
 
   it('rejects missing and changed files', () => {
-    const actual = [
+    const changed = [
       { path: 'index.html', size: 12, sha256: sha('tampered') },
       { path: 'assets/app.abc123.css', size: 7, sha256: sha('css') },
     ];
     expect(() => {
-      verifyManifest(manifest, actual);
+      verifyManifest(manifest, { web: changed, app: app.files });
     }).toThrow(/missing impressum\/index\.html, index\.html/);
+  });
+
+  it('rejects missing and unexpected files of the PHP release, named under app/', () => {
+    expect(() => {
+      verifyManifest(manifest, {
+        web: files,
+        app: [
+          app.files[0] ?? files[0],
+          { path: 'extra.php', size: 1, sha256: sha('x') },
+        ] as ManifestEntry[],
+      });
+    }).toThrow(
+      'artifact does not match manifest.json: missing app/0.1.0-3736c2a/migrations/0001_a.php; unexpected app/0.1.0-3736c2a/extra.php',
+    );
   });
 
   it('rejects unexpected files', () => {
     expect(() => {
-      verifyManifest(manifest, [
-        ...files,
-        { path: 'extra.txt', size: 1, sha256: sha('x') },
-      ]);
+      verifyManifest(manifest, {
+        web: [...files, { path: 'extra.txt', size: 1, sha256: sha('x') }],
+        app: app.files,
+      });
     }).toThrow(/unexpected extra\.txt/);
   });
 });
@@ -175,6 +290,18 @@ describe('isSameManifest', () => {
     expect(
       isSameManifest(manifest, { ...manifest, files: manifest.files.slice(1) }),
     ).toBe(false);
+    expect(
+      isSameManifest(manifest, {
+        ...manifest,
+        app: { ...manifest.app, schemaVersion: 5 },
+      }),
+    ).toBe(false);
+    expect(
+      isSameManifest(manifest, {
+        ...manifest,
+        app: { ...manifest.app, files: manifest.app.files.slice(1) },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -187,5 +314,14 @@ describe('path classes', () => {
     expect(isHashedAsset('assets-old/app.css', 'assets')).toBe(false);
     expect(isHtml('impressum/index.html')).toBe(true);
     expect(isHtml('assets/app.abc123.css')).toBe(false);
+  });
+
+  it('names the shell files that are activated last', () => {
+    for (const path of ['index.html', 'sw.js', 'manifest.webmanifest']) {
+      expect(isShellFile(path), path).toBe(true);
+    }
+    for (const path of ['api/index.php', 'favicon.svg', 'x/index.html']) {
+      expect(isShellFile(path), path).toBe(false);
+    }
   });
 });

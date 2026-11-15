@@ -1,14 +1,17 @@
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 import {
+  APP_DIR,
   buildManifest,
   comparePaths,
   sortedByPath,
   WEB_DIR,
   type ManifestEntry,
 } from '../../deploy/contract/artifact.ts';
+import type { HealthReport } from '../../deploy/contract/health.ts';
 import type { Artifact } from '../../deploy/contract/operations.ts';
-import { fixtureSite } from './fixture-site.ts';
+import type { RuntimeConfig } from '../../deploy/contract/runtime-config.ts';
+import { fixtureAppFolder, fixtureSite } from './fixture-site.ts';
 import type {
   HttpCheck,
   HttpChecker,
@@ -146,11 +149,31 @@ export class FakeRemote implements FileTransport {
   }
 
   private rename(from: string, to: string): string | undefined {
+    if (this.dirs.has(from)) return this.renameDir(from, to);
     const content = this.files.get(from);
     if (content === undefined) return `no file: ${from}`;
     if (!this.parentIsDir(to)) return `no parent: ${to}`;
     this.files.delete(from);
     this.files.set(to, content);
+    return undefined;
+  }
+
+  /** Moves a folder with everything below it, as a POSIX rename does. */
+  private renameDir(from: string, to: string): string | undefined {
+    if (!this.parentIsDir(to)) return `no parent: ${to}`;
+    if (this.exists(to)) return `exists: ${to}`;
+    const moved = (path: string) =>
+      path === from || isUnder(path, from)
+        ? `${to}${path.slice(from.length)}`
+        : path;
+    for (const dir of [...this.dirs]) {
+      this.dirs.delete(dir);
+      this.dirs.add(moved(dir));
+    }
+    for (const [path, content] of [...this.files]) {
+      this.files.delete(path);
+      this.files.set(moved(path), content);
+    }
     return undefined;
   }
 
@@ -218,9 +241,30 @@ export class FakeRemote implements FileTransport {
   }
 }
 
+/** A fake migration fails when its file says so. */
+const FAILING_MIGRATION = 'fails';
+
+/**
+The checks against the fake remote, and its API: health answers for the PHP
+release the served folder's `api/index.php` names, applying that release's
+pending migrations first, as `api/` does.
+*/
 export class FakeHttp implements HttpChecker {
   readonly calls: HttpCheck[][] = [];
+  /** Each health request with the number of transfer steps the remote had seen by then. */
+  readonly healthCalls: { url: string; afterStep: number }[] = [];
+  /** Migrations the fake database completed, by file name. */
+  readonly completed = new Set<string>();
   failWith: string | undefined;
+  /** Replaces fields of every health report. */
+  healthOverride: Partial<HealthReport> = {};
+  private readonly remote: FakeRemote | undefined;
+  private readonly site: string;
+
+  constructor(remote?: FakeRemote, site = '/remote/site') {
+    this.remote = remote;
+    this.site = site;
+  }
 
   run(checks: readonly HttpCheck[]): Promise<void> {
     this.calls.push([...checks]);
@@ -228,6 +272,99 @@ export class FakeHttp implements HttpChecker {
       ? Promise.resolve()
       : Promise.reject(new Error(this.failWith));
   }
+
+  health(url: string): Promise<HealthReport> {
+    const { remote } = this;
+    this.healthCalls.push({ url, afterStep: remote?.steps.length ?? 0 });
+    const pointer = remote?.files.get(`${this.site}/api/index.php`) ?? '';
+    const folder = /\/app\/([^/]+)\//.exec(pointer)?.[1];
+    if (remote === undefined || folder === undefined) {
+      return Promise.reject(
+        new Error(`health check failed: ${url} answered 404`),
+      );
+    }
+    const release = `/remote/${APP_DIR}/${folder}`;
+    const appVersion =
+      /'appVersion' => '([^']+)'/.exec(
+        remote.files.get(`${release}/release.php`) ?? '',
+      )?.[1] ?? '0.0.0-dev';
+    return Promise.resolve({
+      appVersion,
+      phpVersion: '8.3.36',
+      database: { engine: 'MySQL', version: '8.4.13' },
+      ...this.migrate(remote, `${release}/migrations`),
+      minClientVersion: '0.1.0',
+      ...this.healthOverride,
+    });
+  }
+
+  private migrate(
+    remote: FakeRemote,
+    dir: string,
+  ): Pick<HealthReport, 'schemaVersion' | 'migration'> {
+    const migrations = [...remote.files]
+      .filter(([path]) => posix.dirname(path) === dir)
+      .toSorted(([a], [b]) => comparePaths(a, b));
+    let schemaVersion = 0;
+    for (const [path, content] of migrations) {
+      const name = posix.basename(path);
+      if (!this.completed.has(name)) {
+        if (content.includes(FAILING_MIGRATION)) {
+          return { schemaVersion, migration: 'failed' };
+        }
+        this.completed.add(name);
+      }
+      schemaVersion = Number(name.slice(0, 4));
+    }
+    return { schemaVersion, migration: 'ok' };
+  }
+}
+
+export const fakeRuntimeConfig: RuntimeConfig = {
+  db: {
+    host: 'db.example.test',
+    name: 'performance',
+    user: 'performance',
+    password: 'fake-db-password',
+  },
+  bootstrapAdmin: {
+    user: 'owner',
+    passwordHash: '$2y$12$fakefakefakefakefakefuJ0123456789abcdefghijklmnopqrs',
+  },
+};
+
+export interface FakeApp {
+  /** Migrations 0001 … schemaVersion; default 1. */
+  schemaVersion?: number;
+  /** The newest migration fails when it runs. */
+  failing?: boolean;
+  /** What the release's health reports, when it differs from the manifest's app version. */
+  reportedVersion?: string;
+}
+
+/** A PHP release folder for `commit`, by path inside it; equal lengths across commits. */
+function fakeAppFiles(
+  commit: string,
+  appVersion: string,
+  { schemaVersion = 1, failing = false, reportedVersion }: FakeApp,
+): Map<string, string> {
+  const sha7 = commit.slice(0, 7);
+  const migrations = Array.from({ length: schemaVersion }, (_, index) => {
+    const number = String(index + 1).padStart(4, '0');
+    const fails = failing && index + 1 === schemaVersion;
+    return [
+      `migrations/${number}_step.php`,
+      `<?php // migration ${number} ${fails ? FAILING_MIGRATION : 'applies'}\n`,
+    ] as [string, string];
+  });
+  return new Map([
+    ['public/index.php', `<?php // api ${sha7}\n`],
+    [
+      'release.php',
+      `<?php return ['appVersion' => '${reportedVersion ?? appVersion}'];\n`,
+    ],
+    ...migrations,
+  ]);
 }
 
 export async function fakeArtifact(
@@ -236,10 +373,17 @@ export async function fakeArtifact(
   commit: string,
   extras?: string[],
   assetDir?: string,
+  app: FakeApp = {},
 ): Promise<Artifact> {
   const web = `${dir}/${WEB_DIR}`;
   for (const [path, content] of fixtureSite(commit, extras, assetDir)) {
     await local.writeFile(`${web}/${path}`, content);
+  }
+  const folder = fixtureAppFolder(commit);
+  const appVersion = folder.replace('-', '+');
+  const appDir = `${dir}/${APP_DIR}/${folder}`;
+  for (const [path, content] of fakeAppFiles(commit, appVersion, app)) {
+    await local.writeFile(`${appDir}/${path}`, content);
   }
   return {
     dir,
@@ -250,6 +394,12 @@ export async function fakeArtifact(
       buildTime: BUILD_TIME,
       base: '/',
       files: await local.artifactFiles(web),
+      app: {
+        folder,
+        appVersion,
+        schemaVersion: app.schemaVersion ?? 1,
+        files: await local.artifactFiles(appDir),
+      },
     }),
   };
 }

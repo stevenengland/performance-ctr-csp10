@@ -59,15 +59,17 @@ function required(env: Env, name: string): string {
 // Characters every transport passes unquoted; sftp batch lines split on whitespace and glob.
 const FOLDER_NAME = /^[\w.-]+$/;
 
-/** One folder name, not `.`, `..` or one of `reserved`; `fallback` when unset or empty. */
+/** One folder name, not `.`, `..` or one of `reserved`; `fallback` when unset or empty, required without one. */
 function folderVariable(
   env: Env,
   name: string,
-  fallback: string,
+  fallback: string | undefined,
   reserved: readonly string[] = [],
 ): string {
   const value = env[name];
-  if (value === undefined || value === '') return fallback;
+  if (value === undefined || value === '') {
+    return fallback ?? required(env, name);
+  }
   const excluded = ['.', '..', ...reserved];
   if (!FOLDER_NAME.test(value) || excluded.includes(value)) {
     throw new Error(
@@ -120,12 +122,14 @@ function remoteRoot(env: Env, name: string): string {
   return value;
 }
 
-/** The production webspace from `REMOTE_ROOT` (default `/`, the SFTP root), `DOCROOT` and `SITE_ALIASES`. */
+/** What the deploy keeps beside the served folder in the remote root. */
+export const BESIDE_DOCROOT = ['.deploy', 'app', 'config'] as const;
+
+/** The production webspace from `REMOTE_ROOT` (default `/`, the SFTP root), `DOCROOT` (required) and `SITE_ALIASES`. */
 export function parseWebspaceSettings(env: Env): WebspaceSettings {
   return {
     remoteRoot: remoteRoot(env, 'REMOTE_ROOT'),
-    // `.deploy` is what the deploy keeps beside the served folder.
-    docroot: folderVariable(env, 'DOCROOT', 'site', ['.deploy']),
+    docroot: folderVariable(env, 'DOCROOT', undefined, BESIDE_DOCROOT),
     aliases: aliases(env, 'SITE_ALIASES'),
   };
 }

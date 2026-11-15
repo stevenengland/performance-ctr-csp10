@@ -1,6 +1,11 @@
 import { join, posix } from 'node:path';
 import { parseManifest, type Manifest } from '../contract/artifact.ts';
-import { manifestId, parseVersion, type RemotePaths } from './layout.ts';
+import {
+  manifestId,
+  parseVersion,
+  VERIFIED_MARKER,
+  type RemotePaths,
+} from './layout.ts';
 import { parseState } from './ledger.ts';
 import type { LocalFiles, FileCommand, FileTransport } from './ports.ts';
 import type { Listing, ListingEntry, RemoteState } from './remote-state.ts';
@@ -15,17 +20,28 @@ class Observation {
   private readonly paths: RemotePaths;
   private readonly tmp: string;
   private readonly assetDir: string;
+  private readonly appFolder: string | undefined;
   root: Listing = new Map();
   deploy: Listing = new Map();
   manifestFiles: Listing = new Map();
   assets: Listing = new Map();
   readonly site = new Map<string, ListingEntry>();
   readonly staged = new Map<string, Map<string, ListingEntry>>();
+  apps: Listing = new Map();
+  readonly release = new Map<string, ListingEntry>();
+  readonly trash = new Map<string, Map<string, ListingEntry>>();
+  config: Listing = new Map();
 
-  constructor(paths: RemotePaths, tmp: string, assetDir: string) {
+  constructor(
+    paths: RemotePaths,
+    tmp: string,
+    assetDir: string,
+    appFolder: string | undefined,
+  ) {
     this.paths = paths;
     this.tmp = tmp;
     this.assetDir = assetDir;
+    this.appFolder = appFolder;
     this.ls(paths.root, (listing) => {
       this.onRoot(listing);
     });
@@ -51,6 +67,16 @@ class Observation {
         this.onSite('', site);
       });
     }
+    if (listing.get(posix.basename(this.paths.app))?.dir) {
+      this.ls(this.paths.app, (folders) => {
+        this.onApps(folders);
+      });
+    }
+    if (listing.get(posix.basename(this.paths.config))?.dir) {
+      this.ls(this.paths.config, (config) => {
+        this.config = config;
+      });
+    }
   }
 
   private onDeploy(listing: Listing): void {
@@ -65,9 +91,34 @@ class Observation {
     }
     if (listing.get('staged')?.dir) {
       this.ls(this.paths.staged, (ids) => {
-        this.onStagedIds(ids);
+        this.onTrees(ids, this.staged, (id, path) =>
+          this.paths.stagedFile(id, path),
+        );
       });
     }
+    if (listing.get('trash')?.dir) {
+      this.ls(this.paths.trash, (folders) => {
+        this.onTrees(folders, this.trash, (folder, path) =>
+          posix.join(this.paths.trash, folder, path),
+        );
+      });
+    }
+  }
+
+  /** Lists the release folders; walks the one being deployed until it holds `.verified`. */
+  private onApps(listing: Listing): void {
+    this.apps = listing;
+    const folder = this.appFolder;
+    if (folder === undefined || listing.get(folder)?.dir !== true) return;
+    this.ls(this.paths.appDir(folder), (top) => {
+      if (top.get(VERIFIED_MARKER)?.dir === false) {
+        for (const [name, entry] of top) this.release.set(name, entry);
+        return;
+      }
+      this.onTree(this.release, '', top, (path) =>
+        this.paths.appFile(folder, path),
+      );
+    });
   }
 
   private onManifests(listing: Listing): void {
@@ -79,29 +130,34 @@ class Observation {
     }
   }
 
-  private onStagedIds(listing: Listing): void {
-    for (const [id, entry] of listing) {
+  /** Walks every folder of `listing` into `trees`; `file` maps a folder and a path inside it to the remote path. */
+  private onTrees(
+    listing: Listing,
+    trees: Map<string, Map<string, ListingEntry>>,
+    file: (folder: string, path: string) => string,
+  ): void {
+    for (const [folder, entry] of listing) {
       if (!entry.dir) continue;
       const tree = new Map<string, ListingEntry>();
-      this.staged.set(id, tree);
-      this.ls(this.paths.stagedDir(id), (dir) => {
-        this.onStaged(id, tree, '', dir);
+      trees.set(folder, tree);
+      this.ls(file(folder, ''), (dir) => {
+        this.onTree(tree, '', dir, (path) => file(folder, path));
       });
     }
   }
 
-  private onStaged(
-    id: string,
+  private onTree(
     tree: Map<string, ListingEntry>,
     relative: string,
     listing: Listing,
+    file: (path: string) => string,
   ): void {
     for (const [name, entry] of listing) {
       const path = posix.join(relative, name);
       tree.set(path, entry);
       if (entry.dir) {
-        this.ls(this.paths.stagedFile(id, path), (dir) => {
-          this.onStaged(id, tree, path, dir);
+        this.ls(file(path), (dir) => {
+          this.onTree(tree, path, dir, file);
         });
       }
     }
@@ -166,16 +222,21 @@ async function readManifests(
   return manifests;
 }
 
-/** One strict top-down walk of the remote, a wave of `ls`/`get` per transport session. */
+/**
+One strict top-down walk of the remote, a wave of `ls`/`get` per transport
+session. `appFolder` names the PHP release folder whose files the deploy
+needs to see.
+*/
 export async function observeRemote(
   ports: { transport: FileTransport; files: LocalFiles },
   paths: RemotePaths,
   assetDir: string,
+  appFolder?: string,
 ): Promise<RemoteState> {
   const { transport, files } = ports;
   const tmp = await files.mkdtemp();
   try {
-    const observation = new Observation(paths, tmp, assetDir);
+    const observation = new Observation(paths, tmp, assetDir, appFolder);
     for (let wave = 1; ; wave += 1) {
       const requests = observation.takeWave();
       if (requests.length === 0) break;
@@ -201,6 +262,10 @@ export async function observeRemote(
       site: observation.site,
       assets: observation.assets,
       staged: observation.staged,
+      apps: observation.apps,
+      release: observation.release,
+      trash: observation.trash,
+      config: observation.config,
       version: parseVersion(await fetched(observation.site, 'version.json')),
     };
   } finally {

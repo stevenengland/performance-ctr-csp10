@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildManifest, type Manifest } from '../contract/artifact.ts';
 import { targetPolicy } from '../contract/policy.ts';
 import { renderHtaccess } from './htaccess.ts';
+import { renderRuntimeConfig } from './runtime-config.ts';
 import { remotePaths } from './layout.ts';
 import {
   activateRelease,
@@ -16,13 +17,20 @@ import { planNext } from './plan.ts';
 import { prunePlan } from './prune.ts';
 import type { FileCommand } from './ports.ts';
 import type { Listing, RemoteState } from './remote-state.ts';
+import { fakeRuntimeConfig } from '../../tests/support/fake-remote.ts';
 
 const sha = 'b'.repeat(64);
 const now = new Date('2026-10-22T12:00:00Z');
 const paths = remotePaths('/remote', 'site');
 const policy = targetPolicy('http://h.test');
 
-function manifestFor(id: string, files: [string, number][]): Manifest {
+function manifestFor(
+  id: string,
+  files: [string, number][],
+  appFiles: [string, number][] = [['public/index.php', 3]],
+): Manifest {
+  const entries = (list: [string, number][]) =>
+    list.map(([path, size]) => ({ path, size, sha256: sha }));
   return {
     ...buildManifest({
       commit: id.repeat(8).slice(0, 40),
@@ -30,7 +38,13 @@ function manifestFor(id: string, files: [string, number][]): Manifest {
       runAttempt: '1',
       buildTime: now,
       base: '/',
-      files: files.map(([path, size]) => ({ path, size, sha256: sha })),
+      files: entries(files),
+      app: {
+        folder: `app-${id}`,
+        appVersion: `0.1.0+${id}`,
+        schemaVersion: 1,
+        files: entries(appFiles),
+      },
     }),
     releaseId: id,
   };
@@ -71,7 +85,19 @@ const inProgressR2: State = {
     { id: 'r2', commit: r2.commit, startedAt: '2026-10-22T11:00:00Z' },
   ],
 };
-const accessDone = new Set<PhaseName>(['access-upload', 'access-commit']);
+/** The phases every run repeats once, done: access overlay, runtime config and health. */
+const perRunDone = new Set<PhaseName>([
+  'access-upload',
+  'access-commit',
+  'config-upload',
+  'config-commit',
+  'health-check',
+]);
+/** The release folders below app/ and the observed tree of a verified one. */
+const verifiedApp = (manifest: Manifest) => ({
+  apps: listing([], [manifest.app.folder]),
+  release: tree([['.verified', 0]], ['public']),
+});
 const prepared = {
   root: listing([], ['site', '.deploy']),
   deploy: listing([], ['manifests', 'staged']),
@@ -82,7 +108,8 @@ function input(
   overrides: Partial<RemoteState> & { completed?: Iterable<PhaseName> },
   extra: Partial<PlanInput> = {},
 ): PlanInput {
-  const { completed = accessDone, ...remote } = overrides;
+  const { completed = perRunDone, ...remote } = overrides;
+  const manifest = extra.manifest ?? r2;
   return {
     remote: {
       state: emptyState(),
@@ -92,11 +119,15 @@ function input(
       site: new Map(),
       assets: new Map(),
       staged: new Map(),
+      ...verifiedApp(manifest),
+      trash: new Map(),
+      config: new Map(),
       version: undefined,
       ...remote,
     },
     manifest: r2,
     policy,
+    runtimeConfig: fakeRuntimeConfig,
     aliases: [],
     paths,
     artifactDir: '/art',
@@ -367,6 +398,162 @@ describe('assets, staging, activation', () => {
   });
 });
 
+describe('PHP release, runtime config, API-first activation', () => {
+  const assets = listing([
+    ['a.css', 5],
+    ['b.css', 6],
+  ]);
+  const base = { ...prepared, state: inProgressR2, assets };
+  const appFiles: [string, number][] = [
+    ['public/index.php', 3],
+    ['src/Http/App.php', 9],
+    ['migrations/0001_a.php', 4],
+  ];
+  const withApp = manifestFor(
+    'r2',
+    r2.files.map((f) => [f.path, f.size]),
+    appFiles,
+  );
+
+  it('uploads the PHP release folder after the assets, creating app/ and only the folders it lacks', () => {
+    const phase = nextTransfer(
+      { ...base, apps: new Map(), release: new Map() },
+      { manifest: withApp },
+    );
+    expect(phase.name).toBe('app-upload');
+    expect(ops(phase)).toEqual([
+      'mkdir /remote/app',
+      'mkdir /remote/app/app-r2',
+      'mkdir /remote/app/app-r2/migrations',
+      'mkdir /remote/app/app-r2/public',
+      'mkdir /remote/app/app-r2/src',
+      'mkdir /remote/app/app-r2/src/Http',
+      'put /remote/app/app-r2/migrations/0001_a.php',
+      'put /remote/app/app-r2/public/index.php',
+      'put /remote/app/app-r2/src/Http/App.php',
+    ]);
+    expect(transfer(phase).commands[6]).toEqual({
+      op: 'put',
+      local: '/art/app/app-r2/migrations/0001_a.php',
+      remote: '/remote/app/app-r2/migrations/0001_a.php',
+    });
+  });
+
+  it('re-uploads only the files a cut-off upload left short or missing', () => {
+    const partial = tree(
+      [
+        ['public/index.php', 3],
+        ['src/Http/App.php', 2],
+      ],
+      ['public', 'src', 'src/Http'],
+    );
+    expect(
+      nextOps(
+        {
+          ...base,
+          root: listing([], ['site', '.deploy', 'app']),
+          apps: listing([], ['app-r2']),
+          release: partial,
+        },
+        { manifest: withApp },
+      ),
+    ).toEqual([
+      'mkdir /remote/app/app-r2/migrations',
+      'put /remote/app/app-r2/migrations/0001_a.php',
+      'put /remote/app/app-r2/src/Http/App.php',
+    ]);
+  });
+
+  it('marks the folder verified once every file has its size', () => {
+    const complete = tree(
+      [
+        ['public/index.php', 3],
+        ['src/Http/App.php', 9],
+        ['migrations/0001_a.php', 4],
+      ],
+      ['public', 'src', 'src/Http', 'migrations'],
+    );
+    const phase = nextTransfer(
+      {
+        ...base,
+        root: listing([], ['site', '.deploy', 'app']),
+        apps: listing([], ['app-r2']),
+        release: complete,
+      },
+      { manifest: withApp },
+    );
+    expect(phase.name).toBe('app-verified');
+    expect(ops(phase)).toEqual(['put /remote/app/app-r2/.verified']);
+  });
+
+  const verified = tree(
+    [
+      ['.verified', 0],
+      ['index.html', 10],
+      ['impressum/index.html', 11],
+      ['404.html', 4],
+    ],
+    ['impressum'],
+  );
+  const staged = { ...base, staged: new Map([['r2', verified]]) };
+
+  it('renders the runtime config from the secrets and commits it by rename before the activation', () => {
+    const access = ['access-upload', 'access-commit'] as PhaseName[];
+    const upload = nextTransfer({ ...staged, completed: access });
+    expect(upload.name).toBe('config-upload');
+    expect(upload.files).toEqual([
+      { name: 'runtime.php', content: renderRuntimeConfig(fakeRuntimeConfig) },
+    ]);
+    expect(ops(upload)).toEqual([
+      'mkdir /remote/config',
+      'put /remote/config/runtime.php.part',
+    ]);
+    const size = Buffer.byteLength(renderRuntimeConfig(fakeRuntimeConfig));
+    const commit = nextTransfer({
+      ...staged,
+      root: listing([], ['site', '.deploy', 'config']),
+      config: listing([['runtime.php.part', size]]),
+      completed: [...access, 'config-upload'],
+    });
+    expect(commit.name).toBe('config-commit');
+    expect(ops(commit)).toEqual(['rename /remote/config/runtime.php']);
+  });
+
+  it('activates everything but the shell, asks health for the release, then switches the shell', () => {
+    const before = [...perRunDone].filter((name) => name !== 'health-check');
+    const activation = nextTransfer({ ...staged, completed: before });
+    expect(activation.name).toBe('activation');
+    expect(ops(activation)).toEqual([
+      'mkdir /remote/site/impressum',
+      'rename /remote/site/404.html',
+      'rename /remote/site/impressum/index.html',
+    ]);
+
+    const shellOnly = new Map([
+      [
+        'r2',
+        tree(
+          [
+            ['.verified', 0],
+            ['index.html', 10],
+          ],
+          ['impressum'],
+        ),
+      ],
+    ]);
+    expect(planFor({ ...base, staged: shellOnly, completed: before })).toEqual({
+      kind: 'health',
+      name: 'health-check',
+      url: 'http://h.test/api/health',
+      expected: { appVersion: '0.1.0+r2', schemaVersion: 1 },
+    });
+
+    const shell = nextTransfer({ ...base, staged: shellOnly });
+    expect(shell.name).toBe('shell');
+    expect(ops(shell)).toEqual(['rename /remote/site/index.html']);
+  });
+});
+
 describe('version, checks, record, finish', () => {
   const activated = {
     ...prepared,
@@ -402,7 +589,7 @@ describe('version, checks, record, finish', () => {
         ...activated.site,
         ['version.json.part', { size: Buffer.byteLength(version), dir: false }],
       ]),
-      completed: [...accessDone, 'version-upload'],
+      completed: [...perRunDone, 'version-upload'],
     });
     expect(commit.name).toBe('version-commit');
     expect(planFor({ ...activated, version: 'r2' }).kind).toBe('http');
@@ -414,7 +601,7 @@ describe('version, checks, record, finish', () => {
     const record = nextTransfer({
       ...activated,
       version: 'r2',
-      completed: [...accessDone, 'http-checks'],
+      completed: [...perRunDone, 'http-checks'],
     });
     expect(record.name).toBe('record');
     expect(JSON.parse(record.files[0]?.content ?? '')).toEqual(
@@ -439,7 +626,7 @@ describe('version, checks, record, finish', () => {
         ['b.css', 6],
         ['junk.css.part', 1],
       ]),
-      completed: [...accessDone, 'http-checks'],
+      completed: [...perRunDone, 'http-checks'],
     });
     expect(finish.name).toBe('finish');
     expect(ops(finish)).toEqual([
@@ -454,7 +641,7 @@ describe('version, checks, record, finish', () => {
         state: recorded,
         version: 'r2',
         staged: new Map(),
-        completed: [...accessDone, 'http-checks', 'finish'],
+        completed: [...perRunDone, 'http-checks', 'finish'],
       }),
     ).toEqual({ kind: 'done' });
   });
@@ -758,7 +945,63 @@ describe('prune', () => {
       releases: old.releases,
       removeAssets: [],
       removeManifests: [],
+      removeApps: [],
     });
+  });
+
+  it('finish moves the PHP release folders no kept release names into the trash, and the trash is emptied file by file', () => {
+    const phpRelease = tree([['public/index.php', 3]], ['public']);
+    const finished = {
+      ...prepared,
+      state: {
+        releases: pruneHistory(
+          ago(2 * PRUNE_WINDOW_MS),
+          ago(2 * PRUNE_WINDOW_MS),
+          ago(2 * PRUNE_WINDOW_MS),
+        ),
+      },
+      manifests,
+      assets,
+      version: 'r4',
+      apps: listing([], ['app-r0', 'app-r2', 'app-r3', 'app-r4', 'app-stray']),
+      site: tree(
+        [
+          ['.htaccess', 1],
+          ['version.json', 1],
+        ],
+        ['assets'],
+      ),
+      completed: [...perRunDone, 'http-checks', 'cleanup'] as PhaseName[],
+    };
+    const phase = nextTransfer(finished, { manifest: r4 });
+    expect(phase.name).toBe('finish');
+    expect(ops(phase).filter((op) => /\/(app|trash)\b/.test(op))).toEqual([
+      'mkdir /remote/.deploy/trash',
+      'rename /remote/.deploy/trash/app-r0',
+      'rename /remote/.deploy/trash/app-stray',
+    ]);
+
+    const emptied = nextTransfer(
+      {
+        ...finished,
+        apps: listing([], ['app-r2', 'app-r3', 'app-r4']),
+        trash: new Map([
+          ['app-r0', phpRelease],
+          ['app-stray', phpRelease],
+        ]),
+        completed: [...finished.completed, 'finish'],
+      },
+      { manifest: r4 },
+    );
+    expect(emptied.name).toBe('trash');
+    expect(ops(emptied)).toEqual([
+      'rm /remote/.deploy/trash/app-r0/public/index.php',
+      'rmdir /remote/.deploy/trash/app-r0/public',
+      'rmdir /remote/.deploy/trash/app-r0',
+      'rm /remote/.deploy/trash/app-stray/public/index.php',
+      'rmdir /remote/.deploy/trash/app-stray/public',
+      'rmdir /remote/.deploy/trash/app-stray',
+    ]);
   });
 
   it('finish removes every staged leftover, the pruned assets and manifests, and rewrites the ledger', () => {
@@ -789,7 +1032,7 @@ describe('prune', () => {
           ],
           ['assets'],
         ),
-        completed: [...accessDone, 'http-checks', 'cleanup'],
+        completed: [...perRunDone, 'http-checks', 'cleanup'],
       },
       { manifest: r4 },
     );
@@ -831,7 +1074,7 @@ describe('prune', () => {
           ],
           ['site', '.deploy', 'httpdocs'],
         ),
-        completed: [...accessDone, 'http-checks', 'cleanup'],
+        completed: [...perRunDone, 'http-checks', 'cleanup'],
       },
       { manifest: r4 },
     );

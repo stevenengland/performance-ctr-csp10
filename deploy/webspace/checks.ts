@@ -1,4 +1,5 @@
 import {
+  APP_DIR,
   comparePaths,
   hashedAssets,
   isHtml,
@@ -6,10 +7,21 @@ import {
 } from '../contract/artifact.ts';
 import { headers, POWERED_BY } from '../contract/headers.ts';
 import type { TargetPolicy } from '../contract/policy.ts';
-import { versionJson } from './layout.ts';
+import { RUNTIME_CONFIG, versionJson } from './layout.ts';
 import type { HttpCheck } from './ports.ts';
 
-const HIDDEN_FILES = ['.deploy/state.json', '.htaccess'];
+/** The ledger, the runtime config and the PHP release live beside the served folder; were it the remote root, these would answer. */
+function hiddenFiles(manifest: Manifest): string[] {
+  const [releaseFile] = manifest.app.files;
+  return [
+    '.deploy/state.json',
+    '.htaccess',
+    `config/${RUNTIME_CONFIG}`,
+    ...(releaseFile === undefined
+      ? []
+      : [`${APP_DIR}/${manifest.app.folder}/${releaseFile.path}`]),
+  ];
+}
 /** App routes fall back to the shell; a missing hashed asset must stay a 404, so a stale chunk fails loudly. */
 const MISSING_ASSET = 'this-asset-does-not-exist.js';
 
@@ -49,17 +61,20 @@ function contentChecks(manifest: Manifest, policy: TargetPolicy): HttpCheck[] {
   return [...pages, ...assets];
 }
 
-/** Each declared alias redirects to the origin. */
-function aliasChecks(
+/** Plain http of an https origin and each declared alias redirect to the origin. */
+function redirectChecks(
   aliases: readonly string[],
   policy: TargetPolicy,
 ): HttpCheck[] {
-  const { protocol } = new URL(policy.origin);
-  return aliases.map((alias) => ({
-    url: `${protocol}//${alias}${policy.base}`,
-    expectStatus: [301],
-    headers: [{ name: 'Location', value: `${policy.origin}${policy.base}` }],
-  }));
+  const { protocol, host } = new URL(policy.origin);
+  const plain = protocol === 'https:' ? [`http://${host}`] : [];
+  return [...plain, ...aliases.map((alias) => `${protocol}//${alias}`)].map(
+    (origin) => ({
+      url: `${origin}${policy.base}`,
+      expectStatus: [301],
+      headers: [{ name: 'Location', value: `${policy.origin}${policy.base}` }],
+    }),
+  );
 }
 
 export function httpChecks(
@@ -76,10 +91,10 @@ export function httpChecks(
       body: versionJson(manifest),
     },
     { url: url(`${policy.assetDir}/${MISSING_ASSET}`), expectStatus: [404] },
-    ...HIDDEN_FILES.map((path) => ({
+    ...hiddenFiles(manifest).map((path) => ({
       url: url(path),
       expectStatus: [403, 404],
     })),
-    ...aliasChecks(aliases, policy),
+    ...redirectChecks(aliases, policy),
   ];
 }

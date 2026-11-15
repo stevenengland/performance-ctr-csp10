@@ -5,12 +5,15 @@ Builds the one deployable artifact (PRD #1: tested bytes are shipped bytes):
     web/                 the web root: SPA build + api/index.php pointer
     app/<release>/       the PHP release: src, migrations, public, vendor (--no-dev)
     release.json         app version, release folder, schema version
+    manifest.json        the deploy manifest of web/ and app/<release>/ (deploy/cli.ts manifest)
   dist/performance-<release>.tar.gz (+ .sha256)
 
 The web root's .htaccess is rendered per target at deploy time
 (`node deploy/cli.ts render-htaccess <site-url>`), so it is not part of the artifact.
 
 APP_VERSION overrides the version (default `<web package version>+<short commit>`).
+The manifest takes the commit and run from GITHUB_SHA, GITHUB_RUN_ID and
+GITHUB_RUN_ATTEMPT (Actions sets them; a local build uses HEAD and run `local`).
 */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -42,17 +45,17 @@ function run(
   });
 }
 
+function git(...args: string[]): string {
+  return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+}
+
 function defaultVersion(): string {
   const pkg = JSON.parse(
     readFileSync(join(root, 'web/package.json'), 'utf8'),
   ) as {
     version: string;
   };
-  const commit = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], {
-    cwd: root,
-    encoding: 'utf8',
-  }).trim();
-  return `${pkg.version}+${commit}`;
+  return `${pkg.version}+${git('rev-parse', '--short=7', 'HEAD')}`;
 }
 
 const appVersion = env.APP_VERSION ?? defaultVersion();
@@ -92,6 +95,12 @@ writeFileSync(
   join(artifact, 'release.json'),
   `${JSON.stringify({ appVersion, release, schemaVersion: schemaVersion(migrations) }, null, 2)}\n`,
 );
+run(process.execPath, ['deploy/cli.ts', 'manifest', '--artifact', artifact], {
+  GITHUB_SHA: env.GITHUB_SHA ?? git('rev-parse', 'HEAD'),
+  GITHUB_RUN_ID: env.GITHUB_RUN_ID ?? 'local',
+  GITHUB_RUN_ATTEMPT: env.GITHUB_RUN_ATTEMPT ?? '1',
+  BASE: '/',
+});
 
 // Reproducible archive: sorted names, fixed times and owners, no gzip timestamp.
 const archive = join(out, `performance-${release}.tar.gz`);

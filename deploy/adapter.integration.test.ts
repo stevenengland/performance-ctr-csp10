@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { request } from 'node:http';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -9,7 +10,13 @@ import {
   parseManifest,
   type Manifest,
 } from './contract/artifact.ts';
+import { parseHealth, type HealthReport } from './contract/health.ts';
 import { targetPolicy } from './contract/policy.ts';
+import { parseRuntimeConfig } from './contract/runtime-config.ts';
+import { httpChecker } from './io/http-smoke.ts';
+import { renderHtaccess } from './webspace/htaccess.ts';
+import { renderRuntimeConfig } from './webspace/runtime-config.ts';
+import type { FileCommand, FileTransport } from './webspace/ports.ts';
 import {
   adapterFor,
   rawSftp,
@@ -19,7 +26,10 @@ import {
   type Containers,
 } from '../tests/support/deploy-containers.ts';
 import { describeTransportContract } from '../tests/support/transport-contract.ts';
-import { writeFixtureArtifact } from '../tests/support/fixture-artifact.ts';
+import {
+  writeFixtureArtifact,
+  type FixtureApp,
+} from '../tests/support/fixture-artifact.ts';
 import { interrupt, type Interrupt } from '../tests/support/interrupt.ts';
 import { runCaptured, type Captured } from '../tests/support/run-captured.ts';
 
@@ -48,6 +58,7 @@ async function deployCli(
   });
   const output = result.stdout + result.stderr;
   expect(output).not.toContain(containers.sftpPassword);
+  expect(output).not.toContain(containers.db.password);
   expect(output).not.toMatch(/\bdeploy@/);
   return result;
 }
@@ -70,6 +81,11 @@ function assetNames(
 async function servedVersion(): Promise<unknown> {
   const response = await get('/version.json');
   return response.json();
+}
+async function health(): Promise<HealthReport> {
+  const response = await get('/api/health');
+  expect(response.status).toBe(200);
+  return parseHealth(await response.text());
 }
 
 beforeAll(async () => {
@@ -153,8 +169,44 @@ describe('cli deploy against the containers', () => {
       'public, max-age=31536000, immutable',
     );
     expect(await statusOf('/assets/app.0000000.js')).toBe(404);
-    for (const hidden of ['/.deploy/state.json', '/.htaccess']) {
-      expect(await statusOf(hidden), hidden).not.toBe(200);
+    expect(await health()).toMatchObject({
+      appVersion: one.manifest.app.appVersion,
+      schemaVersion: 1,
+      migration: 'ok',
+    });
+  });
+
+  it('keeps the runtime config, the PHP releases and the ledger out of HTTP reach', async () => {
+    const folder = one.manifest.app.folder;
+    const local = join(work, 'runtime.php');
+    const listings = await rawSftp(containers).run('inspect', [
+      { op: 'ls', path: '/remote' },
+      { op: 'ls', path: `/remote/app/${folder}` },
+      { op: 'get', remote: '/remote/config/runtime.php', local },
+    ]);
+    expect([...(listings.get('/remote')?.keys() ?? [])]).toEqual(
+      expect.arrayContaining(['.deploy', 'app', 'config', 'site']),
+    );
+    expect(listings.get(`/remote/app/${folder}`)?.has('release.php')).toBe(
+      true,
+    );
+    expect(await readFile(local, 'utf8')).toBe(
+      renderRuntimeConfig(parseRuntimeConfig(env)),
+    );
+    for (const hidden of [
+      '/.deploy/state.json',
+      '/.htaccess',
+      '/config/runtime.php',
+      `/app/${folder}/release.php`,
+      `/app/${folder}/public/index.php`,
+      `/app/${folder}/composer.json`,
+    ]) {
+      const response = await get(hidden);
+      expect({ hidden, status: response.status }).toEqual({
+        hidden,
+        status: expect.toBeOneOf([403, 404]) as unknown,
+      });
+      expect(await response.text()).not.toContain(containers.db.password);
     }
   });
 
@@ -196,6 +248,7 @@ describe('cli deploy against the containers', () => {
 });
 
 const policy = () => targetPolicy(containers.origin);
+const API_POINTER = 'api/index.php';
 const sha7 = (manifest: Manifest) => manifest.commit.slice(0, 7);
 
 async function expectFullyActive(manifest: Manifest) {
@@ -203,7 +256,13 @@ async function expectFullyActive(manifest: Manifest) {
     release: manifest.releaseId,
     commit: manifest.commit,
   });
-  for (const file of manifest.files) {
+  expect(await health()).toMatchObject({
+    appVersion: manifest.app.appVersion,
+    schemaVersion: manifest.app.schemaVersion,
+    migration: 'ok',
+  });
+  // The API pointer is run by PHP, not served; health above proves it.
+  for (const file of manifest.files.filter((f) => f.path !== API_POINTER)) {
     const path = '/' + file.path.replace(/index\.html$/, '');
     const response = await get(path);
     expect({ path, status: response.status }).toEqual({ path, status: 200 });
@@ -348,6 +407,7 @@ describe('prune ordering', () => {
     const failing = adapterFor(containers, {
       http: {
         run: () => Promise.reject(new Error('http check failed: simulated')),
+        health: (url) => httpChecker.health(url),
       },
     });
     await expect(failing.deploy({ dir, manifest }, policy())).rejects.toThrow(
@@ -467,6 +527,242 @@ describe('rollback', () => {
       stderr: '',
     });
     await expectFullyActive(previous);
+  });
+});
+
+/** A transport and an http checker that log, in order, every transfer step and each health request. */
+function recorded(
+  events: string[],
+  onHealth?: (report: HealthReport) => Promise<void>,
+) {
+  const raw = rawSftp(containers);
+  const transport: FileTransport = {
+    run: (step: string, commands: readonly FileCommand[]) => {
+      events.push(step);
+      return raw.run(step, commands);
+    },
+  };
+  return {
+    transport,
+    http: {
+      run: httpChecker.run,
+      health: async (url: string) => {
+        events.push('health');
+        const report = await httpChecker.health(url);
+        await onHealth?.(report);
+        return report;
+      },
+    },
+  };
+}
+
+describe('API-first activation on Apache + PHP + MySQL', () => {
+  it('uploads assets and the PHP release and renders the config, switches the API pointer, migrates through health, and switches the shell last', async () => {
+    const live = (await servedVersion()) as { release: string };
+    const liveShell = await textOf('/');
+    const dir = join(work, 'p1');
+    const manifest = await writeFixtureArtifact(dir, 'a'.repeat(40));
+    const events: string[] = [];
+    let atHealth: { shell: string; report: HealthReport } | undefined;
+    const ports = recorded(events, async (report) => {
+      atHealth = { shell: await textOf('/'), report };
+    });
+    await adapterFor(containers, ports).deploy({ dir, manifest }, policy());
+
+    const phases = events.filter((event) => !event.startsWith('observe'));
+    const at = (name: string) => {
+      expect(phases, name).toContain(name);
+      return phases.indexOf(name);
+    };
+    for (const before of ['assets-commit', 'app-upload', 'config-commit']) {
+      expect(at(before), before).toBeLessThan(at('activation'));
+    }
+    expect(at('activation')).toBeLessThan(at('health'));
+    expect(at('health')).toBeLessThan(at('shell'));
+    expect(phases.filter((event) => event === 'health')).toHaveLength(1);
+    // Health answered for the new release while browsers still got the old shell.
+    expect(atHealth?.report).toMatchObject({
+      appVersion: manifest.app.appVersion,
+      schemaVersion: 1,
+      migration: 'ok',
+    });
+    expect(atHealth?.shell).toBe(liveShell);
+    expect(live.release).not.toBe(manifest.releaseId);
+    await expectFullyActive(manifest);
+  });
+
+  it.each([
+    [
+      'reports another app version',
+      'b',
+      { reportedVersion: '0.0.9+0000000' } as FixtureApp,
+      'reports app version 0.0.9+0000000, expected 0.1.0+bbbbbbb',
+    ],
+    [
+      'fails its migration',
+      'c',
+      { schemaVersion: 2, failing: true } as FixtureApp,
+      'reports migration failed at schema version 1',
+    ],
+  ])(
+    'fails the deploy and leaves index.html, manifest and service worker unswitched when the new release %s',
+    async (_case, char, app, message) => {
+      const shell = ['/', '/manifest.webmanifest', '/sw.js'];
+      const before = await Promise.all(shell.map((path) => textOf(path)));
+      const version = await servedVersion();
+      const dir = join(work, `bad-${char}`);
+      const manifest = await writeFixtureArtifact(
+        dir,
+        char.repeat(40),
+        undefined,
+        app,
+      );
+      await expect(
+        adapterFor(containers).deploy({ dir, manifest }, policy()),
+      ).rejects.toThrow(
+        `health check failed: ${containers.origin}/api/health ${message}`,
+      );
+      expect(await Promise.all(shell.map((path) => textOf(path)))).toEqual(
+        before,
+      );
+      expect(await servedVersion()).toEqual(version);
+      // The API pointer did switch: health answers for the failed release.
+      expect((await health()).appVersion).toBe(
+        app.reportedVersion ?? manifest.app.appVersion,
+      );
+    },
+  );
+
+  it('recovers from the failed migration with a corrected release of it', async () => {
+    const dir = join(work, 'fixed');
+    const manifest = await writeFixtureArtifact(
+      dir,
+      'd'.repeat(40),
+      undefined,
+      {
+        schemaVersion: 2,
+      },
+    );
+    await adapterFor(containers).deploy({ dir, manifest }, policy());
+    await expectFullyActive(manifest);
+  });
+});
+
+describe('same-schema rollback', () => {
+  const manifestOf = async (name: string) =>
+    parseManifest(await readFile(join(work, name, MANIFEST_FILE), 'utf8'));
+  const remoteTree = () =>
+    rawSftp(containers).run('inspect', [
+      { op: 'ls', path: '/remote/site' },
+      { op: 'ls', path: '/remote/site/api' },
+      { op: 'ls', path: '/remote/.deploy' },
+      { op: 'ls', path: '/remote/app' },
+    ]);
+
+  it('refuses a retained release whose schema version differs from the live database, without touching the remote', async () => {
+    const older = await manifestOf('p1');
+    const { retained } = await adapterFor(containers).inspect(policy());
+    expect(retained).toContain(older.releaseId);
+    const before = await remoteTree();
+    const result = await deployCli([
+      'rollback',
+      '--artifact',
+      join(work, 'p1'),
+      '--release',
+      older.releaseId,
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe(
+      `::error::deploy: release ${older.releaseId} expects schema version 1, but the live database is at schema version 2; rollback only returns to a release with the live schema, fix forward instead\n`,
+    );
+    expect(await remoteTree()).toEqual(before);
+    expect((await health()).schemaVersion).toBe(2);
+  });
+
+  it('reactivates a retained release with the live schema version', async () => {
+    const dir = join(work, 'e');
+    const newer = await writeFixtureArtifact(dir, 'e'.repeat(40), undefined, {
+      schemaVersion: 2,
+    });
+    await adapterFor(containers).deploy({ dir, manifest: newer }, policy());
+    await expectFullyActive(newer);
+    const fixed = await manifestOf('fixed');
+    const back = await deployCli([
+      'rollback',
+      '--artifact',
+      join(work, 'fixed'),
+      '--release',
+      fixed.releaseId,
+    ]);
+    expect({ code: back.code, stderr: back.stderr }).toEqual({
+      code: 0,
+      stderr: '',
+    });
+    await expectFullyActive(fixed);
+  });
+});
+
+/** A plain-http request with its own Host header, as a browser sends it to an alias. */
+function requestAs(
+  host: string,
+  path: string,
+): Promise<{ status: number; headers: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const outgoing = request(
+      {
+        host: containers.host,
+        port: containers.httpPort,
+        path,
+        headers: { Host: host },
+      },
+      (response) => {
+        response.resume();
+        resolve({
+          status: response.statusCode ?? 0,
+          headers: response.headers,
+        });
+      },
+    );
+    outgoing.on('error', reject);
+    outgoing.end();
+  });
+}
+
+describe('the rendered .htaccess of an https site on Apache', () => {
+  it('answers plain http and any other host name with a 301 to SITE_URL and sends HSTS', async () => {
+    const https = join(work, 'https.htaccess');
+    await writeFile(
+      https,
+      renderHtaccess(targetPolicy('https://performance.example.test')),
+    );
+    const current = join(work, 'current.htaccess');
+    await writeFile(current, renderHtaccess(policy()));
+    const putHtaccess = (local: string) =>
+      rawSftp(containers).run('htaccess', [
+        { op: 'put', local, remote: '/remote/site/.htaccess' },
+      ]);
+    await putHtaccess(https);
+    try {
+      for (const host of [
+        'performance.example.test',
+        'www.performance.example.test',
+        'performance.csp10.de',
+      ]) {
+        const response = await requestAs(host, '/rangliste?tab=heute');
+        expect({ host, status: response.status }).toEqual({
+          host,
+          status: 301,
+        });
+        expect(response.headers.location).toBe(
+          'https://performance.example.test/rangliste?tab=heute',
+        );
+        expect(response.headers['strict-transport-security']).toBe(
+          'max-age=31536000',
+        );
+      }
+    } finally {
+      await putHtaccess(current);
+    }
   });
 });
 

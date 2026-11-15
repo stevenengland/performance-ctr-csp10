@@ -1,8 +1,20 @@
 import { posix } from 'node:path';
-import { activatedFiles, hashedAssets } from '../contract/artifact.ts';
+import {
+  activatedFiles,
+  hashedAssets,
+  isShellFile,
+} from '../contract/artifact.ts';
+import { healthUrl } from '../contract/health.ts';
 import { httpChecks } from './checks.ts';
 import { renderHtaccess } from './htaccess.ts';
-import { assetName, partName, VERIFIED_MARKER, versionJson } from './layout.ts';
+import {
+  assetName,
+  partName,
+  RUNTIME_CONFIG,
+  VERIFIED_MARKER,
+  versionJson,
+} from './layout.ts';
+import { renderRuntimeConfig } from './runtime-config.ts';
 import {
   activateRelease,
   activeRelease,
@@ -17,6 +29,7 @@ import {
   transferPhase,
   tempPath,
   webPath,
+  appPath,
   hasDir,
   missingDirs,
   mkdir,
@@ -28,7 +41,7 @@ import {
   removeStagedRelease,
 } from './phase.ts';
 import { cleanupPhase } from './cleanup.ts';
-import { finishPhase } from './prune.ts';
+import { finishPhase, trashPhase } from './prune.ts';
 
 function accessUploads(input: PlanInput): Upload[] {
   const { policy, paths, remote } = input;
@@ -138,6 +151,71 @@ const assetsPhase: Rule = (input) => {
       );
 };
 
+/**
+The PHP release folder below `app/`: every file of the manifest at its size,
+then `.verified`, before the API pointer names it. Later observations stop
+at a verified folder's top level.
+*/
+const appPhase: Rule = (input) => {
+  const { remote, paths } = input;
+  const { folder, files } = input.manifest.app;
+  const tree = remote.release;
+  if (tree.get(VERIFIED_MARKER)?.dir === false) return;
+  const needed = files.filter((file) => {
+    const entry = tree.get(file.path);
+    return entry?.dir !== false || entry.size !== file.size;
+  });
+  if (needed.length === 0) {
+    return transferPhase(
+      'app-verified',
+      [
+        put(
+          tempPath(input, VERIFIED_MARKER),
+          paths.appFile(folder, VERIFIED_MARKER),
+        ),
+      ],
+      [{ name: VERIFIED_MARKER, content: '' }],
+    );
+  }
+  const roots = [
+    ...(hasDir(remote.root, posix.basename(paths.app)) ? [] : [paths.app]),
+    ...(hasDir(remote.apps, folder) ? [] : [paths.appDir(folder)]),
+  ];
+  const dirs = missingDirs(
+    needed.map((file) => file.path),
+    (dir) => tree.get(dir)?.dir === true,
+  ).map((dir) => paths.appFile(folder, dir));
+  return transferPhase('app-upload', [
+    ...[...roots, ...dirs].map((dir) => mkdir(dir)),
+    ...needed.map((file) =>
+      put(appPath(input, file.path), paths.appFile(folder, file.path)),
+    ),
+  ]);
+};
+
+/** The runtime configuration, rendered from the secrets on every deploy and committed by rename. */
+const configPhase: Rule = (input) => {
+  const { remote, paths } = input;
+  return uploadThenRename(
+    input,
+    'config',
+    ['config-upload', 'config-commit'],
+    [
+      {
+        file: {
+          name: RUNTIME_CONFIG,
+          content: renderRuntimeConfig(input.runtimeConfig),
+        },
+        target: paths.runtimeConfig,
+        listing: remote.config,
+      },
+    ],
+    hasDir(remote.root, posix.basename(paths.config))
+      ? []
+      : [mkdir(paths.config)],
+  );
+};
+
 function stagedTree(input: PlanInput): Tree {
   return input.remote.staged.get(input.manifest.releaseId) ?? new Map();
 }
@@ -175,14 +253,19 @@ const stagingPhase: Rule = (input) => {
   return transferPhase('staging-upload', [...stagedDir, ...dirs, ...puts]);
 };
 
-const activationPhase: Rule = (input) => {
+/** Renames the staged files `select` picks into the served folder. */
+function activate(
+  input: PlanInput,
+  name: 'activation' | 'shell',
+  select: (path: string) => boolean,
+): Phase | undefined {
   const tree = stagedTree(input);
   const id = input.manifest.releaseId;
   const { paths } = input;
   const remaining = activatedFiles(
     input.manifest,
     input.policy.assetDir,
-  ).filter((file) => tree.get(file.path)?.dir === false);
+  ).filter((file) => select(file.path) && tree.get(file.path)?.dir === false);
   if (remaining.length === 0) return;
   const dirs = missingDirs(
     remaining.map((file) => file.path),
@@ -191,8 +274,30 @@ const activationPhase: Rule = (input) => {
   const renames = remaining.map((file) =>
     rename(paths.stagedFile(id, file.path), paths.siteFile(file.path)),
   );
-  return transferPhase('activation', [...dirs, ...renames]);
+  return transferPhase(name, [...dirs, ...renames]);
+}
+
+/** Everything but the shell, so the API entry pointer switches to the new PHP release while browsers keep the old shell. */
+const activationPhase: Rule = (input) =>
+  activate(input, 'activation', (path) => !isShellFile(path));
+
+/**
+The first request to the new release: it runs pending migrations and has to
+report the release's app version, its schema version and migration `ok`.
+*/
+const healthPhase: Rule = (input) => {
+  if (input.completed.has('health-check')) return;
+  const { app } = input.manifest;
+  return {
+    kind: 'health',
+    name: 'health-check',
+    url: healthUrl(input.policy),
+    expected: { appVersion: app.appVersion, schemaVersion: app.schemaVersion },
+  };
 };
+
+/** `index.html`, the web manifest and the service worker: last, once the API answers for the release. */
+const shellPhase: Rule = (input) => activate(input, 'shell', isShellFile);
 
 const versionPhase: Rule = (input) => {
   const { manifest, paths, remote } = input;
@@ -236,9 +341,16 @@ const recordPhase: Rule = (input) => {
 const RELEASE_RULES: readonly Rule[] = [
   markerPhase,
   assetsPhase,
+  appPhase,
   stagingPhase,
+  configPhase,
   activationPhase,
+  healthPhase,
+  shellPhase,
 ];
+
+/** A re-deploy of the live release still renders the config and asks health before the tail. */
+const ACTIVE_RULES: readonly Rule[] = [configPhase, healthPhase];
 
 const TAIL_RULES: readonly Rule[] = [
   versionPhase,
@@ -246,11 +358,12 @@ const TAIL_RULES: readonly Rule[] = [
   httpPhase,
   recordPhase,
   finishPhase,
+  trashPhase,
 ];
 
 export function planNext(input: PlanInput): Phase {
   const rules = isAlreadyActive(input)
-    ? [accessPhase, ...TAIL_RULES]
+    ? [accessPhase, ...ACTIVE_RULES, ...TAIL_RULES]
     : [accessPhase, ...RELEASE_RULES, ...TAIL_RULES];
   for (const rule of rules) {
     const phase = rule(input);

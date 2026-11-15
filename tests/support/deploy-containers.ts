@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { DeployOperations } from '../../deploy/contract/operations.ts';
 import type { WebspaceSettings } from '../../deploy/contract/policy.ts';
+import { parseRuntimeConfig } from '../../deploy/contract/runtime-config.ts';
 import { localFiles } from '../../deploy/io/fs.ts';
 import { httpChecker } from '../../deploy/io/http-smoke.ts';
 import { spawnProcess, type Spawn } from '../../deploy/io/process.ts';
@@ -30,14 +31,19 @@ export interface Containers {
   remoteRoot: '/remote';
   sftpUser: 'deploy';
   sftpPassword: 'deploy-test-password';
+  /** The database as the PHP release on the Apache container reaches it. */
+  db: { host: string; name: string; user: string; password: string };
 }
 
 /**
-`DEPLOY_TEST_EXTERNAL=1` uses an SFTP server and an Apache that are already
-running instead of the compose services, for machines that cannot pull the
-images. They must match tests/support/compose.yml: the login above, chrooted
-so that `/remote` is writable and empty, and Apache serving `/remote/site`
-with `AllowOverride All`.
+`DEPLOY_TEST_EXTERNAL=1` uses an SFTP server, an Apache with mod_php and a
+MySQL that are already running instead of the compose services, for machines
+that cannot pull the images. They must match tests/support/compose.yml: the
+login above, chrooted so that `/remote` is writable and empty, Apache serving
+`/remote/site` with `AllowOverride All` and PHP, and an empty database that
+PHP reaches with `DEPLOY_TEST_DB_HOST`, `DEPLOY_TEST_DB_NAME`,
+`DEPLOY_TEST_DB_USER` and `DEPLOY_TEST_DB_PASS` (defaults: the compose ones,
+host 127.0.0.1).
 */
 const isExternal = process.env.DEPLOY_TEST_EXTERNAL === '1';
 
@@ -101,6 +107,14 @@ export async function startContainers(): Promise<Containers> {
     remoteRoot: '/remote',
     sftpUser: 'deploy',
     sftpPassword: 'deploy-test-password',
+    db: {
+      host: isExternal
+        ? (process.env.DEPLOY_TEST_DB_HOST ?? '127.0.0.1')
+        : 'db',
+      name: process.env.DEPLOY_TEST_DB_NAME ?? 'deploy_proof',
+      user: process.env.DEPLOY_TEST_DB_USER ?? 'performance',
+      password: process.env.DEPLOY_TEST_DB_PASS ?? 'deploy-proof-db-password',
+    },
   };
 }
 
@@ -112,16 +126,27 @@ export async function stopContainers(): Promise<void> {
   });
 }
 
-/** The production variables, pointed at the containers. */
+/** A bcrypt hash, as PHP's password_hash() writes it; the proof never signs in with it. */
+export const PROOF_ADMIN_HASH =
+  '$2y$12$deployproofdeployproofuJ0123456789abcdefghijklmnopqrs';
+
+/** The production variables and secrets, pointed at the containers. */
 export function targetEnv(c: Containers): Record<string, string> {
   return {
     SITE_URL: c.origin,
     REMOTE_ROOT: c.remoteRoot,
+    DOCROOT: 'site',
     SFTP_HOST: c.host,
     SFTP_PORT: String(c.sftpPort),
     SFTP_USER: c.sftpUser,
     SFTP_PASS: c.sftpPassword,
     SFTP_KNOWN_HOSTS: c.knownHosts,
+    DB_HOST: c.db.host,
+    DB_NAME: c.db.name,
+    DB_USER: c.db.user,
+    DB_PASS: c.db.password,
+    BOOTSTRAP_ADMIN_USER: 'proof-admin',
+    BOOTSTRAP_ADMIN_PASSWORD_HASH: PROOF_ADMIN_HASH,
   };
 }
 
@@ -156,6 +181,7 @@ export function adapterFor(
     http: httpChecker,
     files: localFiles,
     settings: settingsFor(c),
+    runtimeConfig: parseRuntimeConfig(targetEnv(c)),
     now: () => new Date(),
     log: () => {
       // The container proof asserts on state, not on progress lines.

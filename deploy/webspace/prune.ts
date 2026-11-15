@@ -1,6 +1,8 @@
-// The finish phase: staged leftovers, .part files and the pruned releases, assets and manifests.
-// The target root also holds files the deploy does not own; finish never touches it.
+// The finish phase: staged leftovers, .part files and the pruned releases, assets, manifests
+// and PHP release folders (via the trash). The target root also holds files the deploy does
+// not own; finish never touches it.
 
+import { posix } from 'node:path';
 import {
   comparePaths as compare,
   hashedAssets,
@@ -19,6 +21,11 @@ import {
   rm,
   putThenRename,
   removeStagedRelease,
+  removeTree,
+  rmdir,
+  rename,
+  mkdir,
+  hasDir,
   partFiles,
 } from './phase.ts';
 
@@ -26,6 +33,8 @@ export interface PrunePlan {
   releases: Release[];
   removeAssets: string[];
   removeManifests: string[];
+  /** PHP release folders below `app/` that no kept release names. */
+  removeApps: string[];
 }
 
 export function prunePlan(
@@ -34,15 +43,20 @@ export function prunePlan(
   assets: Listing,
   now: Date,
   assetDir: string,
+  apps: Iterable<string> = [],
 ): PrunePlan {
   const { kept: releases, dropped } = pruneLedger(state, now);
+  const keptManifests = releases.map((release) =>
+    releaseManifest(manifests, release.id),
+  );
   const referenced = new Set(
-    releases.flatMap((release) =>
-      hashedAssets(releaseManifest(manifests, release.id), assetDir).map(
-        (file) => assetName(assetDir, file.path),
+    keptManifests.flatMap((manifest) =>
+      hashedAssets(manifest, assetDir).map((file) =>
+        assetName(assetDir, file.path),
       ),
     ),
   );
+  const folders = new Set(keptManifests.map((manifest) => manifest.app.folder));
   const unreferenced = [...assets]
     .filter(
       ([name, entry]) =>
@@ -54,6 +68,9 @@ export function prunePlan(
     releases,
     removeAssets: unreferenced,
     removeManifests: dropped.map((release) => release.id),
+    removeApps: [...apps]
+      .filter((folder) => !folders.has(folder))
+      .toSorted(compare),
   };
 }
 
@@ -75,6 +92,10 @@ function pruneCommands(input: PlanInput): {
     remote.assets,
     now,
     assetDir,
+    remote.apps
+      .entries()
+      .filter(([, entry]) => entry.dir)
+      .map(([folder]) => folder),
   );
   const ledger = new Set(remote.state.releases.map((release) => release.id));
   const orphans = remote.manifests
@@ -89,6 +110,7 @@ function pruneCommands(input: PlanInput): {
       ...prune.removeManifests.filter((id) => remote.manifests.has(id)),
       ...orphans,
     ].map((id) => rm(paths.manifest(id))),
+    ...trashApps(input, prune.removeApps),
   ];
   if (prune.releases.length === remote.state.releases.length) {
     return { commands, files: [] };
@@ -106,6 +128,42 @@ function pruneCommands(input: PlanInput): {
     ],
   };
 }
+
+/**
+Moves pruned PHP release folders into `.deploy/trash/` with one rename each:
+removing a folder over SFTP takes its whole tree, which only the trash walk
+lists. A folder already in the trash waits for the trash to empty.
+*/
+function trashApps(
+  input: PlanInput,
+  folders: readonly string[],
+): FileCommand[] {
+  const { remote, paths } = input;
+  const moved = folders.filter((folder) => !remote.trash.has(folder));
+  if (moved.length === 0) return [];
+  return [
+    ...(hasDir(remote.deploy, posix.basename(paths.trash))
+      ? []
+      : [mkdir(paths.trash)]),
+    ...moved.map((folder) =>
+      rename(paths.appDir(folder), posix.join(paths.trash, folder)),
+    ),
+  ];
+}
+
+/** Empties `.deploy/trash/`, file by file and folder by folder, on every run that finds something there. */
+export const trashPhase: Rule = (input) => {
+  const { trash } = input.remote;
+  if (trash.size === 0) return;
+  const folder = (name: string) => posix.join(input.paths.trash, name);
+  return transferPhase(
+    'trash',
+    [...trash].flatMap(([name, tree]) => [
+      ...removeTree(tree, (path) => posix.join(folder(name), path)),
+      rmdir(folder(name)),
+    ]),
+  );
+};
 
 export const finishPhase: Rule = (input) => {
   if (input.completed.has('finish')) return;
