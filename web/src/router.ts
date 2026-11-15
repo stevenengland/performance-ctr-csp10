@@ -5,6 +5,8 @@ import {
   type RouterHistory,
 } from 'vue-router';
 import { messages } from './core/messages';
+// Part of the entry chunk: it is the first screen of every browser without a session.
+import AnmeldenPage from './features/anmelden/AnmeldenPage.vue';
 import { resolveSession, returnPath, SIGN_IN_PATH } from './core/session';
 
 export type Destination = 'zaehlen' | 'rangliste' | 'verwalten';
@@ -32,7 +34,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/zaehlen' },
   {
     path: SIGN_IN_PATH,
-    component: () => import('./features/anmelden/AnmeldenPage.vue'),
+    component: AnmeldenPage,
     meta: { title: messages.anmelden.title, public: true },
   },
   {

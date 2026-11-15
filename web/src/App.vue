@@ -12,13 +12,16 @@ import { useOnline } from './core/online';
 const { xs: compact } = useDisplay();
 const online = useOnline();
 const route = useRoute();
+/** Nothing renders until the first navigation (and its session check) resolved. */
+const ready = computed(() => route.matched.length > 0);
 /** Anmelden stands alone: no top bar, no navigation (§6.2, §7a). */
 const bare = computed(() => route.meta.public === true);
 </script>
 
 <template>
   <v-app>
-    <template v-if="bare">
+    <template v-if="!ready" />
+    <template v-else-if="bare">
       <OfflineBanner v-if="!online" />
       <RouterView />
     </template>

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { mdiEyeOffOutline, mdiEyeOutline } from '@mdi/js';
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref, useId } from 'vue';
 import { messages } from '../core/messages';
 
 /**
 The app's form field (design spec §6.11): outlined, the label inside the top of the
 field, the field error from the server under it. Passwords get a show/hide button.
+A native input, so the sign-in screen carries no field framework.
 */
 const model = defineModel<string>({ required: true });
 const props = defineProps<{
@@ -16,28 +17,36 @@ const props = defineProps<{
   autofocus?: boolean;
 }>();
 
+const id = useId();
+const input = ref<HTMLInputElement>();
 const visible = ref(false);
 const type = computed(() =>
   props.password && !visible.value ? 'password' : 'text',
 );
+
+onMounted(() => {
+  if (props.autofocus) input.value?.focus();
+});
 </script>
 
 <template>
-  <v-text-field
-    v-model="model"
-    :label="label"
-    :type="type"
-    :autocomplete="autocomplete"
-    :autofocus="autofocus"
-    :error-messages="error ? [error] : []"
-    variant="filled"
-    hide-details="auto"
-    class="app-field"
-    autocapitalize="off"
-    spellcheck="false"
-  >
-    <template v-if="password" #append-inner>
+  <div class="app-field" :class="{ 'app-field--error': error }">
+    <div class="app-field__box">
+      <label :for="id" class="app-field__label type-caption">{{ label }}</label>
+      <input
+        :id="id"
+        ref="input"
+        v-model="model"
+        class="app-field__input type-body"
+        :type="type"
+        :autocomplete="autocomplete"
+        :aria-invalid="error ? 'true' : undefined"
+        :aria-describedby="error ? `${id}-error` : undefined"
+        autocapitalize="off"
+        spellcheck="false"
+      />
       <v-btn
+        v-if="password"
         :icon="visible ? mdiEyeOffOutline : mdiEyeOutline"
         :aria-label="
           visible ? messages.field.hidePassword : messages.field.showPassword
@@ -46,60 +55,61 @@ const type = computed(() =>
         variant="text"
         size="small"
         density="comfortable"
+        class="app-field__toggle"
         @click="visible = !visible"
       />
-    </template>
-  </v-text-field>
+    </div>
+    <p v-if="error" :id="`${id}-error`" class="app-field__error type-support">
+      {{ error }}
+    </p>
+  </div>
 </template>
 
 <style scoped>
-/* Outlined, label inside the top (§6.11): Vuetify's filled field with its fill and underline replaced by a border. */
-.app-field :deep(.v-field) {
+.app-field__box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  border: 1.5px solid rgb(var(--v-theme-outline));
   border-radius: 10px;
+}
+
+.app-field__box:focus-within {
+  border: 2px solid rgb(var(--v-theme-primary));
+  margin: -0.5px;
+}
+
+.app-field--error .app-field__box {
+  border: 2px solid rgb(var(--v-theme-error));
+  margin: -0.5px;
+}
+
+.app-field__label {
+  position: absolute;
+  top: 7px;
+  left: 14px;
+  color: rgb(var(--v-theme-on-surface-variant));
+  pointer-events: none;
+}
+
+.app-field__input {
+  flex: 1;
+  min-width: 0;
+  padding: 25px 14px 7px;
+  border: 0;
   background: transparent;
-  box-shadow: inset 0 0 0 1.5px rgb(var(--v-theme-outline));
-}
-
-.app-field :deep(.v-field__overlay),
-.app-field :deep(.v-field__outline) {
-  display: none;
-}
-
-/* The 2 dp primary border is the focus indicator; no extra ring around the input. */
-.app-field :deep(input:focus-visible) {
+  color: rgb(var(--v-theme-on-surface));
   outline: none;
 }
 
-.app-field :deep(.v-field--focused) {
-  box-shadow: inset 0 0 0 2px rgb(var(--v-theme-primary));
+.app-field__toggle {
+  margin-right: 6px;
+  color: rgb(var(--v-theme-primary));
 }
 
-.app-field :deep(.v-field--error) {
-  box-shadow: inset 0 0 0 2px rgb(var(--v-theme-error));
-}
-
-.app-field :deep(.v-field-label) {
-  color: rgb(var(--v-theme-on-surface-variant));
-  font-family: var(--font-text);
-  opacity: 1;
-}
-
-.app-field :deep(.v-field-label--floating) {
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 16px;
-}
-
-.app-field :deep(.v-field__input) {
-  font-family: var(--font-text);
-  font-size: 16px;
-  line-height: 24px;
-}
-
-.app-field :deep(.v-messages__message) {
+.app-field__error {
+  margin: 4px 14px 0;
   color: rgb(var(--v-theme-error));
-  font-family: var(--font-text);
-  font-size: 13px;
-  line-height: 18px;
 }
 </style>

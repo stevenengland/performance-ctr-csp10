@@ -236,6 +236,8 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
   on another device, password changed, session expired) leads to `/anmelden` the same way.
   While the server cannot be reached the session is unknown and screens open anyway (the
   installed app works offline; its requests fail on their own).
+  Nothing renders until the first navigation, and with it the session check, has resolved, so
+  a signed-out browser paints Anmelden directly instead of the shell first.
 
 ## 5. Responsive system
 
@@ -358,12 +360,13 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 ### 6.11 Form fields and validation
 
 Outlined text fields, corner 10 dp, 1.5 dp `outline` border (2 dp `primary` when focused,
-2 dp `error` with an error); label inside the top of the field in `caption` (while the field is
-empty and unfocused it rests in the middle, as Material's floating label does); field errors from
-the problem's `errors` map shown as supporting text under the field in `error`; the submit button
-stays enabled and re-validates on the server. Password fields carry a trailing show/hide icon
-button (`Passwort anzeigen` / `Passwort verbergen`). Built as `AppTextField` on Vuetify's filled
-field, with its fill and underline replaced by the border. Forms in dialogs submit on Enter.
+2 dp `error` with an error); label always inside the top of the field in `caption`; field errors
+from the problem's `errors` map shown as supporting text under the field in `error`; the submit
+button stays enabled and re-validates on the server. Password fields carry a trailing show/hide
+icon button (`Passwort anzeigen` / `Passwort verbergen`). Built as the app component
+`AppTextField` on a native `<input>` with its `<label>` (not Vuetify's text field): it matches the
+mockup exactly and keeps the field framework out of the sign-in screen's bundle. Forms in dialogs
+submit on Enter.
 
 ## 7. Screens
 
