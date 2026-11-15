@@ -358,8 +358,8 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 
 | Delete | Title | Body |
 |---|---|---|
-| Person | `Daniel löschen?` | `Daniel und 23 Einträge werden gelöscht.` (no entries: `Daniel wird gelöscht.`) |
-| Drink | `Bier löschen?` | `Bier und 12 Einträge werden gelöscht.` |
+| Person | `Daniel löschen?` | `Daniel und 23 Einträge werden gelöscht.` (one: `Daniel und 1 Eintrag werden gelöscht.`; none: `Daniel wird gelöscht.`) |
+| Drink | `Bier löschen?` | `Bier und 12 Einträge werden gelöscht.` (one and none as for a person) |
 | Factor | `Happy Hour löschen?` | `5 Einträge zählen danach ×1.` (one: `1 Eintrag zählt danach ×1.`; none: `Happy Hour wird gelöscht.`) |
 | Entry | `Eintrag löschen?` | `2× Bier · Happy Hour ×2 um 23:41` |
 | Account | `Konto anna löschen?` | `Einträge von anna bleiben erhalten.` |
@@ -486,9 +486,12 @@ submit on Enter.
 ### 7h. Verwalten `/verwalten`
 
 - List: `Personen`, `Getränke`, `Faktoren`, and `Konten` (admins only), each with its count as
-  supporting text. A row that opens a screen ends in `mdiChevronRight`. (Slice 1/5 links
-  `Konten`, slice 1/6 `Personen` and `Getränke`, slice 1/8 `Faktoren`; the counts come with
-  slice 1/9.)
+  supporting text in `support`: `6 Personen` / `1 Person`, `6 Getränke` / `1 Getränk`,
+  `2 Faktoren` / `1 Faktor`, `4 Konten` / `1 Konto`. A row that opens a screen ends in
+  `mdiChevronRight`.
+- The counts are the lengths of the lists (`GET /api/persons`, `/api/drinks`, `/api/factors`,
+  and `/api/accounts` for admins only), read when the hub opens; a count shows once its list
+  has loaded, and a row without one still opens its screen.
 
 ### 7i. Personen / Getränke / Faktoren
 
@@ -503,14 +506,17 @@ submit on Enter.
 - Validation errors inline (§6.11); duplicate name → `Name ist bereits vergeben.`; points
   outside 0–9 999,99 (or no number) → `Zahl von 0 bis 9.999,99.`; a multiplier outside
   0 (exclusive) – 99,99 (or no number) → `Zahl über 0 bis 99,99.`, from the server.
-- The edit dialog is titled `Faktor bearbeiten` and starts with the current values (the
-  multiplier with a decimal comma). The icon buttons are named `Happy Hour bearbeiten` and
-  `Happy Hour löschen`. Before the delete dialog opens, `GET …/{id}` reads the entry count
-  (entries of every day, since all of them change); after deleting, the snackbar
-  `Happy Hour gelöscht` (§6.3).
-- Slice 1/6 builds the lists (name; drinks with points) and the create dialogs only; slice
-  1/8 builds Faktoren whole (list, create, edit, delete); edit and delete of persons and
-  drinks come with slice 1/9.
+- The edit dialog is titled `Person bearbeiten` / `Getränk bearbeiten` / `Faktor bearbeiten`
+  and starts with the current values; points and multipliers with a decimal comma and without
+  thousands grouping (`9999,99`), so saving unchanged values reads them back as they were.
+  The icon buttons are named after the item: `Daniel bearbeiten`, `Daniel löschen`. Before
+  the delete dialog opens, `GET …/{id}` reads the entry count (entries of every day, since
+  deleting changes or removes all of them); if that read fails (the item is gone), the
+  problem title shows in the snackbar and the list reloads. After deleting, the snackbar
+  `Daniel gelöscht` (§6.3).
+- Deleting a person or a drink deletes its entries; the Rangliste and the counters show it on
+  their next refresh. A rename shows on the Rangliste the same way; a drink's new points
+  change today's scores of its entries.
 
 ### 7j. Konten `/verwalten/konten` (admins only)
 
@@ -603,10 +609,10 @@ submit on Enter.
 | Anzahl | scoreboard feed, `PUT /api/entries/{uuid}` | Booked count from the feed; saves while no factors exist |
 | Faktor | `GET /api/factors`, `PUT /api/entries/{uuid}` | Choice saves |
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
-| Personen / Getränke (create, slice 1/6) | `GET/POST /api/persons`, `GET/POST /api/drinks` | |
 | Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window |
 | Verlauf | `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | |
-| Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count; `PATCH` takes all fields (factors: `name`, `multiplier`) |
+| Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count; `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
+| Verwalten | `GET /api/{persons,drinks,factors}`, `GET /api/accounts` (admins) | Counts are the list lengths |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
 | Update / reload floor | `GET /api/health` | `minClientVersion` |
 
