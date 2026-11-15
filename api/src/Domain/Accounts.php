@@ -26,7 +26,8 @@ final readonly class Accounts
      * Creates the bootstrap admin when no admin exists. It never touches an existing
      * account: a taken user name leaves everything as it is. The statement checks for
      * an admin and inserts in one step and the unique user name settles concurrent
-     * first requests, so exactly one of them creates the account.
+     * first requests, so exactly one of them creates the account. A deadlock (on MariaDB
+     * also one on the auto-increment lock) rolls back a loser while the winner inserts.
      */
     public function ensureBootstrapAdmin(BootstrapAdmin $admin): void
     {
@@ -41,7 +42,7 @@ final readonly class Accounts
                  WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE is_admin = 1)',
             )->execute([trim($admin->userName), $admin->passwordHash, $now, $now]);
         } catch (PDOException $failure) {
-            if (!DatabaseError::is($failure, DatabaseError::DUPLICATE_KEY, DatabaseError::DEADLOCK)) {
+            if (!DatabaseError::is($failure, DatabaseError::DUPLICATE_KEY, DatabaseError::DEADLOCK, DatabaseError::AUTO_INCREMENT_LOCK)) {
                 throw $failure;
             }
         }
