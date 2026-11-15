@@ -82,26 +82,45 @@ out "- Site: \`$site\`"
 out "- Host key: $host_key_source; fingerprints: \`$fingerprints\`"
 
 # --- find the served folder when DOCROOT is not configured -------------------------------------
-if [ -z "$docroot" ] && [ -z "${DOCROOT_SET:-}" ]; then
-  printf 'ls -l %s\n' "${root:-/}" >"$work/lsroot"
-  sshpass -e sftp -oBatchMode=no -F "$work/ssh_config" -b "$work/lsroot" target 2>/dev/null \
-    | awk '$1 ~ /^d/ {print $NF}' | grep -vE '^\.{1,2}$' | grep -vE '[[:space:]]' >"$work/dirs" || true
-  candidates=("") ; while IFS= read -r d; do candidates+=("$d"); done <"$work/dirs"
+if [ -z "$docroot" ]; then
+  # Level 1: the SFTP root's folders; level 2: their sub-folders (capped).
+  printf 'pwd\nls -l %s\n' "${root:-/}" >"$work/ls1"
+  if sshpass -e sftp -oBatchMode=no -F "$work/ssh_config" -b "$work/ls1" target >"$work/ls1.out" 2>"$work/sftp.err"; then login=yes; else login=no; fi
+  out "- SFTP login: **$login**"
+  if [ "$login" = no ]; then
+    out "- SFTP error class: \`$(grep -oE 'Permission denied|Connection (refused|timed out|closed)|Host key verification failed|Too many authentication failures' "$work/sftp.err" | head -1 || true)\`"
+    exit 1
+  fi
+  list_dirs() { # stdin: sftp batch output of "ls -l <dir>" commands; prints <dir>/<name> per folder
+    awk '/^sftp> ls -l / {cur=$4; sub(/\/$/, "", cur); next} $1 ~ /^d/ && $NF != "." && $NF != ".." {print cur "/" $NF}'
+  }
+  list_dirs <"$work/ls1.out" | grep -vE '[[:space:]]' >"$work/dirs1" || true
+  out "- Top-level folders: \`$(sed "s#^${root:-}/##" "$work/dirs1" | paste -sd ',' -)\`"
+  : >"$work/ls2"; while IFS= read -r d; do printf 'ls -l %s\n' "$d" >>"$work/ls2"; done <"$work/dirs1"
+  : >"$work/dirs2"
+  if [ -s "$work/ls2" ]; then
+    sshpass -e sftp -oBatchMode=no -F "$work/ssh_config" -b "$work/ls2" target 2>/dev/null | list_dirs | grep -vE '[[:space:]]' | head -150 >"$work/dirs2" || true
+  fi
+  candidates=("${root:-}") ; while IFS= read -r d; do candidates+=("$d"); done < <(cat "$work/dirs1" "$work/dirs2")
   : >"$work/markers"; : >"$work/unmark"
   for i in "${!candidates[@]}"; do
     printf '%s' "$i" >"$work/marker-$i.txt"
-    target_dir="$root${candidates[$i]:+/${candidates[$i]}}"
-    printf -- '-put %s %s/probe-%s.txt\n' "$work/marker-$i.txt" "$target_dir" "$rand" >>"$work/markers"
-    printf -- '-rm %s/probe-%s.txt\n' "$target_dir" "$rand" >>"$work/unmark"
+    printf -- '-put %s %s/probe-%s.txt\n' "$work/marker-$i.txt" "${candidates[$i]}" "$rand" >>"$work/markers"
+    printf -- '-rm %s/probe-%s.txt\n' "${candidates[$i]}" "$rand" >>"$work/unmark"
   done
-  sftp_batch "$work/markers" || true
-  hit=$(curl -fsSk --max-time 20 "$site/probe-$rand.txt" || true)
+  sshpass -e sftp -oBatchMode=no -F "$work/ssh_config" -b "$work/markers" target >/dev/null 2>"$work/markers.err" || true
+  failed_puts=$(grep -cE "Couldn't|Permission denied|No such file" "$work/markers.err" || true)
+  hit=$(curl -fsSkL --max-time 20 "$site/probe-$rand.txt" || true)
+  final=$(curl -skL -o /dev/null -w '%{http_code} %{url_effective}' --max-time 20 "$site/probe-$rand.txt" || true)
   sftp_batch "$work/unmark" || true
+  out "- Markers: ${#candidates[@]} folders tried (root, $(wc -l <"$work/dirs1") top-level, $(wc -l <"$work/dirs2") second-level), $failed_puts uploads refused; marker URL answered \`$final\`"
   if [[ "$hit" =~ ^[0-9]+$ ]] && [ "$hit" -lt "${#candidates[@]}" ]; then
-    docroot=${candidates[$hit]}
-    out "- Served folder (found by marker): \`${docroot:-SFTP root}\` (checked the SFTP root and ${#candidates[@]} - 1 top-level folders)"
+    docroot=${candidates[$hit]#"${root:-}"}
+    docroot=${docroot#/}
+    out "- Served folder (found by marker): \`${docroot:-SFTP root}\`"
   else
-    out "- Served folder: **not found** — no marker in the SFTP root or its top-level folders was served at \`$site\`"
+    out "- Served folder: **not found** at \`$site\` (the domain may point to another host, or serve a deeper folder)"
+    out "- \`/\` answers: \`$(curl -skL -o /dev/null -w '%{http_code} %{url_effective}' --max-time 20 "$site/" || true)\`, server: \`$(curl -skI --max-time 20 "$site/" | grep -i '^server:' | tr -d '\r' || true)\`"
     exit 1
   fi
 fi
