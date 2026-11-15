@@ -34,8 +34,10 @@
    `GET_LOCK`; while another session migrates, or after a migration failed, every route
    answers 503 problem+json (`Retry-After: 5` while running), but health always answers
    200 with `migration: running|failed`, so the deploy check and the weekly live check
-   can read the state. A failed migration is retried on the next request (the guard
-   makes that safe), which is how a corrected release recovers.
+   can read the state. A failed migration is retried on the next health request and,
+   for every other request, at most once a minute (the guard makes a retry safe; the
+   backoff keeps polling phones from re-running broken DDL on every request). The deploy
+   checks health, which is how a corrected release recovers at once.
 5. **Problem types are URNs** (`urn:performance:problem:<slug>`): stable regardless of
    the host name, which may change to `performance.csp10.de`.
 6. **Versions.** The app version is `<web package version>+<commit>`; the release folder

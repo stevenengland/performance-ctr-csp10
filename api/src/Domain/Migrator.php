@@ -5,17 +5,23 @@ declare(strict_types=1);
 namespace Performance\Domain;
 
 use PDO;
+use PDOException;
 use RuntimeException;
 use Throwable;
 
 /**
  * Brings the schema up to date under a database lock. Each migration is
  * recorded as `started` before and `completed` after its DDL in
- * `schema_migrations`; a failure is recorded as `failed` and retried on the next run.
+ * `schema_migrations`; a failure is recorded as `failed` and retried on a later run,
+ * at most once per FAILED_RETRY_SECONDS unless the caller asks for it at once.
  */
 final class Migrator
 {
     private const TABLE = 'schema_migrations';
+    /** MySQL's and MariaDB's SQLSTATE for a table that does not exist. */
+    private const NO_SUCH_TABLE = '42S02';
+    /** After a failure, ordinary requests (every phone's scoreboard poll) retry no sooner. */
+    public const FAILED_RETRY_SECONDS = 60;
 
     /** @var array<string, Migration> */
     private array $migrations;
@@ -61,12 +67,19 @@ final class Migrator
     }
 
     /**
-     * Applies pending migrations unless another session holds the lock.
+     * Applies pending migrations unless another session holds the lock. Up to date costs
+     * one small query. After a failure, the failing migration runs again only when
+     * `$retryFailedNow` (health, which the deploy checks) or once the last attempt is
+     * FAILED_RETRY_SECONDS old, so polling phones do not re-run broken DDL every request.
      */
-    public function migrate(): MigrationState
+    public function migrate(bool $retryFailedNow = true): MigrationState
     {
-        if ($this->pending() === []) {
+        $bookkeeping = $this->bookkeeping();
+        if ($this->pending($bookkeeping) === []) {
             return MigrationState::Ok;
+        }
+        if (!$retryFailedNow && $this->failedRecently($bookkeeping)) {
+            return MigrationState::Failed;
         }
         $lock = self::lockName($this->pdo);
         if (!$this->acquire($lock)) {
@@ -84,7 +97,7 @@ final class Migrator
      */
     public function schemaVersion(): int
     {
-        $completed = $this->completed();
+        $completed = $this->completed($this->bookkeeping());
         $version = 0;
         foreach (array_keys($this->migrations) as $name) {
             if (!in_array($name, $completed, true)) {
@@ -99,7 +112,7 @@ final class Migrator
     private function applyPending(): MigrationState
     {
         // Re-read under the lock: the previous holder may have finished them.
-        foreach ($this->pending() as $name) {
+        foreach ($this->pending($this->bookkeeping()) as $name) {
             $migration = $this->migrations[$name];
             try {
                 $this->record($name, 'started');
@@ -119,34 +132,71 @@ final class Migrator
     }
 
     /**
-     * @return list<string>
+     * Every recorded migration: its state, and whether its last attempt started within
+     * FAILED_RETRY_SECONDS. Empty before the bookkeeping table exists.
+     *
+     * @return array<string, array{state: string, recent: bool}>
      */
-    private function pending(): array
+    private function bookkeeping(): array
     {
-        return array_values(array_diff(array_keys($this->migrations), $this->completed()));
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function completed(): array
-    {
-        if (!$this->hasBookkeeping()) {
-            return [];
+        try {
+            $statement = $this->pdo->query(sprintf(
+                'SELECT version, state, started_at > UTC_TIMESTAMP(3) - INTERVAL %d SECOND AS recent FROM %s',
+                self::FAILED_RETRY_SECONDS,
+                self::TABLE,
+            ));
+        } catch (PDOException $failure) {
+            if ($failure->getCode() === self::NO_SUCH_TABLE) {
+                return [];
+            }
+            throw $failure;
         }
-        $statement = $this->pdo->query("SELECT version FROM schema_migrations WHERE state = 'completed'");
         if ($statement === false) {
             return [];
         }
-
-        $names = [];
-        foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $name) {
-            if (is_string($name)) {
-                $names[] = $name;
+        $rows = [];
+        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (is_array($row) && is_string($row['version'] ?? null) && is_string($row['state'] ?? null)) {
+                // MySQL answers the comparison as 1 or 0, as an int or a string by driver mode.
+                $rows[$row['version']] = ['state' => $row['state'], 'recent' => in_array($row['recent'] ?? null, [1, '1'], true)];
             }
         }
 
-        return $names;
+        return $rows;
+    }
+
+    /**
+     * @param array<string, array{state: string, recent: bool}> $bookkeeping
+     *
+     * @return list<string>
+     */
+    private function pending(array $bookkeeping): array
+    {
+        return array_values(array_diff(array_keys($this->migrations), $this->completed($bookkeeping)));
+    }
+
+    /**
+     * @param array<string, array{state: string, recent: bool}> $bookkeeping
+     *
+     * @return list<string>
+     */
+    private function completed(array $bookkeeping): array
+    {
+        return array_keys(array_filter($bookkeeping, static fn(array $row): bool => $row['state'] === 'completed'));
+    }
+
+    /**
+     * @param array<string, array{state: string, recent: bool}> $bookkeeping
+     */
+    private function failedRecently(array $bookkeeping): bool
+    {
+        foreach ($bookkeeping as $row) {
+            if ($row['state'] === 'failed' && $row['recent']) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasBookkeeping(): bool

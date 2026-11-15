@@ -75,6 +75,31 @@ final class MigratorTest extends DatabaseTestCase
         self::assertSame('urn:performance:problem:migration-failed', $this->body($other)['type']);
     }
 
+    public function testAfterAFailureOtherRequestsRetryTheMigrationAtMostOncePerBackoffWhileHealthRetriesAtOnce(): void
+    {
+        $app = $this->app($this->config($this->fixtureMigrations('failing')));
+        $this->get('/api/health', $app);
+        $failedAgo = fn(int $seconds) => $this->otherSession()->exec(
+            "UPDATE schema_migrations SET started_at = UTC_TIMESTAMP(3) - INTERVAL {$seconds} SECOND WHERE version = '9001_break_on_purpose'",
+        );
+        $lastAttempt = fn(): string => (string) array_column($this->bookkeeping(), 'started_at', 'version')['9001_break_on_purpose'];
+
+        $failedAgo(10);
+        $before = $lastAttempt();
+        $polled = $this->get('/api/anything', $app);
+        self::assertSame(503, $polled->getStatusCode());
+        self::assertSame('urn:performance:problem:migration-failed', $this->body($polled)['type']);
+        self::assertSame($before, $lastAttempt(), 'within the backoff, a request does not run the failing DDL again');
+
+        $this->get('/api/health', $app);
+        self::assertNotSame($before, $lastAttempt(), 'health retries at once, so a corrected deploy recovers without waiting');
+
+        $failedAgo(Migrator::FAILED_RETRY_SECONDS + 1);
+        $before = $lastAttempt();
+        $this->get('/api/anything', $app);
+        self::assertNotSame($before, $lastAttempt(), 'after the backoff, the next request retries');
+    }
+
     public function testRunningAgainIsHarmless(): void
     {
         $this->get('/api/health');

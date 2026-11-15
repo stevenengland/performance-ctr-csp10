@@ -14,6 +14,8 @@ use Psr\Http\Server\RequestHandlerInterface;
 /**
  * Every request brings the schema up to date first. While another request
  * migrates, or after a migration failed, only health answers; the rest get 503.
+ * After a failure only health retries at once (the deploy checks it); other
+ * requests retry once the backoff has passed (Migrator::FAILED_RETRY_SECONDS).
  */
 final readonly class MigrationGate implements MiddlewareInterface
 {
@@ -28,8 +30,9 @@ final readonly class MigrationGate implements MiddlewareInterface
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        $state = $this->database->migrator()->migrate();
-        if ($state === MigrationState::Ok || $request->getUri()->getPath() === $this->healthPath) {
+        $isHealth = $request->getUri()->getPath() === $this->healthPath;
+        $state = $this->database->migrator()->migrate(retryFailedNow: $isHealth);
+        if ($state === MigrationState::Ok || $isHealth) {
             return $handler->handle($request->withAttribute(self::ATTRIBUTE, $state));
         }
         $response = $this->responses->createResponse();
