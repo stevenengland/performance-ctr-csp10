@@ -5,6 +5,12 @@ const stackUrl = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 const previewPort = 4173;
 /** PW_CHANNEL=chrome drives an installed Chrome instead of Playwright's Chromium. */
 const channel = process.env.PW_CHANNEL;
+/**
+ * E2E_PREVIEW=1 serves web/dist-preview for the preview projects. Without it no
+ * preview server starts, so the stack projects run without a preview build
+ * (the CI e2e job has none) and the preview projects cannot connect.
+ */
+const servePreview = process.env.E2E_PREVIEW === '1';
 
 const windows = {
   compact: { width: 390, height: 844 },
@@ -47,9 +53,11 @@ export default defineConfig({
       testMatch: 'preview.spec.ts',
     }),
   ],
-  webServer: {
-    command: `node e2e/support/serve-static.ts web/dist-preview ${previewPort}`,
-    url: `http://127.0.0.1:${previewPort}/index.html`,
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: servePreview
+    ? {
+        command: `node e2e/support/serve-static.ts web/dist-preview ${previewPort}`,
+        url: `http://127.0.0.1:${previewPort}/index.html`,
+        reuseExistingServer: !process.env.CI,
+      }
+    : undefined,
 });

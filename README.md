@@ -30,7 +30,7 @@ Enable the hooks once: `git config core.hooksPath .githooks`.
 | `npm run build:artifact` | The one deployable artifact: `dist/artifact/` (with its deploy `manifest.json`) and `dist/performance-<release>.tar.gz` + `.sha256` |
 | `cd api && composer test` | PHPUnit against MySQL (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`; it drops and recreates `DB_NAME`, default `performance_test`) |
 | `cd api && composer analyse && composer cs` | PHPStan (max) and PHP-CS-Fixer (PER-CS) |
-| `npm run test:e2e` | Playwright against the stack (`E2E_BASE_URL`, default `http://localhost:8080`) and the preview |
+| `npm run test:e2e` | Playwright against the stack (`E2E_BASE_URL`, default `http://localhost:8080`); with `E2E_PREVIEW=1` it also serves `web/dist-preview/` for the preview projects |
 | `npm run test:deploy` | Deploy proof: the deploy CLI with the built artifact's PHP release against SFTP + Apache/PHP + MySQL containers (`tests/support/compose.yml`); build the artifact first |
 | `npm run lint:workflows` | actionlint and zizmor from digest-pinned images |
 | `npm run lint:secrets` | secretlint over every tracked file |
@@ -44,7 +44,7 @@ needs a session:
 npm run build:artifact
 e2e/stack/stage.sh dist/artifact "$PWD/stack-root" http://localhost:8080
 STACK_ROOT="$PWD/stack-root" docker compose -f e2e/stack/compose.yml up --build --wait
-npm run build:preview && npm run test:e2e
+npm run build:preview && E2E_PREVIEW=1 npm run test:e2e
 ```
 
 ## Deploy
