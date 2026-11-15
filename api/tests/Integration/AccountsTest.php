@@ -67,6 +67,16 @@ final class AccountsTest extends DatabaseTestCase
         self::assertCount(1, $this->rows('SELECT id FROM accounts'));
     }
 
+    public function testAPasswordWithANulCharacterIs422NotAServerError(): void
+    {
+        $session = $this->signIn();
+
+        $response = $this->send('POST', '/api/accounts', ['userName' => 'nul', 'password' => "abcdefghij\0kl", 'isAdmin' => false], $session);
+
+        self::assertSame(422, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(['password' => 'Darf kein Nullzeichen enthalten.'], $this->body($response)['errors'] ?? null);
+    }
+
     public function testAUserNameLongerThan40CharactersIs422(): void
     {
         $response = $this->send('POST', '/api/accounts', ['userName' => str_repeat('ä', 41), 'password' => 'ein-startpasswort'], $this->signIn());

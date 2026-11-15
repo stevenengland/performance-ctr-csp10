@@ -41,4 +41,19 @@ final class PasswordPolicyTest extends TestCase
         self::assertTrue(password_verify('richtig-langes-passwort', $hash));
         self::assertFalse(password_verify('falsches-passwort', $hash));
     }
+
+    public function testRejectsANulCharacterWhichTheHashCannotTake(): void
+    {
+        self::assertSame('Darf kein Nullzeichen enthalten.', PasswordPolicy::violation("abcdefghij\0kl"));
+    }
+
+    public function testTheHashForUnknownUsersCostsAsMuchAsARealOne(): void
+    {
+        $real = password_get_info(PasswordPolicy::hash('richtig-langes-passwort'));
+        $unknown = password_get_info(PasswordPolicy::unknownUserHash());
+
+        self::assertSame($real['algo'], $unknown['algo']);
+        self::assertSame($real['options'], $unknown['options'], 'same cost, so an unknown user name answers as slowly as a wrong password');
+        self::assertFalse(password_needs_rehash(PasswordPolicy::unknownUserHash(), PASSWORD_DEFAULT));
+    }
 }

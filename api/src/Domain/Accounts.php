@@ -16,12 +16,6 @@ final readonly class Accounts
 {
     public const MAX_USER_NAME_LENGTH = 40;
 
-    /**
-     * What an unknown user name is checked against, so it costs the same as a wrong
-     * password: the hash of a random password that was thrown away.
-     */
-    private const UNKNOWN_USER_HASH = '$2y$10$Wdlo7D986U3W5wuCoDcDAu8CEr7KJSGm4wklvd3t/GWbtV8p0Cpgi';
-
     public function __construct(
         private PDO $pdo,
         private Clock $clock,
@@ -94,7 +88,7 @@ final readonly class Accounts
     public function authenticate(string $userName, string $password): ?Account
     {
         $row = $this->row('SELECT id, user_name, is_admin, password_hash FROM accounts WHERE user_name = ?', [trim($userName)]);
-        $hash = is_string($row['password_hash'] ?? null) ? $row['password_hash'] : self::UNKNOWN_USER_HASH;
+        $hash = is_string($row['password_hash'] ?? null) ? $row['password_hash'] : PasswordPolicy::unknownUserHash();
         if (!password_verify($password, $hash) || $row === null) {
             return null;
         }
@@ -112,7 +106,7 @@ final readonly class Accounts
     public function changePassword(int $accountId, string $currentPassword, string $newPassword): void
     {
         $row = $this->row('SELECT password_hash FROM accounts WHERE id = ?', [$accountId]);
-        $hash = is_string($row['password_hash'] ?? null) ? $row['password_hash'] : self::UNKNOWN_USER_HASH;
+        $hash = is_string($row['password_hash'] ?? null) ? $row['password_hash'] : PasswordPolicy::unknownUserHash();
         $errors = [];
         if (!password_verify($currentPassword, $hash)) {
             $errors['currentPassword'] = 'Passwort falsch.';
