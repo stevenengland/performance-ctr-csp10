@@ -3,7 +3,7 @@
     "collect": {
       "url": [
         "http://localhost:8080/zaehlen",
-        "http://localhost:8080/rangliste",
+        "http://localhost:8080/anmelden",
         "http://localhost:8080/konto"
       ],
       "numberOfRuns": 3,

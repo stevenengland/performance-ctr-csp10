@@ -69,6 +69,11 @@ Make the hash on a trusted machine and paste it as the secret value:
 php -r 'echo password_hash(readline("Password: "), PASSWORD_DEFAULT), PHP_EOL;'
 ```
 
+The API creates that account on the first sign-in while no admin exists; the password
+must have at least 10 characters to be changeable later. It never overwrites an existing
+account (a taken user name leaves everything as it is), and once any admin exists,
+changing these secrets has no effect: manage accounts in the app (Verwalten → Konten).
+
 A missing or invalid name fails the deploy before it touches the host, naming the variable and
 never printing a value. **Exception until #2 closes:** the throwaway `host-probe.yml` also reads
 the SFTP and database secrets; #2 deletes it once its findings are recorded.

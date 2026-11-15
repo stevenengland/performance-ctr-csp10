@@ -1,4 +1,5 @@
 import { expect, test } from './support/playwright.ts';
+import { signIn } from './support/session.ts';
 
 test('health reports the versions, schema and migration state of the stack', async ({
   request,
@@ -14,7 +15,7 @@ test('health reports the versions, schema and migration state of the stack', asy
       engine: expect.stringMatching(/^(MySQL|MariaDB)$/),
       version: expect.stringMatching(/^\d+\.\d+\.\d+$/),
     },
-    schemaVersion: 1,
+    schemaVersion: 4,
     migration: 'ok',
     minClientVersion: expect.stringMatching(/^\d+\.\d+\.\d+$/),
   });
@@ -28,6 +29,7 @@ test('the web app shows the app version it received from health', async ({
   const { appVersion } = (await (await request.get('/api/health')).json()) as {
     appVersion: string;
   };
+  await signIn(page);
 
   await page.goto('/konto');
 

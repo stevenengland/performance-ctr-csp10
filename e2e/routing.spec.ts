@@ -1,5 +1,6 @@
 import { CSP } from '../deploy/contract/headers.ts';
 import { expect, test } from './support/playwright.ts';
+import { signIn } from './support/session.ts';
 
 const NO_CACHE = 'no-cache';
 const IMMUTABLE = 'public, max-age=31536000, immutable';
@@ -66,6 +67,7 @@ test('every response carries the CSP', async ({ request }) => {
 test('the app opens on every destination without a CSP violation', async ({
   page,
 }) => {
+  await signIn(page);
   await page.goto('/');
   await expect(page).toHaveURL(/\/zaehlen$/);
   await expect(page.getByRole('heading', { name: 'Zählen' })).toBeVisible();

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -22,6 +22,7 @@ the real API (Slim, migrator, health) on the PHP image: `node
 scripts/build-artifact.ts` writes it, CI downloads the build job's.
 */
 const BUILT = process.env.DEPLOY_TEST_ARTIFACT ?? join(root, 'dist/artifact');
+const FIRST_MIGRATION = '0001_create_schema_migrations.php';
 
 async function put(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
@@ -81,18 +82,15 @@ async function writeApp(
     );
   }
   const built = parseRelease(json);
-  const builtMigrations = await readdir(
-    join(BUILT, APP_DIR, built.folder, 'migrations'),
-  );
-  if (built.schemaVersion !== 1 || builtMigrations.length !== 1) {
-    throw new Error(
-      'the deploy proof expects a built artifact with exactly one migration; adapt its fixture migrations',
-    );
-  }
   const folder = fixtureAppFolder(commit);
   const appVersion = folder.replace('-', '+');
   const release = join(dir, APP_DIR, folder);
   await cp(join(BUILT, APP_DIR, built.folder), release, { recursive: true });
+  // The proof counts schema versions from 1: it keeps only the first of the API's migrations.
+  const migrations = join(release, 'migrations');
+  for (const file of await readdir(migrations)) {
+    if (file !== FIRST_MIGRATION) await rm(join(migrations, file));
+  }
   await put(
     join(release, 'release.php'),
     `<?php\n\ndeclare(strict_types=1);\n\nreturn ['appVersion' => '${reportedVersion ?? appVersion}'];\n`,

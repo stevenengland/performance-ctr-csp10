@@ -11,4 +11,9 @@ return [
         'user' => 'performance',
         'password' => 'performance',
     ],
+    // The tests' bootstrap admin (e2e/support/session.ts): password `e2e-admin-passwort`.
+    'bootstrapAdmin' => [
+        'user' => 'e2e-admin',
+        'passwordHash' => '$2y$10$fMq7NuJ28KLZAIivrA0lreVAmGvK06ppWWLf1d2BQQA5I29ieKcI2',
+    ],
 ];

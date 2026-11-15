@@ -1,6 +1,7 @@
 import { readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { expect, test, type Page } from './support/playwright.ts';
+import { signIn } from './support/session.ts';
 
 /** The built web root the stack serves, to check the precache against. */
 const webRoot = process.env.E2E_WEB_ROOT ?? 'dist/artifact/web';
@@ -17,6 +18,7 @@ function builtFiles(): string[] {
 }
 
 async function openControlledByServiceWorker(page: Page) {
+  await signIn(page);
   await page.goto('/zaehlen');
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
@@ -111,6 +113,7 @@ test('a client older than health’s minClientVersion must reload', async ({
     });
   });
 
+  await signIn(page);
   await page.goto('/zaehlen');
 
   const dialog = page.getByRole('dialog');

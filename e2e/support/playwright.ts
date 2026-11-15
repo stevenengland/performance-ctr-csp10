@@ -46,4 +46,4 @@ export const test = base.extend<{ cspGuard: undefined }>({
 });
 
 export { expect } from '@playwright/test';
-export type { Page } from '@playwright/test';
+export type { Browser, Page } from '@playwright/test';
