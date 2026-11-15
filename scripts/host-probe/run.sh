@@ -201,6 +201,9 @@ rewrite_route=$(jq -r '.server.route // "none"' <<<"$rewrite_json" 2>/dev/null |
 denied=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 "$site/probe-$rand/config.json" || true)
 [ -n "$docroot" ] || out "- Config file inside the web root answers HTTP \`$denied\` (expected 403)"
 out "- \`.htaccess\` front-controller rewrite reaches PHP: **$([ "$rewrite_route" = hello ] && echo yes || echo no)** (route seen: \`$rewrite_route\`)"
+rewrite_script=$(jq -r '.server.scriptName // "none"' <<<"$rewrite_json" 2>/dev/null || echo none)
+rewrite_path=$(jq -r '.server.requestPath // "none"' <<<"$rewrite_json" 2>/dev/null || echo none)
+out "- Rewritten request as PHP sees it: \`SCRIPT_NAME\` \`${rewrite_script//probe-$rand/probe-…}\`, \`REQUEST_URI\` path \`${rewrite_path//probe-$rand/probe-…}\` (expected \`/probe-…/index.php\` and \`/probe-…/api/hello\`)"
 out ""
 out "### PHP and database (probe response)"
 out ""
