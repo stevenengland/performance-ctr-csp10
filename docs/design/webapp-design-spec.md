@@ -286,6 +286,7 @@ an older one.
 | Route item gone (§4) | `Nicht mehr vorhanden` | — |
 | Problem response | the problem's `title` | — |
 | Deleted item | `<Name> gelöscht` | — |
+| Deleted entry (Verlauf) | `Eintrag gelöscht` | — |
 | Update available | `Neue Version verfügbar` | `Neu laden` |
 | Own password changed | `Passwort geändert` | — |
 
@@ -361,7 +362,7 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 | Person | `Daniel löschen?` | `Daniel und 23 Einträge werden gelöscht.` (one: `Daniel und 1 Eintrag werden gelöscht.`; none: `Daniel wird gelöscht.`) |
 | Drink | `Bier löschen?` | `Bier und 12 Einträge werden gelöscht.` (one and none as for a person) |
 | Factor | `Happy Hour löschen?` | `5 Einträge zählen danach ×1.` (one: `1 Eintrag zählt danach ×1.`; none: `Happy Hour wird gelöscht.`) |
-| Entry | `Eintrag löschen?` | `2× Bier · Happy Hour ×2 um 23:41` |
+| Entry | `Eintrag löschen?` | `2× Bier · Happy Hour ×2 um 23:41` (no factor: `1× Margarita um 22:58`) |
 | Account | `Konto anna löschen?` | `Einträge von anna bleiben erhalten.` |
 
 ### 6.10 Empty and loading states
@@ -467,9 +468,8 @@ submit on Enter.
     consecutive ranks. Per-drink counters are listed alphabetically, as the API sends them.
     A total count of one reads `1 Getränk`.
 - Card and rows form one ordered list `Rangliste`; each place has the accessible name
-  `Platz 1, Daniel, 13,5 Punkte, 9 Getränke`. Tapping the card or a row opens
-  `/verlauf/:personId` (both become buttons with that name in slice 1/10, which builds the
-  Verlauf; slice 1/7 shows them as list items).
+  `Platz 1, Daniel, 13,5 Punkte, 9 Getränke`. The card and each row are links with that name
+  (inside their list items) and open `/verlauf/:personId`.
 - Loading: a skeleton card and three skeleton rows.
 - Persons without entries today are not listed.
 - Empty: `Heute noch keine Getränke.` + button `Zählen` → `/zaehlen`.
@@ -477,11 +477,24 @@ submit on Enter.
 
 ### 7g. Verlauf `/verlauf/:personId`
 
-- Title `Daniel` with the context line `Heute`, back to the previous screen.
-- List of today's entries, newest first: primary `2× Bier`, secondary
-  `Happy Hour ×2 · 23:41 · anna` (`Kein Faktor` when none; `gelöschtes Konto` when the account is
-  gone); trailing delete icon button opening the confirmation dialog (§6.9).
-- Empty: `Heute keine Einträge.`
+- Reached from a place on the Rangliste and from a name under Verwalten → Personen (the name
+  is a link `Verlauf von Daniel`). It belongs to the Rangliste destination (highlighted in the
+  navigation, as in the mockup).
+- Title `Daniel` with the context line `Heute` (`Verlauf` until the person has loaded), back to
+  the previous screen (the Rangliste when there is none).
+- List `Einträge von Daniel` of today's entries (since local midnight), newest first, rows on
+  `outline-variant` hairlines: primary `2× Bier` (`row-title`), secondary
+  `Happy Hour ×2 · 23:41 · anna` (`support`; the factor with its current multiplier,
+  `Kein Faktor` when none or deleted; the local time; the account's user name, or
+  `gelöschtes Konto` when the account is gone); trailing delete icon button named
+  `2× Bier um 23:41 löschen`, opening the confirmation dialog (§6.9).
+- After `Löschen`: the snackbar `Eintrag gelöscht`, the list is read again and the scoreboard
+  feed refreshes at once, so counters and the Rangliste follow. An entry already deleted on
+  another phone (404) counts as deleted; any other failure shows the problem title and keeps
+  the row. Deleted entries stay deleted: a late retry of their save does not bring them back.
+- Loading: three skeleton rows. Empty: `Heute keine Einträge.`
+- A person that no longer exists (deleted on another phone): back to the Rangliste with
+  `Nicht mehr vorhanden` (§9). Opening another person's Verlauf is a new screen.
 
 ### 7h. Verwalten `/verwalten`
 
@@ -496,7 +509,8 @@ submit on Enter.
 ### 7i. Personen / Getränke / Faktoren
 
 - Alphabetical list; each row: name and, for drinks, `1 Punkt`, for factors, `×2`; trailing edit
-  and delete icon buttons.
+  and delete icon buttons. Under Personen the name is a link `Verlauf von Daniel` to the
+  person's Verlauf (§7g).
 - Extended FAB `Person anlegen` / `Getränk anlegen` / `Faktor anlegen` (bottom right, above the
   navigation bar; `primary`, corner 10 dp, no shadow). Rows are separated by `outline-variant`
   hairlines; primary text in `row-title`.
@@ -610,7 +624,7 @@ submit on Enter.
 | Faktor | `GET /api/factors`, `PUT /api/entries/{uuid}` | Choice saves |
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
 | Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window |
-| Verlauf | `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | |
+| Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt` and `accountName` (or `null`); 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count; `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Verwalten | `GET /api/{persons,drinks,factors}`, `GET /api/accounts` (admins) | Counts are the list lengths |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
