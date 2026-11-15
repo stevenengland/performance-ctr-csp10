@@ -16,7 +16,7 @@ function theme(dark: boolean, roles: Roles): ThemeDefinition {
 }
 
 /** Breakpoints of the spec's window classes: compact < 600, medium < 840, expanded. */
-export const WINDOW_CLASSES = { medium: 600, expanded: 840 } as const;
+const WINDOW_CLASSES = { medium: 600, expanded: 840 } as const;
 
 export function createAppVuetify() {
   return createVuetify({

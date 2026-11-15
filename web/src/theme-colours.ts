@@ -65,4 +65,3 @@ export const DARK: Roles = {
 
 /** The light `surface`, also the manifest's theme and background colour. */
 export const LIGHT_SURFACE = LIGHT.surface;
-export const DARK_SURFACE = DARK.surface;

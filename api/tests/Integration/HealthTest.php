@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Performance\Tests\Integration;
 
+use Performance\Http\Config;
 use Performance\Tests\Support\DatabaseTestCase;
+use Slim\Psr7\Factory\ServerRequestFactory;
 
 final class HealthTest extends DatabaseTestCase
 {
@@ -39,15 +41,26 @@ final class HealthTest extends DatabaseTestCase
         );
     }
 
+    public function testAnswersAnUnsupportedMethodWithA405Problem(): void
+    {
+        $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/health');
+
+        $response = $this->app()->handle($request);
+
+        self::assertSame(405, $response->getStatusCode());
+        self::assertSame('application/problem+json', $response->getHeaderLine('Content-Type'));
+        self::assertSame('urn:performance:problem:method-not-allowed', $this->body($response)['type']);
+    }
+
     public function testAnswersUnexpectedErrorsWithA500ProblemThatRevealsNothingInternal(): void
     {
-        $unreachable = $this->config();
-        $unreachable = new \Performance\Http\Config(
+        $reachable = $this->config();
+        $unreachable = new Config(
             databaseDsn: self::dsn(self::env('DB_NAME'), '1'),
-            databaseUser: $unreachable->databaseUser,
+            databaseUser: $reachable->databaseUser,
             databasePassword: 'wrong-password-for-test',
-            appVersion: $unreachable->appVersion,
-            migrationDirectories: $unreachable->migrationDirectories,
+            appVersion: $reachable->appVersion,
+            migrationDirectories: $reachable->migrationDirectories,
         );
 
         $response = $this->get('/api/health', $this->app($unreachable));
