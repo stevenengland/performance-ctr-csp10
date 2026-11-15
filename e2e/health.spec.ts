@@ -1,3 +1,5 @@
+import { readdirSync } from 'node:fs';
+import { schemaVersion } from '../scripts/artifact.ts';
 import { expect, test } from './support/playwright.ts';
 import { signIn } from './support/session.ts';
 
@@ -15,7 +17,7 @@ test('health reports the versions, schema and migration state of the stack', asy
       engine: expect.stringMatching(/^(MySQL|MariaDB)$/),
       version: expect.stringMatching(/^\d+\.\d+\.\d+$/),
     },
-    schemaVersion: 11,
+    schemaVersion: schemaVersion(readdirSync('api/migrations')),
     migration: 'ok',
     minClientVersion: expect.stringMatching(/^\d+\.\d+\.\d+$/),
   });
