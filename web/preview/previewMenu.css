@@ -1,0 +1,30 @@
+.preview-menu {
+  position: fixed;
+  top: 80px;
+  right: 8px;
+  z-index: 3000;
+  padding: 4px 10px;
+  border: 1px dashed rgb(var(--v-theme-tertiary));
+  border-radius: 10px;
+  background: rgb(var(--v-theme-surface-container-low));
+  color: rgb(var(--v-theme-on-surface));
+  font: 600 12px/16px var(--font-text);
+}
+
+.preview-menu summary {
+  cursor: pointer;
+}
+
+.preview-menu button {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(var(--v-theme-secondary-container));
+  color: rgb(var(--v-theme-on-secondary-container));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
