@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   ApiProblem,
+  changePassword,
   createAccount,
   deleteAccount,
   updateAccount,
@@ -98,12 +99,39 @@ describe('the fixture backend', () => {
     await expect(listAccounts()).rejects.toMatchObject({ status: 403 });
   });
 
+  it('changes the own password with the API’s validation', async () => {
+    installFixtureBackend(sampleEvening());
+
+    await expect(
+      changePassword(SAMPLE_PASSWORD, 'ä'.repeat(37)),
+    ).rejects.toMatchObject({
+      status: 422,
+      errors: { newPassword: 'Höchstens 72 Byte (Umlaute zählen doppelt).' },
+    });
+    await expect(
+      changePassword('falsch', 'ein-neues-passwort'),
+    ).rejects.toMatchObject({
+      status: 422,
+      errors: { currentPassword: 'Passwort falsch.' },
+    });
+    await changePassword(SAMPLE_PASSWORD, 'ä'.repeat(36));
+    await signOut();
+    await expect(signIn('anna', 'ä'.repeat(36))).resolves.toMatchObject({
+      userName: 'anna',
+    });
+  });
+
   it('creates accounts with the API’s validation', async () => {
     installFixtureBackend(sampleEvening());
 
     await expect(createAccount('jule', 'kurz')).rejects.toMatchObject({
       status: 422,
       errors: { password: 'Mindestens 10 Zeichen.' },
+    });
+    // bcrypt's limit counts bytes: 37 umlauts are 74 (as the API answers).
+    await expect(createAccount('jule', 'ä'.repeat(37))).rejects.toMatchObject({
+      status: 422,
+      errors: { password: 'Höchstens 72 Byte (Umlaute zählen doppelt).' },
     });
     await expect(createAccount('ANNA', SAMPLE_PASSWORD)).rejects.toMatchObject({
       status: 409,
@@ -126,6 +154,12 @@ describe('the fixture backend', () => {
     await expect(updateAccount(2, { password: 'kurz' })).rejects.toMatchObject({
       status: 422,
       errors: { password: 'Mindestens 10 Zeichen.' },
+    });
+    await expect(
+      updateAccount(2, { password: 'a'.repeat(72) + 'new' }),
+    ).rejects.toMatchObject({
+      status: 422,
+      errors: { password: 'Höchstens 72 Byte (Umlaute zählen doppelt).' },
     });
     await expect(updateAccount(1, { isAdmin: false })).rejects.toMatchObject({
       status: 409,

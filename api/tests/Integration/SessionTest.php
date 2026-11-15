@@ -176,6 +176,41 @@ final class SessionTest extends DatabaseTestCase
         $this->signIn();
     }
 
+    /**
+     * The review's case: changing `a…a` + `old` to `a…a` + `new` (72 a) changed nothing
+     * bcrypt sees, and the old password still signed in.
+     */
+    public function testANewPasswordOver72BytesIs422AndTheOldOneKeepsWorking(): void
+    {
+        $prefix = str_repeat('a', 72);
+        $this->createAccount('anna', $prefix);
+        $anna = $this->signIn('anna', $prefix);
+
+        $response = $this->send('PUT', '/api/session/password', [
+            'currentPassword' => $prefix,
+            'newPassword' => $prefix . 'new',
+        ], $anna);
+
+        self::assertSame(422, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(['newPassword' => 'Höchstens 72 Byte (Umlaute zählen doppelt).'], $this->body($response)['errors'] ?? null);
+        self::assertSame(200, $this->send('GET', '/api/session', session: $anna)->getStatusCode());
+    }
+
+    /** No stored password is longer than 72 bytes, so a longer one is never the right one, whatever its first 72 bytes are. */
+    public function testASignInWithMoreThan72BytesIsRefusedLikeAWrongPassword(): void
+    {
+        $prefix = str_repeat('a', 72);
+        $this->createAccount('anna', $prefix);
+
+        $response = $this->send('POST', '/api/session', ['userName' => 'anna', 'password' => $prefix . 'old']);
+
+        self::assertSame(401, $response->getStatusCode());
+        self::assertSame(
+            $this->body($this->send('POST', '/api/session', ['userName' => 'anna', 'password' => 'ganz-falsch-1'])),
+            $this->body($response),
+        );
+    }
+
     public function testAWrongCurrentPasswordIs422AndChangesNothing(): void
     {
         $session = $this->signIn();

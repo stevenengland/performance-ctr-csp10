@@ -317,18 +317,19 @@ export interface components {
     };
     PasswordChange: {
       currentPassword: string;
+      /** @description At least 10 characters and at most 72 bytes in UTF-8 (bcrypt ignores the rest), no NUL character; otherwise 422 with a field error */
       newPassword: string;
     };
     NewAccount: {
       /** @description Trimmed; 1–40 characters; unique regardless of case */
       userName: string;
-      /** @description The start password */
+      /** @description The start password. At least 10 characters and at most 72 bytes in UTF-8 (bcrypt ignores the rest), no NUL character; otherwise 422 with a field error */
       password: string;
     };
     AccountChange: {
       /** @description Grant (true) or revoke (false) admin rights */
       isAdmin?: boolean;
-      /** @description The new password (a reset); signs the account out everywhere */
+      /** @description The new password (a reset); signs the account out everywhere. At least 10 characters and at most 72 bytes in UTF-8 (bcrypt ignores the rest), no NUL character; otherwise 422 with a field error */
       password?: string;
     };
     /** @description Trimmed; 1–40 characters; unique regardless of case */

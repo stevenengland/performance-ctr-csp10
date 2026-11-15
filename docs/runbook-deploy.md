@@ -79,7 +79,7 @@ All under *Settings → Secrets and variables → Actions*, read only by `_deplo
 | secret | `SFTP_USER`, `SFTP_PASS` | SFTP login |
 | secret | `DB_NAME`, `DB_USER`, `DB_PASS` | Database login, rendered into `config/runtime.php` |
 | secret | `BOOTSTRAP_ADMIN_USER` | User name of the first admin, created when no admin exists |
-| secret | `BOOTSTRAP_ADMIN_PASSWORD_HASH` | `password_hash()` output for that admin's password |
+| secret | `BOOTSTRAP_ADMIN_PASSWORD_HASH` | `password_hash()` output for that admin's password (10 characters to 72 bytes in UTF-8: the API refuses longer passwords at sign-in, as bcrypt ignores what follows) |
 
 Make the hash on a trusted machine and paste it as the secret value:
 

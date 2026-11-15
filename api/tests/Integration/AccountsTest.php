@@ -77,6 +77,15 @@ final class AccountsTest extends DatabaseTestCase
         self::assertSame(['password' => 'Darf kein Nullzeichen enthalten.'], $this->body($response)['errors'] ?? null);
     }
 
+    public function testAStartPasswordOver72BytesIs422AndCreatesNothing(): void
+    {
+        $response = $this->send('POST', '/api/accounts', ['userName' => 'lang', 'password' => str_repeat('ä', 37)], $this->signIn());
+
+        self::assertSame(422, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(['password' => 'Höchstens 72 Byte (Umlaute zählen doppelt).'], $this->body($response)['errors'] ?? null);
+        self::assertCount(1, $this->rows('SELECT id FROM accounts'));
+    }
+
     public function testAUserNameLongerThan40CharactersIs422(): void
     {
         $response = $this->send('POST', '/api/accounts', ['userName' => str_repeat('ä', 41), 'password' => 'ein-startpasswort'], $this->signIn());

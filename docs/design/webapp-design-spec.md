@@ -553,8 +553,9 @@ submit on Enter.
 - `Passwort zurücksetzen` opens the dialog `Passwort von anna zurücksetzen` with the line
   `anna wird auf allen Geräten abgemeldet.` and the field `Neues Passwort` (with show/hide),
   buttons `Abbrechen` and `Speichern`. A short password → `Mindestens 10 Zeichen.` under the
-  field (422); success closes the dialog with the snackbar `Passwort von anna zurückgesetzt`.
-  The server signs the account out on every device.
+  field (422), one over 72 bytes in UTF-8 (bcrypt's limit) →
+  `Höchstens 72 Byte (Umlaute zählen doppelt).`; success closes the dialog with the snackbar
+  `Passwort von anna zurückgesetzt`. The server signs the account out on every device.
 - `Zum Admin machen` / `Adminrechte entziehen` act at once, without a dialog: snackbar
   `anna ist jetzt Admin` / `anna ist kein Admin mehr`, and the list reloads. An admin who
   takes their own rights leaves Konten for `/verwalten`.
@@ -564,7 +565,7 @@ submit on Enter.
   (§7g). Resetting one's own password or deleting one's own account signs this device out
   too, which leads to Anmelden (§9, 401).
 - Extended FAB `Konto anlegen`: dialog `Konto anlegen` with `Benutzername` and `Startpasswort`
-  (with show/hide; minimum 10 characters), buttons `Abbrechen` and `Speichern`. Field errors
+  (with show/hide; 10 characters to 72 bytes), buttons `Abbrechen` and `Speichern`. Field errors
   inline (§6.11): 422 under its field, and a taken user name (409) under `Benutzername` as the
   problem title `Benutzername ist bereits vergeben.` On success the dialog closes and the list
   reloads.
@@ -582,7 +583,8 @@ submit on Enter.
 - `Passwort ändern` opens a dialog with `Aktuelles Passwort`, `Neues Passwort` and
   `Neues Passwort wiederholen` (each with show/hide), buttons `Abbrechen` and `Speichern`.
   A repeat that differs → `Passwörter stimmen nicht überein.` under the repeat field, without
-  a request; the server's 422 errors (`Passwort falsch.`, `Mindestens 10 Zeichen.`) under their
+  a request; the server's 422 errors (`Passwort falsch.`, `Mindestens 10 Zeichen.`,
+  `Höchstens 72 Byte (Umlaute zählen doppelt).`) under their
   fields. Success closes the dialog with the snackbar `Passwort geändert`; the server signs the
   account out on every other device.
 - `Abmelden` revokes the session on the server and opens `/anmelden`.

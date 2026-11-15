@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Performance\Domain;
 
 /**
- * Passwords: at least ten characters, no NUL character (bcrypt cannot hash it),
- * hashed with PHP's default algorithm.
+ * Passwords: at least ten characters, at most 72 bytes in UTF-8 and no NUL character,
+ * hashed with PHP's default algorithm. bcrypt (the default on the pinned PHP) silently
+ * ignores everything after 72 bytes and stops at a NUL, so neither would protect what
+ * the user typed.
  */
 final class PasswordPolicy
 {
     public const MIN_LENGTH = 10;
+    public const MAX_BYTES = 72;
 
     /**
      * Salt and hash of a random password that was thrown away, without the algorithm and
@@ -25,9 +28,19 @@ final class PasswordPolicy
             return 'Darf kein Nullzeichen enthalten.';
         }
 
-        return mb_strlen($password, 'UTF-8') < self::MIN_LENGTH
-            ? sprintf('Mindestens %d Zeichen.', self::MIN_LENGTH)
+        if (mb_strlen($password, 'UTF-8') < self::MIN_LENGTH) {
+            return sprintf('Mindestens %d Zeichen.', self::MIN_LENGTH);
+        }
+
+        return strlen($password) > self::MAX_BYTES
+            ? sprintf('Höchstens %d Byte (Umlaute zählen doppelt).', self::MAX_BYTES)
             : null;
+    }
+
+    /** Whether the password can be one the policy let through, so bcrypt saw all of it. */
+    public static function fitsTheHash(string $password): bool
+    {
+        return strlen($password) <= self::MAX_BYTES;
     }
 
     /**

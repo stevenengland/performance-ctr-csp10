@@ -83,6 +83,7 @@ const PROBLEMS = {
 } satisfies Record<string, Problem>;
 
 const MIN_PASSWORD = 10;
+const MAX_PASSWORD_BYTES = 72;
 const MAX_USER_NAME = 40;
 const MAX_NAME = 40;
 const MAX_POINTS = 9999.99;
@@ -229,9 +230,13 @@ function entryOf(entry: FixtureEntry): Entry {
   return { id, personId, drinkId, quantity, factorId, createdAt };
 }
 
+/** The API's password policy (`PasswordPolicy.php`); the maximum counts UTF-8 bytes, as bcrypt does. */
 function passwordError(password: string): string | undefined {
-  return [...password].length < MIN_PASSWORD
-    ? `Mindestens ${String(MIN_PASSWORD)} Zeichen.`
+  if ([...password].length < MIN_PASSWORD) {
+    return `Mindestens ${String(MIN_PASSWORD)} Zeichen.`;
+  }
+  return new TextEncoder().encode(password).length > MAX_PASSWORD_BYTES
+    ? `Höchstens ${String(MAX_PASSWORD_BYTES)} Byte (Umlaute zählen doppelt).`
     : undefined;
 }
 

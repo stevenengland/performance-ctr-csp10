@@ -150,6 +150,19 @@ final class AccountAdminTest extends DatabaseTestCase
         self::assertSame(['id' => 2, 'userName' => 'anna', 'isAdmin' => false], $this->body($this->send('GET', '/api/session', session: $anna)));
     }
 
+    /** The review's case: bcrypt ignores everything after 72 bytes, so the old password would still sign in. */
+    public function testAResetPasswordOver72BytesIs422AndTheOldPasswordStaysTheOnlyOne(): void
+    {
+        $old = str_repeat('a', 72);
+        $this->createAccount('anna', $old);
+
+        $response = $this->send('PATCH', '/api/accounts/2', ['password' => $old . 'new'], $this->signIn());
+
+        self::assertSame(422, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(['password' => 'Höchstens 72 Byte (Umlaute zählen doppelt).'], $this->body($response)['errors']);
+        $this->signIn('anna', $old);
+    }
+
     public function testAPasswordThatIsNoTextIs422AndAnEmptyChangeLeavesTheAccountAsItIs(): void
     {
         $this->createAccount('anna', 'annas-startpasswort');

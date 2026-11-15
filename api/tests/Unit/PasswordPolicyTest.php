@@ -30,7 +30,30 @@ final class PasswordPolicyTest extends TestCase
     {
         self::assertNull(PasswordPolicy::violation('1234567890'));
         self::assertNull(PasswordPolicy::violation('äöüäöüäöüä'));
-        self::assertNull(PasswordPolicy::violation(str_repeat('x', 200)));
+        self::assertNull(PasswordPolicy::violation(str_repeat('x', 72)));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function overBcryptsLimit(): iterable
+    {
+        yield '73 ASCII characters' => [str_repeat('x', 73)];
+        yield 'the review: 72 bytes and a suffix bcrypt would ignore' => [str_repeat('a', 72) . 'new'];
+        yield '37 umlauts are 74 bytes' => [str_repeat('ä', 37)];
+        yield '19 emoji are 76 bytes' => [str_repeat('🍺', 19)];
+    }
+
+    #[DataProvider('overBcryptsLimit')]
+    public function testRejectsPasswordsOver72BytesWhichBcryptWouldTruncate(string $password): void
+    {
+        self::assertSame('Höchstens 72 Byte (Umlaute zählen doppelt).', PasswordPolicy::violation($password));
+    }
+
+    public function testCountsBytesNotCharacters(): void
+    {
+        self::assertNull(PasswordPolicy::violation(str_repeat('ä', 36)), '36 umlauts are exactly 72 bytes');
+        self::assertNull(PasswordPolicy::violation(str_repeat('🍺', 18)), '18 emoji are exactly 72 bytes');
     }
 
     public function testHashesWithPhpsDefaultAlgorithmSoTheHashVerifies(): void

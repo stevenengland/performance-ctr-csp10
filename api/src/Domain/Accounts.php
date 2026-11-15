@@ -91,7 +91,8 @@ final readonly class Accounts
     {
         $row = $this->row('SELECT id, user_name, is_admin, password_hash FROM accounts WHERE user_name = ?', [trim($userName)]);
         $hash = is_string($row['password_hash'] ?? null) ? $row['password_hash'] : PasswordPolicy::unknownUserHash();
-        if (!password_verify($password, $hash) || $row === null) {
+        // Checked after bcrypt, so a long password answers as slowly as a wrong one.
+        if (!password_verify($password, $hash) || $row === null || !PasswordPolicy::fitsTheHash($password)) {
             return null;
         }
         $rehash = password_needs_rehash($hash, PASSWORD_DEFAULT) ? PasswordPolicy::hash($password) : null;
