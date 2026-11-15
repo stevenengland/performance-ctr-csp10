@@ -15,7 +15,8 @@ services:
       MYSQL_DATABASE: performance
       MYSQL_USER: performance
       MYSQL_PASSWORD: performance
-      MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
+      # A fixed, throwaway root password: a random one is printed into the (public) CI log.
+      MYSQL_ROOT_PASSWORD: root
     healthcheck:
       test:
         [

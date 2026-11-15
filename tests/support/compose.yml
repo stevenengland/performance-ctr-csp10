@@ -35,7 +35,8 @@ services:
       MYSQL_DATABASE: deploy_proof
       MYSQL_USER: performance
       MYSQL_PASSWORD: deploy-proof-db-password
-      MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
+      # A fixed, throwaway root password: a random one is printed into the (public) CI log.
+      MYSQL_ROOT_PASSWORD: root
     healthcheck:
       test:
         [
