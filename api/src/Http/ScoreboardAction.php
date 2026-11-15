@@ -13,7 +13,8 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * `GET /api/scoreboard?from=<instant>`: the standings since `from`, the start of the viewer's day.
  * The ETag names the data revision and the window, so `If-None-Match` with an
- * unchanged revision answers 304 before anything is aggregated.
+ * unchanged revision answers 304 before anything is aggregated. The revision and
+ * the standings are read in one snapshot, so the tag always names what is sent.
  */
 final readonly class ScoreboardAction
 {
@@ -24,13 +25,16 @@ final readonly class ScoreboardAction
         parse_str($request->getUri()->getQuery(), $query);
         $from = Instant::parse('from', is_string($query['from'] ?? null) ? $query['from'] : '');
         $scoreboard = $this->database->scoreboard();
-        $tag = self::tag($scoreboard->revision(), $from);
-        $response = $response->withHeader('ETag', $tag);
-        if (self::matches($request->getHeaderLine('If-None-Match'), $tag)) {
-            return $response->withStatus(304);
-        }
 
-        return Json::write($response, ['rows' => array_map(self::row(...), $scoreboard->since($from))]);
+        return $scoreboard->snapshot(function () use ($scoreboard, $request, $response, $from): ResponseInterface {
+            $tag = self::tag($scoreboard->revision(), $from);
+            $response = $response->withHeader('ETag', $tag);
+            if (self::matches($request->getHeaderLine('If-None-Match'), $tag)) {
+                return $response->withStatus(304);
+            }
+
+            return Json::write($response, ['rows' => array_map(self::row(...), $scoreboard->since($from))]);
+        });
     }
 
     /** The window is part of the tag: the same revision means other standings for another day. */

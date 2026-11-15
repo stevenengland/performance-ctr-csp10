@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Performance\Tests\Integration;
 
+use DateTimeImmutable;
+use Performance\Domain\DataRevision;
+use Performance\Domain\Scoreboard;
 use Performance\Tests\Support\DatabaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
@@ -50,6 +53,29 @@ final class ScoreboardTest extends DatabaseTestCase
             ]],
             $this->body($response),
         );
+    }
+
+    public function testTheRevisionAndBothAggregationsReadOneSnapshot(): void
+    {
+        $this->add(1, 1, 2);
+        $reader = $this->otherSession();
+        $scoreboard = new Scoreboard($reader, new DataRevision($reader));
+        $writer = $this->otherSession();
+        $from = new DateTimeImmutable('2026-11-14T00:00:00Z');
+
+        [$revision, $rows] = $scoreboard->snapshot(static function () use ($scoreboard, $writer, $from): array {
+            $revision = $scoreboard->revision();
+            // Another request commits a change between the reads of this one.
+            $writer->exec('DELETE FROM entries');
+            $writer->exec('UPDATE data_revision SET revision = revision + 1');
+
+            return [$revision, $scoreboard->since($from)];
+        });
+
+        self::assertCount(1, $rows, 'the standings belong to the revision that was read');
+        self::assertSame(2.0, (float) $rows[0]->count);
+        self::assertSame([], $scoreboard->since($from), 'a read after the snapshot sees the change');
+        self::assertSame($revision + 1, $scoreboard->revision());
     }
 
     public function testEntriesBeforeFromAreNotCounted(): void
