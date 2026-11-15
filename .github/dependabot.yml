@@ -1,0 +1,53 @@
+# One grouped pull request per ecosystem and week. Exact pins and digests are
+# the convention; Dependabot keeps them current without noise.
+#
+# PHP and MySQL follow the host, not the newest release (docs/runbook-deploy.md,
+# "Runtime pins"): Dependabot refreshes their digests and patch versions but
+# never moves them to another minor or major version.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ['*']
+  - package-ecosystem: composer
+    directory: /api
+    schedule:
+      interval: weekly
+    groups:
+      composer:
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+  - package-ecosystem: docker
+    directory: /e2e/stack
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: php
+        update-types:
+          ['version-update:semver-major', 'version-update:semver-minor']
+    groups:
+      php-image:
+        patterns: ['*']
+  - package-ecosystem: docker-compose
+    directories:
+      - /e2e/stack
+      - /tests/support
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: mysql
+        update-types:
+          ['version-update:semver-major', 'version-update:semver-minor']
+    groups:
+      compose-images:
+        patterns: ['*']

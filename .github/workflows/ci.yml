@@ -1,8 +1,12 @@
-# Checks every pull request and every push to main without deploying (deploy
-# follows in slice 1/4). One job builds the artifact; the e2e job tests those
-# bytes. The deploy proof runs the imported deploy CLI against SFTP + Apache
-# containers; the workflow linters check this folder. Provisional runtime: the runner's PHP 8.3 and MySQL 8.4 until the host
-# probe (#2) pins the host's versions.
+# Checks every pull request and every push to main. One job builds the
+# artifact; the e2e job and the deploy proof test those bytes. The deploy
+# proof runs the deploy CLI against SFTP + Apache/PHP + MySQL containers; the
+# workflow linters check this folder. On a push to main, once every check is
+# green, production is deployed through _deploy.yml (the only workflow that
+# reads the deploy secrets) and the artifact is archived as a GitHub Release.
+#
+# PHP and MySQL run on the images pinned in e2e/stack (PROVISIONAL until the
+# host probe #2 reports; docs/runbook-deploy.md, "Runtime pins").
 name: ci
 
 on:
@@ -15,6 +19,9 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
+  # Pull requests cancel their superseded runs; main runs queue, so a push
+  # never cancels a deploy in progress, and GitHub keeps only the newest
+  # pending run: production follows the newest commit.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -104,12 +111,14 @@ jobs:
       - run: npm test
 
   deploy-proof:
-    # Container proof of the deploy CLI imported from projekt2406: real
-    # OpenSSH sftp against an SFTP server and Apache sharing the remote root
-    # (tests/support/compose.yml).
-    name: Deploy proof (SFTP + Apache)
+    # Container proof of the deploy CLI on the built artifact's PHP release:
+    # real OpenSSH sftp against an SFTP server, Apache + PHP and MySQL sharing
+    # the remote root (tests/support/compose.yml): activation order, config
+    # rendering, a failing migration and same-schema rollback.
+    name: Deploy proof (SFTP + Apache/PHP + MySQL)
+    needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -119,6 +128,20 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: performance-artifact
+          path: dist
+      - name: Verify the digest and unpack
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check --strict ./*.tar.gz.sha256
+          grep -q "^$DIGEST " ./*.tar.gz.sha256
+          mkdir artifact
+          tar -xzf ./*.tar.gz -C artifact
       - name: Install deploy tooling
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends sshpass
       - run: npm run test:deploy
@@ -158,12 +181,13 @@ jobs:
             'error[excessive-permissions]'
 
   phpunit:
-    name: PHPUnit (MySQL)
+    name: PHPUnit (pinned PHP + MySQL)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
       mysql:
-        image: mysql:8.4
+        # Provisional pin, the same as e2e/stack/compose.yml (docs/runbook-deploy.md).
+        image: mysql:8.4@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
         env:
           MYSQL_ROOT_PASSWORD: root
         ports:
@@ -171,23 +195,20 @@ jobs:
         options: >-
           --health-cmd "mysqladmin ping -h 127.0.0.1 -proot"
           --health-interval 2s --health-timeout 2s --health-retries 60
-    env:
-      DB_HOST: 127.0.0.1
-      DB_PORT: '3306'
-      DB_USER: root
-      DB_PASS: root
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: PHP and extensions
-        run: php -v && php -m | grep -x pdo_mysql
       - name: Composer
         working-directory: api
         run: composer install --no-interaction --no-progress
-      - name: PHPUnit
-        working-directory: api
-        run: composer test
+      - name: The pinned PHP image (e2e/stack/Dockerfile)
+        run: docker build --tag performance-php e2e/stack
+      - name: PHPUnit on the pinned PHP image
+        run: |
+          docker run --rm --network host --volume "$PWD/api:/app" --workdir /app \
+            --env DB_HOST=127.0.0.1 --env DB_PORT=3306 --env DB_USER=root --env DB_PASS=root \
+            performance-php sh -c 'php -v && php -m | grep -x pdo_mysql && vendor/bin/phpunit'
 
   preview:
     name: Fixture preview
@@ -262,3 +283,63 @@ jobs:
           path: |
             playwright-report
             .lighthouseci
+
+  deploy:
+    # Every green push to main deploys its artifact to production. Pull
+    # requests never reach the deploy workflow; the ordering rule (skip a run
+    # that a newer commit's deploy overtook) lives inside it.
+    needs: [build, static, unit, deploy-proof, workflows, phpunit, preview, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      actions: read
+    # actionlint 1.7.12 rejects the `$/` self-repository syntax zizmor asks
+    # for; drop that ignore once actionlint accepts it.
+    uses: ./.github/workflows/_deploy.yml # zizmor: ignore[self-repository,secrets-inherit]
+    with:
+      mode: deploy
+      run-id: ${{ github.run_id }}
+      digest: ${{ needs.build.outputs.digest }}
+    secrets: inherit
+
+  archive:
+    # The rollback source: after a successful production deploy, the tested
+    # tarball (with its manifest) becomes a GitHub Release tagged
+    # release-YYYYMMDD-HHMM at the deployed commit, titled by the release id.
+    # A re-run finds the Release by its title and completes its assets.
+    needs: [build, deploy]
+    if: needs.deploy.outputs.deployed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DIGEST: ${{ needs.build.outputs.digest }}
+      RELEASE_ID: ${{ needs.deploy.outputs.release-id }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: performance-artifact
+          path: dist
+      - name: Archive the deployed artifact as a GitHub Release
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum --check --strict ./*.tar.gz.sha256 && grep -q "^$DIGEST " ./*.tar.gz.sha256)
+          [[ "$RELEASE_ID" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7}$ ]] || { echo "::error::archive: unexpected release id"; exit 1; }
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.name == \"$RELEASE_ID\") | .tag_name")
+          if [ -z "$tag" ]; then
+            tag=$(node deploy/cli.ts release-tag)
+            [[ "$tag" =~ ^release-[0-9]{8}-[0-9]{4}$ ]] || { echo "::error::archive: unexpected tag $tag"; exit 1; }
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$RELEASE_ID" \
+              --notes "Production release $RELEASE_ID of commit $GITHUB_SHA, deployed by $RUN_URL. Roll back: Actions → Rollback → tag $tag."
+          fi
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber dist/*.tar.gz dist/*.tar.gz.sha256
+          echo "archived $RELEASE_ID as $tag" >> "$GITHUB_STEP_SUMMARY"

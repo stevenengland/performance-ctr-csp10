@@ -1,14 +1,16 @@
 # Containerised stand-in for the webspace: Apache + PHP serving the built
-# artifact with the rendered .htaccess, and MySQL. Images are provisional until
-# slice 1/4 pins them to the host probe's findings (#2).
+# artifact with the rendered .htaccess, and MySQL. PHP (Dockerfile) and MySQL
+# are pinned by digest to the PROVISIONAL host versions (docs/runbook-deploy.md,
+# "Runtime pins"): swap them when the host probe (#2) reports.
 #
 # STACK_ROOT is a folder laid out as on the host:
-#   site/         artifact web/ plus the rendered .htaccess
-#   app/          artifact app/
-#   config.php    runtime configuration (see e2e/stack/config.php)
+#   site/                artifact web/ plus the rendered .htaccess
+#   app/                 artifact app/
+#   config/runtime.php   runtime configuration (see e2e/stack/config.php)
 services:
   db:
-    image: mysql:8.4
+    # mysql:8.4 (8.4.13), provisional pin
+    image: mysql:8.4@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
     environment:
       MYSQL_DATABASE: performance
       MYSQL_USER: performance

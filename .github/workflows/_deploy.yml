@@ -1,0 +1,152 @@
+name: Deploy
+# Reusable, and the only workflow that reads the deploy secrets (the throwaway
+# host-probe.yml of slice 1/1 is the one exception until #2 deletes it).
+# ci.yml calls it for every green push to main, rollback.yml for a retained
+# release from its GitHub Release. Its job runs no npm: `node deploy/cli.ts`
+# starts on Node 24 type stripping, and sshpass comes from apt.
+#
+# One production target, read under the repository's own names:
+#   variables SITE_URL, SFTP_HOST, DB_HOST, DOCROOT, SFTP_KNOWN_HOSTS
+#             (+ optional SITE_ALIASES: host names answered with a 301)
+#   secrets   SFTP_USER, SFTP_PASS, DB_NAME, DB_USER, DB_PASS,
+#             BOOTSTRAP_ADMIN_USER, BOOTSTRAP_ADMIN_PASSWORD_HASH
+# See docs/runbook-deploy.md.
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: deploy (the Actions artifact of a ci.yml run) or rollback (a GitHub Release by tag)
+        required: true
+        type: string
+      run-id:
+        description: deploy mode - the ci.yml run whose performance-artifact is deployed
+        required: false
+        type: string
+        default: ''
+      digest:
+        description: deploy mode - the sha256 of the artifact tarball the build job recorded
+        required: false
+        type: string
+        default: ''
+      tag:
+        description: rollback mode - the GitHub Release tag (release-YYYYMMDD-HHMM) of a retained release
+        required: false
+        type: string
+        default: ''
+    outputs:
+      deployed:
+        description: "'true' once production changed; empty when an overtaken run skipped"
+        value: ${{ jobs.deploy.outputs.deployed }}
+      release-id:
+        description: The release id of the deployed artifact
+        value: ${{ jobs.deploy.outputs.release-id }}
+permissions: {}
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # One deploy or rollback at a time; GitHub keeps only the newest pending
+    # run, and the ordering rule below skips a run that was overtaken.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      deployed: ${{ steps.run.outputs.deployed }}
+      release-id: ${{ steps.artifact.outputs.release-id }}
+    env:
+      MODE: ${{ inputs.mode }}
+      RUN_ID: ${{ inputs.run-id }}
+      DIGEST: ${{ inputs.digest }}
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      # Repository variables (not secret): host names may appear in logs.
+      SITE_URL: ${{ vars.SITE_URL }}
+      SITE_ALIASES: ${{ vars.SITE_ALIASES }}
+      SFTP_HOST: ${{ vars.SFTP_HOST }}
+      SFTP_KNOWN_HOSTS: ${{ vars.SFTP_KNOWN_HOSTS }}
+      DOCROOT: ${{ vars.DOCROOT }}
+      DB_HOST: ${{ vars.DB_HOST }}
+    # Secrets are read nowhere else, and only the steps that talk to the host
+    # carry them (step env, not job env, so no third-party action sees them).
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The ordering rule asks git whether the artifact descends from the live commit.
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install deploy tooling
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends sshpass
+      - name: Check the inputs
+        run: |
+          case "$MODE" in
+            deploy)
+              [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::deploy: deploy mode needs a numeric run-id"; exit 1; }
+              [[ "$DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::deploy: deploy mode needs the 64-hex artifact digest"; exit 1; } ;;
+            rollback)
+              [[ "$TAG" =~ ^release-[0-9]{8}-[0-9]{4}$ ]] || { echo "::error::deploy: tag must look like release-20261115-0930"; exit 1; } ;;
+            *) echo "::error::deploy: unknown mode $MODE"; exit 1 ;;
+          esac
+      - name: Fetch the artifact of the run
+        if: inputs.mode == 'deploy'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: performance-artifact
+          path: dist
+          run-id: ${{ inputs.run-id }}
+          github-token: ${{ github.token }}
+      - name: Fetch the artifact of the release
+        if: inputs.mode == 'rollback'
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'performance-*.tar.gz*' --dir dist
+      - name: Verify the digest and unpack
+        id: artifact
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check --strict ./*.tar.gz.sha256
+          if [ "$MODE" = deploy ]; then
+            grep -q "^$DIGEST " ./*.tar.gz.sha256 || { echo "::error::deploy: artifact digest differs from the build's"; exit 1; }
+          fi
+          mkdir artifact
+          tar -xzf ./*.tar.gz -C artifact
+          release_id=$(jq -r .releaseId artifact/manifest.json)
+          [[ "$release_id" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7}$ ]] || { echo "::error::deploy: unexpected release id"; exit 1; }
+          echo "release-id=$release_id" >> "$GITHUB_OUTPUT"
+      - name: Read the host ledger
+        if: inputs.mode == 'deploy'
+        env:
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASS: ${{ secrets.SFTP_PASS }}
+        run: |
+          node deploy/cli.ts inspect > remote.json
+          echo "active: $(jq -r '.active.releaseId // "none"' remote.json); retained: $(jq -r '.retained | join(", ")' remote.json)"
+      - name: Apply the ordering rule
+        id: order
+        if: inputs.mode == 'deploy'
+        # A run that a newer commit's deploy overtook skips, so production
+        # never regresses; a commit outside main's history fails.
+        run: node deploy/cli.ts order --artifact dist/artifact --inspection remote.json >> "$GITHUB_OUTPUT"
+      - name: Deploy or roll back
+        id: run
+        if: steps.order.outputs.skip != 'true'
+        env:
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASS: ${{ secrets.SFTP_PASS }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          BOOTSTRAP_ADMIN_USER: ${{ secrets.BOOTSTRAP_ADMIN_USER }}
+          BOOTSTRAP_ADMIN_PASSWORD_HASH: ${{ secrets.BOOTSTRAP_ADMIN_PASSWORD_HASH }}
+          RELEASE_ID: ${{ steps.artifact.outputs.release-id }}
+        run: |
+          if [ "$MODE" = deploy ]; then
+            node deploy/cli.ts deploy --artifact dist/artifact
+          else
+            node deploy/cli.ts rollback --artifact dist/artifact --release "$RELEASE_ID"
+          fi
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
