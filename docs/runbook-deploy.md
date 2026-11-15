@@ -38,8 +38,23 @@ deploy assumes all of them, and none of the fallbacks of #2 is built:
   rely on it).
 - **`%{HTTPS}` is `on` behind Strato's TLS**, so the rendered HTTP → HTTPS redirect does not loop.
 - **PHP runs as the SFTP user or can read its files** (uploads keep the local mode, `0644`).
+  `config/runtime.php` holds the database password and is therefore world-readable on the
+  host. Once #2 shows that PHP runs as the SFTP user, tighten it to `0600` (an sftp `chmod`
+  on the `.part` before the rename); if PHP runs as another user, ask Strato whether other
+  tenants can read `0644` files. Not changed yet: `0600` would break the deploy proof, whose
+  Apache runs as a different user than the SFTP account. **Owner decision.**
 
 If one fails, stop deploying and pick the fallback named on #2.
+
+### Open decision: accent-insensitive names
+
+Every table uses `utf8mb4_unicode_ci`, which ignores accents and folds `ß` as well as case:
+`Jürgen` = `Jurgen`, `Strauß` = `Strauss`, `Bär` = `Bar`. The PRD only asks for uniqueness that
+ignores case, so two such persons, drinks, factors or user names collide with `409 Name ist
+bereits vergeben.`, and sign-in matches accent-folded user names. An accent-sensitive,
+case-insensitive collation (`utf8mb4_0900_as_ci` on MySQL 8; MariaDB names it differently)
+would fix it in a new guarded migration, but the host's database engine is still unknown (#2).
+**Owner decision**, together with the engine: keep the folding, or migrate once #2 reports.
 
 ## DNS and TLS
 
