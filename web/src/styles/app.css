@@ -1,0 +1,141 @@
+/* Typography and spacing of the design spec (§3.2, §3.3); colours come from the Vuetify theme. */
+:root {
+  --font-display: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+  --font-text: 'Hanken Grotesk', system-ui, sans-serif;
+  --v-font-body: var(--font-text);
+  --v-font-heading: var(--font-display);
+  --app-margin: 16px;
+}
+
+@media (width >= 600px) {
+  :root {
+    --app-margin: 24px;
+  }
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-text);
+  font-variant-numeric: tabular-nums;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+.type-display,
+.type-title,
+.type-name-hero,
+.type-tile-name,
+.type-question {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.type-name-hero {
+  font-size: 44px;
+  font-weight: 900;
+  line-height: 42px;
+}
+
+.type-title {
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 30px;
+}
+
+.type-tile-name {
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 28px;
+  letter-spacing: 0.015em;
+}
+
+.type-question {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 26px;
+}
+
+.type-body {
+  font-family: var(--font-text);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.type-row-title {
+  font-family: var(--font-text);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.type-label {
+  font-family: var(--font-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.type-banner {
+  font-family: var(--font-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.type-support {
+  font-family: var(--font-text);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.type-caption {
+  font-family: var(--font-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.page-question {
+  padding: 14px 0 10px;
+  color: rgb(var(--v-theme-on-surface-variant));
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding-top: 16px;
+}
+
+/* No shadows anywhere (§3.3). */
+.v-btn,
+.v-card,
+.v-snackbar__wrapper {
+  box-shadow: none !important;
+}
+
+:focus-visible {
+  outline: 3px solid rgb(var(--v-theme-tertiary));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+  }
+}
