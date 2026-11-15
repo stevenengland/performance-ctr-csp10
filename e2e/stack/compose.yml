@@ -1,0 +1,30 @@
+# Containerised stand-in for the webspace: Apache + PHP serving the built
+# artifact with the rendered .htaccess, and MySQL. Images are provisional until
+# slice 1/4 pins them to the host probe's findings (#2).
+#
+# STACK_ROOT is a folder laid out as on the host:
+#   site/         artifact web/ plus the rendered .htaccess
+#   app/          artifact app/
+#   config.php    runtime configuration (see e2e/stack/config.php)
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: performance
+      MYSQL_USER: performance
+      MYSQL_PASSWORD: performance
+      MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-uperformance', '-pperformance']
+      interval: 2s
+      timeout: 2s
+      retries: 60
+  web:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '${STACK_PORT:-8080}:8080'
+    volumes:
+      - '${STACK_ROOT:?set STACK_ROOT to the staged webspace}:/srv/performance:ro'
