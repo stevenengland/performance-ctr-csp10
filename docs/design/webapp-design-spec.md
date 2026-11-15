@@ -42,8 +42,13 @@ connection. One or two of them are admins.
   view shows other days.
 - **Honest state.** The UI never claims a save that did not happen: offline blocks saving,
   failures say so, stale data shows its age.
-- **Material 3, unmodified.** Use Vuetify's MD3 components and roles as they are; no custom
-  component where a Material one exists.
+- **Readable across the table.** Names and numbers are set large in a condensed display face;
+  a glance from arm's length in a dim bar is enough.
+- **One loud thing per screen.** Amber marks the single thing that matters now (the tile being
+  tapped, tonight's leader); everything else stays bottle green and quiet.
+- **Vuetify underneath, our own face on top.** Vuetify supplies behaviour and accessibility
+  (dialogs, fields, snackbars, navigation); the look comes from §3, and counting tiles, the
+  leader card and tally marks are app components.
 
 ## 2. Tech stack
 
@@ -51,100 +56,139 @@ connection. One or two of them are admins.
 |---|---|
 | Framework | Vue 3 + TypeScript (strict), `<script setup lang="ts">`, Composition API |
 | Build | Vite |
-| Components | Vuetify 3 with the `md3` blueprint |
+| Components | Vuetify 3 (`md3` blueprint as the base), themed per §3; app components for tiles, leader card and tally marks |
 | Routing | Vue Router, history mode (hash mode in the fixture preview only) |
 | PWA | vite-plugin-pwa (Workbox), prompt-style updates, full precache |
 | Icons | Material Design Icons via `@mdi/js` (SVG paths, no icon font) |
-| Font | Roboto, self-hosted (no Google Fonts CDN; CSP `default-src 'self'`) |
-| Colour | Material Color Utilities 0.3.0, `SchemeTonalSpot`, seed `#8b5000` |
+| Fonts | Big Shoulders Display and Hanken Grotesk, self-hosted via `@fontsource` (no CDN; CSP `default-src 'self'`) |
+| Colour | Hand-picked role table (§3.1), applied as the Vuetify theme |
 | API types | Generated from `api/openapi.yaml` with `openapi-typescript` |
 
 ## 3. Design tokens
 
-### 3.1 Colour — Material 3 roles, light and dark
+### 3.0 Visual identity — "Bierdeckel"
 
-Generated from seed `#8b5000` with Material Color Utilities 0.3.0 (`SchemeTonalSpot`, contrast
-level 0). The Vuetify theme is produced from the seed by the same library version; a unit test
-asserts that it matches this table. Components use roles, never raw values.
+The app is the tally sheet from a beer mat (*Strichliste*), shown on a stadium scoreboard:
+bottle green and amber, tall condensed numerals, and every whole-number counter drawn a second
+time as tally marks. `docs/design/mockup.html` is the visual reference for every screen in light
+and dark; where this text and the mockup disagree, fix whichever is wrong in the same pull
+request.
+
+*Owner decision (2026-11-15), overriding PRD #1 and the slice issues:* the palette is
+hand-picked, not generated from seed `#8b5000`; fonts are Big Shoulders Display and Hanken
+Grotesk, not Roboto; Vuetify stays as the component engine but is themed and, for counting
+tiles, the leader card and tally marks, replaced by app components. Wherever an issue says
+"seed `#8b5000`", "Material Color Utilities" or "Roboto", this section applies instead.
+
+### 3.1 Colour — roles, light and dark
+
+Hand-picked. The Vuetify theme is defined from this table; a unit test asserts that the theme
+equals it in light and dark. Components use roles, never raw values.
 
 | Role | Light | Dark |
 |---|---|---|
-| `primary` | `#865319` | `#fdb975` |
-| `on-primary` | `#ffffff` | `#4a2800` |
-| `primary-container` | `#ffdcbe` | `#6a3c01` |
-| `on-primary-container` | `#6a3c01` | `#ffdcbe` |
-| `secondary` | `#735a42` | `#e1c1a4` |
-| `on-secondary` | `#ffffff` | `#402c18` |
-| `secondary-container` | `#ffdcbe` | `#59422d` |
-| `on-secondary-container` | `#59422d` | `#ffdcbe` |
-| `tertiary` | `#586339` | `#c0cc9a` |
-| `on-tertiary` | `#ffffff` | `#2b3410` |
-| `tertiary-container` | `#dce8b4` | `#414b24` |
-| `on-tertiary-container` | `#414b24` | `#dce8b4` |
-| `error` | `#ba1a1a` | `#ffb4ab` |
-| `on-error` | `#ffffff` | `#690005` |
-| `error-container` | `#ffdad6` | `#93000a` |
-| `on-error-container` | `#93000a` | `#ffdad6` |
-| `surface` | `#fff8f5` | `#19120c` |
-| `on-surface` | `#211a14` | `#efe0d5` |
-| `on-surface-variant` | `#51453a` | `#d5c3b5` |
-| `surface-container-lowest` | `#ffffff` | `#130d07` |
-| `surface-container-low` | `#fff1e7` | `#211a14` |
-| `surface-container` | `#faebe0` | `#261e18` |
-| `surface-container-high` | `#f4e5db` | `#302822` |
-| `surface-container-highest` | `#efe0d5` | `#3c332c` |
-| `outline` | `#837468` | `#9e8e81` |
-| `outline-variant` | `#d5c3b5` | `#51453a` |
-| `inverse-surface` | `#372f28` | `#efe0d5` |
-| `inverse-on-surface` | `#fdeee3` | `#372f28` |
-| `inverse-primary` | `#fdb975` | `#865319` |
+| `primary` | `#14523f` | `#f6c453` |
+| `on-primary` | `#ffffff` | `#2a1c00` |
+| `primary-container` | `#f6c453` | `#f6c453` |
+| `on-primary-container` | `#2a1c00` | `#2a1c00` |
+| `secondary` | `#3d5a4e` | `#b9cdc0` |
+| `on-secondary` | `#ffffff` | `#12261f` |
+| `secondary-container` | `#d5e6da` | `#24493d` |
+| `on-secondary-container` | `#12261f` | `#dff0e4` |
+| `tertiary` | `#b3264f` | `#ff8fab` |
+| `on-tertiary` | `#ffffff` | `#4a0a1e` |
+| `tertiary-container` | `#ffd3de` | `#5e1a30` |
+| `on-tertiary-container` | `#4a0a1e` | `#ffd3de` |
+| `error` | `#b3261e` | `#ffb4a9` |
+| `on-error` | `#ffffff` | `#5c0f0a` |
+| `error-container` | `#ffdad5` | `#7a1b14` |
+| `on-error-container` | `#5c0f0a` | `#ffdad5` |
+| `surface` | `#fbfaf4` | `#0e1f1a` |
+| `on-surface` | `#12261f` | `#f1eddc` |
+| `on-surface-variant` | `#4c5f56` | `#a9b8ae` |
+| `surface-container-low` | `#f4f2e8` | `#132821` |
+| `surface-container` | `#eceadc` | `#183129` |
+| `surface-container-high` | `#e3e0cf` | `#213d34` |
+| `outline` | `#7c8b82` | `#6f8277` |
+| `outline-variant` | `#cfd2c2` | `#2c463c` |
+| `inverse-surface` | `#12261f` | `#f1eddc` |
+| `inverse-on-surface` | `#f4f2e8` | `#12261f` |
+| `inverse-primary` | `#f6c453` | `#14523f` |
 | `scrim` | `#000000` | `#000000` |
 
 **Usage.**
 
 - Theme follows `prefers-color-scheme`; there is no in-app theme switch.
-- `primary` / `primary-container`: the counting buttons, the selected navigation destination, the
-  leader's row on the Rangliste.
-- `tertiary-container`: factor buttons other than "Kein Faktor" (a factor is visibly different
-  from the default).
-- `error` / `error-container`: destructive dialog actions, the offline banner, failed refresh.
+- `surface-container-high`: counting tiles at rest, with a 3 dp inset bottom edge in
+  `outline-variant` (the coaster's edge).
+- `primary-container` (amber): the tile being pressed or saving, and the leader card on the
+  Rangliste. Amber means "this one"; nothing else is amber.
+- `primary`: tally marks, the step indicator, filled buttons, the FAB, links.
+- `tertiary-container` (raspberry): factor tiles other than "Kein Faktor".
+- `error` / `error-container`: destructive dialog actions, the offline banner, the stale time.
 - `inverse-surface` / `inverse-on-surface` / `inverse-primary`: snackbars and their action.
-- Manifest `theme_color` and `background_color`: light `surface` (`#fff8f5`).
+- `secondary-container`: the active navigation destination's pill.
+- Manifest `theme_color` and `background_color`: light `surface` (`#fbfaf4`); the dark
+  `theme-color` meta is `#0e1f1a`.
+- Every text/background pair used must reach WCAG AA; if a pair fails, change the token here
+  and in the theme together.
 
 ### 3.2 Typography
 
-Roboto, Material 3 baseline type scale. Only these styles are used:
+Two self-hosted families (`@fontsource`, latin subset, no CDN):
 
-| Style | Size / line height | Weight | Used for |
+- **Big Shoulders Display** 700 and 900 — everything that is shouted across a bar: screen
+  titles, names on tiles, numerals, step questions, dialog titles. Always upper case (applied
+  with `text-transform`, so screen readers get normal case), letter-spacing 0.015–0.02em.
+- **Hanken Grotesk** 400 and 600 — everything that is read: supporting text, lists, forms,
+  buttons, navigation labels, snackbars.
+
+| Style | Family / weight | Size / line height | Used for |
 |---|---|---|---|
-| `headline-small` | 24 / 32 | 400 | Step question ("Welches Getränk?"), dialog titles |
-| `title-large` | 22 / 28 | 400 | Top app bar title |
-| `title-medium` | 16 / 24 | 500 | Person and drink names on buttons, list row primary text |
-| `body-large` | 16 / 24 | 400 | Form fields, empty-state text |
-| `body-medium` | 14 / 20 | 400 | List row secondary text, banner text |
-| `label-large` | 14 / 20 | 500 | Buttons, snackbar text, chips |
-| `label-medium` | 12 / 16 | 500 | Navigation labels, "Stand: hh:mm" |
-| `display-small` | 36 / 44 | 400 | Quantity buttons, today's counter on a drink button, score on the leader row |
+| `score-hero` | Display 900 | 84 / 68 | Leader's score |
+| `numeral-xl` | Display 900 | 64 / 58 | Quantity tiles |
+| `name-hero` | Display 900 | 44 / 42 | Leader's name; app name on Anmelden (64) |
+| `numeral` | Display 900 | 34 / 32 | Counter on a drink tile, scores of ranks 2+, multiplier on a factor tile |
+| `title` | Display 900 | 30 / 30 | Top app bar title |
+| `tile-name` | Display 900 | 28 / 28 | Person, drink and factor names on tiles; dialog titles |
+| `rank-name` | Display 900 | 24 / 24 | Names on Rangliste rows |
+| `question` | Display 700 | 22 / 26 | Step question, in `on-surface-variant` |
+| `body` | Text 400 | 16 / 24 | Form fields, empty-state text, dialog body |
+| `row-title` | Text 600 | 16 / 24 | List row primary text, buttons |
+| `label` | Text 600 | 14 / 20 | Snackbar, bar context line, text buttons |
+| `support` | Text 400 | 13 / 18 | Supporting text on tiles and rows |
+| `caption` | Text 600 | 12 / 16 | Navigation labels, `Stand HH:mm`, field labels |
 
-Numbers that line up in columns (scores, counters) use `font-variant-numeric: tabular-nums`.
+All numerals use `font-variant-numeric: tabular-nums`. Tile names that do not fit shrink one
+step (28 → 24 → 20) before they ellipsize.
 
 ### 3.3 Spacing, shape, elevation
 
-- **Grid:** 4 dp. Window margins 16 dp (compact), 24 dp (medium and up). Gap between buttons in
-  a grid 12 dp.
-- **Shape (corner radius):** buttons `full`; counting tiles and cards `medium` (12 dp); dialogs
-  and bottom sheets `extra-large` (28 dp); snackbars `extra-small` (4 dp); chips `small` (8 dp).
-- **Elevation:** tonal only (surface-container levels); no shadows except the snackbar (level 3)
-  and dialogs (level 3).
+- **Grid:** 4 dp. Window margins 16 dp (compact), 24 dp (medium and up). Gap between tiles
+  12 dp.
+- **Shape (corner radius):** tiles 14 dp; leader card 18 dp; buttons, fields, snackbar and FAB
+  10 dp; dialogs 20 dp; navigation pill 16 dp. No fully round buttons.
+- **Elevation:** none. Depth comes from surface tones and the tile's inset bottom edge; no
+  shadows anywhere, dialogs sit on a 50 % scrim.
 
-### 3.4 Iconography and motion
+### 3.4 Iconography, tally marks and motion
 
 - Icons (`@mdi/js`): Zählen `mdiGlassMugVariant`, Rangliste `mdiPodium`, Verwalten
   `mdiCogOutline`, Konto `mdiAccountCircleOutline`, back `mdiArrowLeft`, add `mdiPlus`, edit
   `mdiPencilOutline`, delete `mdiDeleteOutline`, offline `mdiWifiOff`, update `mdiUpdate`.
   Icon-only buttons always carry an `aria-label`.
-- Motion: Material 3 standard easing; step transitions slide horizontally (forward left, back
-  right, 200 ms). With `prefers-reduced-motion: reduce`, transitions are cross-fades of 0 ms.
+- **Tally marks (`TallyMarks` component):** an inline SVG that draws a count as bundles of five
+  — four upright strokes and one diagonal across them — stroke 2.2, round caps, `currentColor`
+  (`primary`; `on-primary-container` on amber). Each stroke leans by a small fixed amount
+  derived from its index, so it looks hand-drawn but never changes between renders. It draws
+  the whole part of the value (a counter of 4,5 draws four); above 25 it is omitted and the
+  numeral stands alone. It is decorative: `aria-hidden`, the number next to it carries the
+  meaning. Heights: 18 dp on drink and quantity tiles, 22 dp on person tiles, 26 dp on the
+  leader card, 30 dp on Anmelden.
+- **Motion:** step transitions slide horizontally (forward left, back right, 200 ms, standard
+  easing). A tapped tile turns amber immediately. When a count rises, only the new strokes draw
+  in (120 ms each). The snackbar carries a thin `inverse-primary` bar that runs out over its
+  8 s. With `prefers-reduced-motion: reduce` all of these are instant.
 
 ### 3.5 Localisation and formatting
 
@@ -202,19 +246,24 @@ phone uses the medium layout. Text scales to 200 % without horizontal scrolling.
 
 ### 6.1 Top app bar
 
-Small top app bar: title (the screen's name or, in the add flow, the chosen person), a back
+Flat bar on `surface`: title in `title` style (the screen's name or, in the add flow, the chosen
+person), an optional context line under it in `label` (`Bier`, `2× Bier`, `Heute`), a back
 button on every screen below a navigation destination, and the account icon on the right
-(opens `/konto`). On the Rangliste the bar also shows "Stand: HH:mm" when data is stale (§6.6).
+(opens `/konto`). In the add flow a four-segment step indicator sits directly under the bar
+(4 dp high, filled segments in `primary`; three segments when no factors exist). On the
+Rangliste the bar also shows `Stand HH:mm` in `error` when data is stale (§6.6).
 
 ### 6.2 Navigation bar / rail
 
-Three destinations (§4). The active destination uses `secondary-container` per Material 3.
+Three destinations (§4) on `surface-container`. The active destination's icon sits in a
+`secondary-container` pill and its label is `on-surface`; the others are `on-surface-variant`.
 Hidden on `/anmelden`.
 
 ### 6.3 Snackbar
 
-One at a time, bottom, above the navigation bar, `inverse-surface`, 8 s, optional single action
-in `inverse-primary`. Announced through an ARIA live region (`polite`). A newer snackbar replaces
+One at a time, bottom, above the navigation bar, `inverse-surface`, corner 10 dp, 8 s, optional
+single action in `inverse-primary`, and a thin `inverse-primary` bar along its bottom edge that
+runs out over the 8 s. Announced through an ARIA live region (`polite`). A newer snackbar replaces
 an older one.
 
 | Trigger | Text | Action |
@@ -226,13 +275,22 @@ an older one.
 | Deleted item | `<Name> gelöscht` | — |
 | Update available | `Neue Version verfügbar` | `Neu laden` |
 
-### 6.4 Counting buttons
+### 6.4 Counting tiles
 
-Large tonal buttons in a grid (§5): `primary-container` fill, `on-primary-container` text,
-corner `medium`, minimum height 96 dp, name in `title-medium`. On the drink step a button shows
-the drink name, its points in `body-medium` (`1 Punkt`, `3 Punkte`, `0,5 Punkte`) and today's
-counter for the chosen person in `display-small`, right-aligned. Quantity buttons 1–5 show the
-number in `display-small`.
+`CountTile` — a real `<button>` in a grid (§5): `surface-container-high`, corner 14 dp, minimum
+height 104 dp, padding 12 × 14 dp, a 3 dp inset bottom edge in `outline-variant`, content
+left-aligned. Pressed or saving: `primary-container` / `on-primary-container`, edge removed.
+
+- **Person tile:** name (`tile-name`) at the top; at the bottom the person's tally for today
+  (all drinks, 22 dp), or `noch nichts` in `support` when there is none.
+- **Drink tile:** top row — name left, today's counter for the chosen person right (`numeral`,
+  omitted at 0); bottom row — points in `support` (`1 Punkt`, `3 Punkte`, `0,5 Punkte`) left,
+  tally (18 dp) right.
+- **Quantity tile:** numeral centred (`numeral-xl`) with its tally (18 dp) beneath; minimum
+  height 112 dp; three columns in every window class.
+- **Factor tile:** full width, one column. `Kein Faktor` is a normal tile with the supporting
+  text `zählt einfach`; each factor is `tertiary-container` / `on-tertiary-container`, no edge,
+  name left and multiplier right (`numeral`, `×2`).
 
 ### 6.5 Offline banner
 
@@ -243,7 +301,7 @@ last step disables its buttons; all other screens keep showing their last data.
 ### 6.6 Stale indicator
 
 When the latest scoreboard refresh failed, the last data stays visible and `Stand: HH:mm`
-(time of the last successful refresh) appears in `label-medium`, `on-surface-variant`. It
+(time of the last successful refresh) appears in `caption`, `error`, at the right of the top app bar. It
 disappears after the next successful refresh.
 
 ### 6.7 Update prompt and reload floor
@@ -264,8 +322,8 @@ given delay.
 
 ### 6.9 Confirmation dialog
 
-Basic dialog, corner `extra-large`. Title states the action, body states the consequence,
-buttons `Abbrechen` (text) and the destructive action (`error` text button).
+Dialog on `surface-container`, corner 20 dp, title in `tile-name`. Title states the action, body
+states the consequence, buttons `Abbrechen` (text) and the destructive action (filled, `error`).
 
 | Delete | Title | Body |
 |---|---|---|
@@ -279,12 +337,13 @@ buttons `Abbrechen` (text) and the destructive action (`error` text button).
 
 - **Loading:** skeleton placeholders in the shape of the content; no spinner on the first paint
   longer than 300 ms without a skeleton.
-- **Empty:** a short sentence in `body-large` plus, where it applies, the button that fixes it
+- **Empty:** a short sentence in `body` plus, where it applies, the button that fixes it
   (see each screen).
 
 ### 6.11 Form fields and validation
 
-Outlined text fields; label above; field errors from the problem's `errors` map shown as
+Outlined text fields, corner 10 dp, 1.5 dp `outline` border (2 dp `primary` when focused);
+label inside the top of the field in `caption`; field errors from the problem's `errors` map shown as
 supporting text under the field in `error`; the submit button stays enabled and re-validates on
 the server.
 
@@ -292,39 +351,44 @@ the server.
 
 ### 7a. Anmelden `/anmelden`
 
-- Centered card: app name "Performance", fields `Benutzername` and `Passwort` (with show/hide),
-  button `Anmelden`.
+- No card: on plain `surface`, vertically centred, left-aligned — the app name `Performance`
+  in the display face (64 dp, two lines), a row of tally marks under it (30 dp), then the
+  outlined fields `Benutzername` and `Passwort` (with show/hide) and a full-width filled button
+  `Anmelden`. Content max width 400 dp.
 - 401 → field-less error text `Benutzername oder Passwort falsch.`; 429 →
   `Zu viele Versuche. Bitte später erneut.`
 - Success → the originally requested route or `/zaehlen`.
 
 ### 7b. Zählen, step 1 — Namen `/zaehlen`
 
-- Question `Für wen?` in `headline-small`.
-- Grid of person buttons (§6.4), alphabetical.
+- Title `Zählen`; step indicator at 1. Question `Für wen?` in `question`.
+- Grid of person tiles (§6.4), alphabetical, each with the person's tally for today (from the
+  scoreboard feed).
 - Empty: `Noch keine Personen.` + button `Person anlegen` → `/verwalten/personen` with the create
   dialog open.
 
 ### 7c. Zählen, step 2 — Getränk `/zaehlen/:personId`
 
-- Title bar: the person's name. Question `Welches Getränk?`.
-- Grid of drink buttons with points and the person's counter for today (§6.4), alphabetical.
+- Title bar: the person's name; step indicator at 2. Question `Welches Getränk?`.
+- Grid of drink tiles with points, the person's counter for today and its tally (§6.4),
+  alphabetical.
 - Counters come from the scoreboard feed (§10), not a separate request.
 - Empty: `Noch keine Getränke.` + `Getränk anlegen`.
 
 ### 7d. Zählen, step 3 — Anzahl `/zaehlen/:personId/:drinkId`
 
-- Title bar: `Daniel · Bier`. Question `Wie viele?`.
-- Buttons 1–5 in one row (compact: 3 + 2) and a text button `Andere Anzahl` opening a dialog
+- Title bar: `Daniel` with the context line `Bier`; step indicator at 3. Question `Wie viele?`.
+- Quantity tiles 1–5 in three columns (3 + 2) and an underlined text button `Andere Anzahl`
+  centred below, opening a dialog
   with a number field (1–99) and `Weiter`.
 - With no factors defined, choosing the quantity saves (step 4 is skipped).
 
 ### 7e. Zählen, step 4 — Faktor `/zaehlen/:personId/:drinkId/:quantity`
 
-- Title bar: `Daniel · 2× Bier`. Question `Faktor?`.
-- First button `Kein Faktor` (`surface-container-high`), then one button per factor
-  (`tertiary-container`) showing name and multiplier (`Happy Hour ×2`), alphabetical.
-- Tapping a button saves: the buttons show a progress state, then the app returns to step 1 and
+- Title bar: `Daniel` with the context line `2× Bier`; step indicator at 4. Question `Faktor?`.
+- One column of factor tiles (§6.4): `Kein Faktor` first, then one raspberry tile per factor
+  showing name and multiplier (`Happy Hour`, `×2`), alphabetical.
+- Tapping a tile saves: the tapped tile turns amber and the others dim, then the app returns to step 1 and
   shows the saved snackbar (§6.3).
 - Save failure: stay on the step, buttons enabled again, snackbar with `Erneut versuchen`
   (retries with the same UUID).
@@ -332,20 +396,24 @@ the server.
 
 ### 7f. Rangliste `/rangliste`
 
-- Title `Rangliste · Heute`.
-- One list row per person with entries today, ranked by score (ties by name):
-  - leading: rank number in a circle (`primary` for rank 1, `surface-container-highest` otherwise);
-  - primary text: name; secondary text: per-drink counters (`Bier 4 · Margarita 1`);
-  - trailing: score in `display-small` for rank 1, `title-medium` otherwise, and total count
-    below in `label-medium` (`5 Getränke`).
-- Tapping a row opens `/verlauf/:personId`.
+- Title `Rangliste` with the context line `Heute`.
+- Persons with entries today, ranked by score (ties by name):
+  - **Rank 1 — leader card:** `primary-container`, corner 18 dp. Name (`name-hero`) and the
+    tally of the total count (26 dp) on the left, score (`score-hero`) on the right; below,
+    the total count (`9 Getränke`, `label`) and the per-drink counters
+    (`Bier 4 · Margarita 1`, `support`).
+  - **Ranks 2+ — rows** separated by `outline-variant` hairlines: rank numeral (`title`,
+    `on-surface-variant`), name (`rank-name`) with per-drink counters beneath (`support`),
+    and on the right the score (`numeral`) with the total count beneath (`caption`).
+- Tapping the card or a row opens `/verlauf/:personId`; both are buttons with the accessible
+  name `Platz 1, Daniel, 13,5 Punkte, 9 Getränke`.
 - Persons without entries today are not listed.
 - Empty: `Heute noch keine Getränke.` + button `Zählen` → `/zaehlen`.
 - Stale indicator (§6.6) in the top app bar.
 
 ### 7g. Verlauf `/verlauf/:personId`
 
-- Title `Daniel · Heute`, back to the previous screen.
+- Title `Daniel` with the context line `Heute`, back to the previous screen.
 - List of today's entries, newest first: primary `2× Bier`, secondary
   `Happy Hour ×2 · 23:41 · anna` (`Kein Faktor` when none; `gelöschtes Konto` when the account is
   gone); trailing delete icon button opening the confirmation dialog (§6.9).
@@ -361,7 +429,8 @@ the server.
 - Alphabetical list; each row: name and, for drinks, `1 Punkt`, for factors, `×2`; trailing edit
   and delete icon buttons.
 - Extended FAB `Person anlegen` / `Getränk anlegen` / `Faktor anlegen` (bottom right, above the
-  navigation bar).
+  navigation bar; `primary`, corner 10 dp, no shadow). Rows are separated by `outline-variant`
+  hairlines; primary text in `row-title`.
 - Create/edit dialog: `Name`; drinks also `Punkte` (decimal); factors also `Multiplikator`
   (decimal, shown with `×` prefix). Buttons `Abbrechen` and `Speichern`.
 - Delete: confirmation dialog with the entry count (§6.9).
@@ -379,7 +448,7 @@ the server.
 ### 7k. Konto `/konto`
 
 - Signed-in user name; `Passwort ändern` (dialog: current, new, repeat; minimum 10);
-  `Abmelden`; app version and, in `body-medium`, `Server: <app version>` from health.
+  `Abmelden`; app version and, in `support`, `Server: <app version>` from health.
 
 ## 8. Key flows
 
@@ -417,8 +486,10 @@ the server.
 ## 10. Accessibility
 
 - WCAG 2.2 AA; Lighthouse accessibility score 100.
-- Touch targets ≥ 48 × 48 dp; counting buttons ≥ 96 dp high.
-- Contrast from the Material 3 role pairs only (§3.1).
+- Touch targets ≥ 48 × 48 dp; counting tiles ≥ 104 dp high.
+- Contrast from the role pairs in §3.1 only; every pair in use meets AA.
+- Tally marks are decorative and hidden from assistive technology; upper-case display text is
+  produced with CSS so it is read in normal case.
 - Every counting button has an accessible name with its state, e.g. `Bier, 1 Punkt, heute 4`.
 - Snackbars announced via a polite live region; dialogs trap focus and return it on close.
 - Visible focus ring on every interactive element; full keyboard operation on desktop.
