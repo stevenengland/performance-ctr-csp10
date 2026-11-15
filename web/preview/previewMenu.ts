@@ -12,7 +12,8 @@ function button(label: string, action: () => void): HTMLButtonElement {
 
 /**
 A small preview-only menu: marks the data as sample data and triggers the states
-a service worker or an outdated client would cause on the real host.
+a service worker or an outdated client would cause on the real host. It is a strip
+above the app, so it never covers the app's controls.
 */
 export function mountPreviewMenu(): void {
   const menu = document.createElement('details');
@@ -29,5 +30,5 @@ export function mountPreviewMenu(): void {
     ),
     button('Veraltete Version simulieren', requireReload),
   );
-  document.body.append(menu);
+  document.body.prepend(menu);
 }

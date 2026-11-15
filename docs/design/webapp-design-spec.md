@@ -671,7 +671,9 @@ the shareable page a UI change is reviewed on before it reaches the host.
   preview never ages out of "today"), keeps writes in memory for the session (adds, undo,
   deletes, CRUD), and answers anything else with 503.
 - **No service worker.** The preview build does not register the service worker; the update
-  prompt and reload floor can be triggered from a small preview-only menu.
+  prompt and reload floor can be triggered from a small preview-only menu. The menu's summary
+  `Vorschau · Beispieldaten` (the sample-data marker) is a thin strip above the app that pushes
+  it down, so it never covers a control.
 - **Publishing.** Each slice that changes the UI rebuilds the preview and republishes it to the
   same private claude.ai artifact, and attaches compact and expanded screenshots to its pull
   request. The artifact link is recorded in the README.

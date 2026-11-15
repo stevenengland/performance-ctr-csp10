@@ -56,6 +56,39 @@ test('the preview menu offers the update prompt and the reload floor', async ({
   await expect(page.getByRole('dialog')).toContainText('Bitte neu laden');
 });
 
+test('the preview marker covers no control of any screen', async ({ page }) => {
+  for (const screen of [
+    'konto',
+    'rangliste',
+    'verwalten/personen',
+    'verwalten/konten',
+    'verlauf/3',
+  ]) {
+    await page.goto(`/index.html#/${screen}`);
+    await expect(page.locator('main button').first()).toBeVisible();
+    const marker = await page
+      .getByText('Vorschau · Beispieldaten')
+      .boundingBox();
+    expect(marker).not.toBeNull();
+    const controls = page.locator(
+      'header button, header a, header h1, main button, main a, main h1, main h2, main .v-chip',
+    );
+    for (const control of await controls.all()) {
+      const box = await control.boundingBox();
+      if (!box || !marker) continue;
+      const overlaps =
+        box.x < marker.x + marker.width &&
+        marker.x < box.x + box.width &&
+        box.y < marker.y + marker.height &&
+        marker.y < box.y + box.height;
+      expect(
+        overlaps,
+        `${screen}: the marker covers ${(await control.textContent()) ?? ''}`,
+      ).toBe(false);
+    }
+  }
+});
+
 test('the fixture preview counts a drink with Happy Hour ×2 on its sample evening and undoes it', async ({
   page,
 }) => {
