@@ -128,7 +128,7 @@ test('the fixture preview ranks its sample evening on the Rangliste', async ({
 
   const places = page
     .getByRole('list', { name: 'Rangliste' })
-    .getByRole('listitem');
+    .getByRole('link');
   await expect(places).toHaveCount(5);
   await expect(places.first()).toHaveAccessibleName(
     'Platz 1, Daniel, 13,5 Punkte, 9 Getränke',
@@ -136,4 +136,40 @@ test('the fixture preview ranks its sample evening on the Rangliste', async ({
   await expect(places.last()).toHaveAccessibleName(
     'Platz 5, Tom, 0,5 Punkte, 1 Getränk',
   );
+});
+
+test('the fixture preview shows and deletes entries on a person’s Verlauf', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/rangliste');
+  await page
+    .getByRole('link', { name: 'Platz 1, Daniel, 13,5 Punkte, 9 Getränke' })
+    .click();
+
+  await expect(page).toHaveURL(/#\/verlauf\/3$/);
+  const entries = page
+    .getByRole('list', { name: 'Einträge von Daniel' })
+    .getByRole('listitem');
+  await expect(entries).toHaveCount(5);
+  await expect(entries.first()).toContainText(
+    /^2× BierKein Faktor · \d\d:\d\d · anna/,
+  );
+  await expect(entries.nth(2)).toContainText(
+    /^2× SchnapsGeburtstag ×1,5 · \d\d:\d\d · gelöschtes Konto/,
+  );
+  await page
+    .getByRole('button', { name: /^2× Bier um .* löschen$/ })
+    .first()
+    .click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Löschen' })
+    .click();
+
+  await expect(page.getByText('Eintrag gelöscht')).toBeVisible();
+  await expect(entries).toHaveCount(4);
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await expect(
+    page.getByRole('list', { name: 'Rangliste' }).getByRole('link').first(),
+  ).toHaveAccessibleName('Platz 1, Daniel, 11,5 Punkte, 7 Getränke');
 });
