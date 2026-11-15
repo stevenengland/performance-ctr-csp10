@@ -17,7 +17,7 @@ import { useOnline } from '../../core/online';
 import { scoreOf, useScoreboardFeed } from '../../core/scoreboard-feed';
 import { showProblem } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
-import { leaveGoneStep, returnToNames, saveEntry } from './add-flow';
+import { backToNamesFrom, leaveGoneStep, saveEntry } from './add-flow';
 
 /**
 Step 4 — Faktor (§7e): `Kein Faktor`, then one raspberry tile per factor. The tap
@@ -82,7 +82,7 @@ async function choose(factor: Readonly<Factor> | null) {
         ? `${factor.name} ${formatMultiplier(factor.multiplier)}`
         : undefined,
     },
-    () => returnToNames(router),
+    backToNamesFrom(router),
   );
   saving.value = undefined;
 }

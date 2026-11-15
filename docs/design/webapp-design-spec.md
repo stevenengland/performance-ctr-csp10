@@ -281,7 +281,7 @@ an older one.
 |---|---|---|
 | Entry saved | `2× Bier · Happy Hour ×2 · Daniel` (factor part omitted for "Kein Faktor") | `Rückgängig` |
 | Entry undone | `Rückgängig gemacht` | — |
-| Save failed (network) | `Nicht gespeichert – keine Verbindung` | `Erneut versuchen` (same UUID) |
+| Save failed (network) | `Nicht gespeichert – keine Verbindung` | `Erneut versuchen` (same UUID, this attempt only; returns to the names only while the step is still shown) |
 | Undo failed (network) | `Nicht rückgängig gemacht – keine Verbindung` | `Erneut versuchen` |
 | Route item gone (§4) | `Nicht mehr vorhanden` | — |
 | Problem response | the problem's `title` | — |
@@ -445,7 +445,9 @@ submit on Enter.
 - Tapping a tile saves: the tapped tile turns amber and the others dim, then the app returns to step 1 and
   shows the saved snackbar (§6.3).
 - Save failure: stay on the step, buttons enabled again, snackbar with `Erneut versuchen`
-  (retries with the same UUID).
+  (retries this attempt with the same UUID). Any other save, even of the same content, is a new
+  entry with a new UUID. When a save succeeds after the user has left the step (a late answer or
+  a retry from the snackbar on another screen), only the snackbar shows; the app does not move.
 - Offline: buttons disabled under the offline banner.
 - `:quantity` is the number of new drinks, 1–99; any other value is no step (→ `/zaehlen`).
   The factors come from `GET /api/factors` (shared with Verwalten); the step indicator has
@@ -590,7 +592,7 @@ submit on Enter.
 2. **Undo:** tap `Rückgängig` within 8 s → entry deleted, snackbar `Rückgängig gemacht`, counters
    back.
 3. **Lost response:** save fails → `Erneut versuchen` → same UUID → server returns the original
-   outcome; no duplicate.
+   outcome; no duplicate. A later `Speichern` of the same drink is a new entry with a new UUID.
 4. **Fix later:** Rangliste → Daniel → Verlauf → delete entry → confirm.
 5. **Set up an evening:** Verwalten → Getränke → `Getränk anlegen` → `Margarita`, `3` →
    Speichern; same for a factor.

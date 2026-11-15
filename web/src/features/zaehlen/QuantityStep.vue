@@ -24,7 +24,7 @@ import {
   addFlowSteps,
   factorStepPath,
   leaveGoneStep,
-  returnToNames,
+  backToNamesFrom,
   saveEntry,
 } from './add-flow';
 
@@ -92,7 +92,7 @@ async function next() {
       factorId: null,
     },
     { drink: drink.value.name, person: person.value.name },
-    () => returnToNames(router),
+    backToNamesFrom(router),
   );
   saving.value = false;
 }

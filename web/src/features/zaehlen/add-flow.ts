@@ -20,43 +20,34 @@ export interface EntryLabels {
 
 export type SaveOutcome =
   | { kind: 'saved'; id: string }
-  /** No definite answer (no connection, server unavailable): the id is kept for the retry. */
-  | { kind: 'lost' }
+  /**
+  No definite answer (no connection, server unavailable). `retry` sends this attempt
+  again under the same id, so a save whose response was lost is never booked twice.
+  */
+  | { kind: 'lost'; retry: () => Promise<SaveOutcome> }
   | { kind: 'rejected'; problem: ApiProblem };
 
-function sameContent(a: NewEntry, b: NewEntry): boolean {
-  return (
-    a.personId === b.personId &&
-    a.drinkId === b.drinkId &&
-    a.quantity === b.quantity &&
-    (a.factorId ?? null) === (b.factorId ?? null)
-  );
-}
-
 /**
-Saves entries under a client-generated id and keeps that id until the server gave a
-definite answer: saving the same content again (`Erneut versuchen`) reuses it, so a
-save whose response was lost can never be booked twice.
+Saves entries under a client-generated id. Every save is a new attempt with a new id;
+only the attempt's own `retry` (`Erneut versuchen`) reuses it. A later save of the
+same content is a new drink, so it must never reuse a lost attempt's id: the server
+would answer it as a replay and book nothing.
 */
 export function createEntrySaver(newId: () => string) {
-  let pending: { id: string; entry: NewEntry } | undefined;
-
-  return async function save(entry: NewEntry): Promise<SaveOutcome> {
-    if (!pending || !sameContent(pending.entry, entry)) {
-      pending = { id: newId(), entry };
-    }
-    const { id } = pending;
+  async function attempt(id: string, entry: NewEntry): Promise<SaveOutcome> {
     try {
       await putEntry(id, entry);
-      pending = undefined;
       return { kind: 'saved', id };
     } catch (failure) {
       if (failure instanceof ApiProblem && failure.status < 500) {
-        pending = undefined;
         return { kind: 'rejected', problem: failure };
       }
-      return { kind: 'lost' };
+      return { kind: 'lost', retry: () => attempt(id, entry) };
     }
+  }
+
+  return function save(entry: NewEntry): Promise<SaveOutcome> {
+    return attempt(newId(), entry);
   };
 }
 
@@ -87,16 +78,25 @@ export async function undoEntry(id: string): Promise<void> {
 }
 
 /**
-Saves an entry and says so: on success `done` runs (back to the name list) and the
-snackbar offers `Rückgängig`; without an answer it offers `Erneut versuchen` with the
-same id; a problem shows its title. Resolves to whether the entry is saved.
+Saves an entry and says so: on success `done` runs (back to the name list, see
+`backToNamesFrom`) and the snackbar offers `Rückgängig`; without an answer it offers
+`Erneut versuchen`, which retries this attempt with the same id; a problem shows its
+title. Resolves to whether the entry is saved.
 */
 export async function saveEntry(
   entry: NewEntry,
   labels: EntryLabels,
   done: () => void,
 ): Promise<boolean> {
-  const outcome = await save(entry);
+  return report(await save(entry), entry, labels, done);
+}
+
+async function report(
+  outcome: SaveOutcome,
+  entry: NewEntry,
+  labels: EntryLabels,
+  done: () => void,
+): Promise<boolean> {
   if (outcome.kind === 'saved') {
     done();
     showSnackbar({
@@ -119,7 +119,10 @@ export async function saveEntry(
       text: messages.zaehlen.notSaved,
       action: {
         label: messages.zaehlen.retry,
-        run: () => void saveEntry(entry, labels, done),
+        run: () =>
+          void outcome
+            .retry()
+            .then((next) => report(next, entry, labels, done)),
       },
     });
   } else {
@@ -175,6 +178,19 @@ export function returnToNames(router: Router): void {
     void router.replace(NAMES_PATH);
   }
   startedOnNames = false;
+}
+
+/**
+The `done` of a save on the current step: back to the name list, but only while that
+step is still shown. A save that succeeds later (a slow answer, or `Erneut versuchen`
+from the snackbar after the user moved on) never pulls the user off another screen or
+out of another add flow.
+*/
+export function backToNamesFrom(router: Router): () => void {
+  const step = router.currentRoute.value.fullPath;
+  return () => {
+    if (router.currentRoute.value.fullPath === step) returnToNames(router);
+  };
 }
 
 /** A person or drink of the route was deleted (on another phone): back to the start (§4). */

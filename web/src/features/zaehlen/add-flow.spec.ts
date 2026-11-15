@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createMemoryHistory, createRouter } from 'vue-router';
 import { dismissSnackbar, useSnackbar } from '../../core/snackbar';
 import {
   addFlowSteps,
+  backToNamesFrom,
+  choosePerson,
   createEntrySaver,
   saveEntry,
   undoEntry,
@@ -66,13 +69,16 @@ describe('saving an entry', () => {
     vi.unstubAllGlobals();
   });
 
-  it('keeps the id after a lost response and reuses it for the retry', async () => {
+  it('keeps the id after a lost response and reuses it for the retry of that attempt', async () => {
     const calls = api(lost, lost, created);
     const save = createEntrySaver(ids());
 
-    expect(await save(TWO_BEERS)).toEqual({ kind: 'lost' });
-    expect(await save(TWO_BEERS)).toEqual({ kind: 'lost' });
-    expect(await save(TWO_BEERS)).toEqual({ kind: 'saved', id: 'id-1' });
+    const first = await save(TWO_BEERS);
+    expect(first.kind).toBe('lost');
+    const second = first.kind === 'lost' ? await first.retry() : first;
+    expect(second.kind).toBe('lost');
+    const third = second.kind === 'lost' ? await second.retry() : second;
+    expect(third).toEqual({ kind: 'saved', id: 'id-1' });
 
     expect(entryCalls(calls).map(({ url }) => url)).toEqual([
       '/api/entries/id-1',
@@ -85,8 +91,8 @@ describe('saving an entry', () => {
     const calls = api(() => problem(503, 'Wird aktualisiert'), created);
     const save = createEntrySaver(ids());
 
-    await save(TWO_BEERS);
-    await save(TWO_BEERS);
+    const first = await save(TWO_BEERS);
+    if (first.kind === 'lost') await first.retry();
 
     expect(entryCalls(calls).map(({ url }) => url)).toEqual([
       '/api/entries/id-1',
@@ -94,10 +100,11 @@ describe('saving an entry', () => {
     ]);
   });
 
-  it('takes a new id only after a definite answer', async () => {
+  it('takes a new id for every new save, even with the same content after a lost response', async () => {
     const calls = api(
       created,
       () => problem(422, 'Bitte Eingaben prüfen'),
+      lost,
       created,
     );
     const save = createEntrySaver(ids());
@@ -107,12 +114,15 @@ describe('saving an entry', () => {
       kind: 'rejected',
       problem: { status: 422 },
     });
-    await save(TWO_BEERS);
+    expect((await save(TWO_BEERS)).kind).toBe('lost');
+    // Later the same drink again: a new save, never the lost attempt's id.
+    expect(await save(TWO_BEERS)).toEqual({ kind: 'saved', id: 'id-4' });
 
     expect(entryCalls(calls).map(({ url }) => url)).toEqual([
       '/api/entries/id-1',
       '/api/entries/id-2',
       '/api/entries/id-3',
+      '/api/entries/id-4',
     ]);
   });
 
@@ -162,7 +172,18 @@ describe('saving an entry', () => {
     expect(useSnackbar().value?.text).toBe('2× Bier · Daniel');
   });
 
-  it('takes a new id when the factor differs, since that is other content', async () => {
+  it('books a later save of the same content under a new id, after an ignored Erneut versuchen', async () => {
+    const calls = api(lost, created);
+
+    await saveEntry(TWO_BEERS, LABELS, vi.fn());
+    dismissSnackbar();
+    await expect(saveEntry(TWO_BEERS, LABELS, vi.fn())).resolves.toBe(true);
+
+    const [lostPut, laterPut] = entryCalls(calls);
+    expect(laterPut?.url).not.toBe(lostPut?.url);
+  });
+
+  it('takes a new id when the factor differs, since that is a new save', async () => {
     const calls = api(lost, created);
     const save = createEntrySaver(ids());
 
@@ -230,6 +251,55 @@ describe('undoing an entry', () => {
       'DELETE',
       'DELETE',
     ]);
+  });
+});
+
+function memoryRouter() {
+  const Empty = { render: () => null };
+  return createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/:rest(.*)*', component: Empty }],
+  });
+}
+
+describe('leaving the step after saving', () => {
+  it('returns to the name list from the step that saved', async () => {
+    const router = memoryRouter();
+    await router.push('/zaehlen');
+    await choosePerson(router, 4);
+    await router.push('/zaehlen/4/1');
+    const done = backToNamesFrom(router);
+
+    done();
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.path).toBe('/zaehlen');
+    });
+  });
+
+  it('stays where the user went in the meantime, e.g. a retry from the Rangliste', async () => {
+    const router = memoryRouter();
+    await router.push('/zaehlen/4/1');
+    const done = backToNamesFrom(router);
+    await router.push('/rangliste');
+
+    done();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(router.currentRoute.value.path).toBe('/rangliste');
+  });
+
+  it('stays in another add flow the user started in the meantime', async () => {
+    const router = memoryRouter();
+    await router.push('/zaehlen/4/1');
+    const done = backToNamesFrom(router);
+    await router.push('/zaehlen');
+    await choosePerson(router, 5);
+    await router.push('/zaehlen/5/2');
+
+    done();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(router.currentRoute.value.path).toBe('/zaehlen/5/2');
   });
 });
 
