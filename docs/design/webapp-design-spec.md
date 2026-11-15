@@ -282,6 +282,8 @@ an older one.
 | Entry saved | `2× Bier · Happy Hour ×2 · Daniel` (factor part omitted for "Kein Faktor") | `Rückgängig` |
 | Entry undone | `Rückgängig gemacht` | — |
 | Save failed (network) | `Nicht gespeichert – keine Verbindung` | `Erneut versuchen` (same UUID) |
+| Undo failed (network) | `Nicht rückgängig gemacht – keine Verbindung` | `Erneut versuchen` |
+| Route item gone (§4) | `Nicht mehr vorhanden` | — |
 | Problem response | the problem's `title` | — |
 | Deleted item | `<Name> gelöscht` | — |
 | Update available | `Neue Version verfügbar` | `Neu laden` |
@@ -388,8 +390,8 @@ submit on Enter.
 - Title `Zählen`; step indicator at 1. Question `Für wen?` in `question`.
 - Grid of person tiles (§6.4), alphabetical, each with the person's total score for today
   (from the scoreboard feed).
-- Empty: `Noch keine Personen.` + button `Person anlegen` → `/verwalten/personen` with the create
-  dialog open.
+- Empty: `Noch keine Personen.` + button `Person anlegen` → `/verwalten/personen?anlegen` (the
+  query opens the create dialog).
 
 ### 7c. Zählen, step 2 — Getränk `/zaehlen/:personId`
 
@@ -397,7 +399,7 @@ submit on Enter.
 - Grid of drink tiles with points, the person's counter for today and its tally (§6.4),
   alphabetical.
 - Counters come from the scoreboard feed (§10), not a separate request.
-- Empty: `Noch keine Getränke.` + `Getränk anlegen`.
+- Empty: `Noch keine Getränke.` + `Getränk anlegen` → `/verwalten/getraenke?anlegen`.
 
 ### 7d. Zählen, step 3 — Anzahl `/zaehlen/:personId/:drinkId`
 
@@ -410,7 +412,13 @@ submit on Enter.
   Verlauf — and `+` stops at 99 new drinks. The button reads `Weiter` (or `Speichern` when
   no factors exist, in which case it saves) and is disabled until at least one drink is new;
   the quantity sent to the API is the number of new drinks.
-- With no factors defined, `Speichern` saves (step 4 is skipped).
+- With no factors defined, `Speichern` saves (step 4 is skipped) and the step indicator has
+  three segments. Offline, `Speichern` is disabled under the offline banner.
+- After saving, the steps walked from the name list are taken back off the history, so the
+  system back gesture does not return into the finished flow.
+- On medium and expanded windows the stepper and its button keep a phone's width (max 480 dp,
+  left-aligned); only grids widen (§5).
+- `Rückgängig` on an entry that is already gone (deleted elsewhere) counts as undone.
 
 ### 7e. Zählen, step 4 — Faktor `/zaehlen/:personId/:drinkId/:quantity`
 
@@ -452,7 +460,8 @@ submit on Enter.
 
 - List: `Personen`, `Getränke`, `Faktoren`, and `Konten` (admins only), each with its count as
   supporting text. A row that opens a screen ends in `mdiChevronRight`. (Slice 1/5 links
-  `Konten` only and shows no counts yet; the master-data slices add theirs.)
+  `Konten`, slice 1/6 `Personen` and `Getränke`; the counts and `Faktoren` come with the
+  master-data slices.)
 
 ### 7i. Personen / Getränke / Faktoren
 
@@ -464,7 +473,10 @@ submit on Enter.
 - Create/edit dialog: `Name`; drinks also `Punkte` (decimal); factors also `Multiplikator`
   (decimal, shown with `×` prefix). Buttons `Abbrechen` and `Speichern`.
 - Delete: confirmation dialog with the entry count (§6.9).
-- Validation errors inline (§6.11); duplicate name → `Name ist bereits vergeben.`
+- Validation errors inline (§6.11); duplicate name → `Name ist bereits vergeben.`; points
+  outside 0–9 999,99 (or no number) → `Zahl von 0 bis 9.999,99.`, from the server.
+- Slice 1/6 builds the lists (name; drinks with points) and the create dialogs only; edit and
+  delete come with slice 1/9.
 
 ### 7j. Konten `/verwalten/konten` (admins only)
 
@@ -538,7 +550,9 @@ submit on Enter.
 - Contrast from the role pairs in §3.1 only; every pair in use meets AA.
 - Tally marks are decorative and hidden from assistive technology; upper-case display text is
   produced with CSS so it is read in normal case.
-- Every counting button has an accessible name with its state, e.g. `Bier, 1 Punkt, heute 4`.
+- Every counting button has an accessible name with its state, e.g. `Bier, 1 Punkt, heute 4`,
+  `Daniel, 13,5 Punkte heute` or `Jule, noch nichts`; the stepper's buttons are `Eins weniger`
+  and `Eins mehr`.
 - Snackbars announced via a polite live region; dialogs trap focus and return it on close.
 - Visible focus ring on every interactive element; full keyboard operation on desktop.
 - `prefers-reduced-motion` respected (§3.4); text scaling to 200 %.
@@ -550,10 +564,12 @@ submit on Enter.
 | Anmelden | `POST /api/session` | Sets the cookie |
 | Shell (signed-in check) | `GET /api/session` | 401 → `/anmelden` |
 | Konto | `GET /api/session`, `PUT /api/session/password`, `DELETE /api/session`, `GET /api/health` | |
-| Namen | `GET /api/persons` | |
+| Namen | `GET /api/persons`, scoreboard feed | Scores from the feed |
 | Getränk | `GET /api/drinks`, scoreboard feed | Counters from the feed |
+| Anzahl | scoreboard feed, `PUT /api/entries/{uuid}` | Booked count from the feed; saves while no factors exist |
 | Faktor | `GET /api/factors`, `PUT /api/entries/{uuid}` | Choice saves |
-| Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | |
+| Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
+| Personen / Getränke (create, slice 1/6) | `GET/POST /api/persons`, `GET/POST /api/drinks` | |
 | Rangliste | `GET /api/scoreboard?from=` (ETag) | Feed polls every 10 s while visible |
 | Verlauf | `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count |
