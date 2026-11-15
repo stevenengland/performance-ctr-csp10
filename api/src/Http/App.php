@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Performance\Http;
 
+use Performance\Domain\Clock;
+use Performance\Domain\SystemClock;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -15,15 +17,30 @@ use Slim\Psr7\Factory\ResponseFactory;
  */
 final class App
 {
-    public static function create(Config $config, string $basePath = ''): RequestHandlerInterface
+    public static function create(Config $config, string $basePath = '', ?Clock $clock = null): RequestHandlerInterface
     {
         $responses = new ResponseFactory();
-        $database = new Database($config);
+        $database = new Database($config, $clock ?? new SystemClock());
         $app = new SlimApp($responses);
         $app->setBasePath($basePath);
+        $signedIn = new SessionAuth($database, $responses);
+        $adminOnly = new AdminOnly($responses);
+        $session = new SessionActions($database, $config->bootstrapAdmin);
+        $accounts = new AccountActions($database);
 
+        // Open routes: health and sign-in. Every other route requires a session.
         $app->get('/api/health', new HealthAction($database, $config->appVersion));
+        $app->post('/api/session', $session->signIn(...));
 
+        $app->get('/api/session', $session->current(...))->add($signedIn);
+        $app->delete('/api/session', $session->signOut(...))->add($signedIn);
+        $app->put('/api/session/password', $session->changePassword(...))->add($signedIn);
+        // Route middleware added last runs first: SessionAuth, then AdminOnly.
+        $app->get('/api/accounts', $accounts->list(...))->add($adminOnly)->add($signedIn);
+        $app->post('/api/accounts', $accounts->create(...))->add($adminOnly)->add($signedIn);
+
+        // Inside routing, so an unknown route or method stays 404/405 whatever its body.
+        $app->add(new JsonBody($responses));
         $app->addRoutingMiddleware();
         $app->add(new MigrationGate($database, $responses, $basePath . '/api/health'));
         $app->addErrorMiddleware(false, false, false)

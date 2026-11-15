@@ -5,18 +5,27 @@ declare(strict_types=1);
 namespace Performance\Http;
 
 use PDO;
+use Performance\Domain\Accounts;
+use Performance\Domain\Clock;
 use Performance\Domain\Migrator;
+use Performance\Domain\Sessions;
 
 /**
- * Opens the request's database session on first use, so a request that needs
- * no database (and an unreachable database) fails only where it matters.
+ * Opens the request's database session, and the domain modules that work on it,
+ * on first use, so a request that needs no database (and an unreachable
+ * database) fails only where it matters.
  */
 final class Database
 {
     private ?PDO $pdo = null;
     private ?Migrator $migrator = null;
+    private ?Accounts $accounts = null;
+    private ?Sessions $sessions = null;
 
-    public function __construct(private readonly Config $config) {}
+    public function __construct(
+        private readonly Config $config,
+        private readonly Clock $clock,
+    ) {}
 
     public function pdo(): PDO
     {
@@ -26,6 +35,16 @@ final class Database
     public function migrator(): Migrator
     {
         return $this->migrator ??= Migrator::fromDirectories($this->pdo(), ...$this->config->migrationDirectories);
+    }
+
+    public function accounts(): Accounts
+    {
+        return $this->accounts ??= new Accounts($this->pdo(), $this->clock);
+    }
+
+    public function sessions(): Sessions
+    {
+        return $this->sessions ??= new Sessions($this->pdo(), $this->accounts(), $this->clock);
     }
 
     private function connect(): PDO

@@ -21,10 +21,90 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/session': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The signed-in account */
+    get: operations['getSession'];
+    put?: never;
+    /**
+     * Sign in; creates the bootstrap admin first when no admin exists
+     * @description Sets the session cookie. After five failed sign-ins for the same user name and client address within 15 minutes, answers 429 until the window passes. An unknown user name and a wrong password get the same answer.
+     */
+    post: operations['signIn'];
+    /** Sign out; revokes the session on the server and clears the cookie */
+    delete: operations['signOut'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/session/password': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Change the own password; signs the account out on every other device */
+    put: operations['changePassword'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/accounts': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every account, by user name (admins only) */
+    get: operations['listAccounts'];
+    put?: never;
+    /** Create an account (admins only) */
+    post: operations['createAccount'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    Account: {
+      id: number;
+      /** @example anna */
+      userName: string;
+      isAdmin: boolean;
+    };
+    AccountList: {
+      accounts: components['schemas']['Account'][];
+    };
+    SignIn: {
+      userName: string;
+      password: string;
+    };
+    PasswordChange: {
+      currentPassword: string;
+      newPassword: string;
+    };
+    NewAccount: {
+      /** @description Trimmed; 1–40 characters; unique regardless of case */
+      userName: string;
+      /** @description The start password */
+      password: string;
+    };
     Health: {
       /**
        * @description Version of the release that answered, `MAJOR.MINOR.PATCH` with optional build metadata
@@ -56,6 +136,14 @@ export interface components {
        * @enum {string}
        */
       type:
+        | 'urn:performance:problem:bad-request'
+        | 'urn:performance:problem:unauthenticated'
+        | 'urn:performance:problem:invalid-credentials'
+        | 'urn:performance:problem:forbidden'
+        | 'urn:performance:problem:duplicate-user-name'
+        | 'urn:performance:problem:unsupported-media-type'
+        | 'urn:performance:problem:validation'
+        | 'urn:performance:problem:too-many-attempts'
         | 'urn:performance:problem:not-found'
         | 'urn:performance:problem:method-not-allowed'
         | 'urn:performance:problem:internal'
@@ -107,6 +195,152 @@ export interface operations {
         };
       };
       500: components['responses']['Problem'];
+    };
+  };
+  getSession: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The signed-in account */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Account'];
+        };
+      };
+      401: components['responses']['Problem'];
+    };
+  };
+  signIn: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SignIn'];
+      };
+    };
+    responses: {
+      /** @description Signed in */
+      200: {
+        headers: {
+          /** @description `session=<token>; Path=/; Max-Age=15552000; HttpOnly; Secure; SameSite=Strict` */
+          'Set-Cookie'?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Account'];
+        };
+      };
+      400: components['responses']['Problem'];
+      401: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      429: components['responses']['Problem'];
+    };
+  };
+  signOut: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Signed out */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+    };
+  };
+  changePassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PasswordChange'];
+      };
+    };
+    responses: {
+      /** @description Changed */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  listAccounts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The accounts */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AccountList'];
+        };
+      };
+      401: components['responses']['Problem'];
+      403: components['responses']['Problem'];
+    };
+  };
+  createAccount: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewAccount'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Account'];
+        };
+      };
+      401: components['responses']['Problem'];
+      403: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
     };
   };
 }

@@ -17,9 +17,9 @@ final class MigratorTest extends DatabaseTestCase
         $health = $this->body($this->get('/api/health', $app));
 
         self::assertSame('ok', $health['migration']);
-        self::assertSame(2, $health['schemaVersion']);
+        self::assertSame(9001, $health['schemaVersion']);
         $rows = $this->bookkeeping();
-        self::assertSame(['0001_create_schema_migrations', '0002_require_the_lock'], array_column($rows, 'version'));
+        self::assertSame([...self::migrationNames(), '9001_require_the_lock'], array_column($rows, 'version'));
         foreach ($rows as $row) {
             self::assertSame('completed', $row['state']);
             self::assertNotNull($row['started_at']);
@@ -51,14 +51,14 @@ final class MigratorTest extends DatabaseTestCase
         // A crash between the DDL and its bookkeeping: the table exists, the row says started.
         $other->exec('CREATE TABLE crash_probe (id INT UNSIGNED NOT NULL PRIMARY KEY)');
         $other->exec(
-            "INSERT INTO schema_migrations (version, state, started_at) VALUES ('0002_create_crash_probe', 'started', UTC_TIMESTAMP(3))",
+            "INSERT INTO schema_migrations (version, state, started_at) VALUES ('9001_create_crash_probe', 'started', UTC_TIMESTAMP(3))",
         );
 
         $health = $this->body($this->get('/api/health', $this->app($this->config($this->fixtureMigrations('crash')))));
 
         self::assertSame('ok', $health['migration']);
-        self::assertSame(2, $health['schemaVersion']);
-        self::assertSame('completed', $this->bookkeeping()[1]['state']);
+        self::assertSame(9001, $health['schemaVersion']);
+        self::assertSame('completed', array_column($this->bookkeeping(), 'state', 'version')['9001_create_crash_probe']);
     }
 
     public function testAFailingMigrationLeavesHealthReportingFailedAndTheApiAnswering503(): void
@@ -69,7 +69,7 @@ final class MigratorTest extends DatabaseTestCase
         $other = $this->get('/api/anything', $app);
 
         self::assertSame('failed', $health['migration']);
-        self::assertSame(1, $health['schemaVersion']);
+        self::assertSame(self::schemaVersion(), $health['schemaVersion']);
         self::assertSame(503, $other->getStatusCode());
         self::assertSame('application/problem+json', $other->getHeaderLine('Content-Type'));
         self::assertSame('urn:performance:problem:migration-failed', $this->body($other)['type']);
@@ -82,7 +82,7 @@ final class MigratorTest extends DatabaseTestCase
         $health = $this->body($this->get('/api/health'));
 
         self::assertSame('ok', $health['migration']);
-        self::assertCount(1, $this->bookkeeping());
+        self::assertSame(self::migrationNames(), array_column($this->bookkeeping(), 'version'));
     }
 
     /**

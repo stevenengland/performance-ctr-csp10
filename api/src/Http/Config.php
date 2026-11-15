@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Performance\Http;
 
+use Performance\Domain\BootstrapAdmin;
 use RuntimeException;
 
 /**
- * Runtime configuration: database credentials from the file the deploy renders
- * outside the web root, and the version of the release that serves the request.
+ * Runtime configuration: database credentials and the bootstrap admin from the file
+ * the deploy renders outside the web root, and the version of the release that
+ * serves the request.
  */
 final readonly class Config
 {
@@ -21,11 +23,14 @@ final readonly class Config
         public string $databasePassword,
         public string $appVersion,
         public array $migrationDirectories,
+        public ?BootstrapAdmin $bootstrapAdmin = null,
     ) {}
 
     /**
-     * Reads the runtime configuration file (a PHP file returning `['db' => [host, port?, name, user, password]]`)
+     * Reads the runtime configuration file (a PHP file returning
+     * `['db' => [host, port?, name, user, password], 'bootstrapAdmin' => [user, passwordHash]]`)
      * and the release's version file `release.php` (absent outside a built release).
+     * Without a complete `bootstrapAdmin` entry no bootstrap admin is created.
      */
     public static function load(string $configFile, string $releaseRoot): self
     {
@@ -50,7 +55,18 @@ final readonly class Config
                 ? $release['appVersion']
                 : '0.0.0-dev',
             migrationDirectories: [$releaseRoot . '/migrations'],
+            bootstrapAdmin: self::bootstrapAdmin($config['bootstrapAdmin'] ?? null),
         );
+    }
+
+    private static function bootstrapAdmin(mixed $entry): ?BootstrapAdmin
+    {
+        $user = is_array($entry) ? ($entry['user'] ?? null) : null;
+        $hash = is_array($entry) ? ($entry['passwordHash'] ?? null) : null;
+
+        return is_string($user) && trim($user) !== '' && is_string($hash) && $hash !== ''
+            ? new BootstrapAdmin($user, $hash)
+            : null;
     }
 
     /**

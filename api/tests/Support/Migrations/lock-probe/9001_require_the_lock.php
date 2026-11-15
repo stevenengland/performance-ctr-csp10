@@ -22,7 +22,7 @@ return new class implements Migration {
         if ((int) $lock->fetchColumn() !== 1) {
             throw new RuntimeException('The migration lock is not held by this session');
         }
-        $state = $pdo->query("SELECT state FROM schema_migrations WHERE version = '0002_require_the_lock'");
+        $state = $pdo->query("SELECT state FROM schema_migrations WHERE version = '9001_require_the_lock'");
         if ($state === false || $state->fetchColumn() !== 'started') {
             throw new RuntimeException('The migration was not recorded as started before its DDL');
         }

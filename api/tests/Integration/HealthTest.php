@@ -24,7 +24,7 @@ final class HealthTest extends DatabaseTestCase
         self::assertContains($database['engine'], ['MySQL', 'MariaDB']);
         self::assertIsString($database['version']);
         self::assertMatchesRegularExpression('/^\d+\.\d+\.\d+$/', $database['version']);
-        self::assertSame(1, $health['schemaVersion']);
+        self::assertSame(self::schemaVersion(), $health['schemaVersion']);
         self::assertSame('ok', $health['migration']);
         self::assertSame('0.1.0', $health['minClientVersion']);
     }
