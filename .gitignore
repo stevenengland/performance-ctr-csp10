@@ -8,7 +8,7 @@ api/.php-cs-fixer.cache
 test-results/
 playwright-report/
 .lighthouseci/
-screenshots/
+/screenshots/
 .stenswf/
 .env
 .env.*
