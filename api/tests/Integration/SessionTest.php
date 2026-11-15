@@ -32,6 +32,21 @@ final class SessionTest extends DatabaseTestCase
         self::assertSame(['id' => 1, 'userName' => self::ADMIN, 'isAdmin' => true], $this->body($response));
     }
 
+    public function testSigningInDeletesExpiredSessions(): void
+    {
+        $expired = $this->signIn();
+        $this->clock->advance('P181D');
+
+        $current = $this->signIn();
+
+        self::assertSame(
+            [['token_hash' => hash('sha256', $current)]],
+            $this->rows('SELECT token_hash FROM sessions'),
+            'only the new session is left, the expired one is gone',
+        );
+        self::assertNotSame($expired, $current);
+    }
+
     public function testUserNamesIgnoreCaseAndSurroundingSpaces(): void
     {
         $response = $this->send('POST', '/api/session', ['userName' => ' CHEF ', 'password' => self::ADMIN_PASSWORD]);
