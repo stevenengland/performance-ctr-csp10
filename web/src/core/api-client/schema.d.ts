@@ -207,6 +207,26 @@ export interface paths {
     patch: operations['updateFactor'];
     trace?: never;
   };
+  '/api/entries': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * A person's entries since `from`, the start of the viewer's day, newest first
+     * @description Each entry names its drink and its factor (null without one, or once the factor was deleted) with their current names, and the user name of the account that logged it (null once that account was deleted). A `personId` that is not a positive integer is 422; a person that does not exist is 404.
+     */
+    get: operations['listEntries'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/entries/{id}': {
     parameters: {
       query?: never;
@@ -359,6 +379,32 @@ export interface components {
        * @example 2026-11-14T22:41:07.123Z
        */
       createdAt: string;
+    };
+    EntryHistory: {
+      /** @description Newest first */
+      entries: components['schemas']['HistoryEntry'][];
+    };
+    HistoryEntry: {
+      id: string;
+      drink: {
+        id: number;
+        name: string;
+      };
+      quantity: components['schemas']['Quantity'];
+      /** @description The factor with its current multiplier; null for none or a deleted factor */
+      factor: null | {
+        id: number;
+        name: string;
+        multiplier: number;
+      };
+      /**
+       * Format: date-time
+       * @description Server time of the entry, UTC
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+      /** @description User name of the account that logged it; null once that account was deleted */
+      accountName: string | null;
     };
     Scoreboard: {
       /** @description Ranked by score, ties by name; persons without entries are absent */
@@ -1001,6 +1047,33 @@ export interface operations {
       404: components['responses']['Problem'];
       409: components['responses']['Problem'];
       415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  listEntries: {
+    parameters: {
+      query: {
+        personId: number;
+        /** @description Local midnight of the viewer's day as an ISO-8601 instant with offset */
+        from: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The entries, newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['EntryHistory'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
       422: components['responses']['Problem'];
     };
   };

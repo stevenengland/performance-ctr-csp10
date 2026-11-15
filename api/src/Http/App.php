@@ -58,6 +58,7 @@ final class App
         $app->get($factor, $catalog->readFactor(...))->add($signedIn);
         $app->patch($factor, $catalog->updateFactor(...))->add($signedIn);
         $app->delete($factor, $catalog->deleteFactor(...))->add($signedIn);
+        $app->get('/api/entries', $entries->list(...))->add($signedIn);
         $entry = '/api/entries/{id:' . EntryActions::ID_PATTERN . '}';
         $app->put($entry, $entries->put(...))->add($signedIn);
         $app->delete($entry, $entries->delete(...))->add($signedIn);

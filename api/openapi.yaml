@@ -442,6 +442,43 @@ paths:
           $ref: '#/components/responses/Problem'
         '404':
           $ref: '#/components/responses/Problem'
+  /api/entries:
+    get:
+      operationId: listEntries
+      summary: A person's entries since `from`, the start of the viewer's day, newest first
+      description: >-
+        Each entry names its drink and its factor (null without one, or once the factor
+        was deleted) with their current names, and the user name of the account that
+        logged it (null once that account was deleted). A `personId` that is not a positive
+        integer is 422; a person that does not exist is 404.
+      parameters:
+        - name: personId
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: from
+          in: query
+          required: true
+          description: Local midnight of the viewer's day as an ISO-8601 instant with offset
+          schema:
+            type: string
+            format: date-time
+            examples: ['2026-11-14T23:00:00.000Z']
+      responses:
+        '200':
+          description: The entries, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntryHistory'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
   /api/entries/{id}:
     parameters:
       - name: id
@@ -800,6 +837,56 @@ components:
           format: date-time
           description: Server time of the first request, UTC
           examples: ['2026-11-14T22:41:07.123Z']
+    EntryHistory:
+      type: object
+      additionalProperties: false
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          description: Newest first
+          items:
+            $ref: '#/components/schemas/HistoryEntry'
+    HistoryEntry:
+      type: object
+      additionalProperties: false
+      required: [id, drink, quantity, factor, createdAt, accountName]
+      properties:
+        id:
+          type: string
+        drink:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        quantity:
+          $ref: '#/components/schemas/Quantity'
+        factor:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [id, name, multiplier]
+              properties:
+                id:
+                  type: integer
+                name:
+                  type: string
+                multiplier:
+                  type: number
+          description: The factor with its current multiplier; null for none or a deleted factor
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the entry, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: User name of the account that logged it; null once that account was deleted
     Scoreboard:
       type: object
       additionalProperties: false

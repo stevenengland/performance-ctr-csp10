@@ -15,7 +15,7 @@ use PDOException;
  * transaction as the entry, and its primary key settles concurrent duplicates.
  * A known id answers with the original outcome and never recreates an undone
  * entry; different content under a known id is a conflict. Requests are kept
- * seven days and purged on a later add.
+ * seven days and purged on a later add. It also lists a person's entries of a day.
  */
 final readonly class EntryLedger
 {
@@ -69,6 +69,49 @@ final readonly class EntryLedger
                 throw new NotFound($id);
             }
         });
+    }
+
+    /**
+     * A person's entries since `from` (the start of the viewer's day), newest first.
+     *
+     * @return list<HistoryEntry>
+     *
+     * @throws NotFound when there is no such person
+     */
+    public function ofPersonSince(int $personId, DateTimeImmutable $from): array
+    {
+        if (!$this->exists('persons', $personId)) {
+            throw new NotFound((string) $personId);
+        }
+        $statement = $this->pdo->prepare(
+            'SELECT e.id, e.drink_id, d.name AS drink_name, e.quantity, e.factor_id, f.name AS factor_name, f.multiplier,
+                    e.created_at, a.user_name AS account_name
+             FROM entries e JOIN drinks d ON d.id = e.drink_id
+             LEFT JOIN factors f ON f.id = e.factor_id LEFT JOIN accounts a ON a.id = e.account_id
+             WHERE e.person_id = ? AND e.created_at >= ?
+             ORDER BY e.created_at DESC, e.id DESC',
+        );
+        $statement->execute([$personId, Timestamp::of($from)]);
+        /** @var list<array<string, scalar|null>> $rows */
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        return array_map(self::historyEntry(...), $rows);
+    }
+
+    /**
+     * @param array<string, scalar|null> $row
+     */
+    private static function historyEntry(array $row): HistoryEntry
+    {
+        return new HistoryEntry(
+            (string) $row['id'],
+            (int) $row['drink_id'],
+            (string) $row['drink_name'],
+            (int) $row['quantity'],
+            $row['factor_id'] === null ? null : new HistoryFactor((int) $row['factor_id'], (string) $row['factor_name'], (string) $row['multiplier']),
+            new DateTimeImmutable((string) $row['created_at'], new DateTimeZone('UTC')),
+            $row['account_name'] === null ? null : (string) $row['account_name'],
+        );
     }
 
     private function record(Entry $entry, string $fingerprint, int $accountId): AddedEntry
