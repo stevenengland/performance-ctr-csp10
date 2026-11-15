@@ -4,6 +4,27 @@ import vue from 'eslint-plugin-vue';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
+// deploy/ runs on its own and its layers point inwards (PRD #1 conventions).
+const deployOnly = {
+  group: ['**/web/**', '**/e2e/**', '**/scripts/**', '**/tests/**'],
+  message: 'deploy/ imports only deploy/.',
+};
+const deployLayer = (folder, allowed, group) => ({
+  files: [`deploy/${folder}/**/*.ts`],
+  ignores: ['deploy/**/*.test.ts'],
+  rules: {
+    'no-restricted-imports': [
+      'error',
+      {
+        patterns: [
+          deployOnly,
+          { group, message: `deploy/${folder}/ imports ${allowed}.` },
+        ],
+      },
+    ],
+  },
+});
+
 export default tseslint.config(
   {
     ignores: [
@@ -63,20 +84,14 @@ export default tseslint.config(
   {
     files: ['deploy/**/*.ts'],
     ignores: ['deploy/**/*.test.ts'],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['**/web/**', '**/e2e/**', '**/scripts/**'],
-              message: 'deploy/ imports only deploy/.',
-            },
-          ],
-        },
-      ],
-    },
+    rules: { 'no-restricted-imports': ['error', { patterns: [deployOnly] }] },
   },
+  deployLayer('contract', 'no adapter', [
+    '../io/**',
+    '../webspace/**',
+    '../*.ts',
+  ]),
+  deployLayer('webspace', 'only the contract', ['../io/**', '../*.ts']),
   {
     files: ['scripts/build-artifact.ts', 'web/scripts/**/*.ts'],
     rules: { 'no-console': 'off' },

@@ -20,8 +20,10 @@
     "check:api-types": "node scripts/check-api-types.ts",
     "check": "npm run lint && npm run format:check && npm run typecheck && npm run check:api-types",
     "test": "vitest run",
+    "test:deploy": "vitest run --config vitest.deploy.config.ts",
     "test:e2e": "playwright test",
-    "lint:secrets": "git ls-files -z | xargs -0 secretlint --maskSecrets"
+    "lint:secrets": "git ls-files -z | xargs -0 secretlint --maskSecrets",
+    "lint:workflows": "scripts/lint-workflows.sh"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

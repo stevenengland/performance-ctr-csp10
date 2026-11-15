@@ -1,6 +1,7 @@
 # Checks every pull request and every push to main without deploying (deploy
 # follows in slice 1/4). One job builds the artifact; the e2e job tests those
-# bytes. Provisional runtime: the runner's PHP 8.3 and MySQL 8.4 until the host
+# bytes. The deploy proof runs the imported deploy CLI against SFTP + Apache
+# containers; the workflow linters check this folder. Provisional runtime: the runner's PHP 8.3 and MySQL 8.4 until the host
 # probe (#2) pins the host's versions.
 name: ci
 
@@ -44,6 +45,7 @@ jobs:
           set -euo pipefail
           read -r sha256 file < <(cat dist/*.tar.gz.sha256)
           echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
+          # shellcheck disable=SC2016 # the backticks are Markdown, not a command
           printf '### Artifact\n\n`%s`\n\nsha256 `%s`\n' "$file" "$sha256" >>"$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -100,6 +102,60 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+  deploy-proof:
+    # Container proof of the deploy CLI imported from projekt2406: real
+    # OpenSSH sftp against an SFTP server and Apache sharing the remote root
+    # (tests/support/compose.yml).
+    name: Deploy proof (SFTP + Apache)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install deploy tooling
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends sshpass
+      - run: npm run test:deploy
+      - name: Container logs
+        if: failure()
+        run: docker compose -f tests/support/compose.yml logs
+
+  workflows:
+    name: Workflow linters
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint and zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/lint-workflows.sh .github/workflows
+      - name: Workflow linters reject violations
+        # A missing fixture or a script error fails too, so each run must
+        # also print the finding its fixture exists to provoke.
+        run: |
+          expect_finding() {
+            local output
+            if output=$(scripts/lint-workflows.sh --only "$1" "$2" 2>&1); then
+              echo "::error::$1 accepted a violating workflow"; exit 1
+            fi
+            if ! grep -qF -- "$3" <<<"$output"; then
+              printf '%s\n' "$output"
+              echo "::error::$1 failed without reporting: $3"; exit 1
+            fi
+          }
+          expect_finding actionlint tests/support/workflows/actionlint-violation.yml \
+            'property "missing" is not defined in object type {} [expression]'
+          expect_finding zizmor tests/support/workflows/zizmor-violation.yml \
+            'error[excessive-permissions]'
 
   phpunit:
     name: PHPUnit (MySQL)
