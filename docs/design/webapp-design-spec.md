@@ -343,7 +343,12 @@ or a new day is dropped. After a failure it retries after 5, 10, 20, 40, then ev
   the user taps `Neu laden` or a newer snackbar replaces it.
 - **Reload floor:** when health reports a `minClientVersion` above the running client, a
   non-dismissable dialog `Bitte neu laden` — `Diese Version ist veraltet.` — with one button
-  `Neu laden`.
+  `Neu laden`. A plain reload would get the old shell again from the old service worker, so the
+  button first activates the waiting service worker through the same path as the update prompt
+  (`SKIP_WAITING`) and reloads once it is active. When no worker is waiting, it first asks the
+  server for a new one and activates that if one installs. It reloads in every case: also offline,
+  when no newer worker exists, or without a service worker. While it works, the button shows
+  a progress indicator.
 - **Chunk failure:** a failed lazy chunk load reloads the page once; a second failure shows the
   reload-floor dialog.
 

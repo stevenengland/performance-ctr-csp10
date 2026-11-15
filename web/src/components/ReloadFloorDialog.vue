@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { messages } from '../core/messages';
+import { ref } from 'vue';
 import { useReloadFloor } from '../pwa/reload-floor';
+import { activateLatestAndReload } from '../pwa/update-prompt';
 
 const required = useReloadFloor();
+const reloading = ref(false);
 
+/** Activates the new service worker first; a plain reload would get the old shell again. */
 function reload() {
-  window.location.reload();
+  reloading.value = true;
+  void activateLatestAndReload();
 }
 </script>
 
@@ -20,7 +25,13 @@ function reload() {
       }}</v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="flat" color="primary" rounded="lg" @click="reload">
+        <v-btn
+          variant="flat"
+          color="primary"
+          rounded="lg"
+          :loading="reloading"
+          @click="reload"
+        >
           {{ messages.reloadFloor.reload }}
         </v-btn>
       </v-card-actions>
