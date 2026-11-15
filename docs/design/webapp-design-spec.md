@@ -250,7 +250,10 @@ Flat bar on `surface`: title in `title` style (the screen's name or, in the add 
 person), an optional context line under it in `label` (`Bier`, `2× Bier`, `Heute`), a back
 button on every screen below a navigation destination, and the account icon on the right
 (opens `/konto`). In the add flow a four-segment step indicator sits directly under the bar
-(4 dp high, filled segments in `primary`; three segments when no factors exist). On the
+(4 dp high, filled segments in `primary`; three segments when no factors exist). On add-flow
+steps 2–4 the bar also shows, right-aligned before the account icon, the chosen person's
+total score for today — all drinks, factors applied — as a numeral (`title`) over the caption
+`Punkte heute` (from the scoreboard feed; `0` when there are no entries). On the
 Rangliste the bar also shows `Stand HH:mm` in `error` when data is stale (§6.6).
 
 ### 6.2 Navigation bar / rail
