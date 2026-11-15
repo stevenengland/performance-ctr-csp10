@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router';
 import AppFab from '../../../components/AppFab.vue';
 import ConfirmDialog from '../../../components/ConfirmDialog.vue';
 import {
-  ApiProblem,
   deleteAccount,
   listAccounts,
   updateAccount,
@@ -41,9 +40,7 @@ async function load() {
   try {
     accounts.value = await listAccounts();
   } catch (failure) {
-    if (failure instanceof ApiProblem && failure.status !== 401) {
-      showSnackbar({ text: failure.title });
-    }
+    showProblem(failure);
   }
 }
 

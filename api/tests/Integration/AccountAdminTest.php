@@ -150,6 +150,20 @@ final class AccountAdminTest extends DatabaseTestCase
         self::assertSame(['id' => 2, 'userName' => 'anna', 'isAdmin' => false], $this->body($this->send('GET', '/api/session', session: $anna)));
     }
 
+    public function testAPasswordThatIsNoTextIs422AndAnEmptyChangeLeavesTheAccountAsItIs(): void
+    {
+        $this->createAccount('anna', 'annas-startpasswort');
+        $admin = $this->signIn();
+
+        $number = $this->send('PATCH', '/api/accounts/2', ['password' => 12345678901], $admin);
+        $nothing = $this->send('PATCH', '/api/accounts/2', [], $admin);
+
+        self::assertSame(['password' => 'Mindestens 10 Zeichen.'], $this->body($number)['errors']);
+        self::assertSame(200, $nothing->getStatusCode());
+        self::assertSame(['id' => 2, 'userName' => 'anna', 'isAdmin' => false], $this->body($nothing));
+        $this->signIn('anna', 'annas-startpasswort');
+    }
+
     public function testAnAdminFlagThatIsNoBooleanIs422(): void
     {
         $this->createAccount('anna', 'annas-startpasswort');
