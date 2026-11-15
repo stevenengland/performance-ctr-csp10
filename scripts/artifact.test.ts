@@ -1,5 +1,15 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { apiPointer, releaseFolder, schemaVersion } from './artifact.ts';
+import {
+  apiPointer,
+  meetsFloor,
+  minClientVersion,
+  releaseFolder,
+  schemaVersion,
+} from './artifact.ts';
+
+const repo = (path: string) =>
+  readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
 describe('the artifact', () => {
   it('names the release folder after the version, build metadata joined by a dash', () => {
@@ -23,5 +33,27 @@ describe('the artifact', () => {
       ]),
     ).toBe(12);
     expect(schemaVersion([])).toBe(0);
+  });
+
+  it('reads the API’s client floor from Compatibility.php', () => {
+    expect(minClientVersion("public const MIN_CLIENT_VERSION = '0.2.0';")).toBe(
+      '0.2.0',
+    );
+    expect(() => minClientVersion('<?php')).toThrow(/MIN_CLIENT_VERSION/);
+  });
+
+  it('compares MAJOR.MINOR.PATCH only against the floor', () => {
+    expect(meetsFloor('0.2.0+3f2a1bc', '0.2.0')).toBe(true);
+    expect(meetsFloor('0.10.0', '0.9.1')).toBe(true);
+    expect(meetsFloor('0.1.9+3f2a1bc', '0.2.0')).toBe(false);
+  });
+
+  it('ships a web version that the API still serves, or every client would be told to reload forever', () => {
+    const { version } = JSON.parse(repo('web/package.json')) as {
+      version: string;
+    };
+    const floor = minClientVersion(repo('api/src/Http/Compatibility.php'));
+
+    expect(meetsFloor(version, floor), `${version} < ${floor}`).toBe(true);
   });
 });

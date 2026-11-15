@@ -27,7 +27,13 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { env } from 'node:process';
-import { apiPointer, releaseFolder, schemaVersion } from './artifact.ts';
+import {
+  apiPointer,
+  meetsFloor,
+  minClientVersion,
+  releaseFolder,
+  schemaVersion,
+} from './artifact.ts';
 
 const root = new URL('..', import.meta.url).pathname;
 const out = join(root, 'dist');
@@ -60,6 +66,15 @@ function defaultVersion(): string {
 
 const appVersion = env.APP_VERSION ?? defaultVersion();
 const release = releaseFolder(appVersion);
+const floor = minClientVersion(
+  readFileSync(join(root, 'api/src/Http/Compatibility.php'), 'utf8'),
+);
+if (!meetsFloor(appVersion, floor)) {
+  // The shipped client would be below its own API's floor and ask to reload forever.
+  throw new Error(
+    `App version ${appVersion} is below MIN_CLIENT_VERSION ${floor}: bump web/package.json`,
+  );
+}
 const migrations = readdirSync(join(root, 'api/migrations'));
 
 rmSync(out, { recursive: true, force: true });

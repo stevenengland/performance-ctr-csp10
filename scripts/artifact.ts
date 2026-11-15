@@ -25,3 +25,26 @@ export function schemaVersion(migrationFiles: readonly string[]): number {
       .map(Number),
   );
 }
+
+/** `MIN_CLIENT_VERSION` of `api/src/Http/Compatibility.php`: the oldest client the API serves. */
+export function minClientVersion(compatibilityPhp: string): string {
+  const match = /MIN_CLIENT_VERSION = '([^']+)'/.exec(compatibilityPhp);
+  if (!match?.[1])
+    throw new Error('No MIN_CLIENT_VERSION in Compatibility.php');
+  return match[1];
+}
+
+function core(version: string): number[] {
+  const [release = ''] = version.split(/[+-]/, 1);
+  return release.split('.').map((part) => Number.parseInt(part, 10) || 0);
+}
+
+/** Whether `version` is at least `floor`, comparing `MAJOR.MINOR.PATCH` as the client does. */
+export function meetsFloor(version: string, floor: string): boolean {
+  const [a, b] = [core(version), core(floor)];
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (a[index] ?? 0) - (b[index] ?? 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return true;
+}

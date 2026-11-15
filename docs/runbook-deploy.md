@@ -115,6 +115,14 @@ config/runtime.php    database login + bootstrap admin, rendered on every deploy
 The ledger keeps the active release and the two before it, plus anything deactivated less than
 24 h ago; their hashed assets, manifests and `app/` folders stay, everything older is pruned.
 
+## Breaking API changes
+
+A change that older installed apps cannot use raises `MIN_CLIENT_VERSION` in
+`api/src/Http/Compatibility.php`; those apps then show `Bitte neu laden`. Bump the `version` in
+`web/package.json` to at least the new floor in the same pull request: the artifact build and
+`scripts/artifact.test.ts` fail otherwise, because the freshly deployed client would be below
+its own API's floor and ask to reload forever.
+
 ## When a deploy fails
 
 - **Before the API pointer switched** (upload, config, settings): nothing changed for users.
