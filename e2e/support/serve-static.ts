@@ -21,9 +21,17 @@ const TYPES: Record<string, string> = {
 };
 
 createServer((request, response) => {
-  const path = decodeURIComponent(new URL(request.url ?? '/', 'http://x').pathname);
-  const file = join(root, normalize(path.endsWith('/') ? `${path}index.html` : path));
-  if (!file.startsWith(root) || !statSync(file, { throwIfNoEntry: false })?.isFile()) {
+  const path = decodeURIComponent(
+    new URL(request.url ?? '/', 'http://x').pathname,
+  );
+  const file = join(
+    root,
+    normalize(path.endsWith('/') ? `${path}index.html` : path),
+  );
+  if (
+    !file.startsWith(root) ||
+    !statSync(file, { throwIfNoEntry: false })?.isFile()
+  ) {
     response.writeHead(404).end();
     return;
   }

@@ -25,7 +25,11 @@ export const routes: RouteRecordRaw[] = [
   {
     path: '/zaehlen',
     component: () => import('./features/zaehlen/ZaehlenPage.vue'),
-    meta: { title: messages.navigation.zaehlen, destination: 'zaehlen', step: 1 },
+    meta: {
+      title: messages.navigation.zaehlen,
+      destination: 'zaehlen',
+      step: 1,
+    },
   },
   {
     path: '/rangliste',

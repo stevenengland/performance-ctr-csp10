@@ -18,7 +18,11 @@ const active = computed(() => route.meta.destination);
 </script>
 
 <template>
-  <nav class="navigation" :class="`navigation--${variant}`" :aria-label="messages.navigation.label">
+  <nav
+    class="navigation"
+    :class="`navigation--${variant}`"
+    :aria-label="messages.navigation.label"
+  >
     <RouterLink
       v-for="destination in destinations"
       :key="destination.name"
@@ -30,7 +34,9 @@ const active = computed(() => route.meta.destination);
       <span class="navigation__pill">
         <v-icon :icon="destination.icon" size="24" />
       </span>
-      <span class="type-caption">{{ messages.navigation[destination.name] }}</span>
+      <span class="type-caption">{{
+        messages.navigation[destination.name]
+      }}</span>
     </RouterLink>
   </nav>
 </template>

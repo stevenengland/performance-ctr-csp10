@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test } from './support/playwright';
+import { expect, test } from './support/playwright.ts';
 
 test('the fixture preview opens on the fixture backend without network access', async ({
   page,

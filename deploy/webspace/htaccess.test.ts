@@ -17,9 +17,7 @@ describe('renderHtaccess', () => {
   });
 
   it('redirects another host or plain http to the https origin and sends HSTS only for an https origin', () => {
-    expect(renderHtaccess(http)).not.toMatch(
-      /R=301|Strict-Transport-Security/,
-    );
+    expect(renderHtaccess(http)).not.toMatch(/R=301|Strict-Transport-Security/);
     const text = renderHtaccess(https);
     expect(text).toContain(
       [

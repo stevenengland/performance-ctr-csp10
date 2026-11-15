@@ -1,4 +1,4 @@
-import { expect, test } from './support/playwright';
+import { expect, test } from './support/playwright.ts';
 
 test('health reports the versions, schema and migration state of the stack', async ({
   request,
@@ -25,9 +25,9 @@ test('the web app shows the app version it received from health', async ({
   page,
   request,
 }) => {
-  const { appVersion } = (await (
-    await request.get('/api/health')
-  ).json()) as { appVersion: string };
+  const { appVersion } = (await (await request.get('/api/health')).json()) as {
+    appVersion: string;
+  };
 
   await page.goto('/konto');
 

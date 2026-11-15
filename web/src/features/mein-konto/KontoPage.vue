@@ -10,7 +10,9 @@ const BRAND_STROKES = 13;
 
 const server = useServerHealth();
 const serverLine = computed(() =>
-  server.value ? messages.konto.server(server.value.appVersion) : messages.konto.serverUnknown,
+  server.value
+    ? messages.konto.server(server.value.appVersion)
+    : messages.konto.serverUnknown,
 );
 </script>
 
@@ -19,7 +21,9 @@ const serverLine = computed(() =>
     <p class="type-name-hero konto__brand">{{ messages.appName }}</p>
     <TallyMarks :count="BRAND_STROKES" :height="30" class="konto__tally" />
     <p class="type-row-title">{{ messages.konto.version(CLIENT_VERSION) }}</p>
-    <p class="type-support konto__server" data-testid="server-version">{{ serverLine }}</p>
+    <p class="type-support konto__server" data-testid="server-version">
+      {{ serverLine }}
+    </p>
   </section>
 </template>
 

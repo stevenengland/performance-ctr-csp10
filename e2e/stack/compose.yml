@@ -15,7 +15,16 @@ services:
       MYSQL_PASSWORD: performance
       MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
     healthcheck:
-      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-uperformance', '-pperformance']
+      test:
+        [
+          'CMD',
+          'mysqladmin',
+          'ping',
+          '-h',
+          '127.0.0.1',
+          '-uperformance',
+          '-pperformance',
+        ]
       interval: 2s
       timeout: 2s
       retries: 60

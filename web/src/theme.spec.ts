@@ -20,7 +20,12 @@ function specRoles(): Record<'light' | 'dark', Record<string, string>> {
   for (const match of section.matchAll(
     /^\| `([a-z-]+)` \| `(#[0-9a-f]{6})` \| `(#[0-9a-f]{6})` \|$/gm,
   )) {
-    const [, role, light, dark] = match as unknown as [string, string, string, string];
+    const [, role, light, dark] = match as unknown as [
+      string,
+      string,
+      string,
+      string,
+    ];
     roles.light[role] = light;
     roles.dark[role] = dark;
   }
@@ -52,7 +57,8 @@ describe('the Vuetify theme', () => {
     'equals the design spec token table in %s',
     (variant) => {
       const vuetify = createAppVuetify();
-      const colors = vuetify.theme.themes.value[variant]?.colors ?? {};
+      const colors: Record<string, unknown> =
+        vuetify.theme.themes.value[variant]?.colors ?? {};
       const roles = specRoles()[variant];
       const themed = Object.fromEntries(
         Object.keys(roles).map((role) => [role, colors[role]]),

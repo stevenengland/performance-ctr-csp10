@@ -16,5 +16,10 @@
     "jsx": "preserve",
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src/**/*", "preview/**/*", "vite.config.ts", "vite.config.preview.ts"]
+  "include": [
+    "src/**/*",
+    "preview/**/*",
+    "vite.config.ts",
+    "vite.config.preview.ts"
+  ]
 }

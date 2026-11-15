@@ -12,8 +12,12 @@ function reload() {
 <template>
   <v-dialog :model-value="required" persistent max-width="400">
     <v-card class="reload-floor" color="surface-container" rounded="xl">
-      <v-card-title class="type-tile-name">{{ messages.reloadFloor.title }}</v-card-title>
-      <v-card-text class="type-body">{{ messages.reloadFloor.body }}</v-card-text>
+      <v-card-title class="type-tile-name">{{
+        messages.reloadFloor.title
+      }}</v-card-title>
+      <v-card-text class="type-body">{{
+        messages.reloadFloor.body
+      }}</v-card-text>
       <v-card-actions>
         <v-spacer />
         <v-btn variant="flat" color="primary" rounded="lg" @click="reload">

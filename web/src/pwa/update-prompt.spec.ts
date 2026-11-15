@@ -8,8 +8,8 @@ describe('the update prompt', () => {
   });
 
   function registerWithWaitingWorker() {
-    const updateServiceWorker = vi.fn(async () => {});
-    let needRefresh = () => {};
+    const updateServiceWorker = vi.fn(() => Promise.resolve());
+    let needRefresh: () => void = vi.fn();
     const register: RegisterServiceWorker = (options) => {
       needRefresh = options.onNeedRefresh;
       return updateServiceWorker;

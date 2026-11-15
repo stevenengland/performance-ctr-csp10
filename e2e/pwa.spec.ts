@@ -1,6 +1,6 @@
 import { readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { expect, test, type Page } from './support/playwright';
+import { expect, test, type Page } from './support/playwright.ts';
 
 /** The built web root the stack serves, to check the precache against. */
 const webRoot = process.env.E2E_WEB_ROOT ?? 'dist/artifact/web';
@@ -55,9 +55,7 @@ test('the manifest makes the app installable as "Performance"', async ({
   expect(manifest.icons.map((icon) => icon.sizes)).toEqual(
     expect.arrayContaining(['192x192', '512x512']),
   );
-  expect(manifest.icons.some((icon) => icon.purpose === 'maskable')).toBe(
-    true,
-  );
+  expect(manifest.icons.some((icon) => icon.purpose === 'maskable')).toBe(true);
   for (const icon of manifest.icons) {
     const response = await request.get(`/${icon.src}`);
     expect(response.status(), icon.src).toBe(200);
@@ -95,9 +93,9 @@ test('offline, the installed app shell opens and shows the offline banner', asyn
   await page.goto('/rangliste');
 
   await expect(page.getByRole('heading', { name: 'Rangliste' })).toBeVisible();
-  await expect(page.getByRole('status').filter({ hasText: 'Offline' })).toHaveText(
-    'Offline – Getränke können gerade nicht gespeichert werden.',
-  );
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Offline' }),
+  ).toHaveText('Offline – Getränke können gerade nicht gespeichert werden.');
   await context.setOffline(false);
 });
 

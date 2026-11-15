@@ -30,7 +30,11 @@ const root = new URL('..', import.meta.url).pathname;
 const out = join(root, 'dist');
 const artifact = join(out, 'artifact');
 
-function run(command: string, args: string[], extraEnv: Record<string, string> = {}) {
+function run(
+  command: string,
+  args: string[],
+  extraEnv: Record<string, string> = {},
+) {
   execFileSync(command, args, {
     cwd: root,
     stdio: 'inherit',
@@ -39,7 +43,9 @@ function run(command: string, args: string[], extraEnv: Record<string, string> =
 }
 
 function defaultVersion(): string {
-  const pkg = JSON.parse(readFileSync(join(root, 'web/package.json'), 'utf8')) as {
+  const pkg = JSON.parse(
+    readFileSync(join(root, 'web/package.json'), 'utf8'),
+  ) as {
     version: string;
   };
   const commit = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], {
@@ -101,5 +107,8 @@ execFileSync(
   { stdio: 'inherit' },
 );
 const digest = createHash('sha256').update(readFileSync(archive)).digest('hex');
-writeFileSync(`${archive}.sha256`, `${digest}  performance-${release}.tar.gz\n`);
+writeFileSync(
+  `${archive}.sha256`,
+  `${digest}  performance-${release}.tar.gz\n`,
+);
 console.log(`artifact ${archive}\nsha256 ${digest}`);

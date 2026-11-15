@@ -32,7 +32,13 @@ const strokes = computed<Stroke[]>(() => {
   for (let index = 0; index < whole; index += 1) {
     if (index % 5 < 4) {
       const tilt = lean(index);
-      list.push({ kind: 'upright', x1: x + tilt, y1: INSET, x2: x - tilt, y2: h - INSET });
+      list.push({
+        kind: 'upright',
+        x1: x + tilt,
+        y1: INSET,
+        x2: x - tilt,
+        y2: h - INSET,
+      });
     } else {
       list.push({ kind: 'diagonal', x1: x - 27, y1: h - 5, x2: x - 3, y2: 5 });
     }

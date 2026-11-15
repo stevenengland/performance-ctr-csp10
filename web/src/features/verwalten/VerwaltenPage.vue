@@ -1,12 +1,20 @@
 <script setup lang="ts">
 import { messages } from '../../core/messages';
 
-const sections = [messages.verwalten.persons, messages.verwalten.drinks, messages.verwalten.factors];
+const sections = [
+  messages.verwalten.persons,
+  messages.verwalten.drinks,
+  messages.verwalten.factors,
+];
 </script>
 
 <template>
   <ul class="hub">
-    <li v-for="section in sections" :key="section" class="hub__row type-row-title">
+    <li
+      v-for="section in sections"
+      :key="section"
+      class="hub__row type-row-title"
+    >
       {{ section }}
     </li>
   </ul>

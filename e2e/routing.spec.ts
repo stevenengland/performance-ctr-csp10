@@ -1,5 +1,5 @@
 import { CSP } from '../deploy/contract/headers.ts';
-import { expect, test } from './support/playwright';
+import { expect, test } from './support/playwright.ts';
 
 const NO_CACHE = 'no-cache';
 const IMMUTABLE = 'public, max-age=31536000, immutable';
