@@ -9,11 +9,13 @@ const STEPS = 4;
 const route = useRoute();
 const router = useRouter();
 const meta = computed(() => route.meta);
-const hasBack = computed(() => route.meta.destination === undefined);
+const hasBack = computed(
+  () => route.meta.destination === undefined || route.meta.child === true,
+);
 
 function back() {
   if (window.history.length > 1) router.back();
-  else void router.push('/zaehlen');
+  else void router.push(`/${route.meta.destination ?? 'zaehlen'}`);
 }
 </script>
 

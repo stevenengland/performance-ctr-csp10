@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import AppNavigation from './components/AppNavigation.vue';
 import AppSnackbar from './components/AppSnackbar.vue';
@@ -9,11 +11,22 @@ import { useOnline } from './core/online';
 
 const { xs: compact } = useDisplay();
 const online = useOnline();
+const route = useRoute();
+/** Anmelden stands alone: no top bar, no navigation (§6.2, §7a). */
+const bare = computed(() => route.meta.public === true);
 </script>
 
 <template>
   <v-app>
-    <div class="shell" :class="compact ? 'shell--compact' : 'shell--rail'">
+    <template v-if="bare">
+      <OfflineBanner v-if="!online" />
+      <RouterView />
+    </template>
+    <div
+      v-else
+      class="shell"
+      :class="compact ? 'shell--compact' : 'shell--rail'"
+    >
       <AppNavigation v-if="!compact" variant="rail" />
       <div class="shell__main">
         <AppTopBar />

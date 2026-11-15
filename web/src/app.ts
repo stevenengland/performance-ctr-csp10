@@ -9,7 +9,9 @@ import './styles/app.css';
 import { createApp } from 'vue';
 import type { RouterHistory } from 'vue-router';
 import App from './App.vue';
+import { onUnauthorized } from './core/api-client';
 import { loadServerHealth } from './core/health';
+import { forgetSession, SIGN_IN_PATH } from './core/session';
 import { handleChunkFailures } from './pwa/chunk-reload';
 import { requireReload } from './pwa/reload-floor';
 import { createAppRouter } from './router';
@@ -30,6 +32,17 @@ export function startApp(history: RouterHistory) {
   });
   router.afterEach((_to, _from, failure) => {
     if (!failure) chunks.onNavigated();
+  });
+  // A session that ended on the server (signed out elsewhere, password changed) leads to Anmelden.
+  onUnauthorized(() => {
+    forgetSession();
+    const current = router.currentRoute.value;
+    if (!current.meta.public) {
+      void router.push({
+        path: SIGN_IN_PATH,
+        query: { weiter: current.fullPath },
+      });
+    }
   });
   window.addEventListener('vite:preloadError', (event) => {
     if (chunks.onError(event.payload)) event.preventDefault();

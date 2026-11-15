@@ -139,3 +139,54 @@ p {
     animation-duration: 0s !important;
   }
 }
+
+/* Lists (§7i): rows separated by outline-variant hairlines, primary text in row-title. */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 12px 4px;
+  border-bottom: 1px solid rgb(var(--v-theme-outline-variant));
+}
+
+.list__main {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.list__link {
+  color: rgb(var(--v-theme-on-surface));
+  text-decoration: none;
+}
+
+/* The `Admin` assist chip (§7j). */
+.admin-chip {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid rgb(var(--v-theme-outline));
+  border-radius: 8px;
+  color: rgb(var(--v-theme-on-surface-variant));
+}
+
+/* Filled dialog and form buttons: corner 10 dp (§3.3), normal case. */
+.dialog-button {
+  border-radius: 10px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.skeleton {
+  display: block;
+  width: 40%;
+  height: 16px;
+  border-radius: 4px;
+  background: rgb(var(--v-theme-surface-container-high));
+}

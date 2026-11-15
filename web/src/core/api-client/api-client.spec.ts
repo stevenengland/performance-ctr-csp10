@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiProblem, getHealth } from './index';
+import {
+  ApiProblem,
+  createAccount,
+  getHealth,
+  getSession,
+  onUnauthorized,
+  signOut,
+} from './index';
 import type { Health } from './index';
 
 const health: Health = {
@@ -20,6 +27,7 @@ function respond(body: unknown, init: ResponseInit) {
 describe('the API client', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    onUnauthorized(undefined);
   });
 
   it('reads health through whatever fetch is installed when it is called', async () => {
@@ -73,5 +81,79 @@ describe('the API client', () => {
       type: 'about:blank',
       retryAfterSeconds: undefined,
     });
+  });
+
+  it('sends a body as JSON and returns the created resource', async () => {
+    const fetch = respond(
+      { id: 2, userName: 'anna', isAdmin: false },
+      { status: 201, headers: { 'Content-Type': 'application/json' } },
+    );
+
+    await expect(createAccount('anna', 'annas-startpasswort')).resolves.toEqual(
+      { id: 2, userName: 'anna', isAdmin: false },
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/accounts',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+        }) as unknown,
+        body: JSON.stringify({
+          userName: 'anna',
+          password: 'annas-startpasswort',
+        }),
+      }),
+    );
+  });
+
+  it('resolves a 204 to nothing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 204 })),
+    );
+
+    await expect(signOut()).resolves.toBeUndefined();
+  });
+
+  it('carries the field errors of a 422 problem', async () => {
+    respond(
+      {
+        type: 'urn:performance:problem:validation',
+        title: 'Bitte Eingaben prüfen',
+        status: 422,
+        errors: { password: 'Mindestens 10 Zeichen.' },
+      },
+      { status: 422, headers: { 'Content-Type': 'application/problem+json' } },
+    );
+
+    await expect(createAccount('anna', 'kurz')).rejects.toMatchObject({
+      status: 422,
+      errors: { password: 'Mindestens 10 Zeichen.' },
+    });
+  });
+
+  it('reports a 401 outside /api/session as an ended session', async () => {
+    const ended = vi.fn();
+    onUnauthorized(ended);
+    const unauthenticated = {
+      type: 'urn:performance:problem:unauthenticated',
+      title: 'Nicht angemeldet',
+      status: 401,
+    };
+    const init = {
+      status: 401,
+      headers: { 'Content-Type': 'application/problem+json' },
+    };
+
+    respond(unauthenticated, init);
+    await expect(getSession()).rejects.toMatchObject({ status: 401 });
+    expect(ended).not.toHaveBeenCalled();
+
+    respond(unauthenticated, init);
+    await expect(createAccount('anna', 'x')).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(ended).toHaveBeenCalledOnce();
   });
 });

@@ -1,9 +1,11 @@
 import {
   createRouter,
+  type RouteLocationNormalized,
   type RouteRecordRaw,
   type RouterHistory,
 } from 'vue-router';
 import { messages } from './core/messages';
+import { resolveSession, returnPath, SIGN_IN_PATH } from './core/session';
 
 export type Destination = 'zaehlen' | 'rangliste' | 'verwalten';
 
@@ -15,13 +17,24 @@ declare module 'vue-router' {
     context?: string;
     /** The navigation destination the screen belongs to; screens without one show a back button. */
     destination?: Destination;
+    /** A screen below its destination (shows a back button, keeps the destination active). */
+    child?: boolean;
     /** Step of the add flow, for the step indicator. */
     step?: number;
+    /** Open without a session, outside the shell (no top bar, no navigation). */
+    public?: boolean;
+    /** Only for admins. */
+    admin?: boolean;
   }
 }
 
 export const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/zaehlen' },
+  {
+    path: SIGN_IN_PATH,
+    component: () => import('./features/anmelden/AnmeldenPage.vue'),
+    meta: { title: messages.anmelden.title, public: true },
+  },
   {
     path: '/zaehlen',
     component: () => import('./features/zaehlen/ZaehlenPage.vue'),
@@ -46,6 +59,16 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: messages.navigation.verwalten, destination: 'verwalten' },
   },
   {
+    path: '/verwalten/konten',
+    component: () => import('./features/verwalten/konten/KontenPage.vue'),
+    meta: {
+      title: messages.konten.title,
+      destination: 'verwalten',
+      child: true,
+      admin: true,
+    },
+  },
+  {
     path: '/konto',
     component: () => import('./features/mein-konto/KontoPage.vue'),
     meta: { title: messages.konto.title },
@@ -53,6 +76,25 @@ export const routes: RouteRecordRaw[] = [
   { path: '/:pathMatch(.*)*', redirect: '/zaehlen' },
 ];
 
+/**
+Every screen but Anmelden needs a session: a signed-out user goes to Anmelden and
+comes back afterwards. While the server cannot be reached the app opens anyway
+(the installed app works offline); its requests then fail on their own.
+*/
+async function requireSession(to: RouteLocationNormalized) {
+  const account = await resolveSession();
+  if (to.meta.public) {
+    return account ? returnPath(to.query.weiter) : true;
+  }
+  if (account === null) {
+    return { path: SIGN_IN_PATH, query: { weiter: to.fullPath } };
+  }
+  if (to.meta.admin && account && !account.isAdmin) return '/verwalten';
+  return true;
+}
+
 export function createAppRouter(history: RouterHistory) {
-  return createRouter({ history, routes });
+  const router = createRouter({ history, routes });
+  router.beforeEach(requireSession);
+  return router;
 }
