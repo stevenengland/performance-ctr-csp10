@@ -46,7 +46,7 @@ export function useSession() {
   return readonly(account);
 }
 
-const SIGN_IN = '/anmelden';
+export const SIGN_IN_PATH = '/anmelden';
 const HOME = '/zaehlen';
 
 /** Where to go after signing in: the requested in-app route, never another origin or Anmelden itself. */
@@ -55,11 +55,9 @@ export function returnPath(requested: unknown): string {
     typeof requested !== 'string' ||
     !requested.startsWith('/') ||
     requested.startsWith('//') ||
-    requested.startsWith(SIGN_IN)
+    requested.startsWith(SIGN_IN_PATH)
   ) {
     return HOME;
   }
   return requested;
 }
-
-export const SIGN_IN_PATH = SIGN_IN;
