@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Performance\Http;
 
+use Performance\Domain\ValidationFailed;
 use Psr\Http\Message\ServerRequestInterface;
 
 /** Reads fields of the JSON body that JsonBody parsed. */
@@ -42,6 +43,29 @@ final class Input
         $value = self::value($request, $field);
 
         return $value === null ? null : (is_int($value) ? $value : 0);
+    }
+
+    /** An optional text: null when the field is missing or null; a non-text field reads as empty, which the domain rules then reject. */
+    public static function optionalText(ServerRequestInterface $request, string $field): ?string
+    {
+        $value = self::value($request, $field);
+
+        return $value === null ? null : (is_string($value) ? $value : '');
+    }
+
+    /**
+     * An optional yes/no: null when the field is missing or null.
+     *
+     * @throws ValidationFailed for anything but a JSON boolean
+     */
+    public static function optionalBoolean(ServerRequestInterface $request, string $field): ?bool
+    {
+        $value = self::value($request, $field);
+        if ($value !== null && !is_bool($value)) {
+            throw new ValidationFailed([$field => 'Ja oder nein.']);
+        }
+
+        return $value;
     }
 
     private static function value(ServerRequestInterface $request, string $field): mixed

@@ -147,6 +147,64 @@ paths:
           $ref: '#/components/responses/Problem'
         '422':
           $ref: '#/components/responses/Problem'
+  /api/accounts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The account's id; anything but a positive integer is 404
+        schema:
+          type: integer
+          minimum: 1
+    patch:
+      operationId: updateAccount
+      summary: Grant or revoke admin rights, or reset the password (admins only)
+      description: >-
+        Only the given fields change. A password reset signs the account out on every
+        device. Demoting the last admin is refused with 409 and changes nothing;
+        concurrent demotions and deletions are serialised by the database.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountChange'
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteAccount
+      summary: Delete an account (admins only)
+      description: >-
+        Its sessions end; the entries it logged stay, without the account
+        (`accountName` null). Deleting the last admin is refused with 409.
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
   /api/persons:
     get:
       operationId: listPersons
@@ -652,6 +710,16 @@ components:
         password:
           type: string
           description: The start password
+          minLength: 10
+    AccountChange:
+      type: object
+      properties:
+        isAdmin:
+          type: boolean
+          description: Grant (true) or revoke (false) admin rights
+        password:
+          type: string
+          description: The new password (a reset); signs the account out everywhere
           minLength: 10
     Name:
       type: string

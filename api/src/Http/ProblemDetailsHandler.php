@@ -9,6 +9,7 @@ use Performance\Domain\DuplicateUserName;
 use Performance\Domain\EntryConflict;
 use Performance\Domain\NotFound;
 use Performance\Domain\InvalidCredentials;
+use Performance\Domain\LastAdmin;
 use Performance\Domain\TooManyAttempts;
 use Performance\Domain\ValidationFailed;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -35,6 +36,7 @@ final readonly class ProblemDetailsHandler
             $exception instanceof ValidationFailed => Problem::validation($exception->errors),
             $exception instanceof DuplicateUserName => Problem::duplicateUserName(),
             $exception instanceof DuplicateName => Problem::duplicateName(),
+            $exception instanceof LastAdmin => Problem::lastAdmin(),
             $exception instanceof EntryConflict => Problem::entryConflict(),
             $exception instanceof NotFound => Problem::notFound(),
             $exception instanceof InvalidCredentials => Problem::invalidCredentials(),

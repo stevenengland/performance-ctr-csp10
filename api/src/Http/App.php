@@ -40,6 +40,9 @@ final class App
         // Route middleware added last runs first: SessionAuth, then AdminOnly.
         $app->get('/api/accounts', $accounts->list(...))->add($adminOnly)->add($signedIn);
         $app->post('/api/accounts', $accounts->create(...))->add($adminOnly)->add($signedIn);
+        $account = '/api/accounts/{id:' . CatalogActions::ID_PATTERN . '}';
+        $app->patch($account, $accounts->update(...))->add($adminOnly)->add($signedIn);
+        $app->delete($account, $accounts->delete(...))->add($adminOnly)->add($signedIn);
         $app->get('/api/persons', $catalog->persons(...))->add($signedIn);
         $app->post('/api/persons', $catalog->createPerson(...))->add($signedIn);
         $app->get('/api/drinks', $catalog->drinks(...))->add($signedIn);

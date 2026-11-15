@@ -48,6 +48,11 @@ final readonly class Problem
         return new self('duplicate-user-name', 'Benutzername ist bereits vergeben.', 409);
     }
 
+    public static function lastAdmin(): self
+    {
+        return new self('last-admin', 'Der letzte Admin kann nicht entfernt werden.', 409);
+    }
+
     public static function duplicateName(): self
     {
         return new self('duplicate-name', 'Name ist bereits vergeben.', 409);

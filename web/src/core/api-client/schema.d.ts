@@ -78,6 +78,33 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/accounts/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The account's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Delete an account (admins only)
+     * @description Its sessions end; the entries it logged stay, without the account (`accountName` null). Deleting the last admin is refused with 409.
+     */
+    delete: operations['deleteAccount'];
+    options?: never;
+    head?: never;
+    /**
+     * Grant or revoke admin rights, or reset the password (admins only)
+     * @description Only the given fields change. A password reset signs the account out on every device. Demoting the last admin is refused with 409 and changes nothing; concurrent demotions and deletions are serialised by the database.
+     */
+    patch: operations['updateAccount'];
+    trace?: never;
+  };
   '/api/persons': {
     parameters: {
       query?: never;
@@ -297,6 +324,12 @@ export interface components {
       userName: string;
       /** @description The start password */
       password: string;
+    };
+    AccountChange: {
+      /** @description Grant (true) or revoke (false) admin rights */
+      isAdmin?: boolean;
+      /** @description The new password (a reset); signs the account out everywhere */
+      password?: string;
     };
     /** @description Trimmed; 1–40 characters; unique regardless of case */
     Name: string;
@@ -658,6 +691,64 @@ export interface operations {
       };
       401: components['responses']['Problem'];
       403: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  deleteAccount: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The account's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      403: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+    };
+  };
+  updateAccount: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The account's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AccountChange'];
+      };
+    };
+    responses: {
+      /** @description Changed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Account'];
+        };
+      };
+      401: components['responses']['Problem'];
+      403: components['responses']['Problem'];
+      404: components['responses']['Problem'];
       409: components['responses']['Problem'];
       415: components['responses']['Problem'];
       422: components['responses']['Problem'];
