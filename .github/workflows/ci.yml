@@ -241,7 +241,7 @@ jobs:
     name: E2E and Lighthouse on the artifact
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       STACK_ROOT: ${{ github.workspace }}/stack-root
       E2E_WEB_ROOT: dist/artifact/web
@@ -272,11 +272,12 @@ jobs:
         run: e2e/stack/stage.sh dist/artifact "$STACK_ROOT" http://localhost:8080
       - name: Start Apache + PHP + MySQL
         run: docker compose -f e2e/stack/compose.yml up --build --detach --wait
+      - name: Lighthouse (signed in on a sample evening, before the e2e data)
+        # Uses the runner's Google Chrome (lighthouserc.json chromePath).
+        run: npx lhci autorun
       - run: npx playwright install --with-deps chromium
       - name: Playwright e2e (CSP guard)
         run: npx playwright test --project 'stack-*'
-      - name: Lighthouse
-        run: npx lhci autorun
       - name: Stack logs
         if: failure()
         run: docker compose -f e2e/stack/compose.yml logs

@@ -3,9 +3,15 @@
     "collect": {
       "url": [
         "http://localhost:8080/zaehlen",
-        "http://localhost:8080/anmelden",
-        "http://localhost:8080/konto"
+        "http://localhost:8080/rangliste",
+        "http://localhost:8080/verwalten",
+        "http://localhost:8080/anmelden"
       ],
+      "puppeteerScript": "e2e/support/lighthouse-sign-in.cjs",
+      "chromePath": "/usr/bin/google-chrome",
+      "puppeteerLaunchOptions": {
+        "args": ["--no-sandbox"]
+      },
       "numberOfRuns": 3,
       "settings": {
         "formFactor": "mobile",
@@ -14,9 +20,24 @@
     },
     "assert": {
       "assertions": {
-        "categories:performance": ["error", { "minScore": 0.9 }],
-        "categories:accessibility": ["error", { "minScore": 1 }],
-        "categories:best-practices": ["error", { "minScore": 0.95 }]
+        "categories:performance": [
+          "error",
+          {
+            "minScore": 0.9
+          }
+        ],
+        "categories:accessibility": [
+          "error",
+          {
+            "minScore": 1
+          }
+        ],
+        "categories:best-practices": [
+          "error",
+          {
+            "minScore": 0.95
+          }
+        ]
       }
     },
     "upload": {

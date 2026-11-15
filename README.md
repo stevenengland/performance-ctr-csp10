@@ -31,6 +31,7 @@ Enable the hooks once: `git config core.hooksPath .githooks` (pre-commit: secret
 | `cd api && composer test` | PHPUnit against MySQL (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`; it drops and recreates `DB_NAME`, default `performance_test`) |
 | `cd api && composer analyse && composer cs` | PHPStan (max) and PHP-CS-Fixer (PER-CS) |
 | `npm run test:e2e` | Playwright against the stack (`E2E_BASE_URL`, default `http://localhost:8080`); with `E2E_PREVIEW=1` it also serves `web/dist-preview/` for the preview projects |
+| `npx lhci autorun` | Lighthouse on the stack: Zählen, Rangliste and Verwalten signed in, Anmelden signed out (`e2e/support/lighthouse-sign-in.cjs` seeds a sample evening into an empty stack; run it before the e2e suite). Uses `/usr/bin/google-chrome`; override with `LHCI_COLLECT__CHROME_PATH` |
 | `npm run test:deploy` | Deploy proof: the deploy CLI with the built artifact's PHP release against SFTP + Apache/PHP + MySQL containers (`tests/support/compose.yml`); build the artifact first |
 | `npm run lint:workflows` | actionlint and zizmor from digest-pinned images |
 | `npm run lint:secrets` | secretlint over every tracked file |
