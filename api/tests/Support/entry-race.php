@@ -8,6 +8,7 @@ declare(strict_types=1);
  * Connects with the DB_* environment of the test run.
  */
 
+use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
 use Performance\Domain\SystemClock;
 
@@ -22,6 +23,6 @@ $pdo = new PDO(
     [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false],
 );
 $pdo->exec("SET time_zone = '+00:00'");
-$ledger = new EntryLedger($pdo, new SystemClock());
+$ledger = new EntryLedger($pdo, new SystemClock(), new DataRevision($pdo));
 time_sleep_until((float) $startAt);
 $ledger->add($id, (int) $personId, (int) $drinkId, (int) $quantity, (int) $accountId);

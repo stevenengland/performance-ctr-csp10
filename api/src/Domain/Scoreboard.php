@@ -10,11 +10,21 @@ use PDO;
 /**
  * The read model and single owner of aggregation: for every person with entries
  * since `from`, the score (Σ quantity × points), the count (Σ quantity) and the
- * per-drink counters, ranked by score, ties by name.
+ * per-drink counters, ranked by score, ties by name. Its version is the data
+ * revision: while that stays, the standings for any `from` stay too.
  */
 final readonly class Scoreboard
 {
-    public function __construct(private PDO $pdo) {}
+    public function __construct(
+        private PDO $pdo,
+        private DataRevision $revision,
+    ) {}
+
+    /** Changes whenever the standings may have changed, without aggregating. */
+    public function revision(): int
+    {
+        return $this->revision->current();
+    }
 
     /**
      * @return list<ScoreRow>

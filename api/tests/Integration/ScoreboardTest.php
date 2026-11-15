@@ -6,6 +6,8 @@ namespace Performance\Tests\Integration;
 
 use Performance\Tests\Support\DatabaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Psr\Http\Message\ResponseInterface;
+use Slim\Psr7\Factory\ServerRequestFactory;
 
 final class ScoreboardTest extends DatabaseTestCase
 {
@@ -99,6 +101,138 @@ final class ScoreboardTest extends DatabaseTestCase
     public function testTheScoreboardNeedsASession(): void
     {
         self::assertSame(401, $this->send('GET', '/api/scoreboard?from=2026-11-14T00:00:00Z')->getStatusCode());
+    }
+
+    public function testAnUnchangedRevisionAnswers304FromTheRevisionAlone(): void
+    {
+        $this->add(1, 1, 2);
+        $first = $this->scoreboard();
+        $tag = $first->getHeaderLine('ETag');
+        // Changed behind the API's back, so the revision stays: only a fresh aggregation would see it.
+        $this->otherSession()->exec(
+            "INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at)
+             VALUES ('00000000-0000-4000-8000-999999999999', 2, 1, 5, NULL, '2026-11-14 20:00:00.000')",
+        );
+
+        $conditional = $this->scoreboard($tag);
+        $unconditional = $this->scoreboard();
+
+        self::assertSame(200, $first->getStatusCode());
+        self::assertMatchesRegularExpression('/^"[^"]+"$/', $tag);
+        self::assertSame(304, $conditional->getStatusCode());
+        self::assertSame('', (string) $conditional->getBody());
+        self::assertSame($tag, $conditional->getHeaderLine('ETag'));
+        self::assertSame(['Anna', 'Daniel'], array_column($this->rowsOf($unconditional), 'name'));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function ifNoneMatchForms(): iterable
+    {
+        yield 'the tag itself' => ['%s'];
+        yield 'one of a list' => ['"other", %s'];
+        yield 'as compressed by Apache' => ['%s-gzip'];
+        yield 'any' => ['*'];
+    }
+
+    #[DataProvider('ifNoneMatchForms')]
+    public function testIfNoneMatchAcceptsTheUsualForms(string $form): void
+    {
+        $tag = $this->scoreboard()->getHeaderLine('ETag');
+        $header = str_contains($form, '-gzip') ? substr($tag, 0, -1) . '-gzip"' : sprintf($form, $tag);
+
+        self::assertSame(304, $this->scoreboard($header)->getStatusCode());
+    }
+
+    public function testAnotherDayWindowIsNotAnswered304WithTheSameRevision(): void
+    {
+        $tag = $this->scoreboard()->getHeaderLine('ETag');
+
+        $nextDay = $this->scoreboard($tag, '2026-11-15T23:00:00.000Z');
+
+        self::assertSame(200, $nextDay->getStatusCode());
+        self::assertNotSame($tag, $nextDay->getHeaderLine('ETag'));
+    }
+
+    /**
+     * Each write that changes the standings, sent as the API's client sends it.
+     *
+     * @return iterable<string, array{string, string, array<string, mixed>|null}>
+     */
+    public static function writes(): iterable
+    {
+        yield 'a new person' => ['POST', '/api/persons', ['name' => 'Jule']];
+        yield 'a new drink' => ['POST', '/api/drinks', ['name' => 'Wein', 'points' => 2]];
+        yield 'a new entry' => ['PUT', '/api/entries/00000000-0000-4000-8000-000000000777', ['personId' => 1, 'drinkId' => 1, 'quantity' => 1]];
+        yield 'an undone entry' => ['DELETE', '/api/entries/00000000-0000-4000-8000-000000000001', null];
+    }
+
+    /**
+     * @param array<string, mixed>|null $json
+     */
+    #[DataProvider('writes')]
+    public function testEveryWriteBumpsTheRevision(string $method, string $path, ?array $json): void
+    {
+        $this->add(1, 1, 1);
+        $tag = $this->scoreboard()->getHeaderLine('ETag');
+
+        $write = $this->send($method, $path, $json, $this->session);
+
+        self::assertLessThan(300, $write->getStatusCode(), (string) $write->getBody());
+        self::assertSame(200, $this->scoreboard($tag)->getStatusCode());
+    }
+
+    /**
+     * Writes that fail after their change began: the revision bump rolls back with them.
+     *
+     * @return iterable<string, array{string, string, array<string, mixed>|null}>
+     */
+    public static function failedWrites(): iterable
+    {
+        yield 'a taken person name' => ['POST', '/api/persons', ['name' => 'daniel']];
+        yield 'a taken drink name' => ['POST', '/api/drinks', ['name' => 'BIER', 'points' => 2]];
+        yield 'an entry for nobody' => ['PUT', '/api/entries/00000000-0000-4000-8000-000000000777', ['personId' => 99, 'drinkId' => 1, 'quantity' => 1]];
+        yield 'a replayed entry' => ['PUT', '/api/entries/00000000-0000-4000-8000-000000000001', ['personId' => 1, 'drinkId' => 1, 'quantity' => 1]];
+        yield 'an unknown entry' => ['DELETE', '/api/entries/00000000-0000-4000-8000-000000000555', null];
+    }
+
+    /**
+     * @param array<string, mixed>|null $json
+     */
+    #[DataProvider('failedWrites')]
+    public function testAWriteThatChangesNothingLeavesTheRevision(string $method, string $path, ?array $json): void
+    {
+        $this->add(1, 1, 1);
+        $tag = $this->scoreboard()->getHeaderLine('ETag');
+
+        $this->send($method, $path, $json, $this->session);
+
+        self::assertSame(304, $this->scoreboard($tag)->getStatusCode());
+    }
+
+    private function scoreboard(?string $ifNoneMatch = null, string $from = '2026-11-13T23:00:00.000Z'): ResponseInterface
+    {
+        $request = (new ServerRequestFactory())
+            ->createServerRequest('GET', '/api/scoreboard?from=' . rawurlencode($from))
+            ->withCookieParams(['session' => $this->session]);
+        if ($ifNoneMatch !== null) {
+            $request = $request->withHeader('If-None-Match', $ifNoneMatch);
+        }
+
+        return $this->app()->handle($request);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function rowsOf(ResponseInterface $response): array
+    {
+        $rows = $this->body($response)['rows'];
+        self::assertIsArray($rows);
+
+        /** @var list<array<string, mixed>> $rows */
+        return $rows;
     }
 
     private function add(int $personId, int $drinkId, int $quantity): string

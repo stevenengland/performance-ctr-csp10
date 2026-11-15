@@ -26,6 +26,7 @@ final readonly class EntryLedger
     public function __construct(
         private PDO $pdo,
         private Clock $clock,
+        private DataRevision $revision,
     ) {}
 
     /**
@@ -59,27 +60,28 @@ final readonly class EntryLedger
      */
     public function delete(string $id): void
     {
-        $statement = $this->pdo->prepare('DELETE FROM entries WHERE id = ?');
-        $statement->execute([$id]);
-        if ($statement->rowCount() === 0) {
-            throw new NotFound($id);
-        }
+        $this->revision->write(function () use ($id): void {
+            $statement = $this->pdo->prepare('DELETE FROM entries WHERE id = ?');
+            $statement->execute([$id]);
+            if ($statement->rowCount() === 0) {
+                throw new NotFound($id);
+            }
+        });
     }
 
     private function record(Entry $entry, string $fingerprint, int $accountId): AddedEntry
     {
-        $this->pdo->beginTransaction();
         try {
-            $this->pdo->prepare('INSERT INTO entry_requests (id, fingerprint, created_at) VALUES (?, ?, ?)')
-                ->execute([$entry->id, $fingerprint, Timestamp::of($entry->createdAt)]);
-            $this->pdo->prepare(
-                'INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-            )->execute([$entry->id, $entry->personId, $entry->drinkId, $entry->quantity, $accountId, Timestamp::of($entry->createdAt)]);
-            $this->pdo->commit();
+            $this->revision->write(function () use ($entry, $fingerprint, $accountId): void {
+                $this->pdo->prepare('INSERT INTO entry_requests (id, fingerprint, created_at) VALUES (?, ?, ?)')
+                    ->execute([$entry->id, $fingerprint, Timestamp::of($entry->createdAt)]);
+                $this->pdo->prepare(
+                    'INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                )->execute([$entry->id, $entry->personId, $entry->drinkId, $entry->quantity, $accountId, Timestamp::of($entry->createdAt)]);
+            });
 
             return new AddedEntry($entry, true);
         } catch (PDOException $failure) {
-            $this->pdo->rollBack();
             if (DatabaseError::is($failure, DatabaseError::DUPLICATE_KEY)) {
                 return $this->replay($entry, $fingerprint);
             }

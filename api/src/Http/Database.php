@@ -8,6 +8,7 @@ use PDO;
 use Performance\Domain\Accounts;
 use Performance\Domain\Catalog\Catalog;
 use Performance\Domain\Clock;
+use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
 use Performance\Domain\Migrator;
 use Performance\Domain\Scoreboard;
@@ -27,6 +28,7 @@ final class Database
     private ?Catalog $catalog = null;
     private ?EntryLedger $entries = null;
     private ?Scoreboard $scoreboard = null;
+    private ?DataRevision $revision = null;
 
     public function __construct(
         private readonly Config $config,
@@ -55,17 +57,22 @@ final class Database
 
     public function catalog(): Catalog
     {
-        return $this->catalog ??= new Catalog($this->pdo(), $this->clock);
+        return $this->catalog ??= new Catalog($this->pdo(), $this->clock, $this->revision());
     }
 
     public function entries(): EntryLedger
     {
-        return $this->entries ??= new EntryLedger($this->pdo(), $this->clock);
+        return $this->entries ??= new EntryLedger($this->pdo(), $this->clock, $this->revision());
     }
 
     public function scoreboard(): Scoreboard
     {
-        return $this->scoreboard ??= new Scoreboard($this->pdo());
+        return $this->scoreboard ??= new Scoreboard($this->pdo(), $this->revision());
+    }
+
+    private function revision(): DataRevision
+    {
+        return $this->revision ??= new DataRevision($this->pdo());
     }
 
     private function connect(): PDO

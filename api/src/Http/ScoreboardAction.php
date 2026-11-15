@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Performance\Http;
 
+use DateTimeImmutable;
 use Performance\Domain\DrinkCount;
 use Performance\Domain\ScoreRow;
 use Psr\Http\Message\ResponseInterface;
@@ -11,6 +12,8 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * `GET /api/scoreboard?from=<instant>`: the standings since `from`, the start of the viewer's day.
+ * The ETag names the data revision and the window, so `If-None-Match` with an
+ * unchanged revision answers 304 before anything is aggregated.
  */
 final readonly class ScoreboardAction
 {
@@ -20,8 +23,36 @@ final readonly class ScoreboardAction
     {
         parse_str($request->getUri()->getQuery(), $query);
         $from = Instant::parse('from', is_string($query['from'] ?? null) ? $query['from'] : '');
+        $scoreboard = $this->database->scoreboard();
+        $tag = self::tag($scoreboard->revision(), $from);
+        $response = $response->withHeader('ETag', $tag);
+        if (self::matches($request->getHeaderLine('If-None-Match'), $tag)) {
+            return $response->withStatus(304);
+        }
 
-        return Json::write($response, ['rows' => array_map(self::row(...), $this->database->scoreboard()->since($from))]);
+        return Json::write($response, ['rows' => array_map(self::row(...), $scoreboard->since($from))]);
+    }
+
+    /** The window is part of the tag: the same revision means other standings for another day. */
+    private static function tag(int $revision, DateTimeImmutable $from): string
+    {
+        return sprintf('"%d-%s"', $revision, $from->format('Uv'));
+    }
+
+    /**
+     * Whether `If-None-Match` names the tag: `*`, or one of a list of (weak) tags, also
+     * with the `-gzip`/`-br` suffix Apache adds to tags of the responses it compresses.
+     */
+    private static function matches(string $ifNoneMatch, string $tag): bool
+    {
+        foreach (explode(',', $ifNoneMatch) as $candidate) {
+            $candidate = preg_replace(['/^W\//', '/-(gzip|br)"$/'], ['', '"'], trim($candidate));
+            if ($candidate === '*' || $candidate === $tag) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

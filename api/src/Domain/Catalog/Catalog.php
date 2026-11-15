@@ -8,6 +8,7 @@ use PDO;
 use PDOException;
 use Performance\Domain\Clock;
 use Performance\Domain\DatabaseError;
+use Performance\Domain\DataRevision;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
 
@@ -23,6 +24,7 @@ final readonly class Catalog
     public function __construct(
         private PDO $pdo,
         private Clock $clock,
+        private DataRevision $revision,
     ) {}
 
     /**
@@ -122,15 +124,17 @@ final readonly class Catalog
             implode(', ', array_fill(0, count($names), '?')),
         );
         try {
-            $this->pdo->prepare($sql)->execute([...array_values($columns), $now, $now]);
+            return $this->revision->write(function () use ($sql, $columns, $now): int {
+                $this->pdo->prepare($sql)->execute([...array_values($columns), $now, $now]);
+
+                return (int) $this->pdo->lastInsertId();
+            });
         } catch (PDOException $failure) {
             if (DatabaseError::is($failure, DatabaseError::DUPLICATE_KEY)) {
                 throw new DuplicateName($columns['name'] ?? '', 0, $failure);
             }
             throw $failure;
         }
-
-        return (int) $this->pdo->lastInsertId();
     }
 
     /**

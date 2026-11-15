@@ -147,7 +147,7 @@ export interface paths {
     };
     /**
      * Standings since `from`, the start of the viewer's day
-     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × points; count = Σ quantity; per-drink counters likewise.
+     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × points; count = Σ quantity; per-drink counters likewise. The ETag names the data revision, which every write of entries, persons and drinks bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged.
      */
     get: operations['getScoreboard'];
     put?: never;
@@ -654,7 +654,10 @@ export interface operations {
         /** @description Local midnight of the viewer's day as an ISO-8601 instant with offset */
         from: string;
       };
-      header?: never;
+      header?: {
+        /** @description The ETag of the standings the client already shows */
+        'If-None-Match'?: string;
+      };
       path?: never;
       cookie?: never;
     };
@@ -663,11 +666,22 @@ export interface operations {
       /** @description The standings */
       200: {
         headers: {
+          /** @description Data revision and window of these standings */
+          ETag?: string;
           [name: string]: unknown;
         };
         content: {
           'application/json': components['schemas']['Scoreboard'];
         };
+      };
+      /** @description Unchanged since the standings named in `If-None-Match` */
+      304: {
+        headers: {
+          /** @description The same ETag */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content?: never;
       };
       401: components['responses']['Problem'];
       422: components['responses']['Problem'];

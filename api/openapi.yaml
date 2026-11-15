@@ -285,6 +285,9 @@ paths:
       description: >-
         Persons with entries since `from`, ranked by score (ties by name). score =
         Σ quantity × points; count = Σ quantity; per-drink counters likewise.
+        The ETag names the data revision, which every write of entries, persons and
+        drinks bumps in its own transaction, and the window: `If-None-Match` with the
+        last ETag answers 304 without aggregating while the revision is unchanged.
       parameters:
         - name: from
           in: query
@@ -294,13 +297,32 @@ paths:
             type: string
             format: date-time
             examples: ['2026-11-14T23:00:00.000Z']
+        - name: If-None-Match
+          in: header
+          required: false
+          description: The ETag of the standings the client already shows
+          schema:
+            type: string
+            examples: ['"42-1763161200000"']
       responses:
         '200':
           description: The standings
+          headers:
+            ETag:
+              description: Data revision and window of these standings
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Scoreboard'
+        '304':
+          description: Unchanged since the standings named in `If-None-Match`
+          headers:
+            ETag:
+              description: The same ETag
+              schema:
+                type: string
         '401':
           $ref: '#/components/responses/Problem'
         '422':
