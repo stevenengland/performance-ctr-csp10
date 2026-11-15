@@ -1,8 +1,11 @@
-# ADR 0001 — Walking skeleton: provisional runtime, imported renderer, API edges
+# ADR 0002 — Walking skeleton: provisional runtime, imported renderer, API edges
 
 - Status: accepted
 - Date: 2026-11-15
 - Context: PRD #1, slice #4 (walking skeleton), built before the host probe (#2) finished
+- Numbering: written as 0001; renumbered when slice #3 (1/2, implemented after this one)
+  added [ADR 0001](0001-deploy-cli-import.md), the provenance record its acceptance
+  criteria name. Its decisions are unchanged.
 
 ## Decisions
 
@@ -21,7 +24,7 @@
    `no-cache` for `index.html`, `sw.js` and `manifest.webmanifest`. The CSP adds
    `style-src 'self' 'unsafe-inline'` for Vuetify's runtime theme; scripts stay `'self'`.
    Slice #3 imports the rest of the deploy CLI around it (`deploy/cli.ts` already
-   carries `render-htaccess`).
+   carries `render-htaccess`); see [ADR 0001](0001-deploy-cli-import.md).
 3. **Artifact layout.** `web/` is the web root, with `api/index.php` naming one PHP
    release; `app/<release>/` holds the release (`src`, `migrations`, `public`, `vendor`
    built `--no-dev`, `release.php` with the app version); `release.json` records version,
