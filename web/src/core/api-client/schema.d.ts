@@ -298,6 +298,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/audit': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * A page of audit events, newest first (admins only)
+     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink or a factor, and every entry counted or deleted, recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
+     */
+    get: operations['listAuditEvents'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -456,6 +476,65 @@ export interface components {
       drinkId: number;
       name: string;
       count: number;
+    };
+    AuditPage: {
+      /** @description Newest first, by id */
+      events: components['schemas']['AuditEvent'][];
+      /** @description The `before` of the next older page; null when no older event exists, so a last page that is exactly full is not followed by an empty one */
+      next: number | null;
+    };
+    AuditEvent: {
+      /** @description Sequential; a later event has a larger id */
+      id: number;
+      /**
+       * Format: date-time
+       * @description Server time of the change, UTC
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      occurredAt: string;
+      /** @enum {string} */
+      operation: 'create' | 'update' | 'delete';
+      /** @enum {string} */
+      subjectKind: 'entry' | 'person' | 'drink' | 'factor';
+      /** @description The subject's id as text (an integer for persons, drinks and factors, the UUID for entries) */
+      subjectId: string;
+      /** @description The account that made the change, as it was then; kept after the account is renamed or deleted */
+      actor: {
+        accountId: number;
+        userName: string;
+      };
+      /** @description The subject's values before the change; null for a create */
+      before: null | components['schemas']['AuditSnapshot'];
+      /** @description The subject's values after the change; null for a delete */
+      after: null | components['schemas']['AuditSnapshot'];
+      /** @description The event whose change caused this one, null for a direct change. An entry removed or changed by the deletion of its person, drink or factor names that deletion here, so it can be shown when the deletion's own event is on another page. */
+      cause: null | {
+        /** @description The causing event's id */
+        id: number;
+        /** @enum {string} */
+        subjectKind: 'entry' | 'person' | 'drink' | 'factor';
+        /** @description The causing event's subject name, as that event recorded it */
+        name: string;
+      };
+    };
+    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
+    AuditSnapshot: {
+      name?: string;
+      points?: number;
+      multiplier?: number;
+      person?: string;
+      drink?: string;
+      quantity?: number;
+      factor?:
+        | null
+        | ({
+            name?: string;
+            multiplier?: number;
+          } & {
+            [key: string]: unknown;
+          });
+    } & {
+      [key: string]: unknown;
     };
     Health: {
       /**
@@ -1281,6 +1360,34 @@ export interface operations {
         content?: never;
       };
       401: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  listAuditEvents: {
+    parameters: {
+      query?: {
+        /** @description An event id; only older events are returned. Omitted, the page starts at the newest event. */
+        before?: number;
+        /** @description Events per page */
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of events, newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AuditPage'];
+        };
+      };
+      401: components['responses']['Problem'];
+      403: components['responses']['Problem'];
       422: components['responses']['Problem'];
     };
   };

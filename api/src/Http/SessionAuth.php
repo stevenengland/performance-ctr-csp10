@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Performance\Http;
 
 use Performance\Domain\Account;
+use Performance\Domain\Actor;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -47,6 +48,12 @@ final readonly class SessionAuth implements MiddlewareInterface
         }
 
         return $account;
+    }
+
+    /** The signed-in account as the actor of a write, which the audit log records. */
+    public static function actor(ServerRequestInterface $request): Actor
+    {
+        return Actor::of(self::account($request));
     }
 
     public static function token(ServerRequestInterface $request): string

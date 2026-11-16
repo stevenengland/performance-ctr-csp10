@@ -42,12 +42,12 @@ final readonly class EntryActions
     public function put(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
     {
         $added = $this->database->entries()->add(
+            SessionAuth::actor($request),
             $arguments['id'],
             Input::integer($request, 'personId'),
             Input::integer($request, 'drinkId'),
             Input::integer($request, 'quantity'),
             Input::optionalId($request, 'factorId'),
-            SessionAuth::account($request)->id,
         );
 
         return Json::write($response, self::entry($added->entry), $added->created ? 201 : 200);
@@ -58,7 +58,7 @@ final readonly class EntryActions
      */
     public function delete(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
     {
-        $this->database->entries()->delete($arguments['id']);
+        $this->database->entries()->delete(SessionAuth::actor($request), $arguments['id']);
 
         return $response->withStatus(204);
     }

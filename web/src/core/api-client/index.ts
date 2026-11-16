@@ -14,6 +14,8 @@ export type NewEntry = components['schemas']['NewEntry'];
 export type HistoryEntry = components['schemas']['HistoryEntry'];
 export type Scoreboard = components['schemas']['Scoreboard'];
 export type ScoreRow = components['schemas']['ScoreRow'];
+export type AuditPage = components['schemas']['AuditPage'];
+export type AuditEvent = components['schemas']['AuditEvent'];
 export type ApiPath = keyof paths;
 /** Field errors of a 422 problem, keyed by the API field name. */
 export type FieldErrors = Readonly<Record<string, string>>;
@@ -333,6 +335,13 @@ export function deleteEntry(id: string): Promise<void> {
   return request<undefined>('/api/entries/{id}', {
     method: 'DELETE',
     params: { id },
+  });
+}
+
+/** A page of the audit log, newest first (admins only); `before` (an event id, the previous page's `next`) reads older events. */
+export function listAuditEvents(before?: number): Promise<AuditPage> {
+  return request<AuditPage>('/api/audit', {
+    query: before === undefined ? undefined : { before: String(before) },
   });
 }
 

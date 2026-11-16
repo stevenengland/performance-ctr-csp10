@@ -167,8 +167,8 @@ p {
   text-decoration: none;
 }
 
-/* The `Admin` assist chip (§7j). */
-.admin-chip {
+/* Assist chips: `Admin` (§7j, §7k) and the Protokoll operation (§7l). */
+.assist-chip {
   flex: none;
   padding: 2px 8px;
   border: 1px solid rgb(var(--v-theme-outline));

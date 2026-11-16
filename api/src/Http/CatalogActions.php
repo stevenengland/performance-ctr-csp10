@@ -28,7 +28,7 @@ final readonly class CatalogActions
 
     public function createPerson(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
-        $person = $this->database->catalog()->createPerson(Input::text($request, 'name'));
+        $person = $this->database->catalog()->createPerson(SessionAuth::actor($request), Input::text($request, 'name'));
 
         return Json::write($response, self::person($person), 201);
     }
@@ -40,7 +40,7 @@ final readonly class CatalogActions
 
     public function createDrink(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
-        $drink = $this->database->catalog()->createDrink(Input::text($request, 'name'), Input::number($request, 'points'));
+        $drink = $this->database->catalog()->createDrink(SessionAuth::actor($request), Input::text($request, 'name'), Input::number($request, 'points'));
 
         return Json::write($response, self::drink($drink), 201);
     }
@@ -61,7 +61,7 @@ final readonly class CatalogActions
      */
     public function updatePerson(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
     {
-        $person = $this->database->catalog()->updatePerson((int) $arguments['id'], Input::text($request, 'name'));
+        $person = $this->database->catalog()->updatePerson(SessionAuth::actor($request), (int) $arguments['id'], Input::text($request, 'name'));
 
         return Json::write($response, self::person($person));
     }
@@ -71,7 +71,7 @@ final readonly class CatalogActions
      */
     public function deletePerson(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
     {
-        $this->database->catalog()->deletePerson((int) $arguments['id']);
+        $this->database->catalog()->deletePerson(SessionAuth::actor($request), (int) $arguments['id']);
 
         return $response->withStatus(204);
     }
@@ -93,6 +93,7 @@ final readonly class CatalogActions
     public function updateDrink(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
     {
         $drink = $this->database->catalog()->updateDrink(
+            SessionAuth::actor($request),
             (int) $arguments['id'],
             Input::text($request, 'name'),
             Input::number($request, 'points'),
@@ -106,7 +107,7 @@ final readonly class CatalogActions
      */
     public function deleteDrink(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
     {
-        $this->database->catalog()->deleteDrink((int) $arguments['id']);
+        $this->database->catalog()->deleteDrink(SessionAuth::actor($request), (int) $arguments['id']);
 
         return $response->withStatus(204);
     }
@@ -118,7 +119,7 @@ final readonly class CatalogActions
 
     public function createFactor(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
-        $factor = $this->database->catalog()->createFactor(Input::text($request, 'name'), Input::number($request, 'multiplier'));
+        $factor = $this->database->catalog()->createFactor(SessionAuth::actor($request), Input::text($request, 'name'), Input::number($request, 'multiplier'));
 
         return Json::write($response, self::factor($factor), 201);
     }
@@ -140,6 +141,7 @@ final readonly class CatalogActions
     public function updateFactor(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
     {
         $factor = $this->database->catalog()->updateFactor(
+            SessionAuth::actor($request),
             (int) $arguments['id'],
             Input::text($request, 'name'),
             Input::number($request, 'multiplier'),
@@ -153,7 +155,7 @@ final readonly class CatalogActions
      */
     public function deleteFactor(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
     {
-        $this->database->catalog()->deleteFactor((int) $arguments['id']);
+        $this->database->catalog()->deleteFactor(SessionAuth::actor($request), (int) $arguments['id']);
 
         return $response->withStatus(204);
     }

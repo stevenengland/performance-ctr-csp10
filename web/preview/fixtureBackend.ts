@@ -1,13 +1,21 @@
 import type {
+  AuditEvent,
   Entry,
   HistoryEntry,
   ScoreRow,
   Scoreboard,
 } from '../src/core/api-client';
 import type { components } from '../src/core/api-client/schema';
-import type { FixtureAccount, FixtureEntry, Fixtures } from './fixtures';
+import {
+  causeOf,
+  entrySnapshot,
+  type FixtureAccount,
+  type FixtureEntry,
+  type Fixtures,
+} from './fixtures';
 
 type Problem = components['schemas']['Problem'];
+type AuditSnapshot = components['schemas']['AuditSnapshot'];
 type Body = Record<string, unknown>;
 
 /** What a route gets of its request. */
@@ -89,6 +97,8 @@ const MAX_NAME = 40;
 const MAX_POINTS = 9999.99;
 const MAX_MULTIPLIER = 99.99;
 const MAX_QUANTITY = 99;
+const AUDIT_PAGE_SIZE = 20;
+const MAX_AUDIT_PAGE_SIZE = 100;
 /** A positive integer id in a query, as the API's routes accept it. */
 const QUERY_ID = /^[1-9]\d{0,9}$/;
 const ENTRY_ID =
@@ -240,6 +250,31 @@ function passwordError(password: string): string | undefined {
     : undefined;
 }
 
+/** A whole number in a query, as the API reads one; anything else is 0, which no route accepts. */
+function wholeNumber(value: string): number {
+  return /^\d{1,18}$/.test(value) ? Number(value) : 0;
+}
+
+/** A page of the audit log, newest first, like the API's AuditLog; `next` only when an older event exists. */
+function auditPage(audit: AuditEvent[], query: URLSearchParams): Response {
+  const before = query.get('before');
+  const limit = wholeNumber(query.get('limit') ?? String(AUDIT_PAGE_SIZE));
+  const errors: Record<string, string> = {};
+  if (before !== null && wholeNumber(before) < 1) {
+    errors.before = 'Positive ganze Zahl.';
+  }
+  if (limit < 1 || limit > MAX_AUDIT_PAGE_SIZE) {
+    errors.limit = `1 bis ${String(MAX_AUDIT_PAGE_SIZE)}.`;
+  }
+  if (Object.keys(errors).length > 0) return validation(errors);
+  const older = audit
+    .filter(({ id }) => before === null || id < Number(before))
+    .sort((a, b) => b.id - a.id);
+  const events = older.slice(0, limit);
+  const next = older.length > limit ? (events.at(-1)?.id ?? null) : null;
+  return json({ events, next });
+}
+
 /** The URL of a request, wherever the preview is published. */
 function urlOf(input: RequestInfo | URL): URL {
   return new URL(
@@ -310,15 +345,52 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     Math.max(0, ...items.map(({ id }) => id)) + 1;
 
   /**
+  Appends the event of a write that took effect, by the signed-in account, like
+  the API's AuditLog: an update that changed no value records nothing. A deletion's
+  event is the `cause` of what the deletion does to entries.
+  */
+  const record = (
+    { account }: FixtureAccount,
+    operation: AuditEvent['operation'],
+    [subjectKind, subjectId]: [AuditEvent['subjectKind'], string],
+    before: AuditEvent['before'],
+    after: AuditEvent['after'],
+    cause?: AuditEvent,
+  ): AuditEvent | undefined => {
+    if (
+      operation === 'update' &&
+      JSON.stringify(before) === JSON.stringify(after)
+    ) {
+      return undefined;
+    }
+    const event: AuditEvent = {
+      id: nextId(fixtures.audit),
+      occurredAt: new Date().toISOString(),
+      operation,
+      subjectKind,
+      subjectId,
+      actor: { accountId: account.id, userName: account.userName },
+      before,
+      after,
+      cause: cause ? causeOf(cause) : null,
+    };
+    fixtures.audit.push(event);
+    return event;
+  };
+
+  /**
   List, create, read (with the entry count of every day), edit and delete of one
   catalog collection; `remove` does what the API's foreign key does to entries.
   */
   function catalogRoutes<T extends Named>(
-    collection: 'persons' | 'drinks' | 'factors',
+    [collection, kind]:
+      ['persons', 'person'] | ['drinks', 'drink'] | ['factors', 'factor'],
     list: () => T[],
     create: (id: number) => T,
     rules: {
       field?: Field<T>;
+      /** The values the audit log records of an item: the fields its writes set, not its id. */
+      values: (item: T) => AuditSnapshot;
       uses: (entry: Entry, item: T) => boolean;
       remove: (item: T) => void;
     },
@@ -332,9 +404,20 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       ],
       [
         `POST ${path}`,
-        guarded((_me, body) =>
-          saveNamed(list(), create(nextId(list())), body, 201, rules.field),
-        ),
+        guarded((me, body) => {
+          const item = create(nextId(list()));
+          const response = saveNamed(list(), item, body, 201, rules.field);
+          if (response.ok) {
+            record(
+              me,
+              'create',
+              [kind, String(item.id)],
+              null,
+              rules.values(item),
+            );
+          }
+          return response;
+        }),
       ],
       [
         `GET ${path}/{id}`,
@@ -349,19 +432,47 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       ],
       [
         `PATCH ${path}/{id}`,
-        guarded((_me, body, { id }) => {
+        guarded((me, body, { id }) => {
           const item = find(id);
           if (!item) return problem(PROBLEMS.notFound);
-          return saveNamed(list(), item, body, 200, rules.field);
+          const before = rules.values(item);
+          const response = saveNamed(list(), item, body, 200, rules.field);
+          if (response.ok) {
+            record(me, 'update', [kind, id], before, rules.values(item));
+          }
+          return response;
         }),
       ],
       [
         `DELETE ${path}/{id}`,
-        guarded((_me, _body, { id }) => {
+        guarded((me, _body, { id }) => {
           const item = find(id);
           if (!item) return problem(PROBLEMS.notFound);
+          const affected = fixtures.entries
+            .filter((entry) => rules.uses(entry, item))
+            .sort((a, b) => a.id.localeCompare(b.id))
+            .map((entry) => [entry, entrySnapshot(fixtures, entry)] as const);
           list().splice(list().indexOf(item), 1);
           rules.remove(item);
+          const cause = record(
+            me,
+            'delete',
+            [kind, id],
+            rules.values(item),
+            null,
+          );
+          // One event per entry, in id order: changed if it stayed (a factor's), else deleted.
+          for (const [entry, before] of affected) {
+            const stayed = fixtures.entries.includes(entry);
+            record(
+              me,
+              stayed ? 'update' : 'delete',
+              ['entry', entry.id],
+              before,
+              stayed ? entrySnapshot(fixtures, entry) : null,
+              cause,
+            );
+          }
           return new Response(null, { status: 204 });
         }),
       ],
@@ -479,10 +590,11 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       }, true),
     ],
     ...catalogRoutes(
-      'persons',
+      ['persons', 'person'],
       () => fixtures.persons,
       (id) => ({ id, name: '' }),
       {
+        values: ({ name }) => ({ name }),
         uses: (entry, person) => entry.personId === person.id,
         // Like the foreign key: the person's entries go with them.
         remove: (person) =>
@@ -492,11 +604,12 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       },
     ),
     ...catalogRoutes(
-      'drinks',
+      ['drinks', 'drink'],
       () => fixtures.drinks,
       (id) => ({ id, name: '', points: 0 }),
       {
         field: { name: 'points', error: pointsError },
+        values: ({ name, points }) => ({ name, points }),
         uses: (entry, drink) => entry.drinkId === drink.id,
         // Like the foreign key: the drink's entries go with it.
         remove: (drink) =>
@@ -506,11 +619,12 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       },
     ),
     ...catalogRoutes(
-      'factors',
+      ['factors', 'factor'],
       () => fixtures.factors,
       (id) => ({ id, name: '', multiplier: 0 }),
       {
         field: { name: 'multiplier', error: multiplierError },
+        values: ({ name, multiplier }) => ({ name, multiplier }),
         uses: (entry, factor) => entry.factorId === factor.id,
         // Like the foreign key: the factor's entries stay and count ×1.
         remove: (factor) => {
@@ -540,18 +654,45 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     ],
     [
       'PUT /api/entries/{id}',
-      guarded((me, body, { id }) =>
-        putEntry(fixtures, id, body, me.account.id),
-      ),
+      guarded((me, body, { id }) => {
+        const response = putEntry(fixtures, id, body, me.account.id);
+        const entry = fixtures.entries.find((candidate) => candidate.id === id);
+        // Only a new entry is a change: a replay answers 200 and records nothing.
+        if (response.status === 201 && entry) {
+          record(
+            me,
+            'create',
+            ['entry', id],
+            null,
+            entrySnapshot(fixtures, entry),
+          );
+        }
+        return response;
+      }),
     ],
     [
       'DELETE /api/entries/{id}',
-      guarded((_me, _body, { id }) => {
+      guarded((me, _body, { id }) => {
         const index = fixtures.entries.findIndex((entry) => entry.id === id);
-        if (index === -1) return problem(PROBLEMS.notFound);
+        const entry = fixtures.entries[index];
+        if (!entry) return problem(PROBLEMS.notFound);
+        record(
+          me,
+          'delete',
+          ['entry', id],
+          entrySnapshot(fixtures, entry),
+          null,
+        );
         fixtures.entries.splice(index, 1);
         return new Response(null, { status: 204 });
       }),
+    ],
+    [
+      'GET /api/audit',
+      guarded(
+        (_me, _body, { query }) => auditPage(fixtures.audit, query),
+        true,
+      ),
     ],
     [
       'GET /api/scoreboard',
