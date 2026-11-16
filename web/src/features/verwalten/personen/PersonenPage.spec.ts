@@ -188,7 +188,13 @@ describe('Verwalten → Personen', () => {
       api([{ id: 2, name: 'Daniel' }], {
         replies: [
           () =>
-            json({ id: 2, name: 'Daniel', entryCount, matchCount, resultCount }),
+            json({
+              id: 2,
+              name: 'Daniel',
+              entryCount,
+              matchCount,
+              resultCount,
+            }),
         ],
       });
       wrapper = await page();
