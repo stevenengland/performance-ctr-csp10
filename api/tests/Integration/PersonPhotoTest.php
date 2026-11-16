@@ -13,7 +13,7 @@ use Psr\Http\Message\ResponseInterface;
 use Slim\Psr7\Factory\ServerRequestFactory;
 
 /**
- * A person's photo through HTTP: `PUT` and `DELETE /api/persons/{id}/photo`, observed through
+ * A person's photo through HTTP: `PUT`, `GET` and `DELETE /api/persons/{id}/photo`, observed through
  * the stored row, the audit log and the scoreboard's ETag; races in their own processes.
  */
 final class PersonPhotoTest extends DatabaseTestCase
@@ -117,6 +117,106 @@ final class PersonPhotoTest extends DatabaseTestCase
         self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
         self::assertSame($revision + 1, $this->revision());
         self::assertSame([['update', 'race', ['name' => 'Anna', 'photo' => null], ['name' => 'Anna', 'photo' => 'B']]], $this->photoEvents());
+    }
+
+    public function testTheStoredVersionsUrlServesExactlyTheStoredBytesCachedForAYear(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+
+        $response = $this->send('GET', self::versioned('A'), session: $this->member);
+
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('image/jpeg', $response->getHeaderLine('Content-Type'));
+        self::assertSame(self::fixture('metadata-cleaned.jpg'), (string) $response->getBody());
+        self::assertSame('private, max-age=31536000, immutable', $response->getHeaderLine('Cache-Control'));
+    }
+
+    /**
+     * Every request is a cold client's: nothing cached, no conditional headers. Re-uploading A
+     * gives it A's version again, so A's old URL serves exactly A's bytes again.
+     */
+    public function testOnlyTheStoredVersionIsServedAndReuploadingMakesItsOldUrlValidAgain(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+        $this->put('progressive.jpg', $this->member);
+
+        $replacedA = $this->send('GET', self::versioned('A'), session: $this->member);
+        $storedB = $this->send('GET', self::versioned('B'), session: $this->member);
+        $this->put('metadata.jpg', $this->member);
+        $reuploadedA = $this->send('GET', self::versioned('A'), session: $this->member);
+        $replacedB = $this->send('GET', self::versioned('B'), session: $this->member);
+
+        $this->assertNotFoundProblem($replacedA);
+        self::assertSame(200, $storedB->getStatusCode(), (string) $storedB->getBody());
+        self::assertSame(CleanJpeg::clean(self::fixture('progressive.jpg')), (string) $storedB->getBody());
+        self::assertSame(200, $reuploadedA->getStatusCode(), (string) $reuploadedA->getBody());
+        self::assertSame(self::fixture('metadata-cleaned.jpg'), (string) $reuploadedA->getBody());
+        $this->assertNotFoundProblem($replacedB);
+    }
+
+    /**
+     * Person 1 has photo A where the case needs one; person 2 does not exist.
+     *
+     * @return iterable<string, array{bool, string}>
+     */
+    public static function unservedPhotos(): iterable
+    {
+        $a = self::version('A');
+        $b = self::version('B');
+
+        yield 'no version' => [true, self::PHOTO];
+        yield 'an empty version' => [true, self::PHOTO . '?v='];
+        yield 'the version in upper case' => [true, self::PHOTO . '?v=' . strtoupper($a)];
+        yield 'the version cut short' => [true, self::PHOTO . '?v=' . substr($a, 0, 63)];
+        yield 'the version with a character more' => [true, self::PHOTO . '?v=' . $a . '0'];
+        yield 'not hex' => [true, self::PHOTO . '?v=' . str_repeat('g', 64)];
+        yield 'a list of versions' => [true, self::PHOTO . '?v[]=' . $a];
+        yield 'another version' => [true, self::PHOTO . '?v=' . $b];
+        yield 'a person without a photo' => [false, self::PHOTO . '?v=' . $a];
+        yield 'an unknown person' => [true, '/api/persons/2/photo?v=' . $a];
+    }
+
+    #[DataProvider('unservedPhotos')]
+    public function testAnyOtherPhotoUrlIsANotFoundProblemThatIsNotStored(bool $withPhoto, string $path): void
+    {
+        if ($withPhoto) {
+            $this->put('metadata.jpg', $this->member);
+        }
+
+        $response = $this->send('GET', $path, session: $this->member);
+
+        $this->assertNotFoundProblem($response);
+    }
+
+    public function testWithoutASessionThePhotoIsNotServed(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+
+        $response = $this->send('GET', self::versioned('A'));
+
+        self::assertSame(401, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('urn:performance:problem:unauthenticated', $this->body($response)['type']);
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
+    }
+
+    /** Only the served photo is cacheable: the photo routes' other answers, success or problem, are not. */
+    public function testEveryOtherAnswerIsNotStored(): void
+    {
+        $responses = [
+            'set' => $this->put('metadata.jpg', $this->member),
+            'persons' => $this->send('GET', '/api/persons', session: $this->member),
+            'invalid photo' => $this->send('PUT', self::PHOTO, ['image' => 'kein Foto'], $this->member),
+            'method not allowed' => $this->send('POST', self::versioned('A'), [], $this->member),
+            'removed' => $this->send('DELETE', self::PHOTO, session: $this->member),
+        ];
+
+        self::assertSame(
+            ['set' => 200, 'persons' => 200, 'invalid photo' => 422, 'method not allowed' => 405, 'removed' => 204],
+            array_map(static fn(ResponseInterface $response): int => $response->getStatusCode(), $responses),
+        );
+        foreach ($responses as $name => $response) {
+            self::assertSame('no-store', $response->getHeaderLine('Cache-Control'), $name);
+        }
     }
 
     public function testAnUnknownPersonIs404(): void
@@ -339,6 +439,29 @@ final class PersonPhotoTest extends DatabaseTestCase
         return $this->app()->handle($request);
     }
 
+    /** The URL of a photo by its label (see label()), as the server builds it. */
+    private static function versioned(string $label): string
+    {
+        return self::PHOTO . '?v=' . self::version($label);
+    }
+
+    /** The version of photo `A` or `B` (see label()). */
+    private static function version(string $label): string
+    {
+        return hash('sha256', match ($label) {
+            'A' => self::fixture('metadata-cleaned.jpg'),
+            'B' => CleanJpeg::clean(self::fixture('progressive.jpg')),
+        });
+    }
+
+    private function assertNotFoundProblem(ResponseInterface $response): void
+    {
+        self::assertSame(404, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('application/problem+json', $response->getHeaderLine('Content-Type'));
+        self::assertSame('urn:performance:problem:not-found', $this->body($response)['type']);
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
+    }
+
     private static function fixture(string $name): string
     {
         $bytes = file_get_contents(dirname(__DIR__) . '/Support/photos/' . $name);
@@ -353,10 +476,7 @@ final class PersonPhotoTest extends DatabaseTestCase
      */
     private function label(mixed $version): string
     {
-        $labels = [
-            hash('sha256', self::fixture('metadata-cleaned.jpg')) => 'A',
-            hash('sha256', CleanJpeg::clean(self::fixture('progressive.jpg'))) => 'B',
-        ];
+        $labels = [self::version('A') => 'A', self::version('B') => 'B'];
         self::assertIsString($version);
         self::assertArrayHasKey($version, $labels);
 

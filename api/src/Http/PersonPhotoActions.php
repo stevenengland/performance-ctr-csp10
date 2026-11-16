@@ -11,7 +11,7 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * `/api/persons/{id}/photo`: set or replace a person's photo with `PUT {"image": "<base64 JPEG>"}`,
- * remove it with `DELETE`. Any member may change any person's photo.
+ * remove it with `DELETE`, read it with `GET ?v=<version>`. Any member may change any person's photo.
  */
 final readonly class PersonPhotoActions
 {
@@ -20,7 +20,24 @@ final readonly class PersonPhotoActions
     /** The base64 of the largest photo, 65 536 bytes; a longer `image` is refused before it is decoded. */
     private const MAX_IMAGE_LENGTH = 87_384;
 
+    /** A version names its bytes for good: kept for a year, but only in the member's own browser. */
+    private const CACHE_CONTROL = 'private, max-age=31536000, immutable';
+
     public function __construct(private Database $database) {}
+
+    /**
+     * The photo, only by its stored version `v`: any other `v`, or none, is 404 (never another
+     * version's bytes), so the answer can be cached for good.
+     *
+     * @param array{id: string} $arguments
+     */
+    public function read(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
+    {
+        $jpeg = $this->database->personPhotos()->read((int) $arguments['id'], Query::text($request, 'v') ?? '');
+        $response->getBody()->write($jpeg);
+
+        return $response->withHeader('Content-Type', 'image/jpeg')->withHeader('Cache-Control', self::CACHE_CONTROL);
+    }
 
     /**
      * @param array{id: string} $arguments

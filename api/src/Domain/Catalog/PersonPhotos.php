@@ -17,7 +17,8 @@ use Performance\Domain\ValidationFailed;
 
 /**
  * Person photos: at most one per person, stored as CleanJpeg left it and versioned by the
- * lowercase hex SHA-256 of exactly those bytes. Any member may set or remove any person's photo.
+ * lowercase hex SHA-256 of exactly those bytes, and read only by that version. Any member may
+ * set or remove any person's photo.
  *
  * Every write locks the person row first and then its photo row, the order a person's
  * deletion and rename take too (lockedPerson), and runs in the revision transaction: a change,
@@ -84,6 +85,26 @@ final readonly class PersonPhotos
 
             return true;
         });
+    }
+
+    /**
+     * The person's photo, only while `$version` is its stored version. The version and the
+     * bytes are read in one statement, so the bytes are always those of the version compared.
+     *
+     * @return string the stored JPEG
+     *
+     * @throws NotFound when there is no such person, they have no photo, or it has another version
+     */
+    public function read(int $personId, string $version): string
+    {
+        $statement = $this->pdo->prepare('SELECT version, jpeg FROM person_photos WHERE person_id = ?');
+        $statement->execute([$personId]);
+        $photo = $statement->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($photo) || ($photo['version'] ?? null) !== $version || !is_string($photo['jpeg'] ?? null)) {
+            throw new NotFound((string) $personId);
+        }
+
+        return $photo['jpeg'];
     }
 
     /**

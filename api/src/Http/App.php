@@ -73,6 +73,7 @@ final class App
         $member($app->get($person, $catalog->readPerson(...)));
         $member($app->patch($person, $catalog->updatePerson(...)));
         $member($app->delete($person, $catalog->deletePerson(...)));
+        $member($app->get($person . '/photo', $photos->read(...)));
         $member($app->put($person . '/photo', $photos->put(...)), $photoBody);
         $member($app->delete($person . '/photo', $photos->remove(...)));
         $drink = '/api/drinks/{id:' . CatalogActions::ID_PATTERN . '}';
@@ -114,9 +115,12 @@ final class App
         $app->add(new ClientVersionGate($responses, $basePath . '/api/health'));
         $app->addErrorMiddleware(false, false, false)
             ->setDefaultErrorHandler($problems);
-        // Outermost, so problem responses carry it too.
+        // Outermost, so problem responses carry it too. An action that sets its own
+        // Cache-Control keeps it; only the served photo does.
         $app->add(static function (ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface {
-            return $handler->handle($request)->withHeader('Cache-Control', 'no-store');
+            $response = $handler->handle($request);
+
+            return $response->hasHeader('Cache-Control') ? $response : $response->withHeader('Cache-Control', 'no-store');
         });
 
         return $app;
