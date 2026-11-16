@@ -24,6 +24,8 @@ import {
   updatePerson,
   listFactors,
   listGames,
+  listMatches,
+  listResults,
   updateFactor,
   updateGame,
   getHealth,
@@ -1552,5 +1554,127 @@ describe('the fixture backend’s games', () => {
     await expect(record({ points: -9999 })).resolves.toMatchObject({
       points: -9999,
     });
+  });
+
+  /** A page of a game's Verlauf as the API answers it, raw. */
+  async function historyPage(
+    id: number,
+    kind: 'matches' | 'results',
+    query: string,
+  ): Promise<{ items: { id: string }[]; next: string | null }> {
+    const response = await fetch(`/api/games/${String(id)}/${kind}?${query}`);
+    return (await response.json()) as {
+      items: { id: string }[];
+      next: string | null;
+    };
+  }
+
+  it('pages a duel’s matches of its current run newest first, with deleted sides and accounts as null', async () => {
+    installFixtureBackend(sampleEvening());
+    const schach = await gameId('Schach');
+
+    const all = await listMatches(schach);
+
+    expect(all.next).toBeNull();
+    expect(all.items).toHaveLength(9);
+    expect(all.items[0]).toMatchObject({
+      first: { name: 'Ben' },
+      second: { name: 'Anna' },
+      outcome: 'draw',
+      accountName: 'ben',
+    });
+    expect(all.items.at(-1)).toMatchObject({
+      first: { name: 'Anna' },
+      second: { name: 'Ben' },
+      outcome: 'first',
+      accountName: 'anna',
+    });
+    expect(all.items.find(({ first }) => first === null)).toMatchObject({
+      second: { name: 'Ben' },
+      outcome: 'second',
+    });
+    expect(
+      all.items.filter(({ accountName }) => accountName === null),
+    ).toHaveLength(1);
+    const times = all.items.map(({ createdAt }) => createdAt);
+    expect(times).toEqual([...times].sort().reverse());
+
+    const first = await historyPage(schach, 'matches', 'limit=4');
+    expect(first.next).not.toBeNull();
+    const second = await historyPage(
+      schach,
+      'matches',
+      `limit=4&before=${encodeURIComponent(first.next ?? '')}`,
+    );
+    const third = await historyPage(
+      schach,
+      'matches',
+      `limit=4&before=${encodeURIComponent(second.next ?? '')}`,
+    );
+    expect(third.next).toBeNull();
+    expect(
+      [...first.items, ...second.items, ...third.items].map(({ id }) => id),
+    ).toEqual(all.items.map(({ id }) => id));
+  });
+
+  it('pages a points game’s results newest first, and keeps a cursor in its run across a restart', async () => {
+    installFixtureBackend(sampleEvening());
+    const romme = await gameId('Rommé');
+
+    const all = await listResults(romme);
+    expect(
+      all.items.map(({ person, points }) => [person.name, points]),
+    ).toEqual([
+      ['Mara', 31],
+      ['Daniel', 9],
+      ['Ben', 27],
+      ['Anna', -20],
+      ['Mara', 48],
+      ['Daniel', -20],
+      ['Ben', 12],
+      ['Anna', 35],
+    ]);
+    expect(all.items[0]?.accountName).toBe('ben');
+
+    const first = await historyPage(romme, 'results', 'limit=3');
+    await restart(romme);
+
+    await expect(listResults(romme)).resolves.toEqual({
+      items: [],
+      next: null,
+    });
+    const older = await listResults(romme, first.next ?? '');
+    expect(older.items.map(({ id }) => id)).toEqual(
+      all.items.slice(3).map(({ id }) => id),
+    );
+  });
+
+  it('refuses a Verlauf of another kind or game, a bad cursor and a bad limit like the API', async () => {
+    installFixtureBackend(sampleEvening());
+    const schach = await gameId('Schach');
+    const romme = await gameId('Rommé');
+    const status = (path: string) =>
+      fetch(path).then((response) => response.status);
+
+    await expect(listMatches(romme)).rejects.toMatchObject({ status: 404 });
+    await expect(listResults(schach)).rejects.toMatchObject({ status: 404 });
+    await expect(listMatches(999)).rejects.toMatchObject({ status: 404 });
+    // The kind is checked before the query.
+    await expect(
+      status(`/api/games/${String(romme)}/matches?limit=0`),
+    ).resolves.toBe(404);
+    await expect(listMatches(schach, 'nonsense')).rejects.toMatchObject({
+      status: 422,
+      errors: { before: 'Unbekannte Seite.' },
+    });
+    for (const limit of ['0', '101', 'x']) {
+      const response = await fetch(
+        `/api/games/${String(schach)}/matches?limit=${limit}`,
+      );
+      expect(response.status).toBe(422);
+      await expect(response.json()).resolves.toMatchObject({
+        errors: { limit: '1 bis 100.' },
+      });
+    }
   });
 });

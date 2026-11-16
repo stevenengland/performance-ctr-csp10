@@ -3,7 +3,9 @@ import type {
   Entry,
   Game,
   Match,
+  MatchItem,
   HistoryEntry,
+  ResultItem,
   ScoreRow,
   Scoreboard,
   Standings,
@@ -108,8 +110,9 @@ const MAX_NAME = 40;
 const MAX_POINTS = 9999.99;
 const MAX_MULTIPLIER = 99.99;
 const MAX_QUANTITY = 99;
-const AUDIT_PAGE_SIZE = 20;
-const MAX_AUDIT_PAGE_SIZE = 100;
+/** Pages of the audit log and of a game's Verlauf, as the API reads them. */
+const PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 100;
 /** A positive integer id in a query, as the API's routes accept it. */
 const QUERY_ID = /^[1-9]\d{0,9}$/;
 const PERSON_NOT_FOUND = 'Person nicht gefunden.';
@@ -355,13 +358,13 @@ function wholeNumber(value: string): number {
 /** A page of the audit log, newest first, like the API's AuditLog; `next` only when an older event exists. */
 function auditPage(audit: AuditEvent[], query: URLSearchParams): Response {
   const before = query.get('before');
-  const limit = wholeNumber(query.get('limit') ?? String(AUDIT_PAGE_SIZE));
+  const limit = wholeNumber(query.get('limit') ?? String(PAGE_SIZE));
   const errors: Record<string, string> = {};
   if (before !== null && wholeNumber(before) < 1) {
     errors.before = 'Positive ganze Zahl.';
   }
-  if (limit < 1 || limit > MAX_AUDIT_PAGE_SIZE) {
-    errors.limit = `1 bis ${String(MAX_AUDIT_PAGE_SIZE)}.`;
+  if (limit < 1 || limit > MAX_PAGE_SIZE) {
+    errors.limit = `1 bis ${String(MAX_PAGE_SIZE)}.`;
   }
   if (Object.keys(errors).length > 0) return validation(errors);
   const older = audit
@@ -370,6 +373,81 @@ function auditPage(audit: AuditEvent[], query: URLSearchParams): Response {
   const events = older.slice(0, limit);
   const next = older.length > limit ? (events.at(-1)?.id ?? null) : null;
   return json({ events, next });
+}
+
+/** A match or result as a game's Verlauf pages it: in its game's run, by time and id. */
+interface Recorded {
+  id: string;
+  run: number;
+  createdAt: string;
+}
+
+/** The `before` of the page after `row`, like the API's cursor: `[run, createdAt, id]` in URL-safe base64. */
+function cursorOf({ run, createdAt, id }: Recorded): string {
+  return btoa(JSON.stringify([run, createdAt, id]))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+/** A cursor this backend wrote, or undefined for anything else. */
+function cursorFrom(text: string): Recorded | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(atob(text.replace(/-/g, '+').replace(/_/g, '/')));
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(value) || value.length !== 3) return undefined;
+  const [run, createdAt, id] = value as unknown[];
+  return typeof run === 'number' &&
+    Number.isInteger(run) &&
+    run > 0 &&
+    typeof createdAt === 'string' &&
+    !Number.isNaN(Date.parse(createdAt)) &&
+    typeof id === 'string' &&
+    ENTRY_ID.test(id)
+    ? { run, createdAt, id }
+    : undefined;
+}
+
+/**
+A page of a game's matches or results, like the API's GameHistory: newest first
+by time, then id; the first page in the game's current run, a later one in the
+run its cursor names, so a restart between pages never mixes runs; `next` only
+when an older row exists.
+*/
+function historyPage<T extends Recorded>(
+  rows: T[],
+  game: FixtureGame,
+  query: URLSearchParams,
+  item: (row: T) => MatchItem | ResultItem,
+): Response {
+  const before = query.get('before');
+  const cursor = before === null ? undefined : cursorFrom(before);
+  const limit = wholeNumber(query.get('limit') ?? String(PAGE_SIZE));
+  const errors: Record<string, string> = {};
+  if (before !== null && !cursor) errors.before = 'Unbekannte Seite.';
+  if (limit < 1 || limit > MAX_PAGE_SIZE) {
+    errors.limit = `1 bis ${String(MAX_PAGE_SIZE)}.`;
+  }
+  if (Object.keys(errors).length > 0) return validation(errors);
+  const isOlder = ({ createdAt, id }: T) =>
+    !cursor ||
+    createdAt < cursor.createdAt ||
+    (createdAt === cursor.createdAt && id < cursor.id);
+  const older = rows
+    .filter((row) => row.run === (cursor?.run ?? game.run) && isOlder(row))
+    .sort(
+      (a, b) =>
+        b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+    );
+  const page = older.slice(0, limit);
+  const last = page.at(-1);
+  return json({
+    items: page.map(item),
+    next: older.length > limit && last ? cursorOf(last) : null,
+  });
 }
 
 /** The URL of a request, wherever the preview is published. */
@@ -386,14 +464,14 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/matches/<uuid>`, `/api/results/<uuid>`, `/api/persons/<n>`, `/api/games/<n>/standings`, … */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/matches/<uuid>`, `/api/results/<uuid>`, `/api/persons/<n>`, `/api/games/<n>/standings`, `/api/games/<n>/matches`, … */
 function routeOf(path: string): { route: string; id: string } {
   const record = /^\/api\/(entries|matches|results)\/([^/]+)$/.exec(path);
   if (record?.[1] && record[2] && ENTRY_ID.test(record[2])) {
     return { route: `/api/${record[1]}/{id}`, id: record[2] };
   }
   const item =
-    /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart|\/standings)?$/.exec(
+    /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart|\/standings|\/matches|\/results)?$/.exec(
       path,
     );
   if (item?.[1] && item[2]) {
@@ -671,6 +749,15 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       person: person.name,
     });
   };
+  /** A person as a Verlauf names them, or null once deleted. */
+  const personRef = (personId: number | null) => {
+    const person = fixtures.persons.find(({ id }) => id === personId);
+    return person ? { id: person.id, name: person.name } : null;
+  };
+  /** The recording account's name, or null once deleted. */
+  const accountNameOf = (accountId: number | null) =>
+    fixtures.accounts.find(({ account }) => account.id === accountId)?.account
+      .userName ?? null;
   const matchCountOf = (personId: number) =>
     fixtures.matches.filter(
       ({ firstPersonId, secondPersonId }) =>
@@ -679,8 +766,8 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
 
   /**
   The games, like the API's Games: list, create, read (with its match and result
-  counts of every run), edit, restart, delete (its matches and results with it)
-  and its ranking, each write recorded in the audit log.
+  counts of every run), edit, restart, delete (its matches and results with it),
+  its ranking and its Verlauf, each write recorded in the audit log.
   */
   function gameRoutes(): [string, Handler][] {
     const find = (id: string) =>
@@ -802,6 +889,49 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
             game: game.name,
           });
           return new Response(null, { status: 204 });
+        }),
+      ],
+      [
+        'GET /api/games/{id}/matches',
+        guarded((_me, _body, { id, query }) => {
+          const game = find(id);
+          if (game?.kind !== 'duel') return problem(PROBLEMS.notFound);
+          return historyPage(
+            fixtures.matches.filter(({ gameId }) => gameId === game.id),
+            game,
+            query,
+            (match) => ({
+              id: match.id,
+              first: personRef(match.firstPersonId),
+              second: personRef(match.secondPersonId),
+              outcome: match.outcome,
+              createdAt: match.createdAt,
+              accountName: accountNameOf(match.accountId),
+            }),
+          );
+        }),
+      ],
+      [
+        'GET /api/games/{id}/results',
+        guarded((_me, _body, { id, query }) => {
+          const game = find(id);
+          if (game?.kind !== 'points') return problem(PROBLEMS.notFound);
+          return historyPage(
+            fixtures.results.filter(({ gameId }) => gameId === game.id),
+            game,
+            query,
+            (result) => ({
+              id: result.id,
+              // A deleted person's results went with them, so the person exists.
+              person: personRef(result.personId) ?? {
+                id: result.personId,
+                name: '',
+              },
+              points: result.points,
+              createdAt: result.createdAt,
+              accountName: accountNameOf(result.accountId),
+            }),
+          );
         }),
       ],
       [
