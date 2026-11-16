@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import AppFab from '../../components/AppFab.vue';
 import {
   loadGames,
   refreshStandings,
@@ -8,16 +9,17 @@ import {
   useStandings,
 } from '../../core/games';
 import { messages } from '../../core/messages';
-import { showProblem, showSnackbar } from '../../core/snackbar';
+import { showProblem } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
 import GameStandingList from './GameStandingList.vue';
-import { contextLine, gameStandings, ruleLine } from './game-view';
+import { leaveGone } from './game-flow';
+import { contextLine, gameStandings, matchPath, ruleLine } from './game-view';
 
 /**
 A game's page (§7o): its name and context line in the top bar, the rule that
 decides its ranking, and the ranking since the last (re)start, shaped like the
 Rangliste. The ranking is read when the page opens and after the device's own
-writes.
+writes. On a duel, `Partie eintragen` (the FAB) opens the recording flow (§7p).
 */
 const props = defineProps<{ gameId: string }>();
 const SKELETON_ROWS = 3;
@@ -38,16 +40,10 @@ provideTopBar(() => ({
   context: game.value ? contextLine(game.value) : undefined,
 }));
 
-/** The game was deleted (on another phone): back to Spiele (§4, §9). */
-function leaveGone() {
-  void router.replace('/spiele');
-  showSnackbar({ text: messages.zaehlen.gone });
-}
-
 onMounted(async () => {
   try {
     await loadGames();
-    if (!game.value) leaveGone();
+    if (!game.value) leaveGone(router);
     else await refreshStandings(gameId.value);
   } catch (failure) {
     showProblem(failure);
@@ -78,12 +74,19 @@ onMounted(async () => {
       :standings="standings"
       :label="game?.name ?? messages.spiele.title"
     />
+    <AppFab
+      v-if="game?.kind === 'duel'"
+      :label="messages.spiele.recordMatch"
+      @click="router.push(matchPath(game.id))"
+    />
   </section>
 </template>
 
 <style scoped>
 .spiel {
   padding-top: 8px;
+  /* The ranking's end stays clear of the FAB. */
+  padding-bottom: 88px;
 }
 
 .spiel__rule {

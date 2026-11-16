@@ -4,6 +4,7 @@ import {
   contextLine,
   gameStandings,
   leaderLine,
+  outcomeText,
   ruleLine,
   settingLine,
   sinceLabel,
@@ -105,6 +106,7 @@ describe('a game’s ranking in words', () => {
         value: '3,5',
         valueText: '3,5 Punkte',
         details: '5 Partien · 3 S · 1 R · 1 N',
+        short: '5 Partien',
         label: 'Platz 1, Anna, 3,5 Punkte, 5 Partien · 3 S · 1 R · 1 N',
       },
       {
@@ -114,6 +116,7 @@ describe('a game’s ranking in words', () => {
         value: '1',
         valueText: '1 Punkt',
         details: '1 Partie · 1 S · 0 R · 0 N',
+        short: '1 Partie',
         label: 'Platz 2, Ben, 1 Punkt, 1 Partie · 1 S · 0 R · 0 N',
       },
     ]);
@@ -155,6 +158,7 @@ describe('a game’s ranking in words', () => {
       [3, 'Ben', '39', '39 Punkte', '2 Ergebnisse'],
     ]);
     expect(places[0]?.label).toBe('Platz 1, Daniel, −11 Punkte, 2 Ergebnisse');
+    expect(places[0]?.short).toBe('2 Ergebnisse');
   });
 
   it('names the leader for the Spiele list, or that nothing was recorded yet', () => {
@@ -176,5 +180,11 @@ describe('a game’s ranking in words', () => {
     expect(leaderLine({ kind: 'duel', startedAt: STARTED, rows: [] })).toBe(
       'noch keine Ergebnisse',
     );
+  });
+
+  it('puts a match’s outcome in words', () => {
+    expect(outcomeText('first', 'Anna', 'Ben')).toBe('Anna gewinnt');
+    expect(outcomeText('second', 'Anna', 'Ben')).toBe('Ben gewinnt');
+    expect(outcomeText('draw', 'Anna', 'Ben')).toBe('Remis');
   });
 });

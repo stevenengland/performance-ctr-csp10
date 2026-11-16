@@ -272,6 +272,21 @@ export const messages = {
       `Platz ${String(rank)}, ${name}, ${value}, ${details}`,
     noneYetDuel: 'Seit dem Start noch keine Partien.',
     noneYetPoints: 'Seit dem Start noch keine Ergebnisse.',
+    /** A duel player's tile: `5 Partien`. */
+    played: (count: number) =>
+      `${String(count)} ${count === 1 ? 'Partie' : 'Partien'}`,
+    recordMatch: 'Partie eintragen',
+    firstQuestion: 'Wer spielt?',
+    secondQuestion: 'Gegen wen?',
+    outcomeQuestion: 'Wie ging es aus?',
+    wins: (name: string) => `${name} gewinnt`,
+    draw: 'Remis',
+    winSupport: '1 Punkt für den Sieg',
+    drawSupport: 'je ½ Punkt',
+    /** The pairing: `Anna – Ben`, `Anna – …` while the second player is open. */
+    pairing: (first: string, second: string) => `${first} – ${second}`,
+    /** The saved snackbar: `Anna – Ben · Anna gewinnt`. */
+    savedMatch: (pairing: string, outcome: string) => `${pairing} · ${outcome}`,
     /** A deleted game's matches or results go with it. */
     removeBody: (name: string, kind: 'duel' | 'points', count: number) => {
       if (count === 0) return `${name} wird gelöscht.`;

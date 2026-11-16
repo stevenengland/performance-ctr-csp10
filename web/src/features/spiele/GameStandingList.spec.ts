@@ -16,6 +16,7 @@ const standing = (
   value,
   valueText: `${value} Punkte`,
   details,
+  short: details,
   label: `Platz ${String(rank)}, ${name}`,
 });
 

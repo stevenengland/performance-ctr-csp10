@@ -1,5 +1,5 @@
 import type { DeepReadonly } from 'vue';
-import type { Game, Standings } from '../../core/api-client';
+import type { Game, Outcome, Standings } from '../../core/api-client';
 import { startOfToday } from '../../core/day-window';
 import {
   formatDay,
@@ -10,6 +10,8 @@ import {
 import { messages } from '../../core/messages';
 
 export const gamePath = (gameId: number) => `/spiele/${String(gameId)}`;
+/** The duel recording flow's first step, `Wer spielt?`. */
+export const matchPath = (gameId: number) => `${gamePath(gameId)}/partie`;
 
 function kindLabel(kind: Game['kind']): string {
   return kind === 'duel' ? messages.spiele.duel : messages.spiele.points;
@@ -68,6 +70,8 @@ export interface GameStanding {
   valueText: string;
   /** `5 Partien · 3 S · 1 R · 1 N`, or `3 Ergebnisse`. */
   details: string;
+  /** The person tile's line in a recording flow: `5 Partien`, or `3 Ergebnisse`. */
+  short: string;
   label: string;
 }
 
@@ -77,6 +81,7 @@ function place(
   value: string,
   points: number,
   details: string,
+  short: string,
 ): GameStanding {
   const valueText = messages.spiele.gamePoints(value, points);
   return {
@@ -86,6 +91,7 @@ function place(
     value,
     valueText,
     details,
+    short,
     label: messages.spiele.place(index + 1, name, valueText, details),
   };
 }
@@ -102,18 +108,14 @@ export function gameStandings(
         formatNumber(row.points),
         row.points,
         messages.spiele.record(row.played, row.wins, row.draws, row.losses),
+        messages.spiele.played(row.played),
       ),
     );
   }
-  return standings.rows.map((row, index) =>
-    place(
-      index,
-      row,
-      formatSigned(row.sum),
-      row.sum,
-      messages.spiele.resultCount(row.results),
-    ),
-  );
+  return standings.rows.map((row, index) => {
+    const count = messages.spiele.resultCount(row.results);
+    return place(index, row, formatSigned(row.sum), row.sum, count, count);
+  });
 }
 
 /** The game's leader in the Spiele list: `1. Anna · 4 Punkte`, or `noch keine Ergebnisse`. */
@@ -122,4 +124,14 @@ export function leaderLine(standings: DeepReadonly<Standings>): string {
   return leader
     ? messages.spiele.leader(leader.name, leader.valueText)
     : messages.spiele.noResults;
+}
+
+/** A match's outcome in words: `Anna gewinnt`, `Remis`. */
+export function outcomeText(
+  outcome: Outcome,
+  first: string,
+  second: string,
+): string {
+  if (outcome === 'draw') return messages.spiele.draw;
+  return messages.spiele.wins(outcome === 'first' ? first : second);
 }

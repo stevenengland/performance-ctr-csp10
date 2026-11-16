@@ -21,8 +21,10 @@ declare module 'vue-router' {
     destination?: Destination;
     /** A screen below its destination (shows a back button, keeps the destination active). */
     child?: boolean;
-    /** Step of the add flow, for the step indicator. */
+    /** Step of the add flow or a recording flow, for the step indicator. */
     step?: number;
+    /** Steps of a flow with a fixed number of them (games); the add flow's depend on the factors. */
+    steps?: number;
     /** Open without a session, outside the shell (no top bar, no navigation). */
     public?: boolean;
     /** Only for admins. */
@@ -110,6 +112,42 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('./features/spiele/SpielPage.vue'),
     props: true,
     meta: { title: messages.spiele.title, destination: 'spiele', child: true },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)/partie',
+    component: () => import('./features/spiele/PlayerStep.vue'),
+    props: true,
+    meta: {
+      title: messages.spiele.title,
+      destination: 'spiele',
+      child: true,
+      step: 1,
+      steps: 3,
+    },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)/partie/:firstId(\\d+)',
+    component: () => import('./features/spiele/PlayerStep.vue'),
+    props: true,
+    meta: {
+      title: messages.spiele.title,
+      destination: 'spiele',
+      child: true,
+      step: 2,
+      steps: 3,
+    },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)/partie/:firstId(\\d+)/:secondId(\\d+)',
+    component: () => import('./features/spiele/OutcomeStep.vue'),
+    props: true,
+    meta: {
+      title: messages.spiele.title,
+      destination: 'spiele',
+      child: true,
+      step: 3,
+      steps: 3,
+    },
   },
   {
     path: '/verwalten',

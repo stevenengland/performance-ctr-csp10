@@ -6,11 +6,16 @@ import { useFactors } from '../core/catalog';
 import { messages } from '../core/messages';
 import { useTopBarContent } from '../core/top-bar';
 
-const factors = useFactors();
-/** Steps of the add flow; the factor step (4) is skipped while no factors exist (§6.1). */
-const steps = computed(() => (factors.value?.length ? 4 : 3));
-
 const route = useRoute();
+const factors = useFactors();
+/**
+Steps of the flow: a game's recording flow has a fixed number; in the add flow the
+factor step (4) is skipped while no factors exist (§6.1).
+*/
+const steps = computed(
+  () => route.meta.steps ?? (factors.value?.length ? 4 : 3),
+);
+
 const router = useRouter();
 const meta = computed(() => route.meta);
 const content = useTopBarContent();
