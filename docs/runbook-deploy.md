@@ -213,7 +213,9 @@ open app reload, so prefer growth where it is cheap.
 - **Health stayed `running`:** a migration keeps waiting for a table that long transactions
   use. Each attempt gives up after `Migrator::TABLE_LOCK_WAIT_SECONDS` and is retried by the
   next request, so nothing is stuck and the API answers 503 `maintenance` meanwhile; the deploy
-  polls health for about two minutes and then fails. The migration completes on a later
+  reads health up to 24 times, 5 s apart (`deploy/io/http-smoke.ts`), and each of those reads
+  itself waits up to the 5 s lock timeout, so it keeps polling for up to about four minutes
+  (24 × 5 s + 23 × 5 s) and then fails. The migration completes on a later
   request once those transactions ended; then re-run the job to switch the shell.
 - **Health failed** (failed migration, wrong app or schema version): the run is red,
   `index.html`, the manifest and the service worker still belong to the previous release, but
