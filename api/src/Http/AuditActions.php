@@ -23,29 +23,12 @@ final readonly class AuditActions
 
     public function list(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
-        parse_str($request->getUri()->getQuery(), $query);
         $page = $this->database->audit()->page(
-            self::integer($query, 'before'),
-            self::integer($query, 'limit') ?? AuditLog::PAGE_SIZE,
+            Query::integer($request, 'before'),
+            Query::integer($request, 'limit') ?? AuditLog::PAGE_SIZE,
         );
 
         return Json::write($response, ['events' => array_map(self::event(...), $page->events), 'next' => $page->next]);
-    }
-
-    /**
-     * An optional whole-number query parameter: null when it is missing; anything but an
-     * integer reads as 0, which the audit log then rejects.
-     *
-     * @param array<mixed> $query
-     */
-    private static function integer(array $query, string $name): ?int
-    {
-        $value = $query[$name] ?? null;
-        if ($value === null) {
-            return null;
-        }
-
-        return is_string($value) && preg_match('/^-?[0-9]{1,18}$/D', $value) === 1 ? (int) $value : 0;
     }
 
     /**
