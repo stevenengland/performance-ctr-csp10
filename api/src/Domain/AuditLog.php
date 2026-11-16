@@ -11,7 +11,7 @@ use PDO;
 
 /**
  * The audit log: application-level append-only history of the changes to entries, persons,
- * drinks and factors. It can append an event and read events back, nothing else.
+ * drinks, factors, games, matches and results. It can append an event and read events back, nothing else.
  *
  * Callers say what they alone know: the actor, the operation, the subject and its values
  * before and after the change. The log owns the rest: it checks that the values fit the
@@ -67,8 +67,7 @@ final readonly class AuditLog
     /**
      * Records the deletion of a person, drink or factor, then what it does to each of its
      * entries: one event per entry, in the order given, each linked to the deletion as its
-     * cause. The entries' events are stored in batches as they come, not one statement each
-     * and not all at once, so `$entries` may be read lazily, chunk by chunk.
+     * cause (see recordCaused).
      *
      * @param array<string, mixed>                                                     $before         the deleted row's values
      * @param AuditOperation                                                           $entryOperation delete for entries removed with the row, update for entries it changes
@@ -87,10 +86,29 @@ final readonly class AuditLog
         iterable $entries,
     ): int {
         $cause = (int) $this->record($actor, AuditOperation::Delete, $subjectKind, $subjectId, $before, null);
+        $this->recordCaused($actor, $cause, $entryOperation, AuditSubjectKind::Entry, $entries);
+
+        return $cause;
+    }
+
+    /**
+     * Records what a deletion already recorded as `$cause` does to the rows that depend on the
+     * deleted one: one event per row, in the order given, each linked to the cause. The events
+     * are stored in batches as they come, not one statement each and not all at once, so
+     * `$changes` may be read lazily, chunk by chunk. An update that changes no value records
+     * nothing.
+     *
+     * @param iterable<array{string, array<string, mixed>, array<string, mixed>|null}> $changes each affected row's id and its values before and after
+     *
+     * @throws LogicException outside a transaction, or when a snapshot does not fit the operation
+     */
+    public function recordCaused(Actor $actor, int $cause, AuditOperation $operation, AuditSubjectKind $subjectKind, iterable $changes): void
+    {
+        $this->checkTransaction();
         $batch = [];
-        foreach ($entries as [$entryId, $entryBefore, $entryAfter]) {
-            if (self::changes($entryOperation, $entryBefore, $entryAfter)) {
-                $batch[] = [$entryOperation, AuditSubjectKind::Entry, $entryId, $entryBefore, $entryAfter];
+        foreach ($changes as [$subjectId, $before, $after]) {
+            if (self::changes($operation, $before, $after)) {
+                $batch[] = [$operation, $subjectKind, $subjectId, $before, $after];
             }
             if (count($batch) === self::BATCH_SIZE) {
                 $this->insert($actor, $cause, $batch);
@@ -100,8 +118,6 @@ final readonly class AuditLog
         if ($batch !== []) {
             $this->insert($actor, $cause, $batch);
         }
-
-        return $cause;
     }
 
     /**

@@ -1,13 +1,21 @@
 openapi: 3.1.0
 info:
   title: Performance API
-  version: 0.1.0
+  version: 0.2.0
   description: >-
     JSON API of the Performance drink counter. Fields are camelCase, timestamps
     ISO-8601 UTC, decimals JSON numbers rounded to two places. Every error is
     `application/problem+json` (RFC 9457) with a stable `urn:performance:problem:*`
     type. While a migration runs, every route except health answers 503 with
     `Retry-After`; after a failed migration it answers 503 without it.
+
+    The web client names its app version in `X-Client-Version` on every request.
+    Every route except health refuses a client below health's `minClientVersion`
+    with 400 `client-outdated` before it processes anything; the client then
+    shows `Bitte neu laden`. A request without the header counts as version
+    0.1.0, the last client that sent none, so it is refused once the floor
+    passes 0.1.0. (Not 426: that status requires an `Upgrade` protocol, and an
+    app version is none.)
 
     Every route except health and sign-in requires the session cookie that
     sign-in sets (`HttpOnly; Secure; SameSite=Strict`, 180 days, renewed on
@@ -34,6 +42,8 @@ paths:
         '500':
           $ref: '#/components/responses/Problem'
   /api/session:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     post:
       operationId: signIn
       summary: Sign in; creates the bootstrap admin first when no admin exists
@@ -89,6 +99,8 @@ paths:
         '401':
           $ref: '#/components/responses/Problem'
   /api/session/password:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     put:
       operationId: changePassword
       summary: Change the own password; signs the account out on every other device
@@ -108,6 +120,8 @@ paths:
         '422':
           $ref: '#/components/responses/Problem'
   /api/accounts:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listAccounts
       summary: Every account, by user name (admins only)
@@ -150,6 +164,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/accounts/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - name: id
         in: path
         required: true
@@ -207,6 +222,8 @@ paths:
         '409':
           $ref: '#/components/responses/Problem'
   /api/persons:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listPersons
       summary: Every person, alphabetical (ignoring case)
@@ -245,6 +262,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/persons/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - name: id
         in: path
         required: true
@@ -254,7 +272,7 @@ paths:
           minimum: 1
     get:
       operationId: getPerson
-      summary: A person with the number of their entries (for the delete dialog)
+      summary: A person with the number of their entries, matches and results (for the delete dialog)
       responses:
         '200':
           description: The person
@@ -296,7 +314,12 @@ paths:
           $ref: '#/components/responses/Problem'
     delete:
       operationId: deletePerson
-      summary: Delete a person and all of their entries
+      summary: Delete a person with all of their entries and results; their matches stay with that side cleared
+      description: >-
+        Every match that names the person keeps its row and outcome with the person's side cleared,
+        so the opponent's win, draw or loss still counts; the audit log records one update per such
+        match, caused by the person's deletion. The person's results of every game and run are
+        deleted with them; the audit log records one deletion per result, caused by the person's.
       responses:
         '204':
           description: Deleted
@@ -305,6 +328,8 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
   /api/drinks:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listDrinks
       summary: Every drink, alphabetical (ignoring case)
@@ -343,6 +368,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/drinks/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - name: id
         in: path
         required: true
@@ -403,6 +429,8 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
   /api/factors:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listFactors
       summary: Every factor, alphabetical (ignoring case)
@@ -441,6 +469,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/factors/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - name: id
         in: path
         required: true
@@ -502,6 +531,8 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
   /api/entries:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listEntries
       summary: A person's entries since `from`, the start of the viewer's day, newest first
@@ -540,6 +571,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/entries/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - name: id
         in: path
         required: true
@@ -596,6 +628,8 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
   /api/scoreboard:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: getScoreboard
       summary: Standings since `from`, the start of the viewer's day
@@ -645,15 +679,370 @@ paths:
           $ref: '#/components/responses/Problem'
         '422':
           $ref: '#/components/responses/Problem'
+  /api/games:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+    get:
+      operationId: listGames
+      summary: Every game, alphabetical (ignoring case)
+      responses:
+        '200':
+          description: The games
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameList'
+        '401':
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createGame
+      summary: Create a game of a kind; its ranking counts from now
+      description: >-
+        The game starts in its first run, `startedAt` now. Only the kind's own setting is
+        taken (`drawsAllowed` for a duel game, `lowerWins` for a points game); the other one
+        is ignored and keeps its default. A name outside 1 to 40 characters (after trimming),
+        a missing or unknown `kind`, or a setting that is not a boolean is 422; a name another
+        game has, ignoring case, is 409 `duplicate-name`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewGame'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Game'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/games/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - $ref: '#/components/parameters/GameId'
+    get:
+      operationId: getGame
+      summary: A game with the number of its matches or results of every run (for the delete dialog)
+      responses:
+        '200':
+          description: The game
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameDetail'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: updateGame
+      summary: Rename a game or change its kind's setting; the kind itself is fixed
+      description: >-
+        `name` is required; an omitted setting stays as it is, and the other kind's setting is
+        ignored. The ranking follows a new setting at once. `kind` may be sent only as the
+        game's own kind: another one is 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GameChange'
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Game'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteGame
+      summary: Delete a game with all of its matches or results, of every run
+      description: >-
+        The audit log records the game's deletion and one deletion, caused by it, for each of
+        its matches or results.
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/games/{id}/restart:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - $ref: '#/components/parameters/GameId'
+    post:
+      operationId: restartGame
+      summary: Start the game's next run from now; older results stay stored but are no longer shown
+      description: >-
+        Takes no fields, but like every request body it must be JSON: send `{}`. A recording
+        that is saving while the game restarts belongs to the run it committed in, the old one
+        if it finished first, the new one otherwise.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Restarted; `startedAt` is now
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Game'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+  /api/games/{id}/standings:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - $ref: '#/components/parameters/GameId'
+    get:
+      operationId: getStandings
+      summary: The game's ranking in its current run, tagged with the game's kind
+      description: >-
+        Duel game: every person with a match in the current run, by points (win 1, draw ½,
+        loss 0), then wins, then name. Rankings are computed from the stored outcome, so a
+        deleted person's side counts for no one and never changes the other side's result.
+        Points game: every person with a result in the current run, by the sum of their
+        points, the lowest first when `lowerWins` is on and the highest otherwise, then name;
+        a changed `lowerWins` re-ranks at once. The ETag is the data revision, read in the
+        same snapshot as the ranking; every game, match and result write bumps it, so
+        `If-None-Match` with the last ETag answers 304 without ranking while nothing changed.
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          description: The ETag of the ranking the client already shows
+          schema:
+            type: string
+            examples: ['"42"']
+      responses:
+        '200':
+          description: The ranking
+          headers:
+            ETag:
+              description: The data revision of this ranking
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Standings'
+        '304':
+          description: Unchanged since the ranking named in `If-None-Match`
+          headers:
+            ETag:
+              description: The same ETag
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/games/{id}/matches:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - $ref: '#/components/parameters/GameId'
+    get:
+      operationId: listMatches
+      summary: A page of a duel game's Verlauf, newest first
+      description: >-
+        The game's matches of one run, newest first by recording time and then id. The first
+        page reads the current run; `next` is the opaque `before` of the next older page and
+        names the run, time and id it continues from, so a restart or new matches between two
+        requests never mix runs, repeat or skip a row. A deleted person's side is null; a
+        deleted account's name is null. A points game, like an unknown game, is 404; a `before`
+        that names no page, or a `limit` outside 1 to 100, is 422.
+      parameters:
+        - $ref: '#/components/parameters/HistoryBefore'
+        - $ref: '#/components/parameters/HistoryLimit'
+      responses:
+        '200':
+          description: A page of matches, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/games/{id}/results:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - $ref: '#/components/parameters/GameId'
+    get:
+      operationId: listResults
+      summary: A page of a points game's Verlauf, newest first
+      description: >-
+        The game's results of one run, paged as the matches of a duel game: newest first by
+        recording time and then id, the first page in the current run, `next` the opaque
+        `before` of the next older page in the same run. A deleted account's name is null. A
+        duel game, like an unknown game, is 404; a `before` that names no page, or a `limit`
+        outside 1 to 100, is 422.
+      parameters:
+        - $ref: '#/components/parameters/HistoryBefore'
+        - $ref: '#/components/parameters/HistoryLimit'
+      responses:
+        '200':
+          description: A page of results, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/matches/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - $ref: '#/components/parameters/ClientId'
+    put:
+      operationId: recordMatch
+      summary: Record a match of a duel game, idempotently on its id
+      description: >-
+        The match is recorded in the game's current run, with the account and the server time
+        (UTC). A repeated request with the same id and content answers 200 with the original
+        match and records nothing, even after the match was deleted or its game deleted; the
+        same id with other content, or an id already used for an entry, answers 409
+        `request-conflict`. Ids are remembered for seven days. An unknown game is 404; the
+        same person twice, an unknown person, an unknown outcome, `draw` while the game's
+        `drawsAllowed` is off, or a points game is 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewMatch'
+      responses:
+        '200':
+          description: Already recorded by an earlier request with this id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Match'
+        '201':
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Match'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteMatch
+      summary: Delete a match (undo); its id stays known, so a late retry cannot bring it back
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/results/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - $ref: '#/components/parameters/ClientId'
+    put:
+      operationId: recordResult
+      summary: Record one person's points in a points game, idempotently on its id
+      description: >-
+        The result is recorded in the game's current run, with the account and the server time
+        (UTC). Replays and conflicts as for matches: a repeated request with the same id and
+        content answers 200 with the original result and records nothing, even after the result
+        was deleted or its game deleted; the same id with other content, or an id already used
+        for an entry or a match, answers 409 `request-conflict`. Ids are remembered for seven
+        days. An unknown game is 404; points that are not a whole number from −9 999 to 9 999,
+        a missing or unknown person, or a duel game is 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewResult'
+      responses:
+        '200':
+          description: Already recorded by an earlier request with this id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+        '201':
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteResult
+      summary: Delete a result (undo); its id stays known, so a late retry cannot bring it back
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
   /api/audit:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listAuditEvents
       summary: A page of audit events, newest first (admins only)
       description: >-
         The audit log is application-level append-only history: every create, update and
-        delete of a person, a drink or a factor, and every entry counted or deleted, recorded
-        in the transaction of the change with the acting account and the values before and
-        after. A write that fails, a replayed entry request, and an update that changes no
+        delete of a person, a drink, a factor or a game (a restart is an update of its `run`
+        and `startedAt`), and every entry counted or deleted and every match or result recorded
+        or deleted (a game's deletion records one for each of its matches or results, caused by
+        it; a person's deletion one for each of their results), recorded in the transaction of
+        the change with the acting account and the values before and after. A write that fails,
+        a replayed entry, match or result request, and an update that changes no
         value record nothing. No route changes or deletes an event (other methods on this
         path answer 405), and reading the log does not change the data revision. Pages run
         newest first by event id: `before` reads only older events, `limit` sets the page size,
@@ -695,6 +1084,54 @@ components:
       type: apiKey
       in: cookie
       name: session
+  parameters:
+    ClientVersion:
+      name: X-Client-Version
+      in: header
+      required: false
+      description: >-
+        The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`).
+        Below health's `minClientVersion` the request is refused with 400
+        `client-outdated` and nothing is processed; without the header it counts
+        as 0.1.0.
+      schema:
+        type: string
+        examples: ['0.2.0+3f2a1bc']
+    GameId:
+      name: id
+      in: path
+      required: true
+      description: The game's id; anything but a positive integer is 404
+      schema:
+        type: integer
+        minimum: 1
+    ClientId:
+      name: id
+      in: path
+      required: true
+      description: >-
+        The client-generated UUID v4 (lower case) of a match or a result, also its retry key;
+        unique across entries, matches and results. Anything else is 404.
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    HistoryBefore:
+      name: before
+      in: query
+      required: false
+      description: The `next` of the previous page, unchanged; omitted for the newest page of the current run
+      schema:
+        type: string
+    HistoryLimit:
+      name: limit
+      in: query
+      required: false
+      description: Rows per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
   responses:
     Problem:
       description: An error, described as a problem
@@ -796,7 +1233,7 @@ components:
     PersonDetail:
       type: object
       additionalProperties: false
-      required: [id, name, entryCount]
+      required: [id, name, entryCount, matchCount, resultCount]
       properties:
         id:
           type: integer
@@ -806,7 +1243,15 @@ components:
         entryCount:
           type: integer
           minimum: 0
-          description: Entries of every day that are the person's
+          description: Entries of every day that are the person's; deleting the person deletes them
+        matchCount:
+          type: integer
+          minimum: 0
+          description: Matches of every game and run that name the person on either side; deleting the person keeps them with that side cleared
+        resultCount:
+          type: integer
+          minimum: 0
+          description: Results of every game and run that are the person's; deleting the person deletes them
     PersonList:
       type: object
       additionalProperties: false
@@ -1051,6 +1496,340 @@ components:
           type: string
         count:
           type: number
+    GameKind:
+      type: string
+      enum: [duel, points]
+      description: '`duel`: two persons and an outcome. `points`: one person and a whole number.'
+    Game:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, drawsAllowed, lowerWins, startedAt]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        kind:
+          $ref: '#/components/schemas/GameKind'
+        drawsAllowed:
+          type: boolean
+          description: Duel games only (points games always say true); whether `draw` can be recorded
+        lowerWins:
+          type: boolean
+          description: Points games only (duel games always say false); whether the lowest sum ranks first
+        startedAt:
+          type: string
+          format: date-time
+          description: When the current run began (creation or last restart), UTC; for display (`seit …`)
+    GameDetail:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          name,
+          kind,
+          drawsAllowed,
+          lowerWins,
+          startedAt,
+          matchCount,
+          resultCount,
+        ]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        kind:
+          $ref: '#/components/schemas/GameKind'
+        drawsAllowed:
+          type: boolean
+        lowerWins:
+          type: boolean
+        startedAt:
+          type: string
+          format: date-time
+        matchCount:
+          type: integer
+          minimum: 0
+          description: Every stored match of the game, of every run; 0 for a points game
+        resultCount:
+          type: integer
+          minimum: 0
+          description: Every stored result of the game, of every run; 0 for a duel game
+    GameList:
+      type: object
+      additionalProperties: false
+      required: [games]
+      properties:
+        games:
+          type: array
+          items:
+            $ref: '#/components/schemas/Game'
+    NewGame:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          $ref: '#/components/schemas/Name'
+        kind:
+          $ref: '#/components/schemas/GameKind'
+        drawsAllowed:
+          type: boolean
+          description: Duel games; default true
+        lowerWins:
+          type: boolean
+          description: Points games; default false
+    GameChange:
+      type: object
+      required: [name]
+      properties:
+        name:
+          $ref: '#/components/schemas/Name'
+        kind:
+          $ref: '#/components/schemas/GameKind'
+          description: Optional; only the game's own kind is accepted
+        drawsAllowed:
+          type: boolean
+          description: Duel games; omitted, it stays
+        lowerWins:
+          type: boolean
+          description: Points games; omitted, it stays
+    Outcome:
+      type: string
+      enum: [first, second, draw]
+      description: How a match ended, from the first person's side
+    NewMatch:
+      type: object
+      required: [gameId, firstPersonId, secondPersonId, outcome]
+      properties:
+        gameId:
+          type: integer
+        firstPersonId:
+          type: integer
+        secondPersonId:
+          type: integer
+          description: Another person than `firstPersonId`
+        outcome:
+          $ref: '#/components/schemas/Outcome'
+    Match:
+      type: object
+      additionalProperties: false
+      required: [id, gameId, firstPersonId, secondPersonId, outcome, createdAt]
+      properties:
+        id:
+          type: string
+        gameId:
+          type: integer
+        firstPersonId:
+          type: integer
+        secondPersonId:
+          type: integer
+        outcome:
+          $ref: '#/components/schemas/Outcome'
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the first request, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+    GamePoints:
+      type: integer
+      minimum: -9999
+      maximum: 9999
+      description: One result's points, a whole number
+    NewResult:
+      type: object
+      required: [gameId, personId, points]
+      properties:
+        gameId:
+          type: integer
+        personId:
+          type: integer
+        points:
+          $ref: '#/components/schemas/GamePoints'
+    Result:
+      type: object
+      additionalProperties: false
+      required: [id, gameId, personId, points, createdAt]
+      properties:
+        id:
+          type: string
+        gameId:
+          type: integer
+        personId:
+          type: integer
+        points:
+          $ref: '#/components/schemas/GamePoints'
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the first request, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+    PersonRef:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+    MatchItem:
+      type: object
+      additionalProperties: false
+      required: [id, first, second, outcome, createdAt, accountName]
+      properties:
+        id:
+          type: string
+        first:
+          description: Null once that person was deleted (`gelöschte Person`)
+          oneOf:
+            - $ref: '#/components/schemas/PersonRef'
+            - type: 'null'
+        second:
+          description: Null once that person was deleted (`gelöschte Person`)
+          oneOf:
+            - $ref: '#/components/schemas/PersonRef'
+            - type: 'null'
+        outcome:
+          $ref: '#/components/schemas/Outcome'
+        createdAt:
+          type: string
+          format: date-time
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: The account that recorded the match; null once it was deleted
+    MatchPage:
+      type: object
+      additionalProperties: false
+      required: [items, next]
+      properties:
+        items:
+          type: array
+          description: Newest first
+          items:
+            $ref: '#/components/schemas/MatchItem'
+        next:
+          type: [string, 'null']
+          description: >-
+            The `before` of the next older page in the same run; null on the last page, so a
+            last page that is exactly full is not followed by an empty one
+    ResultItem:
+      type: object
+      additionalProperties: false
+      required: [id, person, points, createdAt, accountName]
+      properties:
+        id:
+          type: string
+        person:
+          $ref: '#/components/schemas/PersonRef'
+        points:
+          $ref: '#/components/schemas/GamePoints'
+        createdAt:
+          type: string
+          format: date-time
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: The account that recorded the result; null once it was deleted
+    ResultPage:
+      type: object
+      additionalProperties: false
+      required: [items, next]
+      properties:
+        items:
+          type: array
+          description: Newest first
+          items:
+            $ref: '#/components/schemas/ResultItem'
+        next:
+          type: [string, 'null']
+          description: >-
+            The `before` of the next older page in the same run; null on the last page, so a
+            last page that is exactly full is not followed by an empty one
+    Standings:
+      oneOf:
+        - $ref: '#/components/schemas/DuelStandings'
+        - $ref: '#/components/schemas/PointsStandings'
+      discriminator:
+        propertyName: kind
+        mapping:
+          duel: '#/components/schemas/DuelStandings'
+          points: '#/components/schemas/PointsStandings'
+    DuelStandings:
+      type: object
+      additionalProperties: false
+      required: [kind, startedAt, rows]
+      properties:
+        kind:
+          type: string
+          const: duel
+        startedAt:
+          type: string
+          format: date-time
+          description: When the current run began, UTC
+        rows:
+          type: array
+          description: Ranked by points, then wins, then name; persons without a match in the run are absent
+          items:
+            $ref: '#/components/schemas/DuelRow'
+    DuelRow:
+      type: object
+      additionalProperties: false
+      required: [personId, name, points, wins, draws, losses, played]
+      properties:
+        personId:
+          type: integer
+        name:
+          type: string
+        points:
+          type: number
+          description: Win 1, draw 0.5, loss 0
+        wins:
+          type: integer
+        draws:
+          type: integer
+        losses:
+          type: integer
+        played:
+          type: integer
+    PointsStandings:
+      type: object
+      additionalProperties: false
+      required: [kind, startedAt, lowerWins, rows]
+      properties:
+        kind:
+          type: string
+          const: points
+        startedAt:
+          type: string
+          format: date-time
+          description: When the current run began, UTC
+        lowerWins:
+          type: boolean
+        rows:
+          type: array
+          description: Ranked by the sum in the game's direction, then name; persons without a result in the run are absent
+          items:
+            $ref: '#/components/schemas/PointsRow'
+    PointsRow:
+      type: object
+      additionalProperties: false
+      required: [personId, name, sum, results]
+      properties:
+        personId:
+          type: integer
+        name:
+          type: string
+        sum:
+          type: integer
+          description: The sum of the person's points in the run
+        results:
+          type: integer
+          description: How many results make up the sum
     AuditPage:
       type: object
       additionalProperties: false
@@ -1097,10 +1876,10 @@ components:
           enum: [create, update, delete]
         subjectKind:
           type: string
-          enum: [entry, person, drink, factor]
+          enum: [entry, person, drink, factor, game, match, result]
         subjectId:
           type: string
-          description: The subject's id as text (an integer for persons, drinks and factors, the UUID for entries)
+          description: The subject's id as text (an integer for persons, drinks, factors and games, the UUID for entries, matches and results)
         actor:
           type: object
           additionalProperties: false
@@ -1137,7 +1916,7 @@ components:
                   description: The causing event's id
                 subjectKind:
                   type: string
-                  enum: [entry, person, drink, factor]
+                  enum: [entry, person, drink, factor, game, match, result]
                 name:
                   type: string
                   description: The causing event's subject name, as that event recorded it
@@ -1147,7 +1926,12 @@ components:
         The subject's values as they were, with referenced names resolved then: a person
         `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry
         `{person, drink, points, quantity, factor}` with the person's and the drink's names,
-        the drink's points, and the factor `{name, multiplier}` or null. Keys are only ever
+        the drink's points, and the factor `{name, multiplier}` or null, a game
+        `{name, kind, drawsAllowed, run, startedAt}` for a duel game and
+        `{name, kind, lowerWins, run, startedAt}` for a points game, a match
+        `{game, first, second, outcome}` with the game's and both persons' names (a person
+        deleted before is null), a result `{game, person, points}` with the game's and the
+        person's names. Keys are only ever
         added, never renamed, removed or given a new meaning; a reader treats a key it does
         not know, or a missing one, as unknown.
       additionalProperties: true
@@ -1164,6 +1948,25 @@ components:
           type: string
         quantity:
           type: integer
+        kind:
+          type: string
+        drawsAllowed:
+          type: boolean
+        lowerWins:
+          type: boolean
+        run:
+          type: integer
+        startedAt:
+          type: string
+          format: date-time
+        game:
+          type: string
+        first:
+          type: [string, 'null']
+        second:
+          type: [string, 'null']
+        outcome:
+          $ref: '#/components/schemas/Outcome'
         factor:
           oneOf:
             - type: 'null'
@@ -1228,6 +2031,7 @@ components:
           format: uri
           enum:
             - urn:performance:problem:bad-request
+            - urn:performance:problem:client-outdated
             - urn:performance:problem:unauthenticated
             - urn:performance:problem:invalid-credentials
             - urn:performance:problem:forbidden
@@ -1235,6 +2039,7 @@ components:
             - urn:performance:problem:duplicate-name
             - urn:performance:problem:last-admin
             - urn:performance:problem:entry-conflict
+            - urn:performance:problem:request-conflict
             - urn:performance:problem:unsupported-media-type
             - urn:performance:problem:validation
             - urn:performance:problem:too-many-attempts

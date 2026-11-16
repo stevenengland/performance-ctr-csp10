@@ -1,3 +1,4 @@
+import { requireReload } from '../../pwa/reload-floor';
 import type { components, paths } from './schema';
 
 export type Health = components['schemas']['Health'];
@@ -16,6 +17,23 @@ export type Scoreboard = components['schemas']['Scoreboard'];
 export type ScoreRow = components['schemas']['ScoreRow'];
 export type AuditPage = components['schemas']['AuditPage'];
 export type AuditEvent = components['schemas']['AuditEvent'];
+export type GameKind = components['schemas']['GameKind'];
+export type Game = components['schemas']['Game'];
+export type GameDetail = components['schemas']['GameDetail'];
+export type NewGame = components['schemas']['NewGame'];
+export type GameChange = components['schemas']['GameChange'];
+export type Outcome = components['schemas']['Outcome'];
+export type NewMatch = components['schemas']['NewMatch'];
+export type Match = components['schemas']['Match'];
+export type NewResult = components['schemas']['NewResult'];
+export type Result = components['schemas']['Result'];
+export type Standings = components['schemas']['Standings'];
+export type DuelRow = components['schemas']['DuelRow'];
+export type PointsRow = components['schemas']['PointsRow'];
+export type MatchItem = components['schemas']['MatchItem'];
+export type MatchPage = components['schemas']['MatchPage'];
+export type ResultItem = components['schemas']['ResultItem'];
+export type ResultPage = components['schemas']['ResultPage'];
 export type ApiPath = keyof paths;
 /** Field errors of a 422 problem, keyed by the API field name. */
 export type FieldErrors = Readonly<Record<string, string>>;
@@ -84,6 +102,11 @@ export function onUnauthorized(listener: Unauthorized | undefined): void {
 }
 
 const NOT_MODIFIED = 304;
+/**
+The server refuses a request from an app below its `minClientVersion` with this
+problem, before it processes anything (ADR 0006, decision 3).
+*/
+const CLIENT_OUTDATED = 'urn:performance:problem:client-outdated';
 
 interface RequestInit {
   method?: string;
@@ -98,7 +121,9 @@ interface RequestInit {
 /**
 The single fetch wrapper: every HTTP call of the app goes through here. It looks
 up the global `fetch` on every call, so whatever is installed at that time answers.
-A body is sent as JSON. An error answer throws its ApiProblem; 304 passes.
+Every request names the app version in `X-Client-Version`, so the server can refuse
+an app below its floor; that refusal shows the reload floor. A body is sent as
+JSON. An error answer throws its ApiProblem; 304 passes.
 */
 async function send(path: ApiPath, init: RequestInit = {}): Promise<Response> {
   const resolved = path.replace(/\{(\w+)\}/g, (_, name: string) =>
@@ -108,7 +133,10 @@ async function send(path: ApiPath, init: RequestInit = {}): Promise<Response> {
     ? `?${new URLSearchParams(init.query).toString()}`
     : '';
   const url = `${import.meta.env.BASE_URL}${resolved.slice(1)}${query}`;
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-Client-Version': __APP_VERSION__,
+  };
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
   if (init.ifNoneMatch !== undefined)
     headers['If-None-Match'] = init.ifNoneMatch;
@@ -120,7 +148,9 @@ async function send(path: ApiPath, init: RequestInit = {}): Promise<Response> {
   });
   if (!response.ok && response.status !== NOT_MODIFIED) {
     if (response.status === 401 && path !== '/api/session') unauthorized?.();
-    throw await ApiProblem.from(response);
+    const problem = await ApiProblem.from(response);
+    if (problem.type === CLIENT_OUTDATED) requireReload();
+    throw problem;
   }
   return response;
 }
@@ -307,6 +337,128 @@ export function deleteFactor(id: number): Promise<void> {
   return request<undefined>('/api/factors/{id}', {
     method: 'DELETE',
     params: { id: String(id) },
+  });
+}
+
+export async function listGames(): Promise<Game[]> {
+  return (await request<{ games: Game[] }>('/api/games')).games;
+}
+
+export function createGame(game: NewGame): Promise<Game> {
+  return request<Game>('/api/games', { method: 'POST', body: game });
+}
+
+/** A game with the number of its stored matches or results, for the delete dialog. */
+export function getGame(id: number): Promise<GameDetail> {
+  return request<GameDetail>('/api/games/{id}', {
+    params: { id: String(id) },
+  });
+}
+
+/** Renames the game or changes its kind's setting; the kind itself is fixed. */
+export function updateGame(id: number, change: GameChange): Promise<Game> {
+  return request<Game>('/api/games/{id}', {
+    method: 'PATCH',
+    params: { id: String(id) },
+    body: change,
+  });
+}
+
+/** Deletes the game and all of its matches or results. */
+export function deleteGame(id: number): Promise<void> {
+  return request<undefined>('/api/games/{id}', {
+    method: 'DELETE',
+    params: { id: String(id) },
+  });
+}
+
+/** Starts the game's next run from now; the API takes an empty JSON object as its body. */
+export function restartGame(id: number): Promise<Game> {
+  return request<Game>('/api/games/{id}/restart', {
+    method: 'POST',
+    params: { id: String(id) },
+    body: {},
+  });
+}
+
+/** A game's ranking with the ETag that names it, to ask on condition of next time. */
+export interface StandingsAnswer {
+  standings: Standings;
+  etag: string | undefined;
+}
+
+/**
+A game's ranking in its current run, tagged with the game's kind. With the ETag
+of the ranking already shown, `unchanged` means it still holds.
+*/
+export async function getStandings(
+  gameId: number,
+  etag?: string,
+): Promise<StandingsAnswer | 'unchanged'> {
+  const response = await send('/api/games/{id}/standings', {
+    params: { id: String(gameId) },
+    ifNoneMatch: etag,
+  });
+  if (response.status === NOT_MODIFIED) return 'unchanged';
+  return {
+    standings: (await response.json()) as Standings,
+    etag: response.headers.get('ETag') ?? undefined,
+  };
+}
+
+/** A page of a duel's matches since its last restart, newest first; `before` (the previous page's `next`) reads older ones. */
+export function listMatches(
+  gameId: number,
+  before?: string,
+): Promise<MatchPage> {
+  return request<MatchPage>('/api/games/{id}/matches', {
+    params: { id: String(gameId) },
+    query: before === undefined ? undefined : { before },
+  });
+}
+
+/** A page of a points game's results since its last restart, newest first; `before` (the previous page's `next`) reads older ones. */
+export function listResults(
+  gameId: number,
+  before?: string,
+): Promise<ResultPage> {
+  return request<ResultPage>('/api/games/{id}/results', {
+    params: { id: String(gameId) },
+    query: before === undefined ? undefined : { before },
+  });
+}
+
+/** Records a match under its client id: repeating it with the same id never records a second one. */
+export function putMatch(id: string, match: NewMatch): Promise<Match> {
+  return request<Match>('/api/matches/{id}', {
+    method: 'PUT',
+    params: { id },
+    body: match,
+  });
+}
+
+/** Deletes a match (undo); its id stays known, so a late retry cannot bring it back. */
+export function deleteMatch(id: string): Promise<void> {
+  return request<undefined>('/api/matches/{id}', {
+    method: 'DELETE',
+    params: { id },
+  });
+}
+
+/** Records a result under its client id: repeating it with the same id never records a second one. */
+export function putResult(id: string, result: NewResult): Promise<Result> {
+  return request<Result>('/api/results/{id}', {
+    method: 'PUT',
+    params: { id },
+    body: result,
+  });
+}
+
+/** Deletes a result (undo); its id stays known, so a late retry cannot bring it back. */
+export function deleteResult(id: string): Promise<void> {
+  return request<undefined>('/api/results/{id}', {
+    method: 'DELETE',
+    params: { id },
   });
 }
 

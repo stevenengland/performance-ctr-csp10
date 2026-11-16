@@ -1,5 +1,4 @@
 import {
-  ApiProblem,
   deleteEntry,
   putEntry,
   type Factor,
@@ -7,6 +6,7 @@ import {
 } from '../../core/api-client';
 import type { Router } from 'vue-router';
 import { messages } from '../../core/messages';
+import { createSaver, type SaveOutcome } from '../../core/saver';
 import { refreshScoreboard } from '../../core/scoreboard-feed';
 import { showSnackbar } from '../../core/snackbar';
 
@@ -18,63 +18,25 @@ export interface EntryLabels {
   factor?: string;
 }
 
-export type SaveOutcome =
-  | { kind: 'saved'; id: string }
-  /**
-  No definite answer (no connection, server unavailable). `retry` sends this attempt
-  again under the same id, so a save whose response was lost is never booked twice.
-  */
-  | { kind: 'lost'; retry: () => Promise<SaveOutcome> }
-  | { kind: 'rejected'; problem: ApiProblem };
-
-/**
-Saves entries under a client-generated id. Every save is a new attempt with a new id;
-only the attempt's own `retry` (`Erneut versuchen`) reuses it. A later save of the
-same content is a new drink, so it must never reuse a lost attempt's id: the server
-would answer it as a replay and book nothing.
-*/
-export function createEntrySaver(newId: () => string) {
-  async function attempt(id: string, entry: NewEntry): Promise<SaveOutcome> {
-    try {
-      await putEntry(id, entry);
-      return { kind: 'saved', id };
-    } catch (failure) {
-      if (failure instanceof ApiProblem && failure.status < 500) {
-        return { kind: 'rejected', problem: failure };
-      }
-      return { kind: 'lost', retry: () => attempt(id, entry) };
-    }
-  }
-
-  return function save(entry: NewEntry): Promise<SaveOutcome> {
-    return attempt(newId(), entry);
-  };
+function entrySaver(newId?: () => string) {
+  return createSaver<NewEntry>(
+    { put: putEntry, remove: deleteEntry, refresh: refreshScoreboard },
+    newId,
+  );
 }
 
-const save = createEntrySaver(() => crypto.randomUUID());
+/** Saves entries under a client-generated id; see `Saver.attempt`. */
+export function createEntrySaver(
+  newId: () => string,
+): (entry: NewEntry) => Promise<SaveOutcome> {
+  return entrySaver(newId).attempt;
+}
+
+const entries = entrySaver();
 
 /** Undoes a saved entry; an entry that is already gone counts as undone. */
-export async function undoEntry(id: string): Promise<void> {
-  try {
-    await deleteEntry(id);
-  } catch (failure) {
-    if (!(failure instanceof ApiProblem) || failure.status >= 500) {
-      showSnackbar({
-        text: messages.zaehlen.notUndone,
-        action: {
-          label: messages.zaehlen.retry,
-          run: () => void undoEntry(id),
-        },
-      });
-      return;
-    }
-    if (failure.status !== 404) {
-      showSnackbar({ text: failure.title });
-      return;
-    }
-  }
-  showSnackbar({ text: messages.zaehlen.undone });
-  await refreshScoreboard();
+export function undoEntry(id: string): Promise<void> {
+  return entries.undo(id);
 }
 
 /**
@@ -83,52 +45,21 @@ Saves an entry and says so: on success `done` runs (back to the name list, see
 `Erneut versuchen`, which retries this attempt with the same id; a problem shows its
 title. Resolves to whether the entry is saved.
 */
-export async function saveEntry(
+export function saveEntry(
   entry: NewEntry,
   labels: EntryLabels,
   done: () => void,
 ): Promise<boolean> {
-  return report(await save(entry), entry, labels, done);
-}
-
-async function report(
-  outcome: SaveOutcome,
-  entry: NewEntry,
-  labels: EntryLabels,
-  done: () => void,
-): Promise<boolean> {
-  if (outcome.kind === 'saved') {
-    done();
-    showSnackbar({
-      text: messages.zaehlen.saved(
-        entry.quantity,
-        labels.drink,
-        labels.person,
-        labels.factor,
-      ),
-      action: {
-        label: messages.zaehlen.undo,
-        run: () => void undoEntry(outcome.id),
-      },
-    });
-    await refreshScoreboard();
-    return true;
-  }
-  if (outcome.kind === 'lost') {
-    showSnackbar({
-      text: messages.zaehlen.notSaved,
-      action: {
-        label: messages.zaehlen.retry,
-        run: () =>
-          void outcome
-            .retry()
-            .then((next) => report(next, entry, labels, done)),
-      },
-    });
-  } else {
-    showSnackbar({ text: outcome.problem.title });
-  }
-  return false;
+  return entries.save(
+    entry,
+    messages.zaehlen.saved(
+      entry.quantity,
+      labels.drink,
+      labels.person,
+      labels.factor,
+    ),
+    done,
+  );
 }
 
 /**

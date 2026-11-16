@@ -24,7 +24,10 @@ export interface paths {
   '/api/session': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -46,7 +49,10 @@ export interface paths {
   '/api/session/password': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -63,7 +69,10 @@ export interface paths {
   '/api/accounts': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -81,7 +90,10 @@ export interface paths {
   '/api/accounts/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The account's id; anything but a positive integer is 404 */
         id: number;
@@ -108,7 +120,10 @@ export interface paths {
   '/api/persons': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -126,18 +141,24 @@ export interface paths {
   '/api/persons/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The person's id; anything but a positive integer is 404 */
         id: number;
       };
       cookie?: never;
     };
-    /** A person with the number of their entries (for the delete dialog) */
+    /** A person with the number of their entries, matches and results (for the delete dialog) */
     get: operations['getPerson'];
     put?: never;
     post?: never;
-    /** Delete a person and all of their entries */
+    /**
+     * Delete a person with all of their entries and results; their matches stay with that side cleared
+     * @description Every match that names the person keeps its row and outcome with the person's side cleared, so the opponent's win, draw or loss still counts; the audit log records one update per such match, caused by the person's deletion. The person's results of every game and run are deleted with them; the audit log records one deletion per result, caused by the person's.
+     */
     delete: operations['deletePerson'];
     options?: never;
     head?: never;
@@ -151,7 +172,10 @@ export interface paths {
   '/api/drinks': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -169,7 +193,10 @@ export interface paths {
   '/api/drinks/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The drink's id; anything but a positive integer is 404 */
         id: number;
@@ -194,7 +221,10 @@ export interface paths {
   '/api/factors': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -212,7 +242,10 @@ export interface paths {
   '/api/factors/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The factor's id; anything but a positive integer is 404 */
         id: number;
@@ -237,7 +270,10 @@ export interface paths {
   '/api/entries': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -257,7 +293,10 @@ export interface paths {
   '/api/entries/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The entry's client-generated UUID v4 (lower case), also the retry key */
         id: string;
@@ -281,7 +320,10 @@ export interface paths {
   '/api/scoreboard': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -298,16 +340,232 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/games': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    /** Every game, alphabetical (ignoring case) */
+    get: operations['listGames'];
+    put?: never;
+    /**
+     * Create a game of a kind; its ranking counts from now
+     * @description The game starts in its first run, `startedAt` now. Only the kind's own setting is taken (`drawsAllowed` for a duel game, `lowerWins` for a points game); the other one is ignored and keeps its default. A name outside 1 to 40 characters (after trimming), a missing or unknown `kind`, or a setting that is not a boolean is 422; a name another game has, ignoring case, is 409 `duplicate-name`.
+     */
+    post: operations['createGame'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /** A game with the number of its matches or results of every run (for the delete dialog) */
+    get: operations['getGame'];
+    put?: never;
+    post?: never;
+    /**
+     * Delete a game with all of its matches or results, of every run
+     * @description The audit log records the game's deletion and one deletion, caused by it, for each of its matches or results.
+     */
+    delete: operations['deleteGame'];
+    options?: never;
+    head?: never;
+    /**
+     * Rename a game or change its kind's setting; the kind itself is fixed
+     * @description `name` is required; an omitted setting stays as it is, and the other kind's setting is ignored. The ranking follows a new setting at once. `kind` may be sent only as the game's own kind: another one is 422.
+     */
+    patch: operations['updateGame'];
+    trace?: never;
+  };
+  '/api/games/{id}/restart': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Start the game's next run from now; older results stay stored but are no longer shown
+     * @description Takes no fields, but like every request body it must be JSON: send `{}`. A recording that is saving while the game restarts belongs to the run it committed in, the old one if it finished first, the new one otherwise.
+     */
+    post: operations['restartGame'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}/standings': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /**
+     * The game's ranking in its current run, tagged with the game's kind
+     * @description Duel game: every person with a match in the current run, by points (win 1, draw ½, loss 0), then wins, then name. Rankings are computed from the stored outcome, so a deleted person's side counts for no one and never changes the other side's result. Points game: every person with a result in the current run, by the sum of their points, the lowest first when `lowerWins` is on and the highest otherwise, then name; a changed `lowerWins` re-ranks at once. The ETag is the data revision, read in the same snapshot as the ranking; every game, match and result write bumps it, so `If-None-Match` with the last ETag answers 304 without ranking while nothing changed.
+     */
+    get: operations['getStandings'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}/matches': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /**
+     * A page of a duel game's Verlauf, newest first
+     * @description The game's matches of one run, newest first by recording time and then id. The first page reads the current run; `next` is the opaque `before` of the next older page and names the run, time and id it continues from, so a restart or new matches between two requests never mix runs, repeat or skip a row. A deleted person's side is null; a deleted account's name is null. A points game, like an unknown game, is 404; a `before` that names no page, or a `limit` outside 1 to 100, is 422.
+     */
+    get: operations['listMatches'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}/results': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /**
+     * A page of a points game's Verlauf, newest first
+     * @description The game's results of one run, paged as the matches of a duel game: newest first by recording time and then id, the first page in the current run, `next` the opaque `before` of the next older page in the same run. A deleted account's name is null. A duel game, like an unknown game, is 404; a `before` that names no page, or a `limit` outside 1 to 100, is 422.
+     */
+    get: operations['listResults'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/matches/{id}': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Record a match of a duel game, idempotently on its id
+     * @description The match is recorded in the game's current run, with the account and the server time (UTC). A repeated request with the same id and content answers 200 with the original match and records nothing, even after the match was deleted or its game deleted; the same id with other content, or an id already used for an entry, answers 409 `request-conflict`. Ids are remembered for seven days. An unknown game is 404; the same person twice, an unknown person, an unknown outcome, `draw` while the game's `drawsAllowed` is off, or a points game is 422.
+     */
+    put: operations['recordMatch'];
+    post?: never;
+    /** Delete a match (undo); its id stays known, so a late retry cannot bring it back */
+    delete: operations['deleteMatch'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/results/{id}': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Record one person's points in a points game, idempotently on its id
+     * @description The result is recorded in the game's current run, with the account and the server time (UTC). Replays and conflicts as for matches: a repeated request with the same id and content answers 200 with the original result and records nothing, even after the result was deleted or its game deleted; the same id with other content, or an id already used for an entry or a match, answers 409 `request-conflict`. Ids are remembered for seven days. An unknown game is 404; points that are not a whole number from −9 999 to 9 999, a missing or unknown person, or a duel game is 422.
+     */
+    put: operations['recordResult'];
+    post?: never;
+    /** Delete a result (undo); its id stays known, so a late retry cannot bring it back */
+    delete: operations['deleteResult'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/audit': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
     /**
      * A page of audit events, newest first (admins only)
-     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink or a factor, and every entry counted or deleted, recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
+     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink, a factor or a game (a restart is an update of its `run` and `startedAt`), and every entry counted or deleted and every match or result recorded or deleted (a game's deletion records one for each of its matches or results, caused by it; a person's deletion one for each of their results), recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry, match or result request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
      */
     get: operations['listAuditEvents'];
     put?: never;
@@ -361,8 +619,12 @@ export interface components {
     PersonDetail: {
       id: number;
       name: components['schemas']['Name'];
-      /** @description Entries of every day that are the person's */
+      /** @description Entries of every day that are the person's; deleting the person deletes them */
       entryCount: number;
+      /** @description Matches of every game and run that name the person on either side; deleting the person keeps them with that side cleared */
+      matchCount: number;
+      /** @description Results of every game and run that are the person's; deleting the person deletes them */
+      resultCount: number;
     };
     PersonList: {
       persons: components['schemas']['Person'][];
@@ -477,6 +739,195 @@ export interface components {
       name: string;
       count: number;
     };
+    /**
+     * @description `duel`: two persons and an outcome. `points`: one person and a whole number.
+     * @enum {string}
+     */
+    GameKind: 'duel' | 'points';
+    Game: {
+      id: number;
+      name: components['schemas']['Name'];
+      kind: components['schemas']['GameKind'];
+      /** @description Duel games only (points games always say true); whether `draw` can be recorded */
+      drawsAllowed: boolean;
+      /** @description Points games only (duel games always say false); whether the lowest sum ranks first */
+      lowerWins: boolean;
+      /**
+       * Format: date-time
+       * @description When the current run began (creation or last restart), UTC; for display (`seit …`)
+       */
+      startedAt: string;
+    };
+    GameDetail: {
+      id: number;
+      name: components['schemas']['Name'];
+      kind: components['schemas']['GameKind'];
+      drawsAllowed: boolean;
+      lowerWins: boolean;
+      /** Format: date-time */
+      startedAt: string;
+      /** @description Every stored match of the game, of every run; 0 for a points game */
+      matchCount: number;
+      /** @description Every stored result of the game, of every run; 0 for a duel game */
+      resultCount: number;
+    };
+    GameList: {
+      games: components['schemas']['Game'][];
+    };
+    NewGame: {
+      name: components['schemas']['Name'];
+      kind: components['schemas']['GameKind'];
+      /** @description Duel games; default true */
+      drawsAllowed?: boolean;
+      /** @description Points games; default false */
+      lowerWins?: boolean;
+    };
+    GameChange: {
+      name: components['schemas']['Name'];
+      /** @description Optional; only the game's own kind is accepted */
+      kind?: components['schemas']['GameKind'];
+      /** @description Duel games; omitted, it stays */
+      drawsAllowed?: boolean;
+      /** @description Points games; omitted, it stays */
+      lowerWins?: boolean;
+    };
+    /**
+     * @description How a match ended, from the first person's side
+     * @enum {string}
+     */
+    Outcome: 'first' | 'second' | 'draw';
+    NewMatch: {
+      gameId: number;
+      firstPersonId: number;
+      /** @description Another person than `firstPersonId` */
+      secondPersonId: number;
+      outcome: components['schemas']['Outcome'];
+    };
+    Match: {
+      id: string;
+      gameId: number;
+      firstPersonId: number;
+      secondPersonId: number;
+      outcome: components['schemas']['Outcome'];
+      /**
+       * Format: date-time
+       * @description Server time of the first request, UTC
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+    };
+    /** @description One result's points, a whole number */
+    GamePoints: number;
+    NewResult: {
+      gameId: number;
+      personId: number;
+      points: components['schemas']['GamePoints'];
+    };
+    Result: {
+      id: string;
+      gameId: number;
+      personId: number;
+      points: components['schemas']['GamePoints'];
+      /**
+       * Format: date-time
+       * @description Server time of the first request, UTC
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+    };
+    PersonRef: {
+      id: number;
+      name: string;
+    };
+    MatchItem: {
+      id: string;
+      /** @description Null once that person was deleted (`gelöschte Person`) */
+      first: components['schemas']['PersonRef'] | null;
+      /** @description Null once that person was deleted (`gelöschte Person`) */
+      second: components['schemas']['PersonRef'] | null;
+      outcome: components['schemas']['Outcome'];
+      /**
+       * Format: date-time
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+      /** @description The account that recorded the match; null once it was deleted */
+      accountName: string | null;
+    };
+    MatchPage: {
+      /** @description Newest first */
+      items: components['schemas']['MatchItem'][];
+      /** @description The `before` of the next older page in the same run; null on the last page, so a last page that is exactly full is not followed by an empty one */
+      next: string | null;
+    };
+    ResultItem: {
+      id: string;
+      person: components['schemas']['PersonRef'];
+      points: components['schemas']['GamePoints'];
+      /**
+       * Format: date-time
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+      /** @description The account that recorded the result; null once it was deleted */
+      accountName: string | null;
+    };
+    ResultPage: {
+      /** @description Newest first */
+      items: components['schemas']['ResultItem'][];
+      /** @description The `before` of the next older page in the same run; null on the last page, so a last page that is exactly full is not followed by an empty one */
+      next: string | null;
+    };
+    Standings:
+      | components['schemas']['DuelStandings']
+      | components['schemas']['PointsStandings'];
+    DuelStandings: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      kind: 'duel';
+      /**
+       * Format: date-time
+       * @description When the current run began, UTC
+       */
+      startedAt: string;
+      /** @description Ranked by points, then wins, then name; persons without a match in the run are absent */
+      rows: components['schemas']['DuelRow'][];
+    };
+    DuelRow: {
+      personId: number;
+      name: string;
+      /** @description Win 1, draw 0.5, loss 0 */
+      points: number;
+      wins: number;
+      draws: number;
+      losses: number;
+      played: number;
+    };
+    PointsStandings: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      kind: 'points';
+      /**
+       * Format: date-time
+       * @description When the current run began, UTC
+       */
+      startedAt: string;
+      lowerWins: boolean;
+      /** @description Ranked by the sum in the game's direction, then name; persons without a result in the run are absent */
+      rows: components['schemas']['PointsRow'][];
+    };
+    PointsRow: {
+      personId: number;
+      name: string;
+      /** @description The sum of the person's points in the run */
+      sum: number;
+      /** @description How many results make up the sum */
+      results: number;
+    };
     AuditPage: {
       /** @description Newest first, by id */
       events: components['schemas']['AuditEvent'][];
@@ -495,8 +946,9 @@ export interface components {
       /** @enum {string} */
       operation: 'create' | 'update' | 'delete';
       /** @enum {string} */
-      subjectKind: 'entry' | 'person' | 'drink' | 'factor';
-      /** @description The subject's id as text (an integer for persons, drinks and factors, the UUID for entries) */
+      subjectKind:
+        'entry' | 'person' | 'drink' | 'factor' | 'game' | 'match' | 'result';
+      /** @description The subject's id as text (an integer for persons, drinks, factors and games, the UUID for entries, matches and results) */
       subjectId: string;
       /** @description The account that made the change, as it was then; kept after the account is renamed or deleted */
       actor: {
@@ -512,12 +964,13 @@ export interface components {
         /** @description The causing event's id */
         id: number;
         /** @enum {string} */
-        subjectKind: 'entry' | 'person' | 'drink' | 'factor';
+        subjectKind:
+          'entry' | 'person' | 'drink' | 'factor' | 'game' | 'match' | 'result';
         /** @description The causing event's subject name, as that event recorded it */
         name: string;
       };
     };
-    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
+    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null, a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome}` with the game's and both persons' names (a person deleted before is null), a result `{game, person, points}` with the game's and the person's names. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
     AuditSnapshot: {
       name?: string;
       points?: number;
@@ -525,6 +978,16 @@ export interface components {
       person?: string;
       drink?: string;
       quantity?: number;
+      kind?: string;
+      drawsAllowed?: boolean;
+      lowerWins?: boolean;
+      run?: number;
+      /** Format: date-time */
+      startedAt?: string;
+      game?: string;
+      first?: string | null;
+      second?: string | null;
+      outcome?: components['schemas']['Outcome'];
       factor?:
         | null
         | ({
@@ -568,6 +1031,7 @@ export interface components {
        */
       type:
         | 'urn:performance:problem:bad-request'
+        | 'urn:performance:problem:client-outdated'
         | 'urn:performance:problem:unauthenticated'
         | 'urn:performance:problem:invalid-credentials'
         | 'urn:performance:problem:forbidden'
@@ -575,6 +1039,7 @@ export interface components {
         | 'urn:performance:problem:duplicate-name'
         | 'urn:performance:problem:last-admin'
         | 'urn:performance:problem:entry-conflict'
+        | 'urn:performance:problem:request-conflict'
         | 'urn:performance:problem:unsupported-media-type'
         | 'urn:performance:problem:validation'
         | 'urn:performance:problem:too-many-attempts'
@@ -614,7 +1079,18 @@ export interface components {
       };
     };
   };
-  parameters: never;
+  parameters: {
+    /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+    ClientVersion: string;
+    /** @description The game's id; anything but a positive integer is 404 */
+    GameId: number;
+    /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
+    ClientId: string;
+    /** @description The `next` of the previous page, unchanged; omitted for the newest page of the current run */
+    HistoryBefore: string;
+    /** @description Rows per page */
+    HistoryLimit: number;
+  };
   requestBodies: never;
   headers: never;
   pathItems: never;
@@ -645,7 +1121,10 @@ export interface operations {
   getSession: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -666,7 +1145,10 @@ export interface operations {
   signIn: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -696,7 +1178,10 @@ export interface operations {
   signOut: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -715,7 +1200,10 @@ export interface operations {
   changePassword: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -740,7 +1228,10 @@ export interface operations {
   listAccounts: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -762,7 +1253,10 @@ export interface operations {
   createAccount: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -791,7 +1285,10 @@ export interface operations {
   deleteAccount: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The account's id; anything but a positive integer is 404 */
         id: number;
@@ -816,7 +1313,10 @@ export interface operations {
   updateAccount: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The account's id; anything but a positive integer is 404 */
         id: number;
@@ -849,7 +1349,10 @@ export interface operations {
   listPersons: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -870,7 +1373,10 @@ export interface operations {
   createPerson: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -898,7 +1404,10 @@ export interface operations {
   getPerson: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The person's id; anything but a positive integer is 404 */
         id: number;
@@ -923,7 +1432,10 @@ export interface operations {
   deletePerson: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The person's id; anything but a positive integer is 404 */
         id: number;
@@ -946,7 +1458,10 @@ export interface operations {
   updatePerson: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The person's id; anything but a positive integer is 404 */
         id: number;
@@ -978,7 +1493,10 @@ export interface operations {
   listDrinks: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -999,7 +1517,10 @@ export interface operations {
   createDrink: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1027,7 +1548,10 @@ export interface operations {
   getDrink: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The drink's id; anything but a positive integer is 404 */
         id: number;
@@ -1052,7 +1576,10 @@ export interface operations {
   deleteDrink: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The drink's id; anything but a positive integer is 404 */
         id: number;
@@ -1075,7 +1602,10 @@ export interface operations {
   updateDrink: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The drink's id; anything but a positive integer is 404 */
         id: number;
@@ -1107,7 +1637,10 @@ export interface operations {
   listFactors: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1128,7 +1661,10 @@ export interface operations {
   createFactor: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1156,7 +1692,10 @@ export interface operations {
   getFactor: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The factor's id; anything but a positive integer is 404 */
         id: number;
@@ -1181,7 +1720,10 @@ export interface operations {
   deleteFactor: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The factor's id; anything but a positive integer is 404 */
         id: number;
@@ -1204,7 +1746,10 @@ export interface operations {
   updateFactor: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The factor's id; anything but a positive integer is 404 */
         id: number;
@@ -1240,7 +1785,10 @@ export interface operations {
         /** @description Local midnight of the viewer's day as an ISO-8601 instant with offset */
         from: string;
       };
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1263,7 +1811,10 @@ export interface operations {
   addEntry: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The entry's client-generated UUID v4 (lower case), also the retry key */
         id: string;
@@ -1304,7 +1855,10 @@ export interface operations {
   deleteEntry: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The entry's client-generated UUID v4 (lower case), also the retry key */
         id: string;
@@ -1331,6 +1885,8 @@ export interface operations {
         from: string;
       };
       header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
         /** @description The ETag of the standings the client already shows */
         'If-None-Match'?: string;
       };
@@ -1363,6 +1919,432 @@ export interface operations {
       422: components['responses']['Problem'];
     };
   };
+  listGames: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The games */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['GameList'];
+        };
+      };
+      401: components['responses']['Problem'];
+    };
+  };
+  createGame: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewGame'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Game'];
+        };
+      };
+      401: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  getGame: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The game */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['GameDetail'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  deleteGame: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  updateGame: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['GameChange'];
+      };
+    };
+    responses: {
+      /** @description Changed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Game'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  restartGame: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': Record<string, never>;
+      };
+    };
+    responses: {
+      /** @description Restarted; `startedAt` is now */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Game'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+    };
+  };
+  getStandings: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+        /** @description The ETag of the ranking the client already shows */
+        'If-None-Match'?: string;
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The ranking */
+      200: {
+        headers: {
+          /** @description The data revision of this ranking */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Standings'];
+        };
+      };
+      /** @description Unchanged since the ranking named in `If-None-Match` */
+      304: {
+        headers: {
+          /** @description The same ETag */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  listMatches: {
+    parameters: {
+      query?: {
+        /** @description The `next` of the previous page, unchanged; omitted for the newest page of the current run */
+        before?: components['parameters']['HistoryBefore'];
+        /** @description Rows per page */
+        limit?: components['parameters']['HistoryLimit'];
+      };
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of matches, newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MatchPage'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  listResults: {
+    parameters: {
+      query?: {
+        /** @description The `next` of the previous page, unchanged; omitted for the newest page of the current run */
+        before?: components['parameters']['HistoryBefore'];
+        /** @description Rows per page */
+        limit?: components['parameters']['HistoryLimit'];
+      };
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of results, newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ResultPage'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  recordMatch: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewMatch'];
+      };
+    };
+    responses: {
+      /** @description Already recorded by an earlier request with this id */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Match'];
+        };
+      };
+      /** @description Recorded */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Match'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  deleteMatch: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  recordResult: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewResult'];
+      };
+    };
+    responses: {
+      /** @description Already recorded by an earlier request with this id */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Result'];
+        };
+      };
+      /** @description Recorded */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Result'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  deleteResult: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
   listAuditEvents: {
     parameters: {
       query?: {
@@ -1371,7 +2353,10 @@ export interface operations {
         /** @description Events per page */
         limit?: number;
       };
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };

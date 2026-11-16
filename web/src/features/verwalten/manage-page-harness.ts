@@ -99,7 +99,7 @@ export async function mountPage(
 ): Promise<VueWrapper> {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path, component }],
+    routes: [{ path: path.split('?')[0] ?? path, component }],
   });
   await router.push(path);
   const shell = defineComponent(() => () => h(RouterView));

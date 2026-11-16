@@ -7,6 +7,7 @@ namespace Performance\Tests\Integration;
 use DateTimeImmutable;
 use Performance\Domain\DataRevision;
 use Performance\Domain\Scoreboard;
+use Performance\Domain\Snapshot;
 use Performance\Tests\Support\DatabaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
@@ -63,7 +64,7 @@ final class ScoreboardTest extends DatabaseTestCase
         $writer = $this->otherSession();
         $from = new DateTimeImmutable('2026-11-14T00:00:00Z');
 
-        [$revision, $rows] = $scoreboard->snapshot(static function () use ($scoreboard, $writer, $from): array {
+        [$revision, $rows] = (new Snapshot($reader))->read(static function () use ($scoreboard, $writer, $from): array {
             $revision = $scoreboard->revision();
             // Another request commits a change between the reads of this one.
             $writer->exec('DELETE FROM entries');
@@ -114,6 +115,7 @@ final class ScoreboardTest extends DatabaseTestCase
         yield 'no time zone' => ['?from=2026-11-14T00:00:00'];
         yield 'not a date' => ['?from=gestern'];
         yield 'an impossible date' => ['?from=2026-13-45T00:00:00Z'];
+        yield 'a null byte' => ['?from=2026-11-14T00:00:00Z%00'];
     }
 
     #[DataProvider('invalidFroms')]

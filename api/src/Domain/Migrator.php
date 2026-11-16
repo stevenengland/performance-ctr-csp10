@@ -14,6 +14,12 @@ use Throwable;
  * recorded as `started` before and `completed` after its DDL in
  * `schema_migrations`; a failure is recorded as `failed` and retried on a later run,
  * at most once per FAILED_RETRY_SECONDS unless the caller asks for it at once.
+ *
+ * DDL waits for its table's metadata lock until every transaction that used the table ended,
+ * even `ALGORITHM=INSTANT`, and the session default (`lock_wait_timeout`) is a day. While it
+ * waits it holds the migration lock and every other request gets 503, so the migration's wait
+ * is bounded by TABLE_LOCK_WAIT_SECONDS. A migration that times out is not a failure: it stays
+ * `started`, the run answers `running`, and the next request tries again.
  */
 final class Migrator
 {
@@ -22,9 +28,23 @@ final class Migrator
     private const NO_SUCH_TABLE = '42S02';
     /** After a failure, ordinary requests (every phone's scoreboard poll) retry no sooner. */
     public const FAILED_RETRY_SECONDS = 60;
+    /** The longest a migration's DDL waits for a table that a running transaction uses. */
+    public const TABLE_LOCK_WAIT_SECONDS = 5;
+    /** MySQL's and MariaDB's error number for a lock wait that timed out. */
+    private const LOCK_WAIT_TIMEOUT = 1205;
 
     /** @var array<string, Migration> */
     private array $migrations;
+
+    /**
+     * Every migration file loaded in this process, by path. Each `require` of a file that
+     * returns an anonymous class compiles it again and declares one more class, which PHP never
+     * frees, so a long process (the test suite, one Migrator per request) would grow without
+     * bound. A request loads each file once anyway, so production is unchanged.
+     *
+     * @var array<string, Migration>
+     */
+    private static array $loaded = [];
 
     /**
      * @param array<string, Migration> $migrations keyed by name (`NNNN_snake_case`)
@@ -45,15 +65,21 @@ final class Migrator
         $migrations = [];
         foreach ($directories as $directory) {
             foreach (glob($directory . '/[0-9][0-9][0-9][0-9]_*.php') ?: [] as $file) {
-                $migration = require $file;
-                if (!$migration instanceof Migration) {
-                    throw new RuntimeException('Migration file does not return a Migration: ' . basename($file));
-                }
-                $migrations[basename($file, '.php')] = $migration;
+                $migrations[basename($file, '.php')] = self::$loaded[$file] ??= self::load($file);
             }
         }
 
         return new self($pdo, $migrations);
+    }
+
+    private static function load(string $file): Migration
+    {
+        $migration = require $file;
+        if (!$migration instanceof Migration) {
+            throw new RuntimeException('Migration file does not return a Migration: ' . basename($file));
+        }
+
+        return $migration;
     }
 
     /**
@@ -86,7 +112,7 @@ final class Migrator
             return MigrationState::Running;
         }
         try {
-            return $this->applyPending();
+            return $this->withBoundedLockWait($this->applyPending(...));
         } finally {
             $this->release($lock);
         }
@@ -127,6 +153,11 @@ final class Migrator
                 }
                 $this->record($name, 'completed');
             } catch (Throwable $failure) {
+                if (self::timedOutWaiting($failure)) {
+                    error_log(sprintf('Migration %s waited too long for a table in use; a later request retries it', $name));
+
+                    return MigrationState::Running;
+                }
                 error_log(sprintf('Migration %s failed: %s', $name, $failure->getMessage()));
                 $this->record($name, 'failed');
 
@@ -135,6 +166,28 @@ final class Migrator
         }
 
         return MigrationState::Ok;
+    }
+
+    /**
+     * Runs `$apply` with this session's `lock_wait_timeout` at TABLE_LOCK_WAIT_SECONDS, and
+     * restores the session's own value after, as the request goes on with this connection.
+     *
+     * @param callable(): MigrationState $apply
+     */
+    private function withBoundedLockWait(callable $apply): MigrationState
+    {
+        $own = self::scalar($this->pdo, 'SELECT @@SESSION.lock_wait_timeout');
+        $this->pdo->exec(sprintf('SET SESSION lock_wait_timeout = %d', self::TABLE_LOCK_WAIT_SECONDS));
+        try {
+            return $apply();
+        } finally {
+            $this->pdo->exec(sprintf('SET SESSION lock_wait_timeout = %d', (int) $own));
+        }
+    }
+
+    private static function timedOutWaiting(Throwable $failure): bool
+    {
+        return $failure instanceof PDOException && ($failure->errorInfo[1] ?? null) === self::LOCK_WAIT_TIMEOUT;
     }
 
     /**

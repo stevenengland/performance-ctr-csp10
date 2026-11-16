@@ -68,7 +68,7 @@ final class EntrySnapshots
             AuditSubjectKind::Person => ['person_id', 'entries_person'],
             AuditSubjectKind::Drink => ['drink_id', 'entries_drink'],
             AuditSubjectKind::Factor => ['factor_id', 'entries_factor'],
-            AuditSubjectKind::Entry => throw new LogicException('Entries reference no entries'),
+            AuditSubjectKind::Entry, AuditSubjectKind::Game, AuditSubjectKind::Match, AuditSubjectKind::Result => throw new LogicException("Entries reference no {$parent->value}"),
         };
         $statement = $pdo->prepare("SELECT id FROM entries FORCE INDEX ({$index}) WHERE {$column} = ? FOR UPDATE");
         $statement->execute([$parentId]);

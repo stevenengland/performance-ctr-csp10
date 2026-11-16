@@ -24,7 +24,8 @@ final class App
         $database = new Database($config, $clock ?? new SystemClock());
         $app = new SlimApp($responses);
         $app->setBasePath($basePath);
-        $signedIn = new SessionAuth($database, $responses);
+        $problems = new ProblemDetailsHandler($responses);
+        $signedIn = new SessionAuth($database, $responses, $problems);
         $adminOnly = new AdminOnly($responses);
         $jsonBody = new JsonBody($responses);
         // Route middleware added last runs first: SessionAuth, then AdminOnly, then
@@ -37,6 +38,9 @@ final class App
         $catalog = new CatalogActions($database);
         $entries = new EntryActions($database);
         $audit = new AuditActions($database);
+        $games = new GameActions($database);
+        $matches = new MatchActions($database);
+        $results = new ResultActions($database);
 
         // Open routes: health and sign-in. Every other route requires a session.
         $app->get('/api/health', new HealthAction($database, $config->appVersion));
@@ -73,12 +77,30 @@ final class App
         $member($app->put($entry, $entries->put(...)));
         $member($app->delete($entry, $entries->delete(...)));
         $member($app->get('/api/scoreboard', new ScoreboardAction($database)));
+        $member($app->get('/api/games', $games->list(...)));
+        $member($app->post('/api/games', $games->create(...)));
+        $game = '/api/games/{id:' . CatalogActions::ID_PATTERN . '}';
+        $member($app->get($game, $games->read(...)));
+        $member($app->patch($game, $games->update(...)));
+        $member($app->delete($game, $games->delete(...)));
+        $member($app->post($game . '/restart', $games->restart(...)));
+        $member($app->get($game . '/standings', new StandingsAction($database)));
+        $member($app->get($game . '/matches', $matches->list(...)));
+        $member($app->get($game . '/results', $results->list(...)));
+        $match = '/api/matches/{id:' . EntryActions::ID_PATTERN . '}';
+        $member($app->put($match, $matches->put(...)));
+        $member($app->delete($match, $matches->delete(...)));
+        $result = '/api/results/{id:' . EntryActions::ID_PATTERN . '}';
+        $member($app->put($result, $results->put(...)));
+        $member($app->delete($result, $results->delete(...)));
         $admin($app->get('/api/audit', $audit->list(...)));
 
         $app->addRoutingMiddleware();
         $app->add(new MigrationGate($database, $responses, $basePath . '/api/health'));
+        // Before the migration gate: an outdated client is told to reload, whatever the schema's state.
+        $app->add(new ClientVersionGate($responses, $basePath . '/api/health'));
         $app->addErrorMiddleware(false, false, false)
-            ->setDefaultErrorHandler(new ProblemDetailsHandler($responses));
+            ->setDefaultErrorHandler($problems);
         // Outermost, so problem responses carry it too.
         $app->add(static function (ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface {
             return $handler->handle($request)->withHeader('Cache-Control', 'no-store');

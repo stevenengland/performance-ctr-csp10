@@ -26,37 +26,23 @@ final readonly class ScoreboardAction
         $from = Instant::parse('from', is_string($query['from'] ?? null) ? $query['from'] : '');
         $scoreboard = $this->database->scoreboard();
 
-        return $scoreboard->snapshot(function () use ($scoreboard, $request, $response, $from): ResponseInterface {
-            $tag = self::tag($scoreboard->revision(), $from);
-            $response = $response->withHeader('ETag', $tag);
-            if (self::matches($request->getHeaderLine('If-None-Match'), $tag)) {
-                return $response->withStatus(304);
-            }
-
-            return Json::write($response, ['rows' => array_map(self::row(...), $scoreboard->since($from))]);
-        });
+        // The revision and the standings are read in one Snapshot, so they see the same
+        // committed data: the per-drink counters add up to each person's count.
+        return $this->database->snapshot()->read(static fn(): ResponseInterface => ConditionalGet::respond(
+            $request,
+            $response,
+            self::tag($scoreboard->revision(), $from),
+            static fn(ResponseInterface $response): ResponseInterface => Json::write(
+                $response,
+                ['rows' => array_map(self::row(...), $scoreboard->since($from))],
+            ),
+        ));
     }
 
     /** The window is part of the tag: the same revision means other standings for another day. */
     private static function tag(int $revision, DateTimeImmutable $from): string
     {
         return sprintf('"%d-%s"', $revision, $from->format('Uv'));
-    }
-
-    /**
-     * Whether `If-None-Match` names the tag: `*`, or one of a list of (weak) tags, also
-     * with the `-gzip`/`-br` suffix Apache adds to tags of the responses it compresses.
-     */
-    private static function matches(string $ifNoneMatch, string $tag): bool
-    {
-        foreach (explode(',', $ifNoneMatch) as $candidate) {
-            $candidate = preg_replace(['/^W\//', '/-(gzip|br)"$/'], ['', '"'], trim($candidate));
-            if ($candidate === '*' || $candidate === $tag) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

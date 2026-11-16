@@ -28,12 +28,12 @@ import {
   getSession,
   listAccounts,
   listAuditEvents,
-  type AuditEvent,
   signIn,
   signOut,
 } from '../src/core/api-client';
 import { todayFrom } from '../src/core/day-window';
 import { installFixtureBackend } from './fixtureBackend';
+import { newest, told } from './fixtureTesting';
 import { SAMPLE_PASSWORD, sampleEvening } from './fixtures';
 
 /** The standings since `from`, asked without condition. */
@@ -306,7 +306,8 @@ describe('the fixture backend', () => {
       putEntry(id, { ...twoBeers, quantity: 3 }),
     ).rejects.toMatchObject({ status: 409 });
     await deleteEntry(id);
-    await putEntry(id, twoBeers);
+    // A replay answers the original instant, like the API's retry keys.
+    await expect(putEntry(id, twoBeers)).resolves.toEqual(first);
     expect(await jule()).toBeUndefined();
     await expect(deleteEntry(id)).rejects.toMatchObject({ status: 404 });
     await expect(
@@ -539,32 +540,6 @@ describe('the fixture backend', () => {
   });
 });
 
-/** The newest `limit` events of the log, as the API answers them. */
-async function newest(limit: number): Promise<AuditEvent[]> {
-  const response = await fetch(`/api/audit?limit=${String(limit)}`);
-  const page = (await response.json()) as { events: AuditEvent[] };
-  return page.events;
-}
-
-/** An event as Protokoll tells it apart: who did what to which values, and why. */
-const told = ({
-  operation,
-  subjectKind,
-  subjectId,
-  actor,
-  before,
-  after,
-  cause,
-}: AuditEvent) => ({
-  operation,
-  subjectKind,
-  subjectId,
-  userName: actor.userName,
-  before,
-  after,
-  cause: cause && { subjectKind: cause.subjectKind, name: cause.name },
-});
-
 describe('the fixture backend’s audit log', () => {
   const realFetch = globalThis.fetch;
   afterEach(() => {
@@ -726,9 +701,17 @@ describe('the fixture backend’s audit log', () => {
     const entriesOf = (personId: number) =>
       fixtures.entries.filter((entry) => entry.personId === personId).length;
     const danielsEntries = entriesOf(3);
+    // Daniel's matches stay with his side cleared and his results go; their events come last.
+    const danielsMatchesAndResults =
+      fixtures.matches.filter(
+        (match) => match.firstPersonId === 3 || match.secondPersonId === 3,
+      ).length +
+      fixtures.results.filter((result) => result.personId === 3).length;
 
     await deletePerson(3);
-    const personEvents = await newest(danielsEntries + 1);
+    const personEvents = (
+      await newest(danielsMatchesAndResults + danielsEntries + 1)
+    ).slice(danielsMatchesAndResults);
     const deletion = personEvents.at(-1);
     expect(deletion).toMatchObject({
       operation: 'delete',

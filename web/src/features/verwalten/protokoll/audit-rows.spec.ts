@@ -66,6 +66,145 @@ describe('the Protokoll rows', () => {
     ).toBe('Eintrag 2× Bier für Daniel');
   });
 
+  it('names a game Spiel with its name', () => {
+    expect(
+      only({
+        subjectKind: 'game',
+        operation: 'create',
+        after: { name: 'Schach' },
+      }).title,
+    ).toBe('Spiel Schach');
+  });
+
+  const schach = {
+    name: 'Schach',
+    kind: 'duel',
+    drawsAllowed: true,
+    run: 1,
+    startedAt: '2026-09-15T18:00:00.000Z',
+  } as const;
+  const romme = {
+    name: 'Rommé',
+    kind: 'points',
+    lowerWins: false,
+    run: 1,
+    startedAt: '2026-09-15T18:00:00.000Z',
+  } as const;
+
+  it('shows a created or deleted game with its kind and rule', () => {
+    expect(
+      only({ subjectKind: 'game', operation: 'create', after: schach }).changes,
+    ).toBe('Duell · Remis möglich');
+    expect(
+      only({
+        subjectKind: 'game',
+        operation: 'delete',
+        before: { ...romme, lowerWins: true },
+      }).changes,
+    ).toBe('Punktespiel · Niedrigste Summe gewinnt');
+  });
+
+  it('shows a changed rule of a game as before → after', () => {
+    expect(
+      only({
+        subjectKind: 'game',
+        before: schach,
+        after: { ...schach, drawsAllowed: false },
+      }).changes,
+    ).toBe('Regel: Remis möglich → kein Remis');
+    expect(
+      only({
+        subjectKind: 'game',
+        before: romme,
+        after: { ...romme, lowerWins: true },
+      }).changes,
+    ).toBe('Regel: Höchste Summe gewinnt → Niedrigste Summe gewinnt');
+  });
+
+  it('shows a restarted game as Neu gestartet, apart from a change of its rule', () => {
+    const restarted = only({
+      subjectKind: 'game',
+      before: romme,
+      after: { ...romme, run: 2, startedAt: '2026-11-15T18:30:00.000Z' },
+    });
+
+    expect([restarted.title, restarted.changes]).toEqual([
+      'Spiel Rommé',
+      'Neu gestartet',
+    ]);
+  });
+
+  it('shows a match side cleared by a person deletion as that change, the same for every outcome', () => {
+    const cleared = (outcome: 'first' | 'second' | 'draw') =>
+      only({
+        subjectKind: 'match',
+        before: { game: 'Schach', first: 'Ben', second: 'Anna', outcome },
+        after: { game: 'Schach', first: null, second: 'Anna', outcome },
+        cause: { name: 'Ben' },
+      });
+
+    for (const outcome of ['first', 'second', 'draw'] as const) {
+      expect([cleared(outcome).title, cleared(outcome).changes]).toEqual([
+        'Partie Ben – Anna',
+        'Ben → gelöschte Person',
+      ]);
+    }
+  });
+
+  it('names an event of a subject kind it does not know by its name only', () => {
+    expect(
+      only({
+        subjectKind: 'tournament' as AuditEventView['subjectKind'],
+        operation: 'create',
+        after: { name: 'Sommer' },
+      }).title,
+    ).toBe('Sommer');
+  });
+
+  it('names a match Partie with both persons, and shows its game and outcome', () => {
+    const recorded = only({
+      subjectKind: 'match',
+      operation: 'create',
+      after: { game: 'Schach', first: 'Anna', second: 'Ben', outcome: 'first' },
+    });
+    const removed = only({
+      subjectKind: 'match',
+      operation: 'delete',
+      before: { game: 'Schach', first: null, second: 'Ben', outcome: 'draw' },
+    });
+
+    expect([recorded.title, recorded.changes]).toEqual([
+      'Partie Anna – Ben',
+      'Schach · Anna gewinnt',
+    ]);
+    expect([removed.title, removed.changes]).toEqual([
+      'Partie gelöschte Person – Ben',
+      'Schach · Remis',
+    ]);
+  });
+
+  it('names a result Ergebnis with its person, and shows its game and signed points', () => {
+    const recorded = only({
+      subjectKind: 'result',
+      operation: 'create',
+      after: { game: 'Rommé', person: 'Daniel', points: -20 },
+    });
+    const removed = only({
+      subjectKind: 'result',
+      operation: 'delete',
+      before: { game: 'Kniffel', person: 'Anna', points: 1 },
+    });
+
+    expect([recorded.title, recorded.changes]).toEqual([
+      'Ergebnis Daniel',
+      'Rommé · −20 Punkte',
+    ]);
+    expect([removed.title, removed.changes]).toEqual([
+      'Ergebnis Anna',
+      'Kniffel · 1 Punkt',
+    ]);
+  });
+
   it('labels the operation Angelegt, Geändert or Gelöscht', () => {
     const labels = (['create', 'update', 'delete'] as const).map(
       (operation) =>

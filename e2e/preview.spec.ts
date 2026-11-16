@@ -64,6 +64,11 @@ test('the preview marker covers no control of any screen', async ({ page }) => {
     ['konto', 'Konto'],
     ['rangliste', 'Rangliste'],
     ['verwalten/personen', 'Personen'],
+    ['spiele', 'Spiele'],
+    ['spiele/2', 'Schach'],
+    ['spiele/2/partie/1/3', 'Schach'],
+    ['spiele/1/ergebnis/3', 'Rommé'],
+    ['spiele/2/verlauf', 'Verlauf'],
     ['verwalten/konten', 'Konten'],
     ['verlauf/3', 'Daniel'],
   ] as const) {
@@ -151,7 +156,9 @@ test('the fixture preview renames a drink and deletes a person with their entrie
 
   await page.goto('/index.html#/verwalten/personen');
   await page.getByRole('button', { name: 'Daniel löschen' }).click();
-  await expect(dialog).toContainText('Daniel und 5 Einträge werden gelöscht.');
+  await expect(dialog).toContainText(
+    'Daniel, 5 Einträge und 2 Ergebnisse werden gelöscht.',
+  );
   await dialog.getByRole('button', { name: 'Löschen' }).click();
   await expect(page.getByText('Daniel gelöscht')).toBeVisible();
 
@@ -225,6 +232,198 @@ test('the fixture preview opens another person’s Verlauf as a new screen', asy
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Jule');
   await expect(page.getByText('Heute keine Einträge.')).toBeVisible();
+});
+
+test('the fixture preview lists its sample games with their leaders under Spiele and opens one’s ranking', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/zaehlen');
+  await expect(
+    page.getByRole('navigation', { name: 'Hauptnavigation' }).getByRole('link'),
+  ).toHaveText(['Zählen', 'Rangliste', 'Spiele', 'Verwalten']);
+  await page
+    .getByRole('navigation', { name: 'Hauptnavigation' })
+    .getByRole('link', { name: 'Spiele' })
+    .click();
+
+  const games = page.getByRole('list', { name: 'Spiele' }).getByRole('link');
+  await expect(games).toHaveCount(3);
+  await expect(games.nth(0)).toHaveText(
+    /^Rommé\s*Punktespiel · seit heute, 00:00\s*1\. Daniel · −11 Punkte$/,
+  );
+  await expect(games.nth(1)).toHaveText(
+    /^Schach\s*Duell · seit \d\d\.\d\d\.\s*1\. Anna · 4 Punkte$/,
+  );
+  await games.nth(1).click();
+
+  await expect(page).toHaveURL(/#\/spiele\/2$/);
+  const bar = page.getByRole('banner');
+  await expect(bar.getByRole('heading', { level: 1 })).toHaveText('Schach');
+  await expect(bar).toContainText(/Duell · seit \d\d\.\d\d\./);
+  await expect(page.getByText('Remis möglich')).toBeVisible();
+  const ranking = page
+    .getByRole('list', { name: 'Schach' })
+    .getByRole('listitem');
+  await expect(ranking.first()).toHaveAccessibleName(
+    'Platz 1, Anna, 4 Punkte, 5 Partien · 3 S · 2 R · 0 N',
+  );
+  await expect(ranking).toHaveText([
+    /^Anna\s*4\s*4 Punkte\s*5 Partien · 3 S · 2 R · 0 N$/,
+    /^2\s*Ben\s*5 Partien · 3 S · 1 R · 1 N\s*3,5$/,
+    /^3\s*Tom\s*4 Partien · 0 S · 2 R · 2 N\s*1$/,
+    /^4\s*Daniel\s*3 Partien · 0 S · 1 R · 2 N\s*0,5$/,
+  ]);
+});
+
+test('the fixture preview records a Schach match in three taps and undoes it', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/2');
+  await page.getByRole('button', { name: 'Partie eintragen' }).click();
+
+  await expect(
+    page.getByRole('heading', { name: 'Wer spielt?' }),
+  ).toBeVisible();
+  await expect(page.getByRole('banner')).toContainText('Partie eintragen');
+  await page.getByRole('button', { name: 'Daniel, 0,5 Punkte' }).click();
+  await expect(page.getByRole('heading', { name: 'Gegen wen?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Tom, 1 Punkt' }).click();
+  await expect(
+    page.getByRole('progressbar', { name: 'Schritt 3 von 3' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remis' })).toBeVisible();
+  await page.getByRole('button', { name: 'Daniel gewinnt' }).click();
+
+  await expect(page.getByText('Daniel – Tom · Daniel gewinnt')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Wer spielt?' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Daniel, 1,5 Punkte' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Rückgängig' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Daniel, 0,5 Punkte' }),
+  ).toBeVisible();
+});
+
+test('the fixture preview records a Rommé result on its number pad and ranks it', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/1');
+  await page.getByRole('button', { name: 'Ergebnis eintragen' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Für wen?' })).toBeVisible();
+  await expect(page.getByRole('banner')).toContainText('Ergebnis eintragen');
+  await expect(
+    page.getByRole('button', { name: 'Daniel, −11 Punkte' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Tom, noch nichts' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Wie viele Punkte?' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('progressbar', { name: 'Schritt 2 von 2' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Ziffer 2' }).click();
+  await page.getByRole('button', { name: 'Ziffer 0' }).click();
+  // A keyboard works too: the minus key sets the sign.
+  await page.keyboard.press('-');
+  await expect(page.locator('output')).toHaveText('−20');
+  await page.getByRole('button', { name: 'Speichern' }).click();
+
+  await expect(page.getByText('Tom · −20 Punkte')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Für wen?' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Tom, −20 Punkte' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await expect(
+    page.getByRole('listitem', {
+      name: 'Platz 1, Tom, −20 Punkte, 1 Ergebnis',
+    }),
+  ).toBeVisible();
+});
+
+test('the fixture preview opens Schach’s Verlauf and deletes a match from it', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/2');
+  await page.getByRole('link', { name: 'Verlauf' }).click();
+
+  await expect(page).toHaveURL(/#\/spiele\/2\/verlauf$/);
+  const bar = page.getByRole('banner');
+  await expect(bar.getByRole('heading', { level: 1 })).toHaveText('Verlauf');
+  await expect(bar).toContainText(/Schach · seit \d\d\.\d\d\./);
+  const rows = page
+    .getByRole('list', { name: 'Verlauf' })
+    .getByRole('listitem');
+  await expect(rows).toHaveCount(9);
+  await expect(rows.first()).toContainText(
+    /^Ben – Anna\s*Remis · \d\d\.\d\d\., 21:00 · ben/,
+  );
+  await expect(rows.filter({ hasText: 'gelöschte Person – Ben' })).toHaveText(
+    /Ben gewinnt · \d\d\.\d\d\., 21:00 · ben/,
+  );
+  await expect(rows.filter({ hasText: 'gelöschtes Konto' })).toHaveText(
+    /^Ben – Tom\s*Ben gewinnt/,
+  );
+  await expect(page.getByRole('button', { name: 'Ältere laden' })).toHaveCount(
+    0,
+  );
+
+  await page
+    .getByRole('button', { name: /^Ben – Anna vom \d\d\.\d\d\. löschen$/ })
+    .click();
+  const confirm = page.getByRole('dialog');
+  await expect(confirm.getByRole('heading')).toHaveText('Partie löschen?');
+  await expect(confirm).toContainText(
+    /Ben – Anna · Remis am \d\d\.\d\d\. um 21:00/,
+  );
+  await confirm.getByRole('button', { name: 'Löschen' }).click();
+
+  await expect(page.getByText('Partie gelöscht')).toBeVisible();
+  await expect(rows).toHaveCount(8);
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await expect(
+    page.getByRole('listitem', {
+      name: 'Platz 1, Anna, 3,5 Punkte, 4 Partien · 3 S · 1 R · 0 N',
+    }),
+  ).toBeVisible();
+});
+
+test('the fixture preview restarts Schach: an empty ranking and Verlauf since today', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/2');
+  await expect(
+    page.getByRole('list', { name: 'Schach' }).getByRole('listitem'),
+  ).toHaveCount(4);
+  await page.getByRole('button', { name: 'Neu starten' }).click();
+
+  const confirm = page.getByRole('dialog');
+  await expect(confirm.getByRole('heading')).toHaveText('Schach neu starten?');
+  await expect(confirm).toContainText(
+    'Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.',
+  );
+  await confirm.getByRole('button', { name: 'Neu starten' }).click();
+
+  await expect(page.getByText('Schach neu gestartet')).toBeVisible();
+  await expect(
+    page.getByText('Seit dem Start noch keine Partien.'),
+  ).toBeVisible();
+  await expect(page.getByRole('banner')).toContainText(
+    /Duell · seit heute, \d\d:\d\d/,
+  );
+
+  await page.getByRole('link', { name: 'Verlauf' }).click();
+  await expect(page).toHaveURL(/#\/spiele\/2\/verlauf$/);
+  await expect(page.getByRole('banner')).toContainText(
+    /Schach · seit heute, \d\d:\d\d/,
+  );
+  await expect(
+    page.getByText('Seit dem Start noch keine Partien.'),
+  ).toBeVisible();
 });
 
 /** Opens an account's menu on Konten once any other menu has closed. */

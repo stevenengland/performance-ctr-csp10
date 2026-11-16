@@ -4,6 +4,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize, resolve } from 'node:path';
+import { meetsFloor } from '../scripts/artifact.ts';
 import { expect, test } from './support/playwright.ts';
 
 /*
@@ -12,7 +13,10 @@ The reload floor across a real two-version update: the shipped web root
 same tree with a newer app version (release 2) replaces it and raises
 `minClientVersion` above release 1, as a deploy with a breaking API change does.
 Both are served from a throwaway origin, so the shared stack keeps serving
-release 1 to the other tests; health and every other API call are canned.
+release 1 to the other tests; health and every other API call are canned. The
+canned API refuses a client below the floor as `ClientVersionGate` does (its own
+behaviour is covered by PHPUnit), so a test can raise the floor under a release 1
+tab that stays open.
 */
 
 const webRoot = process.env.E2E_WEB_ROOT ?? 'dist/artifact/web';
@@ -47,6 +51,24 @@ function webspace(initial: Release) {
           schemaVersion: 1,
           migration: 'ok',
           minClientVersion: current.minClientVersion,
+        }),
+      );
+      return;
+    }
+    const clientVersion = request.headers['x-client-version'];
+    if (
+      path.startsWith('/api/') &&
+      !meetsFloor(
+        typeof clientVersion === 'string' ? clientVersion : '0.1.0',
+        current.minClientVersion,
+      )
+    ) {
+      response.writeHead(400, { 'Content-Type': 'application/problem+json' });
+      response.end(
+        JSON.stringify({
+          type: 'urn:performance:problem:client-outdated',
+          title: 'Diese Version ist veraltet. Bitte neu laden.',
+          status: 400,
         }),
       );
       return;
@@ -87,6 +109,8 @@ function entryScript(root: string): string {
 
 test.describe('the reload floor across a real update', () => {
   test.describe.configure({ timeout: 180_000 });
+  // Only the web client's own X-Client-Version may reach the canned API here.
+  test.use({ extraHTTPHeaders: {} });
 
   let scratch: string;
   let first: Release;
@@ -195,5 +219,33 @@ test.describe('the reload floor across a real update', () => {
       )
       .toBe(true);
     await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
+  test('a tab opened before the floor was raised must reload on its next request, without reloading first', async ({
+    page,
+  }) => {
+    // Release 1 is open and read the floor when it started. The marker survives only without a reload.
+    await page.goto(`${origin}/anmelden`);
+    await expect(page.getByLabel('Benutzername')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.evaluate(() => {
+      Object.assign(window, { e2eOpenSinceRelease1: true });
+    });
+
+    // Release 2 deployed while the tab stays open: the API raises the floor.
+    site.switchTo(second);
+    await page.getByLabel('Benutzername').fill('anna');
+    await page.getByLabel('Passwort', { exact: true }).fill('annas-passwort');
+    await page.getByRole('button', { name: 'Anmelden' }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Bitte neu laden');
+    await expect(
+      dialog.getByRole('button', { name: 'Neu laden' }),
+    ).toBeVisible();
+    // The same page: the floor reached it through the refused sign-in, not through a reload.
+    expect(await page.evaluate(() => 'e2eOpenSinceRelease1' in window)).toBe(
+      true,
+    );
   });
 });

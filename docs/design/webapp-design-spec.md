@@ -39,8 +39,10 @@ connection. One or two of them are admins.
 - **One decision per screen.** The add flow asks exactly one question per step and saves on the
   last answer. No confirm button on the happy path; undo instead.
 - **Today only.** Every view covers the current day, from 00:00 in the browser's time zone. No
-  view shows other days — with one recorded exception: Protokoll (§7l), the admins' audit log,
-  covers all days, since looking up what happened yesterday or last week is its purpose.
+  view shows other days — with two recorded exceptions: Protokoll (§7l), the admins' audit log,
+  covers all days, since looking up what happened yesterday or last week is its purpose; and a
+  game (§7n, §7o) covers its current run, from its last (re)start (`seit 15.09.`), since a
+  chess ladder runs for weeks. The server owns the run; drink views keep local midnight.
 - **Honest state.** The UI never claims a save that did not happen: offline blocks saving,
   failures say so, stale data shows its age.
 - **Readable across the table.** Names and numbers are set large in a condensed display face;
@@ -206,6 +208,7 @@ All user-visible text lives in one German messages module; all formatting goes t
 | Time of an entry | `HH:mm`, browser time zone | `23:41` |
 | Last update | `Stand: HH:mm` | `Stand: 23:41` |
 | Quantity in text | `<n>×` | `2× Bier` |
+| Start of a game's run | `seit dd.MM.`, or `seit heute, HH:mm` when it lies after local midnight; browser time zone; turns into the date at the next local midnight, or when the screen is shown or focused again after it | `seit 15.09.`, `seit heute, 19:30` |
 | Day heading (Protokoll) | `Heute`, `Gestern`, else short weekday and date, browser time zone | `Sa., 14.11.2026` |
 | Changed value (Protokoll) | `<label>: <before> → <after>` | `Punkte: 1 Punkt → 0,5 Punkte` |
 
@@ -221,19 +224,32 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
 /zaehlen/:personId/:drinkId/:quantity       step 4 — Faktor (choice saves)
 /rangliste                                  today's ranking         [nav: Rangliste]
 /verlauf/:personId                          a person's entries today
+/spiele                                     the games               [nav: Spiele]
+/spiele/:gameId                             a game: its rule and its ranking since the start
+/spiele/:gameId/partie                      duel step 1 — Wer spielt?
+/spiele/:gameId/partie/:firstId             duel step 2 — Gegen wen?
+/spiele/:gameId/partie/:firstId/:secondId   duel step 3 — Ergebnis (choice saves)
+/spiele/:gameId/ergebnis                    points step 1 — Für wen?
+/spiele/:gameId/ergebnis/:personId          points step 2 — Wie viele Punkte? (Speichern)
+/spiele/:gameId/verlauf                     a game's matches or results since the start
 /verwalten                                  hub                     [nav: Verwalten]
 /verwalten/personen | getraenke | faktoren  master data
+/verwalten/spiele                           games: create, edit, delete (?anlegen opens create)
 /verwalten/konten                           accounts (admins only)
 /verwalten/protokoll                        audit log, all days (admins only)
 /konto                                      own account (top app bar)
 ```
 
-- **Navigation bar** (compact) or **navigation rail** (medium and up) with three destinations:
-  Zählen, Rangliste, Verwalten. Konto is reached from the top app bar's account icon.
+- **Navigation bar** (compact) or **navigation rail** (medium and up) with four destinations:
+  Zählen (`mdiGlassMugVariant`), Rangliste (`mdiPodium`), Spiele (`mdiCardsPlayingOutline`),
+  Verwalten (`mdiCogOutline`). Konto is reached from the top app bar's account icon. The bar
+  splits its width into four equal columns.
 - `/` redirects to `/zaehlen`. Unknown routes redirect to `/zaehlen`.
-- The add flow's steps are routes, so the system back gesture steps back one level.
+- The add flow's, the duel flow's and the points flow's steps are routes, so the system back
+  gesture and the back arrow step back one level.
 - A route parameter that no longer exists (person deleted on another phone) returns to step 1
-  with the snackbar "Nicht mehr vorhanden".
+  with the snackbar "Nicht mehr vorhanden"; a game or player that no longer exists returns to
+  `/spiele` the same way.
 - Not signed in: every route except `/anmelden` redirects there
   (`/anmelden?weiter=<requested route>`) and returns to the requested route after sign-in; a
   signed-in user who opens `/anmelden` goes straight on. A 401 on any later request (signed out
@@ -262,15 +278,17 @@ Flat bar on `surface`: title in `title` style (the screen's name or, in the add 
 person), an optional context line under it in `label` (`Bier`, `2× Bier`, `Heute`), a back
 button on every screen below a navigation destination, and the account icon on the right
 (opens `/konto`). In the add flow a four-segment step indicator sits directly under the bar
-(4 dp high, filled segments in `primary`; three segments when no factors exist). On add-flow
+(4 dp high, filled segments in `primary`; three segments when no factors exist); the duel flow
+(§7p) always has three, the points flow (§7q) two. On add-flow
 steps 2–4 the bar also shows, right-aligned before the account icon, the chosen person's
 total score for today — all drinks, factors applied — as a numeral (`title`) over the caption
 `Punkte heute` (from the scoreboard feed; `0` when there are no entries). On the
-Rangliste the bar also shows `Stand: HH:mm` in `error` when data is stale (§6.6).
+Rangliste and a game's page (§7o) the bar also shows `Stand: HH:mm` in `error` when data is
+stale (§6.6).
 
 ### 6.2 Navigation bar / rail
 
-Three destinations (§4) on `surface-container`. The active destination's icon sits in a
+Four destinations (§4) on `surface-container`. The active destination's icon sits in a
 `secondary-container` pill and its label is `on-surface`; the others are `on-surface-variant`.
 Hidden on `/anmelden`.
 
@@ -284,13 +302,17 @@ an older one.
 | Trigger | Text | Action |
 |---|---|---|
 | Entry saved | `2× Bier · Happy Hour ×2 · Daniel` (factor part omitted for "Kein Faktor") | `Rückgängig` |
-| Entry undone | `Rückgängig gemacht` | — |
-| Save failed (network) | `Nicht gespeichert – keine Verbindung` | `Erneut versuchen` (same UUID, this attempt only; returns to the names only while the step is still shown) |
+| Match saved (§7p) | `Anna – Ben · Anna gewinnt`, `Ben – Carla · Remis` | `Rückgängig` |
+| Result saved (§7q) | `Daniel · −20 Punkte`, `Anna · 1 Punkt` | `Rückgängig` |
+| Entry, match or result undone | `Rückgängig gemacht` | — |
+| Save failed (network) | `Nicht gespeichert – keine Verbindung` | `Erneut versuchen` (same UUID, this attempt only; returns to the names — or to `Wer spielt?` / `Für wen?` — only while the step is still shown) |
 | Undo failed (network) | `Nicht rückgängig gemacht – keine Verbindung` | `Erneut versuchen` |
 | Route item gone (§4) | `Nicht mehr vorhanden` | — |
 | Problem response | the problem's `title` | — |
 | Deleted item | `<Name> gelöscht` | — |
 | Deleted entry (Verlauf) | `Eintrag gelöscht` | — |
+| Deleted match or result (a game's Verlauf, §7r) | `Partie gelöscht` / `Ergebnis gelöscht` | — |
+| Game restarted (§7o) | `Schach neu gestartet` | — |
 | Update available | `Neue Version verfügbar` | `Neu laden` |
 | Own password changed | `Passwort geändert` | — |
 | Password reset (Konten) | `Passwort von anna zurückgesetzt` | — |
@@ -329,7 +351,8 @@ last step disables its buttons; all other screens keep showing their last data.
 
 ### 6.6 Stale indicator
 
-When the latest scoreboard refresh failed, the last data stays visible and `Stand: HH:mm`
+When the latest refresh of the scoreboard or of a game's ranking failed, the last data stays
+visible and `Stand: HH:mm`
 (time of the last successful refresh) appears in `caption`, `error`, at the right of the top app bar. It
 disappears after the next successful refresh.
 
@@ -338,15 +361,23 @@ scores or counters is open (Rangliste and the add flow) and the page is visible:
 10 s with `If-None-Match` (304 keeps the standings), at once on focus, on becoming visible and
 after the device's own writes, and never while hidden. Each request computes `from` anew, so
 the next refresh after local midnight shows the new day; an answer overtaken by a newer request
-or a new day is dropped. After a failure it retries after 5, 10, 20, 40, then every 60 s.
+or a new day is dropped. After a failure it retries after 5, 10, 20, 40, then every 60 s; a
+503 with `Retry-After` shows `Wird aktualisiert – gleich wieder da` and retries after that delay.
+
+The mechanism is a keyed *polled resource* (`core/polled-resource.ts`): the drink feed is one
+instance, and each game has at most one for its ranking (`GET /api/games/{id}/standings`,
+ETag = data revision), shared by every screen that shows it (the game's page §7o, the duel
+flow's player steps §7p and the points flow's steps §7q) and stopped when the last one closes. The Spiele list (§7n) never
+polls: it reads each game's ranking on open and on focus only.
 
 ### 6.7 Update prompt and reload floor
 
 - **Update prompt:** a waiting service worker shows the snackbar `Neue Version verfügbar` with
   `Neu laden`; the app never reloads on its own. Unlike other snackbars it does not time out: it stays until
   the user taps `Neu laden` or a newer snackbar replaces it.
-- **Reload floor:** when health reports a `minClientVersion` above the running client, a
-  non-dismissable dialog `Bitte neu laden` — `Diese Version ist veraltet.` — with one button
+- **Reload floor:** when health reports a `minClientVersion` above the running client at
+  start-up, or any later request is refused with the problem `client-outdated` (every request
+  sends the app version in `X-Client-Version`), a non-dismissable dialog `Bitte neu laden` — `Diese Version ist veraltet.` — with one button
   `Neu laden`. A plain reload would get the old shell again from the old service worker, so the
   button first activates the waiting service worker through the same path as the update prompt
   (`SKIP_WAITING`) and reloads once it is active. When no worker is waiting, it first asks the
@@ -370,11 +401,15 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 
 | Delete | Title | Body |
 |---|---|---|
-| Person | `Daniel löschen?` | `Daniel und 23 Einträge werden gelöscht.` (one: `Daniel und 1 Eintrag werden gelöscht.`; none: `Daniel wird gelöscht.`) |
+| Person | `Daniel löschen?` | What goes with the person, every day's, game's and run's: `Daniel, 23 Einträge und 7 Ergebnisse werden gelöscht.` (only one kind: `Daniel und 23 Einträge werden gelöscht.`, `Daniel und 7 Ergebnisse werden gelöscht.`; one: `1 Eintrag`, `1 Ergebnis`; none: `Daniel wird gelöscht.`), then the matches that stay: `4 Partien bleiben mit „gelöschte Person“.` (one: `1 Partie bleibt …`; none: nothing) |
 | Drink | `Bier löschen?` | `Bier und 12 Einträge werden gelöscht.` (one and none as for a person) |
 | Factor | `Happy Hour löschen?` | `5 Einträge zählen danach ×1.` (one: `1 Eintrag zählt danach ×1.`; none: `Happy Hour wird gelöscht.`) |
+| Game | `Schach löschen?` | `Schach und 9 Partien werden gelöscht.` (a points game: `Rommé und 8 Ergebnisse werden gelöscht.`; one: `1 Partie` / `1 Ergebnis`; none: `Schach wird gelöscht.`) — every run's, not only the current ranking's |
 | Entry | `Eintrag löschen?` | `2× Bier · Happy Hour ×2 um 23:41` (no factor: `1× Margarita um 22:58`) |
+| Match | `Partie löschen?` | `Anna – Ben · Anna gewinnt am 15.11. um 21:00` |
+| Result | `Ergebnis löschen?` | `Daniel · −20 Punkte am 15.11. um 22:12` |
 | Account | `Konto anna löschen?` | `Einträge von anna bleiben erhalten.` |
+| Restart (not a delete; action `Neu starten`) | `Schach neu starten?` | `Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.` |
 
 ### 6.10 Empty and loading states
 
@@ -495,7 +530,8 @@ submit on Enter.
   navigation, as in the mockup).
 - Title `Daniel` with the context line `Heute` (`Verlauf` until the person has loaded), back to
   the previous screen (the Rangliste when there is none).
-- List `Einträge von Daniel` of today's entries (since local midnight), newest first, rows on
+- List `Einträge von Daniel` of today's entries (since local midnight; at the next local midnight,
+  or when the page is shown or focused again after it, read again for the new day), newest first, rows on
   `outline-variant` hairlines: primary `2× Bier` (`row-title`), secondary
   `Happy Hour ×2 · 23:41 · anna` (`support`; the factor with its current multiplier,
   `Kein Faktor` when none or deleted; the local time; the account's user name, or
@@ -511,13 +547,13 @@ submit on Enter.
 
 ### 7h. Verwalten `/verwalten`
 
-- List: `Personen`, `Getränke`, `Faktoren`, and `Konten` (admins only), each with its count as
-  supporting text in `support`: `6 Personen` / `1 Person`, `6 Getränke` / `1 Getränk`,
-  `2 Faktoren` / `1 Faktor`, `4 Konten` / `1 Konto`. A row that opens a screen ends in
-  `mdiChevronRight`.
+- List: `Personen`, `Getränke`, `Faktoren`, `Spiele` (§7m), and `Konten` (admins only), each
+  with its count as supporting text in `support`: `6 Personen` / `1 Person`, `6 Getränke` /
+  `1 Getränk`, `2 Faktoren` / `1 Faktor`, `3 Spiele` / `1 Spiel`, `4 Konten` / `1 Konto`. A
+  row that opens a screen ends in `mdiChevronRight`.
 - The counts are the lengths of the lists (`GET /api/persons`, `/api/drinks`, `/api/factors`,
-  and `/api/accounts` for admins only), read when the hub opens; a count shows once its list
-  has loaded, and a row without one still opens its screen.
+  `/api/games`, and `/api/accounts` for admins only), read when the hub opens; a count shows
+  once its list has loaded, and a row without one still opens its screen.
 - Last, for admins only: `Protokoll` (§7l) with the fixed supporting line
   `Wer hat was geändert` instead of a count — the hub does not read the log.
 
@@ -531,7 +567,8 @@ submit on Enter.
   hairlines; primary text in `row-title`.
 - Create/edit dialog: `Name`; drinks also `Punkte` (decimal); factors also `Multiplikator`
   (decimal, shown with `×` prefix). Buttons `Abbrechen` and `Speichern`.
-- Delete: confirmation dialog with the entry count (§6.9).
+- Delete: confirmation dialog with the entry count (§6.9); for a person also the results that
+  go and the matches that stay with `gelöschte Person`.
 - Validation errors inline (§6.11); duplicate name → `Name ist bereits vergeben.`; points
   outside 0–9 999,99 (or no number) → `Zahl von 0 bis 9.999,99.`; a multiplier outside
   0 (exclusive) – 99,99 (or no number) → `Zahl über 0 bis 99,99.`, from the server.
@@ -606,23 +643,33 @@ submit on Enter.
   `/verwalten/protokoll` sends them to `/verwalten`.
 - **All days** — the one exception to "today only" (§1). Events newest first under day
   headings in `label`, `on-surface-variant`: `Heute`, `Gestern`, otherwise the date
-  (`Sa., 14.11.2026`), by calendar day in the browser's time zone.
+  (`Sa., 14.11.2026`), by calendar day in the browser's time zone. The headings move on at local
+  midnight and when the page is shown or focused again, so a page left open overnight labels
+  yesterday's events `Gestern`; the loaded events are not read again.
 - Rows on `outline-variant` hairlines, without actions:
   - primary (`row-title`): the subject with its kind, `Getränk Bier`, `Person Daniel`,
-    `Faktor Happy Hour`, `Eintrag 2× Bier für Daniel` — the names as the event recorded them,
+    `Faktor Happy Hour`, `Eintrag 2× Bier für Daniel`, `Spiel Schach`, `Partie Anna – Ben`
+    (`gelöschte Person` for a side already cleared), `Ergebnis Daniel` — the names as the event recorded them,
     so the log stays readable after a rename or a deletion;
   - then (`body`), when there is one: for a change the changed values as
     `Punkte: 1 Punkt → 0,5 Punkte`, several joined with ` · ` (`Name: Bier → Pils`,
-    `Multiplikator: ×2 → ×1,5`, `Faktor: Happy Hour ×2 → Kein Faktor`); for a creation or a
+    `Multiplikator: ×2 → ×1,5`, `Faktor: Happy Hour ×2 → Kein Faktor`, a game's
+    `Regel: Remis möglich → kein Remis`); a game's restart reads `Neu gestartet`, and a match
+    side cleared by a person deletion reads `Ben → gelöschte Person`, under the match's title as
+    it was (`Partie Ben – Anna`); for a creation or a
     deletion the values without the name: `1 Punkt` for a drink, `×2` for a factor,
-    `1 Punkt · Happy Hour ×2` for an entry (the drink's points, and the factor unless none);
+    `Duell · Remis möglich` or `Punktespiel · Niedrigste Summe gewinnt` for a game (its kind and rule),
+    `1 Punkt · Happy Hour ×2` for an entry (the drink's points, and the factor unless none),
+    `Schach · Anna gewinnt` or `Schach · Remis` for a match (its game and outcome),
+    `Rommé · −20 Punkte` for a result (its game and its points, with a real minus sign);
     a value the event does not hold is left out;
   - then (`support`): the local time and the user name the event recorded, `23:41 · anna`
     (kept after the account is deleted);
   - trailing, an outlined assist chip (corner 8 dp, `caption`) with the operation: `Angelegt`,
     `Geändert`, or `Gelöscht` in `error`.
 - A consequential event — an entry removed by the deletion of its person or drink, or an entry
-  that lost its factor when the factor was deleted — is indented by 20 dp and its supporting
+  that lost its factor when the factor was deleted, a match or result removed with its game, a
+  match side cleared or a result removed with its person — is indented by 20 dp and its supporting
   line ends with its cause, `23:41 · anna · durch Löschen von Wein`. The cause comes with the
   event itself, so it shows even when the deletion is on another page.
 - Pages of 20: below the list the tonal button `Ältere laden` appends the next older page; on
@@ -635,6 +682,208 @@ submit on Enter.
   line (`support`) `Jede Änderung mit Konto und Zeit. Das Protokoll kann nicht bearbeitet oder
   gelöscht werden.` — the log is application-level append-only history; the screen has no
   other action.
+
+### 7m. Spiele `/verwalten/spiele`
+
+- Games are the user-created scoreboards beside the drinks; every signed-in account manages
+  them, like other master data. Title `Spiele` with a back button; the navigation keeps
+  `Verwalten` active. Built like §7i: alphabetical list, rows on `outline-variant` hairlines,
+  trailing edit and delete icon buttons named after the game (`Schach bearbeiten`,
+  `Schach löschen`), extended FAB `Spiel anlegen`, skeleton rows while loading, empty
+  `Noch keine Spiele.`
+- Each row: the name (`row-title`) and, in `support`, the kind and its setting:
+  `Duell · Remis möglich`, `Duell · kein Remis`, `Punktespiel · Höchste Summe gewinnt`,
+  `Punktespiel · Niedrigste Summe gewinnt`.
+- Create/edit dialog `Spiel anlegen` / `Spiel bearbeiten`: `Name`; then `Art` (`caption`,
+  `on-surface-variant`) over two tiles side by side (§6.4 tile, minimum height 88 dp): `Duell`
+  with `Zwei Personen, eine gewinnt – oder Remis` and `Punktespiel` with
+  `Eine Person, eine Punktzahl` (`row-title` over `support`); the chosen one is pressed
+  (`primary-container`, `aria-pressed`). A new game starts as `Duell`. Under the tiles the
+  kind's setting: for a duel the switch `Remis möglich` (on by default), for a points game the
+  radio group `Höchste Summe gewinnt` (default) / `Niedrigste Summe gewinnt`. Buttons
+  `Abbrechen` and `Speichern`.
+- The kind is chosen once: editing starts with the game's values, the other kind's tile is
+  disabled, and under the tiles stands `Die Art bleibt nach dem Anlegen fest.` (`support`).
+  Saving sends the name and the kind's own setting.
+- Validation errors inline (§6.11), from the server: a name outside 1–40 characters →
+  `1 bis 40 Zeichen.`; a taken name (ignoring case) → `Name ist bereits vergeben.` under
+  `Name`, as in §7i.
+- Delete: `GET /api/games/{id}` reads how many matches or results of every run go with the
+  game, then the confirmation dialog (§6.9); afterwards the snackbar `Schach gelöscht`. A
+  failed read shows the problem title and reloads the list.
+- `/verwalten/spiele?anlegen` opens the screen with `Spiel anlegen` already open (the target
+  of the Spiele destination's empty state).
+
+### 7n. Spiele `/spiele`
+
+- The fourth navigation destination: every game (§7m) alphabetically, as the API sends them.
+  Title `Spiele` without a back button.
+- Each game is a tile (§6.4 tile, without its minimum height) linking to its page (§7o), in one
+  column on compact windows and two from 600 dp: the name (`tile-name`, one line, ellipsis)
+  with a trailing `mdiChevronRight`, and under it in `support`, `on-surface-variant`, the
+  context line — the kind and since when its ranking counts: `Duell · seit 15.09.`,
+  `Punktespiel · seit heute, 19:30` (§3.5). Under it, 6 dp apart, in `label`, the game's
+  leader with the value of its ranking (§7o): `1. Anna · 4 Punkte`, `1. Daniel · −11 Punkte`, or
+  `noch keine Ergebnisse` before anything was recorded since the start; the line keeps its
+  height (20 dp) until the rankings have loaded. The tiles form the list `Spiele`.
+- Loading: three skeleton tiles. Empty: `Noch keine Spiele.` + button `Spiel anlegen` →
+  `/verwalten/spiele?anlegen` (Verwalten → Spiele with its create dialog open).
+- The list is read when the screen opens and again on focus (`GET /api/games`), then every
+  game's ranking (`GET /api/games/{id}/standings`, with `If-None-Match` once known) for its
+  leader; no polling per game (§6.6). A failed read keeps the leader shown (a tile never read
+  stays without one); a list that cannot be read shows the problem title in the snackbar.
+
+### 7o. Spiel `/spiele/:gameId`
+
+- Belongs to the Spiele destination (highlighted in the navigation) with a back button. Title:
+  the game's name (`Spiele` until the games have loaded); context line: as on its tile,
+  `Duell · seit 15.09.`.
+- The extended FAB (as in §7i) opens the game's recording flow: `Partie eintragen` on a duel
+  (§7p), `Ergebnis eintragen` on a points game (§7q); the page keeps 88 dp free below the
+  ranking so the FAB covers no place.
+- At the top, in `label`, `on-surface-variant`, the rule that decides the ranking:
+  `Remis möglich` or `Kein Remis` for a duel, `Höchste Summe gewinnt` or
+  `Niedrigste Summe gewinnt` for a points game.
+- Below it the game's ranking since the last (re)start, shaped like the Rangliste (§7f):
+  - **Rank 1 — leader card:** `primary-container`, corner 18 dp. Name (`name-hero`) on the
+    left, the value (`score-hero`) on the right; below, the value with its unit
+    (`4 Punkte`, `label`) and the details (`support`).
+  - **Ranks 2+ — rows** on `outline-variant` hairlines: rank numeral (`title`,
+    `on-surface-variant`), name (`rank-name`) with the details beneath (`support`,
+    `on-surface-variant`), and the value (`numeral`) on the right.
+  - A **duel**'s value is the points (win 1, draw ½, loss 0) in German format (`3,5`); its
+    details are the record, `5 Partien · 3 S · 1 R · 1 N` (one: `1 Partie`). Order: points,
+    then wins, then name, as the API sends it.
+  - A **points game**'s value is the sum with a real minus sign (`−11`); its details are
+    `2 Ergebnisse` (one: `1 Ergebnis`). Order: the sum in the game's direction (lowest first
+    when `Niedrigste Summe gewinnt`), then name, as the API sends it.
+  - The value's unit: `1 Punkt`, otherwise `Punkte` (`0,5 Punkte`, `−1 Punkt`). Tied persons
+    get consecutive ranks, as on the Rangliste. Persons without a match or result since the
+    start are not listed; a person deleted since counts for no one, and the other side keeps
+    its win, draw or loss.
+  - Card and rows form one ordered list named after the game; each place has the accessible
+    name `Platz 1, Anna, 4 Punkte, 5 Partien · 3 S · 2 R · 0 N`. Places are not links.
+- Empty: `Seit dem Start noch keine Partien.` for a duel, `Seit dem Start noch keine
+  Ergebnisse.` for a points game.
+- The ranking (`GET /api/games/{id}/standings`) is kept current like the Rangliste (§6.6):
+  read when the page opens, every 10 s while visible with `If-None-Match` (304 keeps it), at
+  once on focus and after the device's own writes. A failed read keeps what is shown with
+  `Stand: HH:mm` in the top bar and retries with backoff up to 60 s.
+  The ranking carries the run's start and a points game's direction: the context line's
+  `seit …` and the rule line follow each ranking read, so a restart or rule edit on another
+  device shows with the ranking it changed. A run's start only moves forward: a ranking read
+  before the start the page already knows counts as the new run, still empty. The game's name
+  and a duel's draw setting come from the games list (`GET /api/games`), read again on focus
+  and on becoming visible, so a rename or draw-setting change elsewhere shows then; a failed
+  read keeps the game shown.
+- Below the ranking (or the empty state) a row of text buttons (`row-title`, normal case):
+  `Verlauf` (`mdiHistory`) opens the game's Verlauf (§7r); `Neu starten` (`mdiRestart`) opens
+  the confirmation dialog (§6.9) `Schach neu starten?` – `Die Rangliste beginnt wieder bei null.
+  Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.` with `Abbrechen`
+  and `Neu starten`. Confirming (`POST /api/games/{id}/restart`) starts the game's next run
+  from now: once the server answers, the restart is done — the dialog closes, the snackbar
+  says `Schach neu gestartet`, the game takes the answer's new start and the ranking is read
+  again at once, so the page shows the empty state and the context line `Duell · seit heute,
+  19:30`. A failed read after it only marks the ranking stale (never invites a second restart).
+  A failed restart shows the problem title, keeps the dialog open and the ranking as it was.
+  Every signed-in account may restart a game; nothing recorded is deleted.
+- Loading: a skeleton card and three skeleton rows.
+- A game that no longer exists (deleted on another phone), found on open or when the
+  ranking's poll answers 404 while the page is open: back to Spiele with
+  `Nicht mehr vorhanden` (§9); the ranking stops polling.
+
+### 7p. Partie eintragen `/spiele/:gameId/partie[/:firstId[/:secondId]]`
+
+- The duel flow, one decision per screen like the add flow (§1): three routes under the game,
+  belonging to the Spiele destination with a back button, and a three-segment step indicator
+  (§6.1). Title: the game's name.
+- **Step 1 — `Wer spielt?`** (context line `Partie eintragen`): one person tile (§6.4) per
+  person, alphabetically, in the tile grid. Instead of today's score each tile shows the
+  person's standing in this game since the start: the points (`numeral`, `3,5`) with
+  `5 Partien` in `support`, or just `noch nichts`; accessible name `Anna, 3,5 Punkte` /
+  `Carla, noch nichts`. The standing comes from the game's ranking (§7o), kept current by the
+  game's poller while the step is open.
+- **Step 2 — `Gegen wen?`** (context line `Anna – …`): the same tiles without the first person.
+- **Step 3 — `Wie ging es aus?`** (context line `Anna – Ben`): one column of tiles, a phone's
+  width as in §7e: `Anna gewinnt` (`1 Punkt für den Sieg`), `Remis` (`je ½ Punkt`, a raspberry
+  factor tile, only while the game allows draws) and `Ben gewinnt` (`1 Punkt für den Sieg`).
+- Tapping an outcome saves (`PUT /api/matches/{uuid}`): the tapped tile turns amber and the
+  others dim; then the app returns to `Wer spielt?` for the next match, the two walked steps
+  leave the history, the snackbar shows `Anna – Ben · Anna gewinnt` with `Rückgängig` (§6.3) and
+  the ranking is read again. `Rückgängig` deletes the match (`DELETE /api/matches/{uuid}`, 404
+  counts as undone) and reads the ranking again.
+- Save failure, a late answer and offline behave as on the factor step (§7e): stay on the step
+  with `Erneut versuchen` (same UUID), never move the user once they left the step, and the
+  outcome tiles are disabled under the offline banner.
+- A game that no longer exists or is no duel, or a player who no longer exists: back to
+  Spiele with `Nicht mehr vorhanden` (§4).
+
+### 7q. Ergebnis eintragen `/spiele/:gameId/ergebnis[/:personId]`
+
+- The points flow, one decision per screen like the duel flow (§7p): two routes under the
+  game, belonging to the Spiele destination with a back button, and a two-segment step
+  indicator (§6.1). Title: the game's name.
+- **Step 1 — `Für wen?`** (context line `Ergebnis eintragen`): the person tiles of §7p, each
+  with the person's sum in this game since the start (`numeral`, `−11`, real minus sign) and
+  `2 Ergebnisse` in `support`, or just `noch nichts`; accessible name `Daniel, −11 Punkte` /
+  `Tom, noch nichts`. Kept current by the game's poller while the step is open.
+- **Step 2 — `Wie viele Punkte?`** (context line: the person, `Daniel`): the app's own number
+  pad, because a phone's number pad has no minus key; a phone's width as in §7e.
+  - The points typed so far, centred and large (display face, 96 dp, tabular figures): `0`
+    before the first digit, then `20`, `−20`, `9.876`; under it in `support` the person's sum
+    so far, `bisher −11 Punkte`, or `noch keine Ergebnisse`. The value is a polite live region.
+  - A 3 × 4 grid of tiles (64 dp high, display face 36 dp): `1`–`9`, then `±` (amber while the
+    sign is negative, `aria-pressed`), `0` and erase (`mdiBackspaceOutline`). Accessible names
+    `Ziffer 1`, `Vorzeichen wechseln`, `Letzte Ziffer löschen`. At most four digits
+    (−9 999 to 9 999); a leading `0` is replaced by the next digit; erasing with no digit left
+    clears the sign.
+  - A keyboard works too: digits, `-` for the sign, Backspace and Enter (`Speichern`) —
+    unless a control has focus: Enter on a focused button or link activates that control (e.g.
+    `±` changes the sign), and a focused text field keeps every key. A key held with Ctrl,
+    Cmd or Alt (zoom, switching tabs) and a key an input method is composing stay the
+    browser's.
+  - Full-width filled `Speichern` (`primary`, as the dialogs' buttons) below the pad, disabled
+    until a digit is typed and while offline (§6.5).
+- `Speichern` saves (`PUT /api/results/{uuid}`, the button shows its spinner); then the app
+  returns to `Für wen?` for the next player, the walked step leaves the history, the snackbar
+  shows `Daniel · −20 Punkte` with `Rückgängig` (§6.3) and the ranking is read again, so the
+  tiles and the game's page show the new sum. `Rückgängig` deletes the result
+  (`DELETE /api/results/{uuid}`, 404 counts as undone) and reads the ranking again.
+- Save failure and a late answer behave as in the duel flow: the step stays with what was
+  typed and `Erneut versuchen` (same UUID); a late success never moves a user who left.
+- A game that no longer exists or is no points game, or a person who no longer exists: back
+  to Spiele with `Nicht mehr vorhanden` (§4).
+
+### 7r. Verlauf of a game `/spiele/:gameId/verlauf`
+
+- Reached from `Verlauf` on the game's page (§7o); belongs to the Spiele destination with a
+  back button. Title `Verlauf`; context line the game and its start, `Schach · seit 15.09.`.
+- List `Verlauf` of the game's matches or results since the last (re)start, newest first,
+  rows on `outline-variant` hairlines (as §7g):
+  - **Match:** primary the pairing `Anna – Ben` (`row-title`), secondary
+    `Anna gewinnt · 15.11., 21:00 · anna` (`support`: the outcome, `Remis` for a draw; the local
+    date and time; the recording account).
+  - **Result:** primary `Daniel · −20 Punkte` (real minus sign; `1 Punkt`), secondary
+    `15.11., 22:12 · anna`.
+  - A person deleted since reads `gelöschte Person` (`gelöschte Person – Ben`,
+    `gelöschte Person gewinnt`); an account deleted since reads `gelöschtes Konto`.
+  - Trailing delete icon button named `Anna – Ben vom 15.11. löschen` /
+    `Daniel · −20 Punkte vom 15.11. löschen`, opening the confirmation dialog (§6.9):
+    `Partie löschen?` / `Ergebnis löschen?` with what is deleted and when.
+- Pages of 20: below the list the text button `Ältere laden` (`row-title`, normal case) appends
+  the next older page of the same run (a restart meanwhile does not mix runs: an open Verlauf
+  keeps paging in the run it opened with; reopened, it shows the new run); on the last
+  page it is gone. A failed older page shows the problem title and keeps what is loaded.
+- After `Löschen`: the snackbar `Partie gelöscht` / `Ergebnis gelöscht`, the row leaves the list
+  (the older pages loaded stay) and the game's ranking is read again at once, so the game's
+  page and the recording flow follow. A match or result already deleted on another phone (404)
+  counts as deleted; any other failure shows the problem title and keeps the row. A deleted
+  match or result stays deleted: a late retry of its save does not bring it back.
+- Read when the screen opens; not polled.
+- Loading: three skeleton rows. Empty: `Seit dem Start noch keine Partien.` /
+  `Seit dem Start noch keine Ergebnisse.`
+- A game that no longer exists (deleted on another phone): back to Spiele with
+  `Nicht mehr vorhanden` (§9).
 
 ## 8. Key flows
 
@@ -651,6 +900,17 @@ submit on Enter.
    refresh.
 7. **First run:** sign in with the bootstrap admin → Verwalten → Konten → `Konto anlegen` for a
    friend.
+8. **Record a match:** Spiele → Schach → `Partie eintragen` → Anna → Ben → `Anna gewinnt` → back
+   on `Wer spielt?`, snackbar `Anna – Ben · Anna gewinnt` with `Rückgängig`, Anna's tile one
+   point up.
+9. **Record a Rommé round:** Spiele → Rommé → `Ergebnis eintragen` → Daniel → `2`, `0`, `±` →
+   `Speichern` → back on `Für wen?`, snackbar `Daniel · −20 Punkte` with `Rückgängig`, Daniel's
+   tile and the game's ranking show the new sum; next player.
+10. **Fix a game later:** Spiele → Schach → `Verlauf` → delete the match → confirm →
+    `Partie gelöscht`, the ranking without it.
+11. **Start a new season:** Spiele → Schach → `Neu starten` → confirm → `Schach neu
+    gestartet`, an empty ranking and Verlauf, `Duell · seit heute, 19:30`; the old matches stay
+    stored but are no longer shown.
 
 ## 9. States and edge cases (every data view defines these)
 
@@ -697,11 +957,18 @@ submit on Enter.
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
 | Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window |
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt` and `accountName` (or `null`); 404 → person gone; after a delete the scoreboard feed refreshes |
-| Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count; `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
-| Verwalten | `GET /api/{persons,drinks,factors}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
+| Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count (a person also `matchCount` and `resultCount`); `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
+| Verwalten | `GET /api/{persons,drinks,factors,games}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
+| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` (ETag, `If-None-Match` → 304) | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. The game's page polls every 10 s while visible, Spiele reads on open and on focus; ETag = data revision. Standings of the current run, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played}`, a points game's `{personId, name, sum, results}` with `lowerWins` |
+| Verwalten → Spiele | `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/{id}` | Game: `id`, `name`, `kind` (`duel` \| `points`), `drawsAllowed`, `lowerWins`, `startedAt`. `POST` takes `name`, `kind` and the kind's setting; `PATCH` takes `name` and the setting (the kind is fixed); `GET …/{id}` adds `matchCount` and `resultCount` (every run) |
+| Partie eintragen | `GET /api/games`, `GET /api/persons`, `GET /api/games/{id}/standings`, `PUT /api/matches/{uuid}` | Body `{gameId, firstPersonId, secondPersonId, outcome}` with `outcome` `first` \| `second` \| `draw`; 201 new, 200 replay; the same UUID with other content is 409 `request-conflict` |
+| Snackbar `Rückgängig` (match) | `DELETE /api/matches/{uuid}` | 404 counts as undone; the ranking is read again |
+| Ergebnis eintragen | `GET /api/games`, `GET /api/persons`, `GET /api/games/{id}/standings`, `PUT /api/results/{uuid}` | Body `{gameId, personId, points}` with whole `points` from −9 999 to 9 999; 201 new, 200 replay; the same UUID with other content is 409 `request-conflict` |
+| Snackbar `Rückgängig` (result) | `DELETE /api/results/{uuid}` | 404 counts as undone; the ranking is read again |
+| Verlauf of a game | `GET /api/games`, `GET /api/games/{id}/matches?before=` or `GET /api/games/{id}/results?before=`, `DELETE /api/matches/{uuid}` or `DELETE /api/results/{uuid}` | By the game's kind. Answer `{items, next}`, newest first, 20 a page; `next` is the opaque `before` of `Ältere laden` (the cursor keeps its run), null on the last page. A match item: `id`, `first` / `second` (`{id, name}` or `null` once deleted), `outcome`, `createdAt`, `accountName` (or `null`); a result item: `id`, `person` `{id, name}`, `points`, `createdAt`, `accountName`. 404 → game gone; a delete's 404 counts as deleted; after a delete the ranking is read again. No polling |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
 | Protokoll | `GET /api/audit?before=` | Admins only (401/403). Answer `{events, next}`, newest first; `next` is the `before` of `Ältere laden`, null on the last page. Each event: `occurredAt`, `operation`, `subjectKind`, `actor.userName`, snapshots `before`/`after` (names and values as they were), `cause` (`{id, subjectKind, name}` or null). No polling |
-| Update / reload floor | `GET /api/health` | `minClientVersion` |
+| Update / reload floor | `GET /api/health`; every request | `minClientVersion` at start-up; afterwards 400 `client-outdated` on any request but health (the app version goes along in `X-Client-Version`) |
 
 `from` is always local midnight of the current day in the browser's time zone, as a UTC instant.
 
@@ -721,14 +988,29 @@ the shareable page a UI change is reviewed on before it reaches the host.
   accounts `anna`, `ben`, `daniel`, `mara` sign in with `beispiel-passwort`), serves a sample evening
   (marked as sample data: persons, drinks, factors and entries timed relative to now, so the
   preview never ages out of "today"), keeps writes in memory for the session (adds, undo,
-  deletes, CRUD), and answers anything else with 503.
+  deletes, CRUD), and answers anything else with 503. Its games are `Rommé` (points, lowest
+  sum wins, started today), `Schach` (duel with draws, two months) and `Tischtennis` (duel
+  without draws, three weeks) — on Spiele `Punktespiel · seit heute, 00:00`, `Duell · seit …`; they
+  are served by the API's rules (name, kind and setting
+  validation, the kind fixed, restart starting the next run from now). Schach holds nine
+  sample matches (one with a person deleted since) and Tischtennis three, on evenings before
+  today; Rommé holds tonight's eight results. Both rankings are computed like the API's
+  (current run only); matches and results are recorded and undone by the API's rules
+  (idempotent on the UUID, which is unique across entries, matches and results; a match only
+  in a duel, `Remis` only where allowed, two different persons; a result only in a points
+  game, whole points from −9 999 to 9 999); deleting a game takes its matches and results along, deleting a
+  person keeps their matches with that side cleared and removes their results. Each game's
+  Verlauf is paged by the API's rules (newest first, 20 a page, a cursor that keeps its run,
+  the other kind's route 404).
 - **Audit log in the preview.** Protokoll starts with a seeded log that reaches back over
   several days, holds a cascade (the deletion of `Sekt` with the entries it removed) and names
   an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are
-  then recorded in memory by the API's rules: one event per change with the signed-in account,
+  then recorded in memory by the API's rules (game, match and result writes included, a restart as a change of
+  `run` and `startedAt`, a game's or person's deletion with one caused event per match it
+  deletes or clears and per result it deletes): one event per change with the signed-in account,
   the entries a deletion removes or changes as consequential events with their cause, and
-  nothing for a save that changes nothing, a write that fails, a replayed or conflicting entry
-  request, or an account change.
+  nothing for a save that changes nothing, a write that fails, a replayed or conflicting entry,
+  match or result request, or an account change.
 - **No service worker.** The preview build does not register the service worker; the update
   prompt and reload floor can be triggered from a small preview-only menu. The menu's summary
   `Vorschau · Beispieldaten` (the sample-data marker) is a thin strip above the app that pushes

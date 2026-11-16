@@ -11,14 +11,15 @@ import {
   usePersons,
 } from '../../core/catalog';
 import { formatNumber } from '../../core/format';
+import { loadGames, useGames } from '../../core/games';
 import { messages } from '../../core/messages';
 import { useSession } from '../../core/session';
 import { showProblem } from '../../core/snackbar';
 
 /**
-Verwalten (§7h): Personen, Getränke, Faktoren and, for admins, Konten, each with
-its count as supporting line (absent until its list has loaded), and, for admins,
-Protokoll with a fixed one (the hub does not load the log).
+Verwalten (§7h): Personen, Getränke, Faktoren, Spiele and, for admins, Konten,
+each with its count as supporting line (absent until its list has loaded), and,
+for admins, Protokoll with a fixed one (the hub does not load the log).
 */
 type Count = (formatted: string, count: number) => string;
 
@@ -26,6 +27,7 @@ const account = useSession();
 const persons = usePersons();
 const drinks = useDrinks();
 const factors = useFactors();
+const games = useGames();
 const accounts = shallowRef<number>();
 
 const counted = (count: number | undefined, label: Count) =>
@@ -47,6 +49,11 @@ const sections = computed(() => [
     to: '/verwalten/faktoren',
     support: counted(factors.value?.length, messages.verwalten.factorCount),
   },
+  {
+    label: messages.verwalten.games,
+    to: '/verwalten/spiele',
+    support: counted(games.value?.length, messages.verwalten.gameCount),
+  },
   ...(account.value?.isAdmin
     ? [
         {
@@ -64,7 +71,7 @@ const sections = computed(() => [
 ]);
 
 onMounted(() => {
-  for (const load of [loadPersons, loadDrinks, loadFactors]) {
+  for (const load of [loadPersons, loadDrinks, loadFactors, loadGames]) {
     load().catch(showProblem);
   }
   if (account.value?.isAdmin) {

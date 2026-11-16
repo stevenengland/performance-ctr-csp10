@@ -50,10 +50,15 @@
    parent a deletion holds: an exclusive lock there deadlocks (D1). Two more constructs follow
    from it. Catalog deletions run one at a time under `GET_LOCK('performance.catalog-deletion.'
    + database name, 10)`, taken before the transaction locks any row: two deletions of rows that
-   share an entry otherwise lock each other's rows in opposite order. And `DataRevision::write`
+   share an entry otherwise lock each other's rows in opposite order. Game deletions (PRD #27)
+   take the same lock (`DeletionLock`, name unchanged so both releases exclude each other during
+   a rollout): a game's and a person's deletion share matches the same way. And `DataRevision::write`
    runs a whole write transaction again when it loses a deadlock (1213), up to three times: an
    entry undo locks the entry before its person, drink and factor, a deletion of one of them
    the other way round, and neither order can change without breaking the guarantees above.
+   Matches (PRD #27) follow the same pattern: a person's deletion locks the person, then the
+   matches naming them (through `PersonDependents`), a match undo the match, then its game and
+   persons shared; a deadlock between the two is retried the same way.
    `ConcurrentDeletionTest` forces both interleavings on CI's MariaDB 11.8 with the server's
    default settings (`innodb_snapshot_isolation` on).
 5. **PHP 8.5.12.** `config.platform.php` is `8.5.12` and `require.php` `~8.5.0`; the image is

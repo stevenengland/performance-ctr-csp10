@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Performance\Tests\Integration;
 
 use PDO;
+use Performance\Domain\MigrationState;
 use Performance\Domain\Migrator;
+use Performance\Http\Database;
 use Performance\Tests\Support\DatabaseTestCase;
 
 final class MigratorTest extends DatabaseTestCase
@@ -100,6 +102,56 @@ final class MigratorTest extends DatabaseTestCase
         self::assertNotSame($before, $lastAttempt(), 'after the backoff, the next request retries');
     }
 
+    /**
+     * Request-triggered DDL holds the migration lock, so its wait for a table that an open
+     * transaction uses is bounded: it gives up, the gate stays `running` (503 with Retry-After,
+     * the deploy keeps polling health), nothing is recorded as failed, and a later request
+     * applies it once the transaction ended.
+     */
+    public function testADdlThatWaitsForATableInUseGivesUpAfterTheBoundAndALaterRequestAppliesIt(): void
+    {
+        $this->get('/api/health');
+        $app = $this->app($this->config($this->fixtureMigrations('table-lock')));
+        $reader = $this->otherSession();
+        $reader->beginTransaction();
+        $read = $reader->prepare('SELECT COUNT(*) FROM accounts');
+        $read->execute();
+        $read->fetchAll();
+
+        $started = microtime(true);
+        $health = $this->body($this->get('/api/health', $app));
+        $waited = microtime(true) - $started;
+
+        self::assertSame('running', $health['migration']);
+        self::assertGreaterThanOrEqual(Migrator::TABLE_LOCK_WAIT_SECONDS - 1, $waited);
+        self::assertLessThan(Migrator::TABLE_LOCK_WAIT_SECONDS + 5, $waited, 'bounded, not lock_wait_timeout (a day)');
+        self::assertSame('started', array_column($this->bookkeeping(), 'state', 'version')['9001_add_accounts_lock_probe']);
+        $probe = $this->otherSession()->prepare('SELECT IS_FREE_LOCK(?)');
+        $probe->execute([Migrator::lockName($reader)]);
+        self::assertSame(1, (int) $probe->fetchColumn(), 'the migration lock is released');
+
+        $reader->commit();
+        $next = $this->get('/api/anything', $app);
+
+        self::assertSame(404, $next->getStatusCode(), 'past the gate');
+        self::assertSame('completed', array_column($this->bookkeeping(), 'state', 'version')['9001_add_accounts_lock_probe']);
+    }
+
+    /** The bound applies to the migration only: the request goes on with the session's own setting. */
+    public function testTheMigrationRestoresTheSessionsLockWaitTimeout(): void
+    {
+        $config = $this->config($this->fixtureMigrations('table-lock'));
+        $database = new Database($config, $this->clock);
+        $timeout = $database->pdo()->prepare('SELECT @@SESSION.lock_wait_timeout');
+        $timeout->execute();
+        $before = $timeout->fetchColumn();
+
+        self::assertSame(MigrationState::Ok, $database->migrator()->migrate());
+
+        $timeout->execute();
+        self::assertSame($before, $timeout->fetchColumn());
+    }
+
     public function testRunningAgainIsHarmless(): void
     {
         $this->get('/api/health');
@@ -108,6 +160,82 @@ final class MigratorTest extends DatabaseTestCase
 
         self::assertSame('ok', $health['migration']);
         self::assertSame(self::migrationNames(), array_column($this->bookkeeping(), 'version'));
+    }
+
+    public function testTheIdempotencyKeysTableRunsAgainAfterACrashBeforeItsBookkeepingWithoutChangingIt(): void
+    {
+        $this->get('/api/health');
+        $other = $this->otherSession();
+        $other->exec("INSERT INTO idempotency_keys (id, fingerprint, created_at) VALUES ('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5', REPEAT('a', 64), UTC_TIMESTAMP(3))");
+        // A crash between the DDL and its bookkeeping: the table exists, the row says started.
+        $other->exec("UPDATE schema_migrations SET state = 'started', completed_at = NULL WHERE version = '0014_create_idempotency_keys'");
+
+        $health = $this->body($this->get('/api/health'));
+
+        self::assertSame('ok', $health['migration']);
+        self::assertSame('completed', array_column($this->bookkeeping(), 'state', 'version')['0014_create_idempotency_keys']);
+        self::assertCount(1, $this->rows('SELECT id FROM idempotency_keys'), 'the table is kept as it was');
+        self::assertCount(0, $this->rows('SELECT id FROM entry_requests'), 'the previous release still has its table (ADR 0006)');
+    }
+
+    public function testTheGamesMigrationsRunAgainAfterACrashBeforeTheirBookkeepingWithoutChangingAnything(): void
+    {
+        $this->get('/api/health');
+        $other = $this->otherSession();
+        $other->exec("INSERT INTO games (name, kind, started_at, created_at) VALUES ('Schach', 'duel', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+        // A crash between the DDL and its bookkeeping: the change is in, the rows say started.
+        $other->exec(
+            "UPDATE schema_migrations SET state = 'started', completed_at = NULL
+              WHERE version IN ('0015_create_games', '0016_drop_audit_events_subject_kind_check')",
+        );
+
+        $health = $this->body($this->get('/api/health'));
+
+        self::assertSame('ok', $health['migration']);
+        $states = array_column($this->bookkeeping(), 'state', 'version');
+        self::assertSame('completed', $states['0015_create_games']);
+        self::assertSame('completed', $states['0016_drop_audit_events_subject_kind_check']);
+        self::assertSame([['name' => 'Schach', 'run' => '1']], $this->rows('SELECT name, CAST(run AS CHAR) AS run FROM games'), 'the table is kept as it was');
+    }
+
+    public function testTheMatchesMigrationRunsAgainAfterACrashBeforeItsBookkeepingWithoutChangingAnything(): void
+    {
+        $this->get('/api/health');
+        $other = $this->otherSession();
+        $other->exec("INSERT INTO games (name, kind, started_at, created_at) VALUES ('Schach', 'duel', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+        $other->exec("INSERT INTO matches (id, game_id, outcome, run, created_at) VALUES ('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5', 1, 'draw', 1, UTC_TIMESTAMP(3))");
+        // A crash between the DDL and its bookkeeping: the table exists, the row says started.
+        $other->exec("UPDATE schema_migrations SET state = 'started', completed_at = NULL WHERE version = '0017_create_matches'");
+
+        $health = $this->body($this->get('/api/health'));
+
+        self::assertSame('ok', $health['migration']);
+        self::assertSame('completed', array_column($this->bookkeeping(), 'state', 'version')['0017_create_matches']);
+        self::assertSame([['outcome' => 'draw']], $this->rows('SELECT outcome FROM matches'), 'the table is kept as it was');
+    }
+
+    public function testTheResultsMigrationRunsAgainAfterACrashBeforeItsBookkeepingWithoutChangingAnything(): void
+    {
+        $this->get('/api/health');
+        $other = $this->otherSession();
+        $other->exec("INSERT INTO games (name, kind, started_at, created_at) VALUES ('Rommé', 'points', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+        $other->exec("INSERT INTO persons (name, created_at, updated_at) VALUES ('Daniel', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+        $other->exec("INSERT INTO results (id, game_id, person_id, points, run, created_at) VALUES ('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5', 1, 1, -20, 1, UTC_TIMESTAMP(3))");
+        // A crash between the DDL and its bookkeeping: the table exists, the row says started.
+        $other->exec("UPDATE schema_migrations SET state = 'started', completed_at = NULL WHERE version = '0018_create_results'");
+
+        $health = $this->body($this->get('/api/health'));
+
+        self::assertSame('ok', $health['migration']);
+        self::assertSame('completed', array_column($this->bookkeeping(), 'state', 'version')['0018_create_results']);
+        self::assertSame([['points' => '-20']], $this->rows('SELECT CAST(points AS CHAR) AS points FROM results'), 'the table is kept as it was');
+    }
+
+    public function testNoTwoMigrationsShareANumber(): void
+    {
+        $numbers = array_map(static fn(string $name): string => substr($name, 0, 4), self::migrationNames());
+
+        self::assertSame(array_values(array_unique($numbers)), $numbers, 'two branches took the same migration number; renumber the later one');
     }
 
     /**

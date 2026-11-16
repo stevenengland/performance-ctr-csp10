@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { mdiCogOutline, mdiGlassMugVariant, mdiPodium } from '@mdi/js';
+import {
+  mdiCardsPlayingOutline,
+  mdiCogOutline,
+  mdiGlassMugVariant,
+  mdiPodium,
+} from '@mdi/js';
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { messages } from '../core/messages';
@@ -10,6 +15,7 @@ defineProps<{ variant: 'bar' | 'rail' }>();
 const destinations: { name: Destination; to: string; icon: string }[] = [
   { name: 'zaehlen', to: '/zaehlen', icon: mdiGlassMugVariant },
   { name: 'rangliste', to: '/rangliste', icon: mdiPodium },
+  { name: 'spiele', to: '/spiele', icon: mdiCardsPlayingOutline },
   { name: 'verwalten', to: '/verwalten', icon: mdiCogOutline },
 ];
 
@@ -52,7 +58,7 @@ const active = computed(() => route.meta.destination);
   bottom: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   padding: 8px 8px calc(12px + env(safe-area-inset-bottom));
 }
 

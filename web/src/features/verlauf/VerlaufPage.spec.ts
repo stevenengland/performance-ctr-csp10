@@ -184,6 +184,24 @@ describe('Verlauf', () => {
     );
   });
 
+  it('shows the new day’s entries once the page is used again after midnight', async () => {
+    const entries = evening();
+    const calls = api(entries);
+    wrapper = await verlauf(3);
+
+    // Yesterday's entries are no longer in the server's answer for the new day.
+    entries.splice(0);
+    vi.setSystemTime(new Date('2026-11-16T00:05:00Z'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+
+    expect(calls).toContainEqual({
+      method: 'GET',
+      url: '/api/entries?personId=3&from=2026-11-15T23%3A00%3A00.000Z',
+    });
+    expect(wrapper.text()).toContain('Heute keine Einträge.');
+  });
+
   it('says so when the person has no entries today', async () => {
     api([]);
 

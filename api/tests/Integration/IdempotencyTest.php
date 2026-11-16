@@ -56,8 +56,43 @@ final class IdempotencyTest extends DatabaseTestCase
         }
 
         self::assertSame([['id' => self::ENTRY, 'quantity' => 2]], $this->rows('SELECT id, quantity FROM entries'));
-        self::assertCount(1, $this->rows('SELECT id FROM entry_requests'));
+        self::assertCount(1, $this->rows('SELECT id FROM idempotency_keys'));
         self::assertSame([['subject_id' => self::ENTRY]], $this->rows("SELECT subject_id FROM audit_events WHERE subject_kind = 'entry'"));
+    }
+
+    public function testParallelRequestsWithTheSameIdAndDifferentContentRecordOneEntryAndAnswerTheOthers409(): void
+    {
+        $quantities = [2, 3, 2, 3, 2, 3, 2, 3];
+
+        $outcomes = $this->race($quantities);
+
+        $entries = $this->rows('SELECT id, quantity FROM entries');
+        self::assertCount(1, $entries);
+        $recorded = $entries[0]['quantity'];
+        self::assertSame(['created'], array_values(array_filter($outcomes, static fn(string $outcome): bool => $outcome === 'created')));
+        foreach ($quantities as $process => $quantity) {
+            if ($quantity === $recorded) {
+                self::assertContains($outcomes[$process], ['created', 'replayed']);
+            } else {
+                self::assertSame('conflict', $outcomes[$process], 'the other content is a conflict');
+            }
+        }
+        self::assertCount(1, $this->rows('SELECT id FROM idempotency_keys'));
+    }
+
+    public function testAfterSevenDaysTheIdOfAnUndoneEntryIsForgottenAndCreatesItAgain(): void
+    {
+        $this->put(self::TWO_BEERS);
+        $this->send('DELETE', '/api/entries/' . self::ENTRY, session: $this->session);
+        $this->clock->advance('P7D');
+
+        $withinTheWindow = $this->put(self::TWO_BEERS);
+        $this->clock->advance('PT1S');
+        $afterTheWindow = $this->put(self::TWO_BEERS);
+
+        self::assertSame(200, $withinTheWindow->getStatusCode(), 'a retry within seven days replays');
+        self::assertSame(201, $afterTheWindow->getStatusCode(), 'after them the id is forgotten');
+        self::assertSame([['id' => self::ENTRY]], $this->rows('SELECT id FROM entries'));
     }
 
     public function testTheSameIdWithDifferentContentIs409AndChangesNothing(): void
@@ -135,16 +170,83 @@ final class IdempotencyTest extends DatabaseTestCase
         $this->clock->advance('P7D');
         $this->put(self::TWO_BEERS, '0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b');
 
-        self::assertCount(2, $this->rows('SELECT id FROM entry_requests'));
+        self::assertCount(2, $this->rows('SELECT id FROM idempotency_keys'));
 
         $this->clock->advance('PT1S');
         $this->put(self::TWO_BEERS, '1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c');
 
         self::assertSame(
             [['id' => '0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b'], ['id' => '1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c']],
-            $this->rows('SELECT id FROM entry_requests ORDER BY created_at'),
+            $this->rows('SELECT id FROM idempotency_keys ORDER BY created_at'),
         );
         self::assertCount(3, $this->rows('SELECT id FROM entries'));
+    }
+
+    /**
+     * Keys stored before the shared store existed stay in `entry_requests` (ADR 0006: expand,
+     * not rename) under the entry fingerprint of that time: sha256 of `[personId,drinkId,quantity]`.
+     */
+    public function testAKeyStoredBeforeTheSharedStoreStillReplaysAndNeverRecreatesItsUndoneEntry(): void
+    {
+        $this->otherSession()->prepare('INSERT INTO entry_requests (id, fingerprint, created_at) VALUES (?, ?, ?)')
+            ->execute([self::ENTRY, hash('sha256', '[1,1,2]'), '2026-11-14 20:00:00.000']);
+        $this->clock->advance('PT1H');
+
+        $replay = $this->put(self::TWO_BEERS);
+        $changed = $this->put(['personId' => 1, 'drinkId' => 1, 'quantity' => 3]);
+
+        self::assertSame(200, $replay->getStatusCode());
+        self::assertSame('2026-11-14T20:00:00.000Z', $this->body($replay)['createdAt'], 'the original instant');
+        self::assertSame(409, $changed->getStatusCode());
+        self::assertSame([], $this->rows('SELECT id FROM entries UNION ALL SELECT id FROM idempotency_keys'));
+    }
+
+    public function testKeysStoredBeforeTheSharedStoreArePurgedAfterSevenDaysToo(): void
+    {
+        $this->otherSession()->prepare('INSERT INTO entry_requests (id, fingerprint, created_at) VALUES (?, ?, ?)')
+            ->execute([self::ENTRY, hash('sha256', '[1,1,2]'), '2026-11-14 20:00:00.000']);
+        $this->clock->advance('P7D');
+        $this->clock->advance('PT1S');
+
+        $afterTheWindow = $this->put(self::TWO_BEERS);
+
+        self::assertSame(201, $afterTheWindow->getStatusCode());
+        self::assertSame([], $this->rows('SELECT id FROM entry_requests'));
+        self::assertSame([['id' => self::ENTRY]], $this->rows('SELECT id FROM idempotency_keys'));
+    }
+
+    /**
+     * Sends the entry from one process per quantity, all at the same instant.
+     *
+     * @param list<int> $quantities
+     *
+     * @return list<string> each process's outcome: created, replayed or conflict
+     */
+    private function race(array $quantities): array
+    {
+        $script = __DIR__ . '/../Support/entry-race.php';
+        $startAt = microtime(true) + 1.0;
+        $processes = [];
+        foreach ($quantities as $quantity) {
+            $process = proc_open(
+                [PHP_BINARY, $script, (string) $startAt, self::ENTRY, '1', '1', (string) $quantity, '1'],
+                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes,
+            );
+            self::assertIsResource($process);
+            $processes[] = [$process, $pipes];
+        }
+        $outcomes = [];
+        foreach ($processes as [$process, $pipes]) {
+            $outcome = (string) stream_get_contents($pipes[1]);
+            $errors = (string) stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            self::assertSame(0, proc_close($process), $outcome . $errors);
+            $outcomes[] = $outcome;
+        }
+
+        return $outcomes;
     }
 
     /**

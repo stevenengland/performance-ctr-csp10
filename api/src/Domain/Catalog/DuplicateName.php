@@ -6,5 +6,5 @@ namespace Performance\Domain\Catalog;
 
 use RuntimeException;
 
-/** A person or drink of that name exists already, ignoring case. */
+/** A person, drink, factor or game of that name exists already, ignoring case (each kind has names of its own). */
 final class DuplicateName extends RuntimeException {}

@@ -21,12 +21,21 @@ final class Instant
      */
     public static function parse(string $field, string $value): DateTimeImmutable
     {
+        // The date parser throws on a null byte instead of failing.
+        if (str_contains($value, "\0")) {
+            throw self::invalid($field);
+        }
         foreach (['Y-m-d\TH:i:s.vP', 'Y-m-d\TH:i:sP'] as $format) {
             $instant = DateTimeImmutable::createFromFormat("!{$format}", $value);
             if ($instant !== false && DateTimeImmutable::getLastErrors() === false) {
                 return $instant;
             }
         }
-        throw new ValidationFailed([$field => 'Zeitpunkt nach ISO 8601 mit Zeitzone.']);
+        throw self::invalid($field);
+    }
+
+    private static function invalid(string $field): ValidationFailed
+    {
+        return new ValidationFailed([$field => 'Zeitpunkt nach ISO 8601 mit Zeitzone.']);
     }
 }

@@ -98,6 +98,56 @@ describe('the route guard', () => {
     });
   });
 
+  it('opens Spiele under Verwalten for every signed-in account', async () => {
+    signedInAs({ id: 2, userName: 'anna', isAdmin: false });
+
+    const spiele = await open('/verwalten/spiele?anlegen');
+
+    expect(spiele.path).toBe('/verwalten/spiele');
+    expect(spiele.query).toHaveProperty('anlegen');
+    expect(spiele.meta).toMatchObject({
+      title: 'Spiele',
+      destination: 'verwalten',
+      child: true,
+    });
+  });
+
+  it('opens Spiele as a destination and a game’s page below it, and nothing for an id that is none', async () => {
+    signedInAs({ id: 2, userName: 'anna', isAdmin: false });
+
+    const spiele = await open('/spiele');
+    const spiel = await open('/spiele/3');
+    const notAnId = await open('/spiele/schach');
+
+    expect(spiele.meta).toMatchObject({
+      title: 'Spiele',
+      destination: 'spiele',
+    });
+    expect(spiele.meta.child).toBeUndefined();
+    expect(spiel.path).toBe('/spiele/3');
+    expect(spiel.params.gameId).toBe('3');
+    expect(spiel.meta).toMatchObject({
+      title: 'Spiele',
+      destination: 'spiele',
+      child: true,
+    });
+    expect(notAnId.path).toBe('/zaehlen');
+  });
+
+  it('opens a game’s Verlauf below the game under Spiele', async () => {
+    signedInAs({ id: 2, userName: 'anna', isAdmin: false });
+
+    const verlauf = await open('/spiele/3/verlauf');
+
+    expect(verlauf.path).toBe('/spiele/3/verlauf');
+    expect(verlauf.params.gameId).toBe('3');
+    expect(verlauf.meta).toMatchObject({
+      title: 'Verlauf',
+      destination: 'spiele',
+      child: true,
+    });
+  });
+
   it('sends a signed-in user away from Anmelden to where they wanted to go', async () => {
     signedInAs({ id: 2, userName: 'anna', isAdmin: false });
 

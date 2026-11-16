@@ -5,7 +5,27 @@ import type {
   ScoreRow,
   Scoreboard,
 } from '../src/core/api-client';
-import type { components } from '../src/core/api-client/schema';
+import { gameBackend } from './fixtureGames';
+import {
+  type AuditSnapshot,
+  type Body,
+  byName,
+  ENTRY_ID,
+  type Handler,
+  idempotent,
+  integer,
+  json,
+  MAX_PAGE_SIZE,
+  nameError,
+  PAGE_SIZE,
+  problem,
+  PROBLEMS,
+  type RouteRequest,
+  sameName,
+  text,
+  validation,
+  wholeNumber,
+} from './fixtureHttp';
 import {
   causeOf,
   entrySnapshot,
@@ -14,126 +34,14 @@ import {
   type Fixtures,
 } from './fixtures';
 
-type Problem = components['schemas']['Problem'];
-type AuditSnapshot = components['schemas']['AuditSnapshot'];
-type Body = Record<string, unknown>;
-
-/** What a route gets of its request. */
-interface Request {
-  body: Body;
-  /** The path's `{id}`, for routes that have one. */
-  id: string;
-  query: URLSearchParams;
-  headers: Headers;
-}
-type Handler = (request: Request) => Response;
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
-
-function problem(value: Problem): Response {
-  return new Response(JSON.stringify(value), {
-    status: value.status,
-    headers: { 'Content-Type': 'application/problem+json' },
-  });
-}
-
-const PROBLEMS = {
-  maintenance: {
-    type: 'urn:performance:problem:maintenance',
-    title: 'Wird aktualisiert – gleich wieder da',
-    status: 503,
-  },
-  unauthenticated: {
-    type: 'urn:performance:problem:unauthenticated',
-    title: 'Nicht angemeldet',
-    status: 401,
-  },
-  invalidCredentials: {
-    type: 'urn:performance:problem:invalid-credentials',
-    title: 'Benutzername oder Passwort falsch.',
-    status: 401,
-  },
-  forbidden: {
-    type: 'urn:performance:problem:forbidden',
-    title: 'Nur für Admins',
-    status: 403,
-  },
-  duplicateUserName: {
-    type: 'urn:performance:problem:duplicate-user-name',
-    title: 'Benutzername ist bereits vergeben.',
-    status: 409,
-  },
-  duplicateName: {
-    type: 'urn:performance:problem:duplicate-name',
-    title: 'Name ist bereits vergeben.',
-    status: 409,
-  },
-  entryConflict: {
-    type: 'urn:performance:problem:entry-conflict',
-    title: 'Eintrag wurde schon mit anderem Inhalt gespeichert.',
-    status: 409,
-  },
-  lastAdmin: {
-    type: 'urn:performance:problem:last-admin',
-    title: 'Der letzte Admin kann nicht entfernt werden.',
-    status: 409,
-  },
-  notFound: {
-    type: 'urn:performance:problem:not-found',
-    title: 'Nicht gefunden',
-    status: 404,
-  },
-} satisfies Record<string, Problem>;
-
 const MIN_PASSWORD = 10;
 const MAX_PASSWORD_BYTES = 72;
 const MAX_USER_NAME = 40;
-const MAX_NAME = 40;
 const MAX_POINTS = 9999.99;
 const MAX_MULTIPLIER = 99.99;
 const MAX_QUANTITY = 99;
-const AUDIT_PAGE_SIZE = 20;
-const MAX_AUDIT_PAGE_SIZE = 100;
 /** A positive integer id in a query, as the API's routes accept it. */
 const QUERY_ID = /^[1-9]\d{0,9}$/;
-const ENTRY_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-function validation(errors: Record<string, string>): Response {
-  return problem({
-    type: 'urn:performance:problem:validation',
-    title: 'Bitte Eingaben prüfen',
-    status: 422,
-    errors,
-  });
-}
-
-function text(body: Body, field: string): string {
-  const value = body[field];
-  return typeof value === 'string' ? value : '';
-}
-
-function integer(body: Body, field: string): number | undefined {
-  const value = body[field];
-  return Number.isInteger(value) ? (value as number) : undefined;
-}
-
-const sameName = (a: string, b: string) =>
-  a.localeCompare(b, 'de', { sensitivity: 'accent' }) === 0;
-const byName = (a: { name: string }, b: { name: string }) =>
-  a.name.localeCompare(b.name, 'de', { sensitivity: 'base' });
-
-function nameError(name: string): string | undefined {
-  const length = [...name].length;
-  return length < 1 || length > MAX_NAME
-    ? `1 bis ${String(MAX_NAME)} Zeichen.`
-    : undefined;
-}
 
 /** A number up to `max` with at most two decimals. */
 function isDecimal(value: unknown, max: number): value is number {
@@ -250,21 +158,16 @@ function passwordError(password: string): string | undefined {
     : undefined;
 }
 
-/** A whole number in a query, as the API reads one; anything else is 0, which no route accepts. */
-function wholeNumber(value: string): number {
-  return /^\d{1,18}$/.test(value) ? Number(value) : 0;
-}
-
 /** A page of the audit log, newest first, like the API's AuditLog; `next` only when an older event exists. */
 function auditPage(audit: AuditEvent[], query: URLSearchParams): Response {
   const before = query.get('before');
-  const limit = wholeNumber(query.get('limit') ?? String(AUDIT_PAGE_SIZE));
+  const limit = wholeNumber(query.get('limit') ?? String(PAGE_SIZE));
   const errors: Record<string, string> = {};
   if (before !== null && wholeNumber(before) < 1) {
     errors.before = 'Positive ganze Zahl.';
   }
-  if (limit < 1 || limit > MAX_AUDIT_PAGE_SIZE) {
-    errors.limit = `1 bis ${String(MAX_AUDIT_PAGE_SIZE)}.`;
+  if (limit < 1 || limit > MAX_PAGE_SIZE) {
+    errors.limit = `1 bis ${String(MAX_PAGE_SIZE)}.`;
   }
   if (Object.keys(errors).length > 0) return validation(errors);
   const older = audit
@@ -289,17 +192,18 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/persons/<n>`, `/api/accounts/<n>`, … */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/matches/<uuid>`, `/api/results/<uuid>`, `/api/persons/<n>`, `/api/games/<n>/standings`, `/api/games/<n>/matches`, … */
 function routeOf(path: string): { route: string; id: string } {
-  const entry = /^\/api\/entries\/([^/]+)$/.exec(path)?.[1];
-  if (entry && ENTRY_ID.test(entry)) {
-    return { route: '/api/entries/{id}', id: entry };
+  const record = /^\/api\/(entries|matches|results)\/([^/]+)$/.exec(path);
+  if (record?.[1] && record[2] && ENTRY_ID.test(record[2])) {
+    return { route: `/api/${record[1]}/{id}`, id: record[2] };
   }
-  const item = /^\/api\/(persons|drinks|factors|accounts)\/([1-9]\d*)$/.exec(
-    path,
-  );
+  const item =
+    /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart|\/standings|\/matches|\/results)?$/.exec(
+      path,
+    );
   if (item?.[1] && item[2]) {
-    return { route: `/api/${item[1]}/{id}`, id: item[2] };
+    return { route: `/api/${item[1]}/{id}${item[3] ?? ''}`, id: item[2] };
   }
   return { route: path, id: '' };
 }
@@ -331,7 +235,11 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
   /** Wraps a route that needs a session (and maybe an admin). */
   const guarded =
     (
-      handle: (me: FixtureAccount, body: Body, request: Request) => Response,
+      handle: (
+        me: FixtureAccount,
+        body: Body,
+        request: RouteRequest,
+      ) => Response,
       admin = false,
     ): Handler =>
     (request) => {
@@ -378,6 +286,8 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     return event;
   };
 
+  const games = gameBackend({ fixtures, guarded, record, nextId, revision });
+
   /**
   List, create, read (with the entry count of every day), edit and delete of one
   catalog collection; `remove` does what the API's foreign key does to entries.
@@ -393,6 +303,10 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       values: (item: T) => AuditSnapshot;
       uses: (entry: Entry, item: T) => boolean;
       remove: (item: T) => void;
+      /** Counts of other dependents besides entries, for the delete dialog. */
+      counts?: (item: T) => Record<string, number>;
+      /** What the deletion does to other dependents, recorded as caused by it. */
+      cascade?: (me: FixtureAccount, item: T, cause?: AuditEvent) => void;
     },
   ): [string, Handler][] {
     const path = `/api/${collection}`;
@@ -427,7 +341,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
           const entryCount = fixtures.entries.filter((entry) =>
             rules.uses(entry, item),
           ).length;
-          return json({ ...item, entryCount });
+          return json({ ...item, entryCount, ...rules.counts?.(item) });
         }),
       ],
       [
@@ -473,6 +387,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
               cause,
             );
           }
+          rules.cascade?.(me, item, cause);
           return new Response(null, { status: 204 });
         }),
       ],
@@ -601,6 +516,8 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
           (fixtures.entries = fixtures.entries.filter(
             (entry) => entry.personId !== person.id,
           )),
+        counts: (person) => games.personCounts(person.id),
+        cascade: games.clearPerson,
       },
     ),
     ...catalogRoutes(
@@ -634,6 +551,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         },
       },
     ),
+    ...games.routes,
     [
       'GET /api/entries',
       guarded((_me, _body, { query }) => {
@@ -771,16 +689,31 @@ function putEntry(
       ? null
       : (integer(body, 'factorId') ?? 0);
   const fingerprint = JSON.stringify([personId, drinkId, quantity, factorId]);
-  const known = fixtures.entryRequests.get(id);
-  if (known !== undefined) {
-    if (known !== fingerprint) return problem(PROBLEMS.entryConflict);
-    const entry = fixtures.entries.find((candidate) => candidate.id === id);
-    return json(
-      entry
-        ? entryOf(entry)
-        : { id, personId, drinkId, quantity, factorId, createdAt: '' },
-    );
-  }
+  return idempotent(
+    fixtures,
+    id,
+    fingerprint,
+    PROBLEMS.entryConflict,
+    (createdAt) =>
+      addEntry(
+        fixtures,
+        { id, quantity, factorId, accountId, createdAt },
+        personId,
+        drinkId,
+      ),
+    (createdAt) =>
+      json({ id, personId, drinkId, quantity, factorId, createdAt }),
+  );
+}
+
+/** Adds a new entry once its person, drink and factor exist. */
+function addEntry(
+  fixtures: Fixtures,
+  entry: Omit<FixtureEntry, 'personId' | 'drinkId'>,
+  personId: number | undefined,
+  drinkId: number | undefined,
+): Response {
+  const { factorId } = entry;
   const errors: Record<string, string> = {};
   if (!fixtures.persons.some((person) => person.id === personId)) {
     errors.personId = 'Person nicht gefunden.';
@@ -795,18 +728,13 @@ function putEntry(
     errors.factorId = 'Faktor nicht gefunden.';
   }
   if (Object.keys(errors).length > 0) return validation(errors);
-  const entry: FixtureEntry = {
-    id,
+  const added: FixtureEntry = {
+    ...entry,
     personId: personId ?? 0,
     drinkId: drinkId ?? 0,
-    quantity,
-    factorId,
-    createdAt: new Date().toISOString(),
-    accountId,
   };
-  fixtures.entryRequests.set(id, fingerprint);
-  fixtures.entries.push(entry);
-  return json(entryOf(entry), 201);
+  fixtures.entries.push(added);
+  return json(entryOf(added), 201);
 }
 
 async function bodyOf(

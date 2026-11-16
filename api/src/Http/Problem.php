@@ -63,6 +63,12 @@ final readonly class Problem
         return new self('entry-conflict', 'Eintrag wurde schon mit anderem Inhalt gespeichert.', 409);
     }
 
+    /** A retry key (a client UUID) was used before for a request with other content. */
+    public static function requestConflict(): self
+    {
+        return new self('request-conflict', 'Wurde schon mit anderem Inhalt gespeichert.', 409);
+    }
+
     public static function unsupportedMediaType(): self
     {
         return new self('unsupported-media-type', 'Nur JSON wird angenommen', 415);
@@ -79,6 +85,16 @@ final readonly class Problem
     public static function tooManyAttempts(): self
     {
         return new self('too-many-attempts', 'Zu viele Versuche. Bitte später erneut.', 429);
+    }
+
+    /**
+     * The web client is below MIN_CLIENT_VERSION and must reload. 400, not 426: 426 obliges
+     * the server to name a protocol in `Upgrade`, and an app version is no protocol (HTTP/2
+     * does not even carry that header). The type tells the client what to do.
+     */
+    public static function clientOutdated(): self
+    {
+        return new self('client-outdated', 'Diese Version ist veraltet. Bitte neu laden.', 400);
     }
 
     public static function notFound(): self

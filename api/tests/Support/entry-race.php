@@ -3,15 +3,17 @@
 declare(strict_types=1);
 
 /*
- * One of several processes that send the same entry at the same instant:
+ * One of several processes that send an entry under the same id at the same instant:
  *   php entry-race.php <start at (unix time)> <entry id> <person id> <drink id> <quantity> <account id>
- * Connects with the DB_* environment of the test run.
+ * Prints its outcome: created, replayed or conflict. Connects with the DB_* environment of the test run.
  */
 
 use Performance\Domain\Actor;
 use Performance\Domain\AuditLog;
 use Performance\Domain\DataRevision;
+use Performance\Domain\EntryConflict;
 use Performance\Domain\EntryLedger;
+use Performance\Domain\Idempotency;
 use Performance\Domain\SystemClock;
 use Performance\Http\Config;
 use Performance\Http\Database;
@@ -31,6 +33,12 @@ $pdo = Database::open(new Config(
 ));
 $pdo->exec("SET time_zone = '+00:00'");
 $clock = new SystemClock();
-$ledger = new EntryLedger($pdo, $clock, new DataRevision($pdo), new AuditLog($pdo, $clock));
+$revision = new DataRevision($pdo);
+$ledger = new EntryLedger($pdo, $clock, $revision, new AuditLog($pdo, $clock), new Idempotency($pdo, $revision));
 time_sleep_until((float) $startAt);
-$ledger->add(new Actor((int) $accountId, 'race'), $id, (int) $personId, (int) $drinkId, (int) $quantity, null);
+try {
+    $added = $ledger->add(new Actor((int) $accountId, 'race'), $id, (int) $personId, (int) $drinkId, (int) $quantity, null);
+    echo $added->created ? 'created' : 'replayed';
+} catch (EntryConflict) {
+    echo 'conflict';
+}

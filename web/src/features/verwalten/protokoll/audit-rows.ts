@@ -2,6 +2,7 @@ import type { DeepReadonly } from 'vue';
 import {
   formatMultiplier,
   formatPoints,
+  formatSigned,
   formatTime,
 } from '../../../core/format';
 import { messages } from '../../../core/messages';
@@ -24,6 +25,18 @@ export interface AuditSnapshotView {
   drink?: string;
   quantity?: number;
   factor?: { name?: string; multiplier?: number } | null;
+  game?: string;
+  /** A match's persons; null once that person was deleted. */
+  first?: string | null;
+  second?: string | null;
+  outcome?: 'first' | 'second' | 'draw';
+  /** A game's kind and the setting of that kind. */
+  kind?: string;
+  drawsAllowed?: boolean;
+  lowerWins?: boolean;
+  /** A game's run; a restart counts it up and moves `startedAt`. */
+  run?: number;
+  startedAt?: string;
 }
 
 /** What Protokoll reads of an audit event of the API. */
@@ -93,19 +106,82 @@ function entryName({ quantity, drink, person }: Snapshot): string {
   return text.entry(what ?? '', person).trimStart();
 }
 
-/** A person's, drink's or factor's name, an entry's `2× Bier für Daniel`; empty when unknown. */
-function subjectName(kind: SubjectKind, snapshot: Snapshot): string {
-  return kind === 'entry' ? entryName(snapshot) : (snapshot.name ?? '');
+/** A match side's name: the person's, `gelöschte Person` once cleared, empty when unknown. */
+const sideName = (side: string | null | undefined) =>
+  side === null ? text.deletedPerson : (side ?? '');
+
+/** A match's `Anna gewinnt` or `Remis`; empty when a part is unknown. */
+function outcomeText({ outcome, first, second }: Snapshot): string {
+  if (outcome === 'draw') return text.draw;
+  const winner = sideName(outcome === 'first' ? first : second);
+  return outcome === undefined || winner === '' ? '' : text.wins(winner);
 }
 
-/** `Getränk Bier`, or only the kind when the name is unknown. */
+/** A game's rule: `Remis möglich`, `Niedrigste Summe gewinnt`; empty when unknown. */
+function ruleText({ kind, drawsAllowed, lowerWins }: Snapshot): string {
+  const spiele = messages.spiele;
+  if (kind === 'duel' && drawsAllowed !== undefined) {
+    return drawsAllowed ? spiele.drawsAllowed : spiele.noDraws;
+  }
+  if (kind === 'points' && lowerWins !== undefined) {
+    return lowerWins ? spiele.lowerWins : spiele.higherWins;
+  }
+  return '';
+}
+
+/** A game's known values: its kind (`Duell`) and its rule. */
+function gameFields(snapshot: Snapshot): Field[] {
+  const known: Field[] = [];
+  if (snapshot.name !== undefined) known.push([text.name, snapshot.name]);
+  if (snapshot.kind !== undefined) {
+    known.push([
+      messages.spiele.kind,
+      snapshot.kind === 'duel' ? messages.spiele.duel : messages.spiele.points,
+    ]);
+  }
+  const rule = ruleText(snapshot);
+  if (rule !== '') known.push([text.rule, rule]);
+  return known;
+}
+
+/** A person's, drink's, factor's or game's name, an entry's `2× Bier für Daniel`, a match's `Anna – Ben`, a result's person; empty when unknown. */
+function subjectName(kind: SubjectKind, snapshot: Snapshot): string {
+  if (kind === 'entry') return entryName(snapshot);
+  if (kind === 'result') return snapshot.person ?? '';
+  if (kind === 'match') {
+    return text.match(sideName(snapshot.first), sideName(snapshot.second));
+  }
+  return snapshot.name ?? '';
+}
+
+/**
+`Getränk Bier`, or only the kind when the name is unknown. A kind this client
+does not know yet (a newer API's) is left out rather than shown as `undefined`.
+*/
 function title(kind: SubjectKind, snapshot: Snapshot): string {
   const name = subjectName(kind, snapshot);
-  return name === '' ? text.kind[kind] : text.subject(text.kind[kind], name);
+  const label = (text.kind as Partial<Record<string, string>>)[kind];
+  if (label === undefined) return name;
+  return name === '' ? label : text.subject(label, name);
+}
+
+/** A result's known values: its game, then its points as a game shows them (`−20 Punkte`). */
+function resultFields({ game, points }: Snapshot): Field[] {
+  const known: Field[] = [];
+  if (game !== undefined) known.push([text.game, game]);
+  if (points !== undefined) {
+    known.push([
+      text.points,
+      messages.spiele.gamePoints(formatSigned(points), points),
+    ]);
+  }
+  return known;
 }
 
 /** The snapshot's known values, labelled and formatted. */
-function fields(snapshot: Snapshot): Field[] {
+function fields(kind: SubjectKind, snapshot: Snapshot): Field[] {
+  if (kind === 'result') return resultFields(snapshot);
+  if (kind === 'game') return gameFields(snapshot);
   const known: Field[] = [];
   if (snapshot.name !== undefined) known.push([text.name, snapshot.name]);
   if (snapshot.person !== undefined) {
@@ -120,21 +196,54 @@ function fields(snapshot: Snapshot): Field[] {
   if (snapshot.factor !== undefined) {
     known.push([text.factor, factorText(snapshot.factor)]);
   }
+  if (snapshot.game !== undefined) known.push([text.game, snapshot.game]);
+  if (snapshot.outcome !== undefined) {
+    known.push([text.outcome, outcomeText(snapshot)]);
+  }
   return known;
 }
 
-/** An update's changed values as before → after; a create's or delete's values without the name the title already gives. */
-function changes(event: DeepReadonly<AuditEventView>): string[] {
-  const { before, after } = event;
-  if (before && after) {
-    const was = new Map(fields(before));
-    return fields(after)
+/**
+A match update only ever clears a side, when its person is deleted: `Ben →
+gelöschte Person`. The outcome is fixed, so it is not compared.
+*/
+function clearedSides(before: Snapshot, after: Snapshot): string[] {
+  return (['first', 'second'] as const)
+    .filter((side) => side in before && side in after)
+    .filter((side) => before[side] !== after[side])
+    .map((side) =>
+      text.replaced(sideName(before[side]), sideName(after[side])),
+    );
+}
+
+/** An update's changed values as before → after; `Neu gestartet` first for a game's restart. */
+function updates(
+  kind: SubjectKind,
+  before: Snapshot,
+  after: Snapshot,
+): string[] {
+  if (kind === 'match') return clearedSides(before, after);
+  const restarted =
+    kind === 'game' &&
+    before.run !== undefined &&
+    after.run !== undefined &&
+    before.run !== after.run;
+  const was = new Map(fields(kind, before));
+  return [
+    ...(restarted ? [text.restarted] : []),
+    ...fields(kind, after)
       .filter(([label, value]) => was.has(label) && was.get(label) !== value)
-      .map(([label, value]) => text.change(label, was.get(label) ?? '', value));
-  }
+      .map(([label, value]) => text.change(label, was.get(label) ?? '', value)),
+  ];
+}
+
+/** An update's changes; a create's or delete's values without the name the title already gives. */
+function changes(event: DeepReadonly<AuditEventView>): string[] {
+  const { before, after, subjectKind } = event;
+  if (before && after) return updates(subjectKind, before, after);
   const snapshot = after ?? before;
   if (!snapshot) return [];
-  return fields(snapshot)
+  return fields(subjectKind, snapshot)
     .filter(
       ([label, value]) =>
         label !== text.name &&
@@ -175,7 +284,11 @@ function auditRow(
   instant: Date,
   timeZone?: string,
 ): AuditRow {
-  const snapshot = event.after ?? event.before ?? {};
+  // A match is named as it was before the change: an update only clears a side.
+  const snapshot =
+    (event.subjectKind === 'match'
+      ? (event.before ?? event.after)
+      : (event.after ?? event.before)) ?? {};
   return {
     id: event.id,
     operation: event.operation,

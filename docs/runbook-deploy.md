@@ -176,21 +176,56 @@ The ledger keeps the active release and the two before it, plus anything deactiv
 
 What may change in one release, and what needs two (expand, then contract), is set in
 [ADR 0006](adr/0006-rollout-compatibility.md): the schema only grows for the previous
-release's code, the API only grows for clients at or above `MIN_CLIENT_VERSION`, and a
+release's code, the API only grows while an older client may still be served (a break raises
+the client floor, below), and a
 migration that could copy a table or lock it for long needs its own plan. Each schema change
 comes with a test in `RolloutCompatibilityTest` that runs the previous release's statements
 against it.
 
-A change that older installed apps cannot use raises `MIN_CLIENT_VERSION` in
-`api/src/Http/Compatibility.php`; those apps then show `Bitte neu laden`. Bump the `version` in
-`web/package.json` to at least the new floor in the same pull request: the artifact build and
-`scripts/artifact.test.ts` fail otherwise, because the freshly deployed client would be below
-its own API's floor and ask to reload forever.
+A contract that older apps cannot use ships together with a raised `MIN_CLIENT_VERSION` in
+`api/src/Http/Compatibility.php` (ADR 0006, decision 3). Every app sends its version in
+`X-Client-Version`, and the API refuses one below the floor with 400 `client-outdated` before
+the route runs, on every route but `/api/health`. So an app that starts after the deploy shows
+`Bitte neu laden` at once, and an app that is already open shows it on its next request, which
+changed nothing (a refused write is not booked; the user enters it again after reloading).
+Apps before 0.2.0 send no header: a request without it counts as
+`Compatibility::LAST_VERSION_WITHOUT_HEADER` (0.1.0), so it is served while the floor is 0.1.0
+and refused once the floor is raised. Other callers, checked for this release:
+
+- The deploy (`deploy/io/http-smoke.ts`), the deploy proof in CI and the weekly
+  `live-check.yml` read only `/api/health`, which is never refused. `scripts/host-probe`
+  calls its own probe script, not the app.
+- The stack e2e tests call the API through Playwright's `request` and `page.request`;
+  `playwright.config.ts` sends the `web/package.json` version as `X-Client-Version` for them
+  (`e2e/pwa-update.spec.ts` turns that off, so only the client's own header counts there).
+- The fixture preview answers the app in the browser and has no floor.
+- Anything else, such as a manual `curl` to a route other than health, must send
+  `X-Client-Version: <version at or above the floor>` once the floor passes 0.1.0.
+
+Bump the `version` in `web/package.json` to at least the new floor in the same pull request:
+the artifact build and `scripts/artifact.test.ts` fail otherwise, because the freshly deployed
+client would be below its own API's floor and be refused on every request. A break makes every
+open app reload, so prefer growth where it is cheap.
+
+**Pending contract steps** (ADR 0006, decision 1), each due in a later release:
+
+- `entry_requests` (since PRD #27, `idempotency_keys` holds the retry keys): not before seven
+  days after the PRD #27 release is live, drop the table and remove
+  `Idempotency::PREVIOUS_TABLE` with its fallback read and purge in the same release, and
+  update `RolloutCompatibilityTest`. Dropping only the table makes every entry, match and
+  result write fail.
 
 ## When a deploy fails
 
 - **Before the API pointer switched** (upload, config, settings): nothing changed for users.
   Fix the cause and re-run the failed job; the deploy resumes where it stopped.
+- **Health stayed `running`:** a migration keeps waiting for a table that long transactions
+  use. Each attempt gives up after `Migrator::TABLE_LOCK_WAIT_SECONDS` and is retried by the
+  next request, so nothing is stuck and the API answers 503 `maintenance` meanwhile; the deploy
+  reads health up to 24 times, 5 s apart (`deploy/io/http-smoke.ts`), and each of those reads
+  itself waits up to the 5 s lock timeout, so it keeps polling for up to about four minutes
+  (24 × 5 s + 23 × 5 s) and then fails. The migration completes on a later
+  request once those transactions ended; then re-run the job to switch the shell.
 - **Health failed** (failed migration, wrong app or schema version): the run is red,
   `index.html`, the manifest and the service worker still belong to the previous release, but
   `/api/*` is served by the new PHP release. After a failed migration every API route answers
@@ -227,12 +262,13 @@ newer number, not its own newest migration.
 ## Audit log
 
 *Verwalten → Protokoll* (admins only) reads `audit_events`: every change to entries, persons,
-drinks and factors, with the account that made it and the values before and after.
+drinks, factors, games, matches and results, with the account that made it and the values
+before and after.
 
 **What it is:** application-level append-only history. The API only appends events, in the
 same transaction as the change, and only reads them back (`GET /api/audit`; no route edits or
 deletes an event, other methods answer 405). The table has no foreign keys, so deleting an
-account, person, drink or factor leaves its events as they were.
+account, person, drink, factor or game leaves its events as they were.
 
 **What it is not:** tamper-resistant. Anyone who can log in to the database with the API's
 credentials, or through the host's database administration, can change or delete events
@@ -254,7 +290,10 @@ present the log as tamper-proof or as evidence beyond "what the app recorded".
 in the same transaction, and holds the locks on those entries until it commits. It reads the
 entries 2 000 at a time, so memory stays flat. Measured locally (MariaDB 10.11, PHP 8.3; the host
 may be slower): 1 000 entries 0.03 s and 3 MB, 10 000 entries 0.3 s and 5 MB, 50 000 entries
-1.5 s and 11 MB peak. Meanwhile counting with that person, drink or factor waits. Deletions run
+1.5 s and 11 MB peak. Meanwhile counting with that person, drink or factor waits. A person's
+deletion also records one update per match that names them (the match stays, that side
+cleared) and one delete per result of theirs (the results go with them); a game's deletion
+records one delete per match and per result of the game; those are read in one go. Deletions run
 one at a time; one that waits more than 10 s for the one before it answers 500 and changes
 nothing. A write that loses a deadlock is run again, up to three times (ADR 0004, decision 4).
 

@@ -53,7 +53,7 @@ final class EntriesTest extends DatabaseTestCase
             ['personId' => 'Person nicht gefunden.', 'drinkId' => 'Getränk nicht gefunden.'],
             $this->body($neither)['errors'],
         );
-        self::assertSame([], $this->rows('SELECT id FROM entries UNION ALL SELECT id FROM entry_requests'));
+        self::assertSame([], $this->rows('SELECT id FROM entries UNION ALL SELECT id FROM idempotency_keys'));
     }
 
     public function testAnUnknownFactorIs422AndRecordsNothing(): void
@@ -65,7 +65,7 @@ final class EntriesTest extends DatabaseTestCase
             self::assertSame(422, $response->getStatusCode(), (string) $response->getBody());
             self::assertSame(['factorId' => 'Faktor nicht gefunden.'], $this->body($response)['errors']);
         }
-        self::assertSame([], $this->rows('SELECT id FROM entries UNION ALL SELECT id FROM entry_requests'));
+        self::assertSame([], $this->rows('SELECT id FROM entries UNION ALL SELECT id FROM idempotency_keys'));
     }
 
     public function testRecordsTheChosenFactor(): void

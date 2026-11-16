@@ -129,7 +129,7 @@ final class CatalogManageTest extends DatabaseTestCase
         $drink = $this->send('GET', '/api/drinks/1', session: $this->session);
 
         self::assertSame(200, $person->getStatusCode());
-        self::assertSame(['id' => 1, 'name' => 'Daniel', 'entryCount' => 3], $this->body($person));
+        self::assertSame(['id' => 1, 'name' => 'Daniel', 'entryCount' => 3, 'matchCount' => 0, 'resultCount' => 0], $this->body($person));
         self::assertSame(200, $drink->getStatusCode());
         self::assertSame(['id' => 1, 'name' => 'Bier', 'points' => 1.5, 'entryCount' => 2], $this->body($drink));
     }

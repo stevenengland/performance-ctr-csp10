@@ -6,17 +6,25 @@ import {
   deleteDrink,
   deleteEntry,
   deleteFactor,
+  deleteMatch,
   deletePerson,
+  deleteResult,
   getDrink,
   getFactor,
   getHealth,
   getScoreboard,
+  getStandings,
   getPerson,
   getSession,
   listAuditEvents,
   listEntries,
+  listMatches,
+  listResults,
   onUnauthorized,
   putEntry,
+  putMatch,
+  putResult,
+  restartGame,
   signOut,
   updateAccount,
   updateDrink,
@@ -24,6 +32,7 @@ import {
   updatePerson,
 } from './index';
 import type { Health } from './index';
+import { resetReloadFloor, useReloadFloor } from '../../pwa/reload-floor';
 
 const health: Health = {
   appVersion: '0.1.0+abc',
@@ -44,6 +53,7 @@ describe('the API client', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     onUnauthorized(undefined);
+    resetReloadFloor();
   });
 
   it('reads health through whatever fetch is installed when it is called', async () => {
@@ -224,6 +234,64 @@ describe('the API client', () => {
     expect(ended).toHaveBeenCalledOnce();
   });
 
+  it('tells the server its app version on every request, health included', async () => {
+    const fetch = respond(health, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await getHealth();
+    await createAccount('anna', 'annas-startpasswort');
+    await signOut();
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    for (const [, init] of fetch.mock.calls as unknown as [
+      string,
+      RequestInit,
+    ][]) {
+      expect(init.headers).toMatchObject({
+        'X-Client-Version': __APP_VERSION__,
+      });
+    }
+  });
+
+  it('shows the reload floor when the server refuses this version as outdated', async () => {
+    const outdated = {
+      type: 'urn:performance:problem:client-outdated',
+      title: 'Diese Version ist veraltet. Bitte neu laden.',
+      status: 400,
+    };
+    respond(outdated, {
+      status: 400,
+      headers: { 'Content-Type': 'application/problem+json' },
+    });
+
+    await expect(createAccount('anna', 'x')).rejects.toMatchObject({
+      status: 400,
+      type: 'urn:performance:problem:client-outdated',
+    });
+    expect(useReloadFloor().value).toBe(true);
+  });
+
+  it('keeps the app running on any other refusal', async () => {
+    respond(
+      {
+        type: 'urn:performance:problem:bad-request',
+        title: 'Ungültige Anfrage',
+        status: 400,
+      },
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/problem+json' },
+      },
+    );
+
+    await expect(createAccount('anna', 'x')).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(useReloadFloor().value).toBe(false);
+  });
+
   it('puts an entry under its id and deletes it by that id', async () => {
     const entry = {
       id: '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5',
@@ -254,6 +322,59 @@ describe('the API client', () => {
     await expect(deleteEntry(entry.id)).resolves.toBeUndefined();
     expect(remove).toHaveBeenCalledWith(
       `/api/entries/${entry.id}`,
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('records a match under its id and deletes it by that id', async () => {
+    const id = '0b6d2c1e-7f3a-4e5b-9c8d-1a2b3c4d5e6f';
+    const body = {
+      gameId: 1,
+      firstPersonId: 1,
+      secondPersonId: 2,
+      outcome: 'first' as const,
+    };
+    const match = { id, ...body, createdAt: '2026-11-15T20:00:00.000Z' };
+    const fetch = respond(match, {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(putMatch(id, body)).resolves.toEqual(match);
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/matches/${id}`,
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify(body) }),
+    );
+
+    const remove = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', remove);
+    await expect(deleteMatch(id)).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledWith(
+      `/api/matches/${id}`,
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('records a result under its id and deletes it by that id', async () => {
+    const id = '5c1d9e2a-3b4f-4a6c-8d7e-9f0a1b2c3d4e';
+    const body = { gameId: 2, personId: 4, points: -20 };
+    const result = { id, ...body, createdAt: '2026-11-15T20:00:00.000Z' };
+    const fetch = respond(result, {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(putResult(id, body)).resolves.toEqual(result);
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/results/${id}`,
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify(body) }),
+    );
+
+    const remove = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', remove);
+    await expect(deleteResult(id)).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledWith(
+      `/api/results/${id}`,
       expect.objectContaining({ method: 'DELETE' }),
     );
   });
@@ -303,6 +424,32 @@ describe('the API client', () => {
       '/api/audit?before=41',
       expect.objectContaining({ method: 'GET' }),
     );
+  });
+
+  it('reads the newest page of a game’s matches or results, and an older one before a cursor', async () => {
+    const page = { items: [], next: null };
+    const fetch = respond(page, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(listMatches(2)).resolves.toEqual(page);
+    await listMatches(2, 'WzEsIjIwMjYiXQ');
+    await expect(listResults(1)).resolves.toEqual(page);
+    await listResults(1, 'WzEsIjIwMjYiXQ');
+
+    [
+      '/api/games/2/matches',
+      '/api/games/2/matches?before=WzEsIjIwMjYiXQ',
+      '/api/games/1/results',
+      '/api/games/1/results?before=WzEsIjIwMjYiXQ',
+    ].forEach((url, index) => {
+      expect(fetch).toHaveBeenNthCalledWith(
+        index + 1,
+        url,
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
   });
 
   it('reads a factor with its entry count, edits it and deletes it at its id', async () => {
@@ -407,6 +554,74 @@ describe('the API client', () => {
     expect(remove).toHaveBeenCalledWith(
       '/api/drinks/4',
       expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('restarts a game with an empty JSON body and returns it with its new start', async () => {
+    const game = {
+      id: 2,
+      name: 'Schach',
+      kind: 'duel',
+      drawsAllowed: true,
+      lowerWins: false,
+      startedAt: '2026-11-15T18:30:00.000Z',
+    };
+    const fetch = respond(game, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(restartGame(2)).resolves.toEqual(game);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/games/2/restart',
+      expect.objectContaining({
+        method: 'POST',
+        body: '{}',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+        }),
+      }),
+    );
+  });
+
+  it('reads a game’s ranking, tagged with its kind, and keeps its ETag', async () => {
+    const standings = {
+      kind: 'duel',
+      startedAt: '2026-09-15T10:00:00.000Z',
+      rows: [],
+    };
+    const fetch = respond(standings, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ETag: '"42"' },
+    });
+
+    await expect(getStandings(2)).resolves.toEqual({
+      standings,
+      etag: '"42"',
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/games/2/standings',
+      expect.objectContaining({
+        headers: expect.not.objectContaining({
+          'If-None-Match': expect.anything(),
+        }),
+      }),
+    );
+  });
+
+  it('asks for a game’s ranking on condition of the last ETag; 304 means unchanged', async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(null, { status: 304, headers: { ETag: '"42"' } }),
+    );
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(getStandings(2, '"42"')).resolves.toBe('unchanged');
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/games/2/standings',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'If-None-Match': '"42"' }),
+      }),
     );
   });
 

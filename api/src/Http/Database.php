@@ -9,11 +9,18 @@ use Performance\Domain\Accounts;
 use Performance\Domain\AuditLog;
 use Performance\Domain\Catalog\Catalog;
 use Performance\Domain\Clock;
+use Performance\Domain\CompositeGameDependents;
+use Performance\Domain\CompositePersonDependents;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
+use Performance\Domain\Games\Games;
+use Performance\Domain\Games\Matches;
+use Performance\Domain\Games\Results;
+use Performance\Domain\Idempotency;
 use Performance\Domain\Migrator;
 use Performance\Domain\Scoreboard;
 use Performance\Domain\Sessions;
+use Performance\Domain\Snapshot;
 
 /**
  * Opens the request's database session, and the domain modules that work on it,
@@ -31,6 +38,10 @@ final class Database
     private ?Scoreboard $scoreboard = null;
     private ?DataRevision $revision = null;
     private ?AuditLog $audit = null;
+    private ?Idempotency $idempotency = null;
+    private ?Games $games = null;
+    private ?Matches $matches = null;
+    private ?Results $results = null;
 
     public function __construct(
         private readonly Config $config,
@@ -57,14 +68,31 @@ final class Database
         return $this->sessions ??= new Sessions($this->pdo(), $this->accounts(), $this->clock);
     }
 
+    /** The catalog with the dependents of a person: one composite of the modules whose rows name persons (Matches and Results). */
     public function catalog(): Catalog
     {
-        return $this->catalog ??= new Catalog($this->pdo(), $this->clock, $this->revision(), $this->audit());
+        return $this->catalog ??= new Catalog($this->pdo(), $this->clock, $this->revision(), $this->audit(), new CompositePersonDependents($this->matches(), $this->results()));
     }
 
     public function entries(): EntryLedger
     {
-        return $this->entries ??= new EntryLedger($this->pdo(), $this->clock, $this->revision(), $this->audit());
+        return $this->entries ??= new EntryLedger($this->pdo(), $this->clock, $this->revision(), $this->audit(), $this->idempotency());
+    }
+
+    /** Games with their dependents: one composite of the modules whose rows go with a game (Matches and Results). */
+    public function games(): Games
+    {
+        return $this->games ??= new Games($this->pdo(), $this->clock, $this->revision(), $this->audit(), new CompositeGameDependents($this->matches(), $this->results()));
+    }
+
+    public function matches(): Matches
+    {
+        return $this->matches ??= new Matches($this->pdo(), $this->clock, $this->revision(), $this->audit(), $this->idempotency());
+    }
+
+    public function results(): Results
+    {
+        return $this->results ??= new Results($this->pdo(), $this->clock, $this->revision(), $this->audit(), $this->idempotency());
     }
 
     public function scoreboard(): Scoreboard
@@ -77,9 +105,20 @@ final class Database
         return $this->audit ??= new AuditLog($this->pdo(), $this->clock);
     }
 
-    private function revision(): DataRevision
+    /** One consistent view of the committed data for several reads, e.g. a ranking with its revision. */
+    public function snapshot(): Snapshot
+    {
+        return new Snapshot($this->pdo());
+    }
+
+    public function revision(): DataRevision
     {
         return $this->revision ??= new DataRevision($this->pdo());
+    }
+
+    private function idempotency(): Idempotency
+    {
+        return $this->idempotency ??= new Idempotency($this->pdo(), $this->revision());
     }
 
     /**

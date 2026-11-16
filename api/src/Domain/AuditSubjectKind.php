@@ -11,4 +11,7 @@ enum AuditSubjectKind: string
     case Person = 'person';
     case Drink = 'drink';
     case Factor = 'factor';
+    case Game = 'game';
+    case Match = 'match';
+    case Result = 'result';
 }

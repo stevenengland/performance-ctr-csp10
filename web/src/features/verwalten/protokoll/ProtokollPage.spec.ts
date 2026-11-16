@@ -165,6 +165,17 @@ describe('Protokoll', () => {
     expect(more(wrapper)).toHaveLength(0);
   });
 
+  it('moves the day headings on when the page is used again on a later day', async () => {
+    api({ '': () => json(newest) });
+    wrapper = await mountPage('/verwalten/protokoll', ProtokollPage);
+
+    vi.setSystemTime(new Date('2026-11-16T00:05:00Z'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+
+    expect(days(wrapper).map(([label]) => label)).toEqual(['Gestern']);
+  });
+
   it('keeps the loaded events and the button when an older page fails', async () => {
     api({
       '': () => json(newest),

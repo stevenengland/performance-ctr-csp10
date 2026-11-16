@@ -15,7 +15,8 @@ use Psr\Http\Server\RequestHandlerInterface;
 /**
  * Lets only requests with a valid session through (401 otherwise), hands the
  * signed-in account to the route, and renews the cookie whenever the session was renewed
- * (at most once a day), so a session in use never expires.
+ * (at most once a day), so a session in use never expires. The renewal is committed before the
+ * route runs, so a route that fails is answered here, with its problem, and the cookie too.
  */
 final readonly class SessionAuth implements MiddlewareInterface
 {
@@ -25,6 +26,7 @@ final readonly class SessionAuth implements MiddlewareInterface
     public function __construct(
         private Database $database,
         private ResponseFactoryInterface $responses,
+        private ProblemDetailsHandler $problems,
     ) {}
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
@@ -34,7 +36,12 @@ final readonly class SessionAuth implements MiddlewareInterface
         if ($token === null || $session === null) {
             return Problem::unauthenticated()->write($this->responses->createResponse());
         }
-        $response = $handler->handle($request->withAttribute(self::ACCOUNT, $session->account)->withAttribute(self::TOKEN, $token));
+        $request = $request->withAttribute(self::ACCOUNT, $session->account)->withAttribute(self::TOKEN, $token);
+        try {
+            $response = $handler->handle($request);
+        } catch (\Throwable $failure) {
+            $response = ($this->problems)($request, $failure);
+        }
 
         // Only a renewal moves the expiry, in the database and in the browser alike.
         return $response->hasHeader('Set-Cookie') || !$session->renewed ? $response : SessionCookie::issue($response, $token);

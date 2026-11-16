@@ -12,7 +12,7 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * `/api/persons`, `/api/drinks` and `/api/factors`: list and create; `…/{id}` reads (with the
- * number of entries of every day that reference the item), edits and deletes.
+ * number of entries of every day that reference the item, and a person's matches and results), edits and deletes.
  */
 final readonly class CatalogActions
 {
@@ -53,7 +53,15 @@ final readonly class CatalogActions
         $catalog = $this->database->catalog();
         $id = (int) $arguments['id'];
 
-        return Json::write($response, [...self::person($catalog->person($id)), 'entryCount' => $catalog->entriesOfPerson($id)]);
+        $person = $catalog->person($id);
+        $dependents = $catalog->dependentsOfPerson($id);
+
+        return Json::write($response, [
+            ...self::person($person),
+            'entryCount' => $catalog->entriesOfPerson($id),
+            'matchCount' => $dependents->matches,
+            'resultCount' => $dependents->results,
+        ]);
     }
 
     /**

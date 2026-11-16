@@ -13,32 +13,34 @@ use Performance\Domain\AuditOperation;
 use Performance\Domain\AuditSubjectKind;
 use Performance\Domain\Clock;
 use Performance\Domain\DatabaseError;
+use Performance\Domain\DeletionLock;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntrySnapshots;
 use Performance\Domain\NotFound;
+use Performance\Domain\PersonDependentCounts;
+use Performance\Domain\PersonDependents;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
-use RuntimeException;
 
 /**
  * Persons, drinks and factors: names trimmed, 1–40 characters and unique regardless
  * of case (the table's collation and unique key decide); drinks carry alcohol base
  * points, factors a multiplier. Every write names its actor and is recorded in the audit
- * log in its own transaction, with the item's values before and after.
+ * log in its own transaction, with the item's values before and after. What a person's
+ * deletion does to other modules' rows (matches, results) it asks through PersonDependents.
  */
 final readonly class Catalog
 {
     public const MAX_NAME_LENGTH = 40;
     public const MAX_POINTS = 9999.99;
     public const MAX_MULTIPLIER = 99.99;
-    /** How long a deletion waits for the one before it; one of 50 000 entries took 1.5 s (runbook, "Audit log"). */
-    private const DELETION_LOCK_SECONDS = 10;
 
     public function __construct(
         private PDO $pdo,
         private Clock $clock,
         private DataRevision $revision,
         private AuditLog $audit,
+        private PersonDependents $personDependents,
     ) {}
 
     /**
@@ -138,6 +140,12 @@ final readonly class Catalog
         return $this->countEntries('person_id', $id);
     }
 
+    /** The other modules' rows that name the person: deleting the person keeps the matches. */
+    public function dependentsOfPerson(int $id): PersonDependentCounts
+    {
+        return $this->personDependents->countOfPerson($id);
+    }
+
     /** How many entries of every day are of the drink: deleting the drink deletes them. */
     public function entriesOfDrink(int $id): int
     {
@@ -196,7 +204,9 @@ final readonly class Catalog
     }
 
     /**
-     * Deletes a person and all of the person's entries (the foreign key cascades).
+     * Deletes a person and all of the person's entries and results (the foreign keys
+     * cascade); the person's matches stay with that side cleared (the foreign key sets it to
+     * null). Each of those changes is recorded as caused by the person's deletion.
      *
      * @throws NotFound when there is no such person
      */
@@ -282,14 +292,16 @@ final readonly class Catalog
         return [$name, number_format((float) $multiplier, 2, '.', '')];
     }
 
-    private static function validName(string $name): bool
+    /** Whether a trimmed name is 1–40 characters: the rule for every name in the catalog, and for games. */
+    public static function validName(string $name): bool
     {
         $length = mb_strlen($name, 'UTF-8');
 
         return $length >= 1 && $length <= self::MAX_NAME_LENGTH;
     }
 
-    private static function nameError(): string
+    /** What a name breaking `validName` is told. */
+    public static function nameError(): string
     {
         return sprintf('1 bis %d Zeichen.', self::MAX_NAME_LENGTH);
     }
@@ -372,24 +384,25 @@ final readonly class Catalog
      * record; then delete. An entry insert takes a shared lock on its person, drink and factor
      * for its foreign key checks, so it either committed before the row was locked, and its
      * entry is read and recorded here, or it waits and then fails because the row is gone.
+     * A person's deletion then has its PersonDependents lock, read and record their rows,
+     * after its own event and its entries'; a match recording waits and fails just the same.
      *
-     * The deletion lock lets one deletion run at a time. Without it, two deletions of different
-     * rows that share an entry (its person and its drink, say) would each lock their row and
-     * then wait for the other's: one locks the entry, the other its own row, and each needs
-     * what the other holds to snapshot the entry. It is a named lock, taken before the
-     * transaction holds any row, so no row lock ever waits for it.
+     * The DeletionLock lets one deletion run at a time, game deletions included. Without it, two
+     * deletions of different rows that share an entry (its person and its drink, say) would
+     * each lock their row and then wait for the other's: one locks the entry, the other its own
+     * row, and each needs what the other holds to snapshot the entry.
      *
      * @throws NotFound when there is no such row
      */
     private function delete(Actor $actor, AuditSubjectKind $kind, int $id): void
     {
-        $this->oneDeletionAtATime(function () use ($actor, $kind, $id): void {
+        DeletionLock::hold($this->pdo, function () use ($actor, $kind, $id): void {
             $this->revision->write(function () use ($actor, $kind, $id): void {
                 $before = $this->snapshot($kind, $id);
                 $entryIds = EntrySnapshots::lockReferencing($this->pdo, $kind, $id);
                 // A factor's entries stay and lose it; a person's or a drink's go with it.
                 $clearsFactor = $kind === AuditSubjectKind::Factor;
-                $this->audit->recordDeletion(
+                $cause = $this->audit->recordDeletion(
                     $actor,
                     $kind,
                     (string) $id,
@@ -397,6 +410,9 @@ final readonly class Catalog
                     $clearsFactor ? AuditOperation::Update : AuditOperation::Delete,
                     $this->entryChanges($entryIds, $clearsFactor),
                 );
+                if ($kind === AuditSubjectKind::Person) {
+                    $this->personDependents->recordPersonDeletion($actor, $id, $cause);
+                }
                 $this->pdo->prepare('DELETE FROM ' . self::table($kind) . ' WHERE id = ?')->execute([$id]);
             });
         });
@@ -417,31 +433,6 @@ final readonly class Catalog
     }
 
     /**
-     * Runs a deletion while this session holds the deletion lock, and releases it afterwards,
-     * also when the deletion fails. The lock is server-wide, so its name carries the database's.
-     *
-     * @param callable(): void $deletion
-     *
-     * @throws RuntimeException when another deletion holds the lock for longer than DELETION_LOCK_SECONDS
-     */
-    private function oneDeletionAtATime(callable $deletion): void
-    {
-        $statement = $this->pdo->query('SELECT DATABASE()');
-        $database = $statement === false ? null : $statement->fetchColumn();
-        $lock = 'performance.catalog-deletion.' . substr(is_string($database) ? $database : '', 0, 32);
-        $acquire = $this->pdo->prepare('SELECT GET_LOCK(?, ?)');
-        $acquire->execute([$lock, self::DELETION_LOCK_SECONDS]);
-        if ((int) $acquire->fetchColumn() !== 1) {
-            throw new RuntimeException("Another deletion held {$lock} for longer than " . self::DELETION_LOCK_SECONDS . ' seconds');
-        }
-        try {
-            $deletion();
-        } finally {
-            $this->pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([$lock]);
-        }
-    }
-
-    /**
      * Locks an item's row for the rest of the transaction and reads its values as the audit
      * log keeps them: the columns its writes set, decimals as fixed-scale strings.
      *
@@ -455,7 +446,7 @@ final readonly class Catalog
             AuditSubjectKind::Person => 'name',
             AuditSubjectKind::Drink => 'name, points',
             AuditSubjectKind::Factor => 'name, multiplier',
-            AuditSubjectKind::Entry => throw new LogicException('Entries are not catalog items'),
+            AuditSubjectKind::Entry, AuditSubjectKind::Game, AuditSubjectKind::Match, AuditSubjectKind::Result => throw new LogicException("{$kind->value} is not a catalog item"),
         };
         $row = $this->one("SELECT {$columns} FROM " . self::table($kind) . ' WHERE id = ? FOR UPDATE', $id);
 
@@ -468,7 +459,7 @@ final readonly class Catalog
             AuditSubjectKind::Person => 'persons',
             AuditSubjectKind::Drink => 'drinks',
             AuditSubjectKind::Factor => 'factors',
-            AuditSubjectKind::Entry => throw new LogicException('Entries are not catalog items'),
+            AuditSubjectKind::Entry, AuditSubjectKind::Game, AuditSubjectKind::Match, AuditSubjectKind::Result => throw new LogicException("{$kind->value} is not a catalog item"),
         };
     }
 

@@ -8,8 +8,12 @@ import { pwaOptions } from './src/pwa/manifest';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 
-/** The released version; CI passes `<package version>+<commit>`. */
-export const appVersion = process.env.APP_VERSION ?? '0.1.0+dev';
+const { version } = JSON.parse(
+  readFileSync(new URL('package.json', import.meta.url), 'utf8'),
+) as { version: string };
+
+/** The released version; CI passes `<package version>+<commit>`, a local build `<package version>+dev`. */
+export const appVersion = process.env.APP_VERSION ?? `${version}+dev`;
 
 /** What this tree's API reports in health, for the fixture preview's canned health. */
 const api = (path: string) => new URL(`../api/${path}`, import.meta.url);

@@ -13,9 +13,9 @@ declare(strict_types=1);
 
 use Performance\Domain\Actor;
 use Performance\Domain\AuditLog;
-use Performance\Domain\Catalog\Catalog;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
+use Performance\Domain\Idempotency;
 use Performance\Domain\SystemClock;
 use Performance\Domain\ValidationFailed;
 use Performance\Http\Config;
@@ -28,22 +28,23 @@ const ADDS = 25;
 
 [$startAt, $role, $personId, $drinkId, $factorId, $accountId] = cliArguments(6);
 $env = static fn(string $name): string => (string) getenv($name);
-// The API's own session setup (Database::open), as a request would have.
-$pdo = Database::open(new Config(
+// The composition root on the API's own session setup (Database::open), as a request would have.
+$clock = new SystemClock();
+$database = new Database(new Config(
     sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $env('DB_HOST'), $env('DB_PORT'), $env('DB_NAME')),
     $env('DB_USER'),
     $env('DB_PASS'),
     'race',
     [],
-));
-$clock = new SystemClock();
+), $clock);
+$pdo = $database->pdo();
 $revision = new DataRevision($pdo);
 $audit = new AuditLog($pdo, $clock);
 $actor = new Actor((int) $accountId, 'race');
 time_sleep_until((float) $startAt);
 
 if ($role === 'add') {
-    $ledger = new EntryLedger($pdo, $clock, $revision, $audit);
+    $ledger = new EntryLedger($pdo, $clock, $revision, $audit, new Idempotency($pdo, $revision));
     $factor = (int) $factorId === 0 ? null : (int) $factorId;
     for ($added = 0; $added < ADDS; ++$added) {
         $bytes = random_bytes(16);
@@ -58,7 +59,7 @@ if ($role === 'add') {
     exit(0);
 }
 
-$catalog = new Catalog($pdo, $clock, $revision, $audit);
+$catalog = $database->catalog();
 switch ($role) {
     case 'delete-person':
         $catalog->deletePerson($actor, (int) $personId);
