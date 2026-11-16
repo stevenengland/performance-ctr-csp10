@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { coloursAt, pickWith, PICTURES } from './support/photo.ts';
 import { expect, test, type Page } from './support/playwright.ts';
 
 test('the fixture preview opens on the fixture backend without network access', async ({
@@ -567,4 +568,56 @@ test('the fixture preview removes a person’s photo in Person bearbeiten', asyn
     'data-initials',
     'A',
   );
+});
+
+test('the fixture preview sets and replaces a person’s photo in Person bearbeiten', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verwalten/personen');
+  const ben = page
+    .getByRole('list', { name: 'Personen' })
+    .getByRole('listitem')
+    .filter({ hasText: 'Ben' });
+  await expect(ben.locator('[data-initials="B"]')).toHaveCount(1);
+  const dialog = page.getByRole('dialog');
+  const photo = ben.locator('.person-avatar img');
+  const loaded = () =>
+    photo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth);
+
+  await page.getByRole('button', { name: 'Ben bearbeiten' }).click();
+  await pickWith(
+    page,
+    dialog.getByRole('button', { name: 'Foto wählen' }),
+    PICTURES.halves,
+  );
+  await expect(
+    dialog.getByRole('img', { name: 'Ausschnitt des Fotos' }),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Speichern' }).click();
+  await expect(dialog).toBeHidden();
+
+  await expect(photo).toHaveAttribute('src', /^data:image\/jpeg;base64,/);
+  await expect.poll(loaded).toBe(256);
+  const first = await photo.getAttribute('src');
+
+  await page.getByRole('button', { name: 'Ben bearbeiten' }).click();
+  await pickWith(
+    page,
+    dialog.getByRole('button', { name: 'Foto ändern' }),
+    PICTURES.exifRotated,
+  );
+  await expect(
+    dialog.getByRole('button', { name: 'Anderes Foto' }),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Speichern' }).click();
+  await expect(dialog).toBeHidden();
+
+  await expect(photo).not.toHaveAttribute('src', first ?? '');
+  await expect.poll(loaded).toBe(256);
+  expect(
+    await coloursAt(photo, [
+      [0.5, 0.2],
+      [0.5, 0.8],
+    ]),
+  ).toEqual(['red', 'blue']);
 });
