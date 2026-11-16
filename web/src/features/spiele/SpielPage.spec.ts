@@ -545,5 +545,6 @@ describe('restarting a game', () => {
     );
     expect(wrapper.get('.game-leader').text()).toContain('Anna');
     expect(wrapper.get('.top-bar__context').text()).toBe('Duell · seit 15.09.');
+    expect(document.querySelector('.v-overlay--active')).not.toBeNull();
   });
 });
