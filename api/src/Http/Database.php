@@ -9,8 +9,10 @@ use Performance\Domain\Accounts;
 use Performance\Domain\AuditLog;
 use Performance\Domain\Catalog\Catalog;
 use Performance\Domain\Clock;
+use Performance\Domain\CompositeGameDependents;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
+use Performance\Domain\Games\Games;
 use Performance\Domain\Idempotency;
 use Performance\Domain\Migrator;
 use Performance\Domain\Scoreboard;
@@ -33,6 +35,7 @@ final class Database
     private ?DataRevision $revision = null;
     private ?AuditLog $audit = null;
     private ?Idempotency $idempotency = null;
+    private ?Games $games = null;
 
     public function __construct(
         private readonly Config $config,
@@ -67,6 +70,15 @@ final class Database
     public function entries(): EntryLedger
     {
         return $this->entries ??= new EntryLedger($this->pdo(), $this->clock, $this->revision(), $this->audit(), $this->idempotency());
+    }
+
+    /**
+     * Games with their dependents: one composite, which Matches and Results join as they
+     * arrive. It has no members yet, so a game has no rows that go with it.
+     */
+    public function games(): Games
+    {
+        return $this->games ??= new Games($this->pdo(), $this->clock, $this->revision(), $this->audit(), new CompositeGameDependents());
     }
 
     public function scoreboard(): Scoreboard

@@ -11,7 +11,7 @@ use PDO;
 
 /**
  * The audit log: application-level append-only history of the changes to entries, persons,
- * drinks and factors. It can append an event and read events back, nothing else.
+ * drinks, factors and games. It can append an event and read events back, nothing else.
  *
  * Callers say what they alone know: the actor, the operation, the subject and its values
  * before and after the change. The log owns the rest: it checks that the values fit the

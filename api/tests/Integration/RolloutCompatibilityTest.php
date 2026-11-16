@@ -24,6 +24,11 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
     /** The previous release's reservation of a sign-in attempt (before `login_attempts.pending`). */
     private const PREVIOUS_RESERVATION = 'INSERT INTO login_attempts (user_name, client_address, attempted_at) VALUES (?, ?, ?)';
 
+    /** The previous release's record of a person's creation (AuditLog before the games). */
+    private const PREVIOUS_AUDIT_EVENT = "INSERT INTO audit_events (occurred_at, operation, subject_kind, subject_id, actor_account_id, actor_user_name,
+            before_json, after_json, snapshot_version, cause_id)
+        VALUES (?, 'create', 'person', '1', 1, 'chef', NULL, '{\"name\":\"Daniel\"}', 1, NULL)";
+
     public function testAttemptsThePreviousReleaseRecordedCountAsFailuresAndASuccessForgetsThem(): void
     {
         $this->signIn();
@@ -89,6 +94,27 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
         self::assertSame(409, $changed->getStatusCode());
         self::assertSame([['id' => self::ENTRY, 'quantity' => 2]], $this->rows('SELECT id, quantity FROM entries'));
         self::assertSame([], $this->rows('SELECT id FROM idempotency_keys'));
+    }
+
+    /**
+     * The games migrations add the `games` table, which the previous release never touches, and
+     * drop the check that limited audit subjects to the previous release's kinds. The previous
+     * release keeps recording its events as before, and a reader of the log gets them next to
+     * this release's game events.
+     */
+    public function testThePreviousReleaseKeepsRecordingItsEventsNextToGameEvents(): void
+    {
+        $session = $this->signIn();
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $session);
+        $this->otherSession()->prepare(self::PREVIOUS_AUDIT_EVENT)->execute([Timestamp::of($this->clock->now())]);
+
+        /** @var list<array<string, mixed>> $events */
+        $events = $this->body($this->send('GET', '/api/audit', session: $session))['events'];
+
+        self::assertSame(
+            [['person', 'create', ['name' => 'Daniel']], ['game', 'create', ['name' => 'Schach', 'kind' => 'duel', 'drawsAllowed' => true, 'run' => 1, 'startedAt' => '2026-11-14T20:00:00.000Z']]],
+            array_map(static fn(array $event): array => [$event['subjectKind'], $event['operation'], $event['after']], $events),
+        );
     }
 
     private function previousReleaseReserves(): void

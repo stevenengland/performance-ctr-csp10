@@ -37,6 +37,7 @@ final class App
         $catalog = new CatalogActions($database);
         $entries = new EntryActions($database);
         $audit = new AuditActions($database);
+        $games = new GameActions($database);
 
         // Open routes: health and sign-in. Every other route requires a session.
         $app->get('/api/health', new HealthAction($database, $config->appVersion));
@@ -73,6 +74,13 @@ final class App
         $member($app->put($entry, $entries->put(...)));
         $member($app->delete($entry, $entries->delete(...)));
         $member($app->get('/api/scoreboard', new ScoreboardAction($database)));
+        $member($app->get('/api/games', $games->list(...)));
+        $member($app->post('/api/games', $games->create(...)));
+        $game = '/api/games/{id:' . CatalogActions::ID_PATTERN . '}';
+        $member($app->get($game, $games->read(...)));
+        $member($app->patch($game, $games->update(...)));
+        $member($app->delete($game, $games->delete(...)));
+        $member($app->post($game . '/restart', $games->restart(...)));
         $admin($app->get('/api/audit', $audit->list(...)));
 
         $app->addRoutingMiddleware();

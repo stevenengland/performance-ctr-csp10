@@ -126,6 +126,26 @@ final class MigratorTest extends DatabaseTestCase
         self::assertCount(0, $this->rows('SELECT id FROM entry_requests'), 'the previous release still has its table (ADR 0006)');
     }
 
+    public function testTheGamesMigrationsRunAgainAfterACrashBeforeTheirBookkeepingWithoutChangingAnything(): void
+    {
+        $this->get('/api/health');
+        $other = $this->otherSession();
+        $other->exec("INSERT INTO games (name, kind, started_at, created_at) VALUES ('Schach', 'duel', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+        // A crash between the DDL and its bookkeeping: the change is in, the rows say started.
+        $other->exec(
+            "UPDATE schema_migrations SET state = 'started', completed_at = NULL
+              WHERE version IN ('0015_create_games', '0016_drop_audit_events_subject_kind_check')",
+        );
+
+        $health = $this->body($this->get('/api/health'));
+
+        self::assertSame('ok', $health['migration']);
+        $states = array_column($this->bookkeeping(), 'state', 'version');
+        self::assertSame('completed', $states['0015_create_games']);
+        self::assertSame('completed', $states['0016_drop_audit_events_subject_kind_check']);
+        self::assertSame([['name' => 'Schach', 'run' => '1']], $this->rows('SELECT name, CAST(run AS CHAR) AS run FROM games'), 'the table is kept as it was');
+    }
+
     public function testNoTwoMigrationsShareANumber(): void
     {
         $numbers = array_map(static fn(string $name): string => substr($name, 0, 4), self::migrationNames());

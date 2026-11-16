@@ -282,14 +282,16 @@ final readonly class Catalog
         return [$name, number_format((float) $multiplier, 2, '.', '')];
     }
 
-    private static function validName(string $name): bool
+    /** Whether a trimmed name is 1–40 characters: the rule for every name in the catalog, and for games. */
+    public static function validName(string $name): bool
     {
         $length = mb_strlen($name, 'UTF-8');
 
         return $length >= 1 && $length <= self::MAX_NAME_LENGTH;
     }
 
-    private static function nameError(): string
+    /** What a name breaking `validName` is told. */
+    public static function nameError(): string
     {
         return sprintf('1 bis %d Zeichen.', self::MAX_NAME_LENGTH);
     }
@@ -455,7 +457,7 @@ final readonly class Catalog
             AuditSubjectKind::Person => 'name',
             AuditSubjectKind::Drink => 'name, points',
             AuditSubjectKind::Factor => 'name, multiplier',
-            AuditSubjectKind::Entry => throw new LogicException('Entries are not catalog items'),
+            AuditSubjectKind::Entry, AuditSubjectKind::Game => throw new LogicException("{$kind->value} is not a catalog item"),
         };
         $row = $this->one("SELECT {$columns} FROM " . self::table($kind) . ' WHERE id = ? FOR UPDATE', $id);
 
@@ -468,7 +470,7 @@ final readonly class Catalog
             AuditSubjectKind::Person => 'persons',
             AuditSubjectKind::Drink => 'drinks',
             AuditSubjectKind::Factor => 'factors',
-            AuditSubjectKind::Entry => throw new LogicException('Entries are not catalog items'),
+            AuditSubjectKind::Entry, AuditSubjectKind::Game => throw new LogicException("{$kind->value} is not a catalog item"),
         };
     }
 
