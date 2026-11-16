@@ -45,8 +45,9 @@ final class App
         $admin = static fn(RouteInterface $route): RouteInterface => $route->add($jsonBody)->add($adminOnly)->add($signedIn);
         $session = new SessionActions($database, $config->bootstrapAdmin);
         $accounts = new AccountActions($database);
-        $catalog = new CatalogActions($database);
-        $photos = new PersonPhotoActions($database);
+        $photoUrl = new PhotoUrl($basePath);
+        $catalog = new CatalogActions($database, $photoUrl);
+        $photos = new PersonPhotoActions($database, $photoUrl);
         $entries = new EntryActions($database);
         $audit = new AuditActions($database);
         $games = new GameActions($database);

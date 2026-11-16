@@ -35,6 +35,9 @@ final readonly class Catalog
     public const MAX_POINTS = 9999.99;
     public const MAX_MULTIPLIER = 99.99;
 
+    /** Persons with their photo's version, never its bytes (null without a photo). */
+    private const PERSONS = 'SELECT p.id, p.name, ph.version FROM persons p LEFT JOIN person_photos ph ON ph.person_id = p.id';
+
     public function __construct(
         private PDO $pdo,
         private Clock $clock,
@@ -52,7 +55,7 @@ final readonly class Catalog
         $name = self::validPerson($name);
 
         // A new person has no photo yet; the snapshot says so, like every person event's.
-        return new Person($this->insert($actor, AuditSubjectKind::Person, ['name' => $name], ['name' => $name, 'photo' => null]), $name);
+        return new Person($this->insert($actor, AuditSubjectKind::Person, ['name' => $name], ['name' => $name, 'photo' => null]), $name, null);
     }
 
     /**
@@ -82,10 +85,7 @@ final readonly class Catalog
      */
     public function persons(): array
     {
-        return array_map(
-            static fn(array $row): Person => new Person((int) $row['id'], (string) $row['name']),
-            $this->all('SELECT id, name FROM persons ORDER BY name, id'),
-        );
+        return array_map(self::personOf(...), $this->all(self::PERSONS . ' ORDER BY p.name, p.id'));
     }
 
     /**
@@ -112,9 +112,7 @@ final readonly class Catalog
      */
     public function person(int $id): Person
     {
-        $row = $this->one('SELECT id, name FROM persons WHERE id = ?', $id);
-
-        return new Person((int) $row['id'], (string) $row['name']);
+        return self::personOf($this->one(self::PERSONS . ' WHERE p.id = ?', $id));
     }
 
     /**
@@ -169,9 +167,9 @@ final readonly class Catalog
     public function updatePerson(Actor $actor, int $id, string $name): Person
     {
         $name = self::validPerson($name);
-        $this->update($actor, AuditSubjectKind::Person, $id, ['name' => $name]);
+        $after = $this->update($actor, AuditSubjectKind::Person, $id, ['name' => $name]);
 
-        return new Person($id, $name);
+        return new Person($id, $name, $after['photo'] ?? null);
     }
 
     /**
@@ -357,22 +355,27 @@ final readonly class Catalog
      *
      * @param array<string, string> $columns the item's new values
      *
+     * @return array<string, string|null> the snapshot after, as the audit log records it
+     *
      * @throws NotFound when there is no such row
      * @throws DuplicateName when the new name is taken, ignoring case
      */
-    private function update(Actor $actor, AuditSubjectKind $kind, int $id, array $columns): void
+    private function update(Actor $actor, AuditSubjectKind $kind, int $id, array $columns): array
     {
         $now = Timestamp::of($this->clock->now());
         $table = self::table($kind);
         $assignments = implode(', ', array_map(static fn(string $column): string => "{$column} = ?", array_keys($columns)));
         try {
-            $this->revision->write(function () use ($actor, $kind, $table, $id, $columns, $assignments, $now): void {
+            return $this->revision->write(function () use ($actor, $kind, $table, $id, $columns, $assignments, $now): array {
                 // Locked first, so the values before are the ones this change replaces, and an
                 // unchanged row (same values) is still told apart from a missing one.
                 $before = $this->snapshot($kind, $id);
                 $this->pdo->prepare("UPDATE {$table} SET {$assignments}, updated_at = ? WHERE id = ?")
                     ->execute([...array_values($columns), $now, $id]);
-                $this->audit->record($actor, AuditOperation::Update, $kind, (string) $id, $before, [...$before, ...$columns]);
+                $after = [...$before, ...$columns];
+                $this->audit->record($actor, AuditOperation::Update, $kind, (string) $id, $before, $after);
+
+                return $after;
             });
         } catch (PDOException $failure) {
             throw self::duplicateOr($failure, $columns['name'] ?? '');
@@ -509,6 +512,14 @@ final readonly class Catalog
 
         /** @var list<array<string, scalar|null>> */
         return $statement->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * @param array<string, scalar|null> $row a row of PERSONS
+     */
+    private static function personOf(array $row): Person
+    {
+        return new Person((int) $row['id'], (string) $row['name'], $row['version'] === null ? null : (string) $row['version']);
     }
 
     /**

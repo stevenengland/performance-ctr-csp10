@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Performance\Tests\Integration;
 
 use Performance\Domain\Catalog\CleanJpeg;
+use Performance\Http\App;
 use Performance\Http\PersonPhotoActions;
 use Performance\Tests\Support\DatabaseTestCase;
 use Performance\Tests\Support\InterleavedWrites;
@@ -50,7 +51,7 @@ final class PersonPhotoTest extends DatabaseTestCase
         $response = $this->put('metadata.jpg', $this->member);
 
         self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
-        self::assertSame(['id' => 1, 'name' => 'Anna'], $this->body($response));
+        self::assertSame(['id' => 1, 'name' => 'Anna', 'photoUrl' => self::versioned('A')], $this->body($response));
         $cleaned = self::fixture('metadata-cleaned.jpg');
         self::assertSame([['person_id' => '1', 'jpeg' => $cleaned, 'version' => hash('sha256', $cleaned)]], $this->storedPhotos());
         self::assertStringNotContainsString('Exif', $cleaned);
@@ -102,7 +103,7 @@ final class PersonPhotoTest extends DatabaseTestCase
         $again = $this->put('metadata-cleaned.jpg', $this->member);
 
         self::assertSame(200, $again->getStatusCode(), (string) $again->getBody());
-        self::assertSame(['id' => 1, 'name' => 'Anna'], $this->body($again));
+        self::assertSame(['id' => 1, 'name' => 'Anna', 'photoUrl' => self::versioned('A')], $this->body($again));
         self::assertSame($tag, $this->scoreboardTag(), 'no revision bump');
         self::assertCount(1, $this->photoEvents());
     }
@@ -117,6 +118,66 @@ final class PersonPhotoTest extends DatabaseTestCase
         self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
         self::assertSame($revision + 1, $this->revision());
         self::assertSame([['update', 'race', ['name' => 'Anna', 'photo' => null], ['name' => 'Anna', 'photo' => 'B']]], $this->photoEvents());
+    }
+
+    /** The client never composes a photo URL: the one the person carries serves the photo as it is. */
+    public function testThePersonListAndThePersonNameTheStoredVersionsUrlWhichServesThePhoto(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+
+        $listed = $this->send('GET', '/api/persons', session: $this->member);
+        $read = $this->send('GET', '/api/persons/1', session: $this->member);
+
+        self::assertSame([['id' => 1, 'name' => 'Anna', 'photoUrl' => self::versioned('A')]], $this->body($listed)['persons']);
+        self::assertSame(self::versioned('A'), $this->body($read)['photoUrl']);
+        $served = $this->send('GET', $this->photoUrl($read), session: $this->member);
+        self::assertSame(200, $served->getStatusCode(), (string) $served->getBody());
+        self::assertSame(self::fixture('metadata-cleaned.jpg'), (string) $served->getBody());
+    }
+
+    public function testAfterAReplacementThePersonNamesTheNewVersionAndAfterRemovalNone(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+
+        $replaced = $this->put('progressive.jpg', $this->member);
+        $afterReplacement = $this->send('GET', '/api/persons/1', session: $this->member);
+        $this->send('DELETE', self::PHOTO, session: $this->member);
+        $afterRemoval = $this->send('GET', '/api/persons/1', session: $this->member);
+
+        self::assertSame(self::versioned('B'), $this->body($replaced)['photoUrl']);
+        self::assertSame(self::versioned('B'), $this->body($afterReplacement)['photoUrl']);
+        self::assertNull($this->body($afterRemoval)['photoUrl']);
+        self::assertSame(
+            [['id' => 1, 'name' => 'Anna', 'photoUrl' => null]],
+            $this->body($this->send('GET', '/api/persons', session: $this->member))['persons'],
+        );
+    }
+
+    public function testARenameAnswersThePhotoItLeftAlone(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+
+        $renamed = $this->send('PATCH', '/api/persons/1', ['name' => 'Berta'], $this->member);
+
+        self::assertSame(200, $renamed->getStatusCode(), (string) $renamed->getBody());
+        self::assertSame(['id' => 1, 'name' => 'Berta', 'photoUrl' => self::versioned('A')], $this->body($renamed));
+    }
+
+    /** Installed below the web root's top, the API builds every photo URL under its base path. */
+    public function testUnderABasePathThePhotoUrlStartsWithItAndServesThePhoto(): void
+    {
+        $app = App::create($this->config(), '/performance', $this->clock);
+        $image = base64_encode(self::fixture('metadata.jpg'));
+
+        $set = $this->send('PUT', '/performance' . self::PHOTO, ['image' => $image], $this->member, $app);
+
+        self::assertSame(200, $set->getStatusCode(), (string) $set->getBody());
+        self::assertSame('/performance' . self::versioned('A'), $this->photoUrl($set));
+        $listed = $this->send('GET', '/performance/api/persons', session: $this->member, app: $app);
+        self::assertSame([['id' => 1, 'name' => 'Anna', 'photoUrl' => '/performance' . self::versioned('A')]], $this->body($listed)['persons']);
+        $served = $this->send('GET', $this->photoUrl($set), session: $this->member, app: $app);
+        self::assertSame(200, $served->getStatusCode(), (string) $served->getBody());
+        self::assertSame(self::fixture('metadata-cleaned.jpg'), (string) $served->getBody());
     }
 
     public function testTheStoredVersionsUrlServesExactlyTheStoredBytesCachedForAYear(): void
@@ -460,6 +521,15 @@ final class PersonPhotoTest extends DatabaseTestCase
             'A' => self::fixture('metadata-cleaned.jpg'),
             'B' => CleanJpeg::clean(self::fixture('progressive.jpg')),
         });
+    }
+
+    /** The `photoUrl` of a person answer that names a photo. */
+    private function photoUrl(ResponseInterface $response): string
+    {
+        $url = $this->body($response)['photoUrl'];
+        self::assertIsString($url, (string) $response->getBody());
+
+        return $url;
     }
 
     private function assertNotFoundProblem(ResponseInterface $response): void

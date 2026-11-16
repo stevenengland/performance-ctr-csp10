@@ -23,7 +23,7 @@ final readonly class PersonPhotoActions
     /** A version names its bytes for good: kept for a year, but only in the member's own browser. */
     private const CACHE_CONTROL = 'private, max-age=31536000, immutable';
 
-    public function __construct(private Database $database) {}
+    public function __construct(private Database $database, private PhotoUrl $photoUrl) {}
 
     /**
      * The photo, only by its stored version `v`: any other `v`, or none, is 404 (never another
@@ -47,7 +47,7 @@ final readonly class PersonPhotoActions
         $id = (int) $arguments['id'];
         $this->database->personPhotos()->set(SessionAuth::actor($request), $id, self::jpeg(Input::text($request, 'image')));
 
-        return Json::write($response, CatalogActions::person($this->database->catalog()->person($id)));
+        return Json::write($response, CatalogActions::person($this->database->catalog()->person($id), $this->photoUrl));
     }
 
     /**
