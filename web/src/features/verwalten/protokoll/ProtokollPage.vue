@@ -16,6 +16,8 @@ const events = shallowRef<AuditEvent[]>();
 /** The `before` of the next older page; null on the last page. */
 const next = shallowRef<number | null>(null);
 const loading = ref(false);
+/** The first page failed: nothing to show but the failure and a retry. */
+const failed = ref(false);
 const days = computed(() =>
   events.value ? auditDays(events.value) : undefined,
 );
@@ -23,16 +25,22 @@ const days = computed(() =>
 const support = (row: AuditRow) =>
   row.cause === undefined ? row.by : `${row.by} · ${row.cause}`;
 
-/** Reads the next page (the newest at first) and appends it below the loaded ones. */
+/**
+Reads the next page (the newest at first) and appends it below the loaded ones.
+A failed older page keeps what is loaded; a failed first page says so and offers
+a retry, as there is nothing else to keep.
+*/
 async function loadPage() {
   if (loading.value) return;
   loading.value = true;
+  failed.value = false;
   try {
     const page = await listAuditEvents(next.value ?? undefined);
     events.value = [...(events.value ?? []), ...page.events];
     next.value = page.next;
   } catch (failure) {
     showProblem(failure);
+    failed.value = events.value === undefined;
   } finally {
     loading.value = false;
   }
@@ -43,7 +51,19 @@ onMounted(loadPage);
 
 <template>
   <section class="protokoll">
-    <ul v-if="days === undefined" class="list" aria-busy="true">
+    <div v-if="failed" class="empty-state">
+      <p class="type-body">{{ messages.protokoll.notLoaded }}</p>
+      <v-btn
+        variant="flat"
+        color="primary"
+        rounded="0"
+        class="dialog-button type-row-title"
+        @click="loadPage"
+      >
+        {{ messages.protokoll.retry }}
+      </v-btn>
+    </div>
+    <ul v-else-if="days === undefined" class="list" aria-busy="true">
       <li v-for="row in SKELETON_ROWS" :key="row" class="list__row">
         <span class="skeleton" />
       </li>

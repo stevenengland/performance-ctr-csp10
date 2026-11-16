@@ -117,6 +117,9 @@ export const messages = {
     title: 'Protokoll',
     note: 'Jede Änderung mit Konto und Zeit. Das Protokoll kann nicht bearbeitet oder gelöscht werden.',
     empty: 'Noch keine Änderungen.',
+    /** The first page failed (no answer, or a problem the snackbar names). */
+    notLoaded: 'Protokoll nicht geladen.',
+    retry: 'Erneut versuchen',
     more: 'Ältere laden',
     today: 'Heute',
     yesterday: 'Gestern',

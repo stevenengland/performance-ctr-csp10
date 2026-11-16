@@ -1,4 +1,4 @@
-import type { VueWrapper } from '@vue/test-utils';
+import { flushPromises, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuditEvent, AuditPage } from '../../../core/api-client';
 import { dismissSnackbar, useSnackbar } from '../../../core/snackbar';
@@ -68,7 +68,7 @@ const older: AuditPage = {
 };
 
 /** A fake audit route over the given pages, keyed by `before` ('' for the newest). */
-function api(pages: Record<string, () => Response>) {
+function api(pages: Record<string, () => Response | Promise<Response>>) {
   const asked: string[] = [];
   vi.stubGlobal(
     'fetch',
@@ -177,6 +177,63 @@ describe('Protokoll', () => {
     expect(useSnackbar().value?.text).toBe('Wartung.');
     expect(wrapper.findAll('[data-test="audit-event"]')).toHaveLength(2);
     expect(more(wrapper)).toHaveLength(1);
+  });
+
+  it('shows four skeleton rows, and neither the empty text nor the button, until the first page arrives', async () => {
+    let answer: (response: Response) => void = () => undefined;
+    api({
+      '': () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+
+    wrapper = await mountPage('/verwalten/protokoll', ProtokollPage);
+
+    const busy = wrapper.get('[aria-busy="true"]');
+    expect(busy.findAll('.skeleton')).toHaveLength(4);
+    expect(wrapper.text()).not.toContain('Noch keine Änderungen.');
+    expect(more(wrapper)).toHaveLength(0);
+
+    answer(json(newest));
+    await flushPromises();
+
+    expect(wrapper.find('[aria-busy="true"]').exists()).toBe(false);
+    expect(wrapper.findAll('[data-test="audit-event"]')).toHaveLength(2);
+  });
+
+  it('says the log was not loaded and offers a retry when the first page fails, and shows it once the retry succeeds', async () => {
+    let failing = true;
+    const asked = api({
+      '': () => {
+        if (failing) throw new TypeError('Failed to fetch');
+        return json(newest);
+      },
+    });
+
+    wrapper = await mountPage('/verwalten/protokoll', ProtokollPage);
+
+    expect(wrapper.find('[aria-busy="true"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Protokoll nicht geladen.');
+    expect(wrapper.text()).not.toContain('Noch keine Änderungen.');
+
+    failing = false;
+    await click(buttonIn(document, 'Erneut versuchen'));
+
+    expect(asked).toEqual(['/api/audit', '/api/audit']);
+    expect(wrapper.text()).not.toContain('Protokoll nicht geladen.');
+    expect(wrapper.findAll('[data-test="audit-event"]')).toHaveLength(2);
+    expect(more(wrapper)).toHaveLength(1);
+  });
+
+  it('shows the problem title too when the first page is refused', async () => {
+    api({ '': () => problem(503, { title: 'Wartung.' }) });
+
+    wrapper = await mountPage('/verwalten/protokoll', ProtokollPage);
+
+    expect(useSnackbar().value?.text).toBe('Wartung.');
+    expect(wrapper.text()).toContain('Protokoll nicht geladen.');
+    expect(buttonIn(document, 'Erneut versuchen')).toBeDefined();
   });
 
   it('says so when the log is empty', async () => {
