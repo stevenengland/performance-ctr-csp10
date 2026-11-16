@@ -9,8 +9,9 @@ use Performance\Tests\Support\InterleavedWrites;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
- * Results written by requests that run at the same moment, each in its own process on the real
- * database: whatever the interleaving, they end in exactly one consistent state.
+ * Results written, verified and rejected by requests that run at the same moment, each in its
+ * own process on the real database: whatever the interleaving, they end in exactly one
+ * consistent state, with at most one verify or reject event (PRD #61).
  */
 final class ResultRacesTest extends DatabaseTestCase
 {
@@ -19,6 +20,10 @@ final class ResultRacesTest extends DatabaseTestCase
     private const RESULT = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
     private const SUCCEEDED = 0;
     private const NOT_FOUND = 3;
+    private const ALREADY_VERIFIED = 4;
+    /** The bootstrap admin (1) records the result; Anna (2) and Ben (3) may verify or reject it. */
+    private const ANNA = 2;
+    private const BEN = 3;
 
     protected function setUp(): void
     {
@@ -28,6 +33,8 @@ final class ResultRacesTest extends DatabaseTestCase
             $this->send('POST', '/api/persons', ['name' => $name], $session);
         }
         $this->send('POST', '/api/games', ['name' => 'Rommé', 'kind' => 'points'], $session);
+        $this->createAccount('anna', 'annas-startpasswort');
+        $this->createAccount('ben', 'bens-startpasswort');
     }
 
     public function testParallelIdenticalRecordsCreateOneResult(): void
@@ -163,6 +170,131 @@ final class ResultRacesTest extends DatabaseTestCase
             array_values(array_filter($this->causedResultEvents(), static fn(array $event): bool => $event['operation'] === 'delete')),
         );
         self::assertSame([], $this->rows('SELECT id FROM results'));
+    }
+
+    public function testOfConcurrentVerificationsExactlyOneRecordsItsEventAndBumpsTheRevision(): void
+    {
+        $this->record();
+        $revision = $this->revision();
+
+        $exitCodes = $this->interleaveOnTheResult(['verify', 'verify-ben', 'verify']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame([['operation' => 'create'], ['operation' => 'verify']], $this->resultEvents());
+        self::assertSame($revision + 1, $this->revision());
+        self::assertSame([['pending' => 0, 'verified_by_account_id' => self::ANNA]], $this->verificationState());
+    }
+
+    public function testOfConcurrentRejectionsExactlyOneRemovesTheResultAndRecordsItsEvent(): void
+    {
+        $this->record();
+
+        $exitCodes = $this->interleaveOnTheResult(['reject', 'reject-ben', 'reject']);
+
+        sort($exitCodes);
+        self::assertSame([self::SUCCEEDED, self::NOT_FOUND, self::NOT_FOUND], $exitCodes);
+        self::assertSame([['operation' => 'create'], ['operation' => 'reject']], $this->resultEvents());
+        self::assertSame([], $this->verificationState());
+    }
+
+    /**
+     * Whichever locks the result first decides: a verified result can no longer be rejected
+     * (409), and a rejected one is no longer there to verify (404).
+     */
+    public function testAVerificationRacingARejectionEndsInOneConsistentState(): void
+    {
+        $this->record();
+
+        [$verify, $reject] = $this->interleaveOnTheResult(['verify', 'reject-ben']);
+
+        self::assertContains([$verify, $reject], [[self::SUCCEEDED, self::ALREADY_VERIFIED], [self::NOT_FOUND, self::SUCCEEDED]]);
+        self::assertSame($verify === self::SUCCEEDED ? [['pending' => 0, 'verified_by_account_id' => self::ANNA]] : [], $this->verificationState());
+        self::assertSame(
+            [['operation' => 'create'], ['operation' => $verify === self::SUCCEEDED ? 'verify' : 'reject']],
+            $this->resultEvents(),
+        );
+    }
+
+    /**
+     * @return iterable<string, array{'undo'|'game'|'person', 'game'|'person'|null}>
+     */
+    public static function removalsOfTheResult(): iterable
+    {
+        yield 'its undo' => ['undo', null];
+        yield "its game's deletion" => ['game', 'game'];
+        yield "its person's deletion" => ['person', 'person'];
+    }
+
+    /**
+     * The undo, the game's and the person's deletion remove the result whether it was verified
+     * or not. The deletions lock the game or the person before the result, the verification the
+     * other way round; the loser of a deadlock runs again. Either the verified result is removed,
+     * or the verification finds it gone; the removal is recorded once, as a delete.
+     *
+     * @param 'undo'|'game'|'person' $removal
+     * @param 'game'|'person'|null    $causeKind what the delete event names as its cause
+     */
+    #[DataProvider('removalsOfTheResult')]
+    public function testAVerificationRacingTheResultsRemovalEndsInOneConsistentState(string $removal, ?string $causeKind): void
+    {
+        $this->record();
+
+        [$verify, $removed] = $this->interleaveOnTheResult(['verify', $removal]);
+
+        self::assertSame(self::SUCCEEDED, $removed);
+        self::assertContains($verify, [self::SUCCEEDED, self::NOT_FOUND]);
+        self::assertSame(
+            [
+                ['operation' => 'create', 'cause_kind' => null],
+                ...($verify === self::SUCCEEDED ? [['operation' => 'verify', 'cause_kind' => null]] : []),
+                ['operation' => 'delete', 'cause_kind' => $causeKind],
+            ],
+            $this->causedResultEvents(),
+        );
+        self::assertSame([], $this->verificationState());
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function verificationState(): array
+    {
+        return $this->rows('SELECT pending, verified_by_account_id FROM results');
+    }
+
+    private function revision(): int
+    {
+        $revision = $this->rows('SELECT revision FROM data_revision')[0]['revision'];
+        self::assertIsInt($revision);
+
+        return $revision;
+    }
+
+    /** Anna's result in Rommé, recorded by the bootstrap admin; it waits for verification. */
+    private function record(): void
+    {
+        $response = $this->send('PUT', '/api/results/' . self::RESULT, ['gameId' => 1, 'personId' => 1, 'points' => -20], $this->signIn());
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+    }
+
+    /**
+     * Runs the writes on the recorded result in the order given (InterleavedWrites).
+     *
+     * @param list<'game'|'person'|'undo'|'verify'|'verify-ben'|'reject'|'reject-ben'> $writes `verify` and `reject` act as Anna
+     *
+     * @return list<int> the exit codes, in the order given
+     */
+    private function interleaveOnTheResult(array $writes): array
+    {
+        return $this->interleave('results', self::RESULT, array_map(static fn(string $write): array => match ($write) {
+            'game' => ['delete-game', '1'],
+            'person' => ['delete-person', '1'],
+            'undo' => ['undo-result', self::RESULT],
+            'verify' => ['verify-result', self::RESULT, self::ANNA],
+            'verify-ben' => ['verify-result', self::RESULT, self::BEN],
+            'reject' => ['reject-result', self::RESULT, self::ANNA],
+            'reject-ben' => ['reject-result', self::RESULT, self::BEN],
+        }, $writes));
     }
 
     /**
