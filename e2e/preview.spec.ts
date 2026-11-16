@@ -284,3 +284,27 @@ test('the fixture preview keeps its last admin and deletes an account, whose ent
     }),
   ).toBeVisible();
 });
+
+test('the fixture preview records a change and shows it on Protokoll with the signed-in account', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verwalten/getraenke');
+  await page.getByRole('button', { name: 'Radler bearbeiten' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Name').fill('Alster');
+  await dialog.getByRole('button', { name: 'Speichern' }).click();
+  await expect(page.getByText('Alster', { exact: true })).toBeVisible();
+
+  await page.goto('/index.html#/verwalten');
+  await page.getByRole('link', { name: /^Protokoll/ }).click();
+
+  await expect(page).toHaveURL(/#\/verwalten\/protokoll$/);
+  const today = page.getByRole('list', { name: 'Heute' });
+  const newest = today.getByRole('listitem').first();
+  await expect(newest).toContainText('Getränk Alster');
+  await expect(newest).toContainText('Name: Radler → Alster');
+  await expect(newest).toContainText(/\d\d:\d\d · anna/);
+  await expect(newest).toContainText('Geändert');
+  // The sample log reaches back over several days.
+  await expect(page.getByRole('list', { name: 'Gestern' })).toBeVisible();
+});
