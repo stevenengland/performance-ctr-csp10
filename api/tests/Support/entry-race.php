@@ -8,6 +8,8 @@ declare(strict_types=1);
  * Connects with the DB_* environment of the test run.
  */
 
+use Performance\Domain\Actor;
+use Performance\Domain\AuditLog;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
 use Performance\Domain\SystemClock;
@@ -28,6 +30,7 @@ $pdo = Database::open(new Config(
     [],
 ));
 $pdo->exec("SET time_zone = '+00:00'");
-$ledger = new EntryLedger($pdo, new SystemClock(), new DataRevision($pdo));
+$clock = new SystemClock();
+$ledger = new EntryLedger($pdo, $clock, new DataRevision($pdo), new AuditLog($pdo, $clock));
 time_sleep_until((float) $startAt);
-$ledger->add($id, (int) $personId, (int) $drinkId, (int) $quantity, null, (int) $accountId);
+$ledger->add(new Actor((int) $accountId, 'race'), $id, (int) $personId, (int) $drinkId, (int) $quantity, null);

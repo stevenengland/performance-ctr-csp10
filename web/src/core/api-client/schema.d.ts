@@ -307,7 +307,7 @@ export interface paths {
     };
     /**
      * The newest audit events, newest first (admins only)
-     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink or a factor, recorded in the transaction of the change with the acting account and the values before and after. A write that fails, and an update that changes no value, records nothing. No route changes or deletes an event, and reading the log does not change the data revision. Answers the newest 20 events.
+     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink or a factor, and every entry counted or deleted, recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry request, and an update that changes no value record nothing. No route changes or deletes an event, and reading the log does not change the data revision. Answers the newest 20 events.
      */
     get: operations['listAuditEvents'];
     put?: never;
@@ -494,7 +494,7 @@ export interface components {
       operation: 'create' | 'update' | 'delete';
       /** @enum {string} */
       subjectKind: 'entry' | 'person' | 'drink' | 'factor';
-      /** @description The subject's id as text (an integer for persons, drinks and factors) */
+      /** @description The subject's id as text (an integer for persons, drinks and factors, the UUID for entries) */
       subjectId: string;
       /** @description The account that made the change, as it was then; kept after the account is renamed or deleted */
       actor: {
@@ -513,11 +513,18 @@ export interface components {
         name: string;
       };
     };
-    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
+    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
     AuditSnapshot: {
       name?: string;
       points?: number;
       multiplier?: number;
+      person?: string;
+      drink?: string;
+      quantity?: number;
+      factor?: null | {
+        name: string;
+        multiplier: number;
+      };
     } & {
       [key: string]: unknown;
     };

@@ -64,7 +64,7 @@ final class Database
 
     public function entries(): EntryLedger
     {
-        return $this->entries ??= new EntryLedger($this->pdo(), $this->clock, $this->revision());
+        return $this->entries ??= new EntryLedger($this->pdo(), $this->clock, $this->revision(), $this->audit());
     }
 
     public function scoreboard(): Scoreboard

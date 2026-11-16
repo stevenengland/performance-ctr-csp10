@@ -57,6 +57,7 @@ final class IdempotencyTest extends DatabaseTestCase
 
         self::assertSame([['id' => self::ENTRY, 'quantity' => 2]], $this->rows('SELECT id, quantity FROM entries'));
         self::assertCount(1, $this->rows('SELECT id FROM entry_requests'));
+        self::assertSame([['subject_id' => self::ENTRY]], $this->rows("SELECT subject_id FROM audit_events WHERE subject_kind = 'entry'"));
     }
 
     public function testTheSameIdWithDifferentContentIs409AndChangesNothing(): void

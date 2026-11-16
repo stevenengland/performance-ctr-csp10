@@ -16,6 +16,8 @@ final class AuditLogTest extends DatabaseTestCase
     private const MEMBER = 'daniel';
     private const MEMBER_PASSWORD = 'daniels-passwort';
     private const NOW = '2026-11-14T20:00:00.000Z';
+    private const ENTRY = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
+    private const OTHER_ENTRY = '0b9d8c7a-6e5f-4a3b-9c2d-1e0f9a8b7c6d';
 
     private string $admin;
 
@@ -201,6 +203,109 @@ final class AuditLogTest extends DatabaseTestCase
         self::assertSame(['name' => 'Happy Hour', 'multiplier' => 0.25], $events[0]['after']);
         self::assertSame(['name' => 'Happy Hour', 'multiplier' => 2], $events[0]['before']);
         self::assertSame(['name' => 'Bier', 'points' => 1.5], $events[2]['after']);
+    }
+
+    public function testAddingAnEntryRecordsOneCreateEventWithThePersonDrinkPointsQuantityAndFactorOfThatMoment(): void
+    {
+        $this->entryCatalog();
+        $member = $this->member();
+
+        $this->putEntry(self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2, 'factorId' => 1], $member);
+        $this->putEntry(self::OTHER_ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 1], $this->admin);
+        $this->send('PATCH', '/api/drinks/1', ['name' => 'Helles', 'points' => 2], $this->admin);
+
+        $actor = ['accountId' => 2, 'userName' => self::MEMBER];
+        $adminActor = ['accountId' => 1, 'userName' => self::ADMIN];
+        self::assertSame(
+            [
+                self::event(5, 'create', 'entry', self::OTHER_ENTRY, $adminActor, null, self::entrySnapshot(1, null)),
+                self::event(4, 'create', 'entry', self::ENTRY, $actor, null, self::entrySnapshot(2, ['name' => 'Happy Hour', 'multiplier' => 2])),
+            ],
+            array_slice($this->events(), 1, 2),
+        );
+        self::assertSame(
+            ['{"person":"Daniel","drink":"Bier","points":"1.50","quantity":2,"factor":{"name":"Happy Hour","multiplier":"2.00"}}'],
+            array_column($this->rows("SELECT after_json FROM audit_events WHERE subject_id = '" . self::ENTRY . "'"), 'after_json'),
+        );
+    }
+
+    public function testDeletingAnEntryRecordsOneDeleteEventWithTheDeletingAccountAndTheEntryAsItWasThen(): void
+    {
+        $this->entryCatalog();
+        $this->putEntry(self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 3, 'factorId' => 1], $this->admin);
+        $this->send('PATCH', '/api/factors/1', ['name' => 'Happy Hour', 'multiplier' => 2.5], $this->admin);
+        $member = $this->member();
+
+        $response = $this->send('DELETE', '/api/entries/' . self::ENTRY, session: $member);
+
+        self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+        [$deleted, $factorChanged, $created] = $this->events();
+        self::assertSame(
+            self::event(
+                6,
+                'delete',
+                'entry',
+                self::ENTRY,
+                ['accountId' => 2, 'userName' => self::MEMBER],
+                self::entrySnapshot(3, ['name' => 'Happy Hour', 'multiplier' => 2.5]),
+                null,
+            ),
+            $deleted,
+        );
+        self::assertSame('factor', $factorChanged['subjectKind']);
+        self::assertSame(self::entrySnapshot(3, ['name' => 'Happy Hour', 'multiplier' => 2]), $created['after']);
+    }
+
+    public function testEntryRequestsThatReplayConflictOrFailRecordNoEvent(): void
+    {
+        $this->entryCatalog();
+        $this->putEntry(self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2], $this->admin);
+        $recorded = $this->events();
+
+        $responses = [
+            200 => $this->send('PUT', '/api/entries/' . self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2], $this->admin),
+            409 => $this->send('PUT', '/api/entries/' . self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 3], $this->admin),
+            422 => $this->send('PUT', '/api/entries/' . self::OTHER_ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 0], $this->admin),
+        ];
+        $missingParent = $this->send('PUT', '/api/entries/' . self::OTHER_ENTRY, ['personId' => 9, 'drinkId' => 1, 'quantity' => 1], $this->admin);
+        $unknown = $this->send('DELETE', '/api/entries/' . self::OTHER_ENTRY, session: $this->admin);
+
+        foreach ($responses as $status => $response) {
+            self::assertSame($status, $response->getStatusCode(), (string) $response->getBody());
+        }
+        self::assertSame(422, $missingParent->getStatusCode(), (string) $missingParent->getBody());
+        self::assertSame(404, $unknown->getStatusCode(), (string) $unknown->getBody());
+        self::assertSame('entry', $recorded[0]['subjectKind']);
+        self::assertSame($recorded, $this->events());
+    }
+
+    /** A person, a drink worth 1.5 points and a factor of 2, created by the admin. */
+    private function entryCatalog(): void
+    {
+        $this->send('POST', '/api/persons', ['name' => 'Daniel'], $this->admin);
+        $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1.5], $this->admin);
+        $this->send('POST', '/api/factors', ['name' => 'Happy Hour', 'multiplier' => 2], $this->admin);
+    }
+
+    /**
+     * @param array<string, int> $request
+     */
+    private function putEntry(string $id, array $request, string $session): void
+    {
+        $response = $this->send('PUT', '/api/entries/' . $id, $request, $session);
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+    }
+
+    /**
+     * An entry of Daniel's Bier (1.5 points) as the API shows it.
+     *
+     * @param array{name: string, multiplier: int|float}|null $factor
+     *
+     * @return array<string, mixed>
+     */
+    private static function entrySnapshot(int $quantity, ?array $factor): array
+    {
+        return ['person' => 'Daniel', 'drink' => 'Bier', 'points' => 1.5, 'quantity' => $quantity, 'factor' => $factor];
     }
 
     /** Signs in a second account, which is not an admin, and returns its session. */

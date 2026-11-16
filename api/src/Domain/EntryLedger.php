@@ -6,6 +6,7 @@ namespace Performance\Domain;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use LogicException;
 use PDO;
 use PDOException;
 
@@ -16,6 +17,8 @@ use PDOException;
  * A known id answers with the original outcome and never recreates an undone
  * entry; different content under a known id is a conflict. Requests are kept
  * seven days and purged on a later add. It also lists a person's entries of a day.
+ * Adding and deleting name their actor and are recorded in the audit log in their own
+ * transaction, with the entry as it is then; a replay, a conflict or a failure records nothing.
  */
 final readonly class EntryLedger
 {
@@ -27,6 +30,7 @@ final readonly class EntryLedger
         private PDO $pdo,
         private Clock $clock,
         private DataRevision $revision,
+        private AuditLog $audit,
     ) {}
 
     /**
@@ -35,7 +39,7 @@ final readonly class EntryLedger
      * @throws ValidationFailed for a quantity outside 1–99 or a person, drink or factor that does not exist
      * @throws EntryConflict when the id was used before for different content, factor included
      */
-    public function add(string $id, ?int $personId, ?int $drinkId, ?int $quantity, ?int $factorId, int $accountId): AddedEntry
+    public function add(Actor $actor, string $id, ?int $personId, ?int $drinkId, ?int $quantity, ?int $factorId): AddedEntry
     {
         if ($quantity === null || $quantity < 1 || $quantity > self::MAX_QUANTITY) {
             throw new ValidationFailed(['quantity' => sprintf('1 bis %d.', self::MAX_QUANTITY)]);
@@ -47,7 +51,7 @@ final readonly class EntryLedger
         for ($attempt = 1; ; ++$attempt) {
             try {
                 // A missing id is a row that does not exist (ids start at 1): the foreign keys reject it.
-                return $this->record(new Entry($id, $personId ?? 0, $drinkId ?? 0, $quantity, $factorId, $now), $fingerprint, $accountId);
+                return $this->record(new Entry($id, $personId ?? 0, $drinkId ?? 0, $quantity, $factorId, $now), $fingerprint, $actor);
             } catch (PDOException $failure) {
                 // A deadlock between duplicates whose first request rolled back: try again.
                 if ($attempt === self::ATTEMPTS || !DatabaseError::is($failure, DatabaseError::DEADLOCK)) {
@@ -60,14 +64,17 @@ final readonly class EntryLedger
     /**
      * @throws NotFound when there is no such entry
      */
-    public function delete(string $id): void
+    public function delete(Actor $actor, string $id): void
     {
-        $this->revision->write(function () use ($id): void {
-            $statement = $this->pdo->prepare('DELETE FROM entries WHERE id = ?');
-            $statement->execute([$id]);
-            if ($statement->rowCount() === 0) {
+        $this->revision->write(function () use ($actor, $id): void {
+            // Locked first, so the values recorded are the ones this deletion removes.
+            $locked = $this->pdo->prepare('SELECT id FROM entries WHERE id = ? FOR UPDATE');
+            $locked->execute([$id]);
+            if ($locked->fetchColumn() === false) {
                 throw new NotFound($id);
             }
+            $this->audit->record($actor, AuditOperation::Delete, AuditSubjectKind::Entry, $id, $this->snapshot($id), null);
+            $this->pdo->prepare('DELETE FROM entries WHERE id = ?')->execute([$id]);
         });
     }
 
@@ -114,10 +121,10 @@ final readonly class EntryLedger
         );
     }
 
-    private function record(Entry $entry, string $fingerprint, int $accountId): AddedEntry
+    private function record(Entry $entry, string $fingerprint, Actor $actor): AddedEntry
     {
         try {
-            $this->revision->write(function () use ($entry, $fingerprint, $accountId): void {
+            $this->revision->write(function () use ($entry, $fingerprint, $actor): void {
                 $this->pdo->prepare('INSERT INTO entry_requests (id, fingerprint, created_at) VALUES (?, ?, ?)')
                     ->execute([$entry->id, $fingerprint, Timestamp::of($entry->createdAt)]);
                 $this->pdo->prepare(
@@ -128,9 +135,10 @@ final readonly class EntryLedger
                     $entry->drinkId,
                     $entry->quantity,
                     $entry->factorId,
-                    $accountId,
+                    $actor->accountId,
                     Timestamp::of($entry->createdAt),
                 ]);
+                $this->audit->record($actor, AuditOperation::Create, AuditSubjectKind::Entry, $entry->id, null, $this->snapshot($entry->id));
             });
 
             return new AddedEntry($entry, true);
@@ -150,6 +158,36 @@ final readonly class EntryLedger
             }
             throw $failure;
         }
+    }
+
+    /**
+     * An entry as the audit log keeps it, its references resolved as they are now: the person's
+     * name, the drink's name and points, the quantity, and the factor's name and multiplier or null.
+     *
+     * @return array{person: string, drink: string, points: string, quantity: int, factor: array{name: string, multiplier: string}|null}
+     */
+    private function snapshot(string $id): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT p.name AS person, d.name AS drink, d.points, e.quantity, f.name AS factor, f.multiplier
+             FROM entries e JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
+             LEFT JOIN factors f ON f.id = e.factor_id
+             WHERE e.id = ?',
+        );
+        $statement->execute([$id]);
+        /** @var array<string, scalar|null>|false $row */
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            throw new LogicException("Entry {$id} is not there to be recorded");
+        }
+
+        return [
+            'person' => (string) $row['person'],
+            'drink' => (string) $row['drink'],
+            'points' => (string) $row['points'],
+            'quantity' => (int) $row['quantity'],
+            'factor' => $row['factor'] === null ? null : ['name' => (string) $row['factor'], 'multiplier' => (string) $row['multiplier']],
+        ];
     }
 
     /** The original outcome of a known id, or a conflict for different content. */
