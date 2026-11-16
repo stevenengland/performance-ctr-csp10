@@ -9,10 +9,10 @@ use PDOException;
 use Throwable;
 
 /**
- * A number that changes with every write that can change results (entries,
- * persons, drinks, factors). The write and its bump share one transaction, so the
- * revision changes exactly when committed data did; readers compare it instead
- * of aggregating again.
+ * A number that changes with every write that changes what the scoreboard sends
+ * (entries, persons, drinks, factors). The write and its bump share one transaction,
+ * so the revision changes exactly when committed data did; readers compare it
+ * instead of aggregating again.
  */
 final readonly class DataRevision
 {
@@ -48,9 +48,50 @@ final readonly class DataRevision
      */
     public function write(callable $change): mixed
     {
+        return $this->retried(function () use ($change) {
+            $result = $change();
+            $this->bump();
+
+            return $result;
+        });
+    }
+
+    /**
+     * Runs a change like write, but bumps the revision only when the change reports that it
+     * changed something. An unchanged change still commits, which releases its locks, and is
+     * retried on deadlock the same way.
+     *
+     * @param callable(): bool $change run once per attempt; true when it changed what the
+     *                                 scoreboard sends; it must do nothing outside the database
+     *
+     * @return bool what the committed attempt of the change reported
+     */
+    public function writeIfChanged(callable $change): bool
+    {
+        return $this->retried(function () use ($change): bool {
+            $changed = $change();
+            if ($changed) {
+                $this->bump();
+            }
+
+            return $changed;
+        });
+    }
+
+    /**
+     * Runs the transaction again while it loses deadlocks, up to ATTEMPTS times.
+     *
+     * @template T
+     *
+     * @param callable(): T $transaction
+     *
+     * @return T
+     */
+    private function retried(callable $transaction): mixed
+    {
         for ($attempt = 1; ; ++$attempt) {
             try {
-                return $this->once($change);
+                return $this->once($transaction);
             } catch (PDOException $failure) {
                 if ($attempt === self::ATTEMPTS || !DatabaseError::is($failure, DatabaseError::DEADLOCK)) {
                     throw $failure;
@@ -62,17 +103,15 @@ final readonly class DataRevision
     /**
      * @template T
      *
-     * @param callable(): T $change
+     * @param callable(): T $transaction
      *
      * @return T
      */
-    private function once(callable $change): mixed
+    private function once(callable $transaction): mixed
     {
         $this->pdo->beginTransaction();
         try {
-            $result = $change();
-            // Last, so the row lock that serialises writers is held as briefly as possible.
-            $this->pdo->exec('INSERT INTO data_revision (id, revision) VALUES (1, 1) ON DUPLICATE KEY UPDATE revision = revision + 1');
+            $result = $transaction();
             $this->pdo->commit();
 
             return $result;
@@ -80,5 +119,11 @@ final readonly class DataRevision
             $this->pdo->rollBack();
             throw $failure;
         }
+    }
+
+    /** Last in a transaction, so the row lock that serialises writers is held as briefly as possible. */
+    private function bump(): void
+    {
+        $this->pdo->exec('INSERT INTO data_revision (id, revision) VALUES (1, 1) ON DUPLICATE KEY UPDATE revision = revision + 1');
     }
 }
