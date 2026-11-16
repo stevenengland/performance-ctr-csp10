@@ -8,6 +8,7 @@ import {
   click,
   dialog,
   field,
+  json,
   mountPage,
   problem,
   rows,
@@ -133,6 +134,40 @@ describe('Verwalten → Personen', () => {
     expect(useSnackbar().value?.text).toBe('Daniel gelöscht');
     expect(rows(wrapper)).toEqual([]);
   });
+
+  it('states the matches that stay with “gelöschte Person” in the delete dialog', async () => {
+    api([{ id: 2, name: 'Daniel' }], {
+      replies: [
+        () => json({ id: 2, name: 'Daniel', entryCount: 23, matchCount: 4 }),
+      ],
+    });
+    wrapper = await page();
+
+    await click(buttonIn(document, 'Daniel löschen'));
+
+    expect(dialog().textContent).toContain(
+      'Daniel und 23 Einträge werden gelöscht. 4 Partien bleiben mit „gelöschte Person“.',
+    );
+  });
+
+  it.each([
+    [0, 1, 'Daniel wird gelöscht. 1 Partie bleibt mit „gelöschte Person“.'],
+    [1, 0, 'Daniel und 1 Eintrag werden gelöscht.'],
+  ])(
+    'names %i entries and %i matches in the delete dialog',
+    async (entryCount, matchCount, body) => {
+      api([{ id: 2, name: 'Daniel' }], {
+        replies: [
+          () => json({ id: 2, name: 'Daniel', entryCount, matchCount }),
+        ],
+      });
+      wrapper = await page();
+
+      await click(buttonIn(document, 'Daniel löschen'));
+
+      expect(dialog().textContent).toContain(body);
+    },
+  );
 
   it('says only the person is deleted when there are no entries', async () => {
     api([{ id: 2, name: 'Daniel' }], { entryCount: 0 });

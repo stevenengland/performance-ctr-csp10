@@ -206,6 +206,22 @@ export const messages = {
         entries === 1 ? '1 Eintrag' : `${String(entries)} Einträge`;
       return `${name} und ${counted} werden gelöscht.`;
     },
+    /**
+    A deleted person's entries go with them; their matches stay, with their side
+    shown as `gelöschte Person`.
+    */
+    personBody: (name: string, entries: number, matches: number) => {
+      const first =
+        entries === 0
+          ? `${name} wird gelöscht.`
+          : `${name} und ${entries === 1 ? '1 Eintrag' : `${String(entries)} Einträge`} werden gelöscht.`;
+      if (matches === 0) return first;
+      const kept =
+        matches === 1
+          ? '1 Partie bleibt'
+          : `${String(matches)} Partien bleiben`;
+      return `${first} ${kept} mit „gelöschte Person“.`;
+    },
     /** A deleted factor's entries stay and count ×1. */
     factorBody: (name: string, entries: number) => {
       if (entries === 0) return `${name} wird gelöscht.`;
