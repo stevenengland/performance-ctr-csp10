@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Performance\Tests\Unit;
 
 use Performance\Domain\Catalog\CleanJpeg;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -35,6 +36,27 @@ final class CleanJpegTest extends TestCase
 
         self::assertSame(10, substr_count($cleaned, self::START_OF_SCAN), 'stuffing keeps FF DA out of scan data, so this counts the scans');
         self::assertSame(self::withoutJfifHeader($progressive), $cleaned);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function validPhotos(): iterable
+    {
+        yield 'baseline with metadata' => ['metadata.jpg'];
+        yield 'progressive' => ['progressive.jpg'];
+        yield 'one component' => ['grayscale.jpg'];
+    }
+
+    #[DataProvider('validPhotos')]
+    public function testLeavesAnAlreadyCleanJpegAsItIsSoItsVersionStaysTheSame(string $photo): void
+    {
+        $clean = CleanJpeg::clean(self::fixture($photo));
+
+        $again = CleanJpeg::clean($clean);
+
+        self::assertSame($clean, $again);
+        self::assertSame(hash('sha256', $clean), hash('sha256', $again));
     }
 
     /** Pillow writes the 18-byte JFIF segment right after SOI; it is the only metadata in its files. */
