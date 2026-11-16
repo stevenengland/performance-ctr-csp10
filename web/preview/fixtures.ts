@@ -64,11 +64,11 @@ export interface Fixtures {
   matches: FixtureMatch[];
   results: FixtureResult[];
   /**
-  Fingerprints of every entry, match and result id ever put, so a replay never
-  recreates an undone one; like the API's retry keys, an id is unique across all
-  three.
+  The fingerprint and instant of every entry, match and result id ever put, so
+  a replay never recreates an undone one and answers its original instant; like
+  the API's retry keys, an id is unique across all three.
   */
-  entryRequests: Map<string, string>;
+  idempotencyKeys: Map<string, { fingerprint: string; createdAt: string }>;
   /** The audit log, oldest first, as the API answers its events. */
   audit: AuditEvent[];
 }
@@ -561,7 +561,7 @@ export function sampleEvening(now: Date = new Date()): Fixtures {
     factors,
     entries,
     ...sampleGames(now, persons, accounts),
-    entryRequests: new Map(),
+    idempotencyKeys: new Map(),
     audit,
   };
 }
