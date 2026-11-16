@@ -108,6 +108,45 @@ export const messages = {
       `${formatted} ${count === 1 ? 'Faktor' : 'Faktoren'}`,
     accountCount: (formatted: string, count: number) =>
       `${formatted} ${count === 1 ? 'Konto' : 'Konten'}`,
+    audit: 'Protokoll',
+    /** The Protokoll row's fixed supporting line: the hub does not load the log. */
+    auditSupport: 'Wer hat was geändert',
+  },
+  /** The audit log screen (§7l): application-level append-only history. */
+  protokoll: {
+    title: 'Protokoll',
+    note: 'Jede Änderung mit Konto und Zeit. Das Protokoll kann nicht bearbeitet oder gelöscht werden.',
+    empty: 'Noch keine Änderungen.',
+    more: 'Ältere laden',
+    today: 'Heute',
+    yesterday: 'Gestern',
+    kind: {
+      entry: 'Eintrag',
+      person: 'Person',
+      drink: 'Getränk',
+      factor: 'Faktor',
+    },
+    operation: {
+      create: 'Angelegt',
+      update: 'Geändert',
+      delete: 'Gelöscht',
+    },
+    /** A row's subject: `Getränk Bier`. */
+    subject: (kind: string, name: string) => `${kind} ${name}`,
+    /** An entry's name: `2× Bier für Daniel`. */
+    entry: (quantityOf: string, person: string) =>
+      `${quantityOf} für ${person}`,
+    /** A changed value: `Punkte: 1 Punkt → 0,5 Punkte`. */
+    change: (label: string, before: string, after: string) =>
+      `${label}: ${before} → ${after}`,
+    name: 'Name',
+    points: 'Punkte',
+    multiplier: 'Multiplikator',
+    factor: 'Faktor',
+    /** A row's supporting line: `23:41 · anna`. */
+    by: (time: string, userName: string) => `${time} · ${userName}`,
+    /** A consequential row's cause: `durch Löschen von Wein`. */
+    causedBy: (name: string) => `durch Löschen von ${name}`,
   },
   personen: {
     title: 'Personen',

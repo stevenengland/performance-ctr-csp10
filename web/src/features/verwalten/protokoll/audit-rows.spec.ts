@@ -1,0 +1,225 @@
+import { describe, expect, it } from 'vitest';
+import { auditDays, type AuditEventView } from './audit-rows';
+
+const BERLIN = 'Europe/Berlin';
+/** Sunday, 15 November 2026, 23:45 in Berlin. */
+const NOW = new Date('2026-11-15T22:45:00Z');
+
+let nextId = 100;
+
+/** An event as the API sends it: a direct change by `anna` at 23:41 today unless given otherwise. */
+function event(change: Partial<AuditEventView>): AuditEventView {
+  nextId += 1;
+  return {
+    id: nextId,
+    occurredAt: '2026-11-15T22:41:00.000Z',
+    operation: 'update',
+    subjectKind: 'drink',
+    actor: { userName: 'anna' },
+    before: null,
+    after: null,
+    cause: null,
+    ...change,
+  };
+}
+
+const rowsOf = (events: AuditEventView[]) =>
+  auditDays(events, NOW, BERLIN).flatMap((day) => day.rows);
+
+const only = (change: Partial<AuditEventView>) => {
+  const [row] = rowsOf([event(change)]);
+  if (!row) throw new Error('no row');
+  return row;
+};
+
+const beer = { person: 'Daniel', drink: 'Bier', points: 1, quantity: 2 };
+
+describe('the Protokoll rows', () => {
+  it('names the subject by its kind and name, and an entry by quantity, drink and person', () => {
+    expect(
+      only({
+        subjectKind: 'drink',
+        operation: 'create',
+        after: { name: 'Bier', points: 1 },
+      }).title,
+    ).toBe('Getränk Bier');
+    expect(
+      only({
+        subjectKind: 'person',
+        operation: 'delete',
+        before: { name: 'Jule' },
+      }).title,
+    ).toBe('Person Jule');
+    expect(
+      only({
+        subjectKind: 'factor',
+        operation: 'create',
+        after: { name: 'Happy Hour', multiplier: 2 },
+      }).title,
+    ).toBe('Faktor Happy Hour');
+    expect(
+      only({
+        subjectKind: 'entry',
+        operation: 'create',
+        after: { ...beer, factor: null },
+      }).title,
+    ).toBe('Eintrag 2× Bier für Daniel');
+  });
+
+  it('labels the operation Angelegt, Geändert or Gelöscht', () => {
+    const labels = (['create', 'update', 'delete'] as const).map(
+      (operation) =>
+        only({
+          operation,
+          before: operation === 'create' ? null : { name: 'Bier', points: 1 },
+          after: operation === 'delete' ? null : { name: 'Bier', points: 2 },
+        }).operationLabel,
+    );
+
+    expect(labels).toEqual(['Angelegt', 'Geändert', 'Gelöscht']);
+  });
+
+  it('shows each changed value of an update as before → after, in German number format', () => {
+    expect(
+      only({
+        before: { name: 'Bier', points: 1 },
+        after: { name: 'Bier', points: 0.5 },
+      }).changes,
+    ).toBe('Punkte: 1 Punkt → 0,5 Punkte');
+    expect(
+      only({
+        subjectKind: 'factor',
+        before: { name: 'Happy Hour', multiplier: 2 },
+        after: { name: 'Doppelt', multiplier: 1.5 },
+      }).changes,
+    ).toBe('Name: Happy Hour → Doppelt · Multiplikator: ×2 → ×1,5');
+    expect(
+      only({
+        subjectKind: 'person',
+        before: { name: 'Dani' },
+        after: { name: 'Daniel' },
+      }).title,
+    ).toBe('Person Daniel');
+  });
+
+  it('shows an entry losing its factor as Faktor: … → Kein Faktor', () => {
+    expect(
+      only({
+        subjectKind: 'entry',
+        before: { ...beer, factor: { name: 'Happy Hour', multiplier: 2 } },
+        after: { ...beer, factor: null },
+      }).changes,
+    ).toBe('Faktor: Happy Hour ×2 → Kein Faktor');
+  });
+
+  it('shows the values of a created or deleted subject, leaving out its name and an absent factor', () => {
+    expect(
+      only({ operation: 'create', after: { name: 'Bier', points: 1 } }).changes,
+    ).toBe('1 Punkt');
+    expect(
+      only({
+        subjectKind: 'entry',
+        operation: 'delete',
+        before: { ...beer, factor: { name: 'Happy Hour', multiplier: 2 } },
+      }).changes,
+    ).toBe('1 Punkt · Happy Hour ×2');
+    expect(
+      only({
+        subjectKind: 'entry',
+        operation: 'create',
+        after: { ...beer, factor: null },
+      }).changes,
+    ).toBe('1 Punkt');
+    expect(
+      only({
+        subjectKind: 'person',
+        operation: 'create',
+        after: { name: 'Jule' },
+      }).changes,
+    ).toBe('');
+  });
+
+  it('treats a snapshot key it does not get as unknown', () => {
+    const row = only({
+      subjectKind: 'factor',
+      before: { name: 'Happy Hour' },
+      after: { name: 'Happy Hour', multiplier: 2 },
+    });
+
+    expect(row.changes).toBe('');
+  });
+
+  it('gives the local time and the user name the event recorded', () => {
+    expect(
+      only({
+        occurredAt: '2026-11-15T20:05:00.000Z',
+        actor: { userName: 'mara' },
+        after: { name: 'Bier', points: 1 },
+        operation: 'create',
+      }).by,
+    ).toBe('21:05 · mara');
+  });
+
+  it('names the cause of a consequential event from the event itself and marks the row as caused', () => {
+    const caused = only({
+      subjectKind: 'entry',
+      operation: 'delete',
+      before: { ...beer, factor: null },
+      cause: { id: 7, subjectKind: 'drink', name: 'Wein' },
+    });
+    const direct = only({
+      operation: 'create',
+      after: { name: 'Bier', points: 1 },
+    });
+
+    expect(caused.cause).toBe('durch Löschen von Wein');
+    expect(direct.cause).toBeUndefined();
+  });
+
+  it('groups the events newest first under Heute, Gestern and the date, in the given time zone', () => {
+    const at = (occurredAt: string) =>
+      event({
+        occurredAt,
+        operation: 'create',
+        after: { name: 'Bier', points: 1 },
+      });
+    const events = [
+      at('2026-11-15T23:30:00.000Z'), // Monday 00:30 in Berlin, still Sunday in UTC
+      at('2026-11-14T23:10:00.000Z'), // Sunday 00:10 in Berlin
+      at('2026-11-14T22:50:00.000Z'), // Saturday 23:50 in Berlin
+      at('2026-11-14T08:00:00.000Z'),
+      at('2026-11-12T19:00:00.000Z'),
+    ];
+
+    const days = auditDays(events, new Date('2026-11-16T07:00:00Z'), BERLIN);
+
+    expect(
+      days.map((day) => [day.label, day.rows.map((row) => row.id)]),
+    ).toEqual([
+      ['Heute', [events[0]?.id]],
+      ['Gestern', [events[1]?.id]],
+      ['Sa., 14.11.2026', [events[2]?.id, events[3]?.id]],
+      ['Do., 12.11.2026', [events[4]?.id]],
+    ]);
+  });
+
+  it('counts calendar days across a change of daylight saving time', () => {
+    const days = auditDays(
+      [
+        event({
+          occurredAt: '2026-10-24T22:30:00.000Z', // Sunday 25 October 00:30, still summer time
+          operation: 'create',
+          after: { name: 'Bier', points: 1 },
+        }),
+      ],
+      new Date('2026-10-25T23:30:00Z'), // Monday 26 October 00:30, winter time
+      BERLIN,
+    );
+
+    expect(days.map((day) => day.label)).toEqual(['Gestern']);
+  });
+
+  it('has no days for no events', () => {
+    expect(auditDays([], NOW, BERLIN)).toEqual([]);
+  });
+});
