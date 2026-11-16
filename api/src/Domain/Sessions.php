@@ -62,23 +62,28 @@ final readonly class Sessions
 
     /**
      * The signed-in account of a token that is known and not expired; using it extends the session.
+     *
+     * The session row is read under a shared lock, so a sign-out, password reset, account
+     * deletion or purge of expired sessions that is under way finishes first and the session
+     * is then seen gone: the answer is the session as it is when this returns, never as it was
+     * before a revocation that has committed. The renewal changes the row only while it is
+     * still the one read and still valid; an update of no row is never taken for success.
+     * Each statement locks one row and holds nothing else, so none can deadlock with account
+     * changes, which lock the account before its sessions.
      */
     public function verify(string $token): ?Account
     {
         $now = $this->clock->now();
-        $statement = $this->pdo->prepare(
-            'SELECT a.id, a.user_name, a.is_admin FROM sessions s JOIN accounts a ON a.id = s.account_id
-             WHERE s.token_hash = ? AND s.expires_at > ?',
-        );
-        $statement->execute([self::tokenHash($token), Timestamp::of($now)]);
-        $row = $statement->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
+        $hash = self::tokenHash($token);
+        $lastSeenAt = $this->validSession($hash, $now)['last_seen_at'] ?? null;
+        if (!is_string($lastSeenAt)) {
             return null;
         }
-        $this->pdo->prepare('UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ?')
-            ->execute([Timestamp::of($now), Timestamp::of($now->add(self::lifetime())), self::tokenHash($token)]);
+        if (!$this->renew($hash, $lastSeenAt, $now) && $this->validSession($hash, $now) === null) {
+            return null;
+        }
 
-        return Account::fromRow($row);
+        return $this->accountOf($hash, $now);
     }
 
     public function revoke(string $token): void
@@ -95,6 +100,54 @@ final readonly class Sessions
     public static function lifetimeSeconds(): int
     {
         return self::LIFETIME_DAYS * 24 * 60 * 60;
+    }
+
+    /**
+     * The session of a token hash that has not expired, read under a shared lock (waiting for
+     * a change of the row that is under way), or null.
+     *
+     * @return array<string, scalar|null>|null
+     */
+    private function validSession(string $hash, DateTimeImmutable $now): ?array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT account_id, last_seen_at FROM sessions WHERE token_hash = ? AND expires_at > ? LOCK IN SHARE MODE',
+        );
+        $statement->execute([$hash, Timestamp::of($now)]);
+        /** @var array<string, scalar|null>|false $row */
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
+     * Extends the session from `$now`, but only if it is still valid and nobody renewed it
+     * since it was read (`$lastSeenAt`): true when this request renewed it.
+     */
+    private function renew(string $hash, string $lastSeenAt, DateTimeImmutable $now): bool
+    {
+        if ($lastSeenAt >= Timestamp::of($now)) {
+            return false;
+        }
+        $renewal = $this->pdo->prepare(
+            'UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ? AND last_seen_at = ? AND expires_at > ?',
+        );
+        $renewal->execute([Timestamp::of($now), Timestamp::of($now->add(self::lifetime())), $hash, $lastSeenAt, Timestamp::of($now)]);
+
+        return $renewal->rowCount() === 1;
+    }
+
+    /** The account of a session that is still valid, or null when the session or the account is gone. */
+    private function accountOf(string $hash, DateTimeImmutable $now): ?Account
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT a.id, a.user_name, a.is_admin FROM sessions s JOIN accounts a ON a.id = s.account_id
+             WHERE s.token_hash = ? AND s.expires_at > ?',
+        );
+        $statement->execute([$hash, Timestamp::of($now)]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) ? Account::fromRow($row) : null;
     }
 
     /** Issues a new session and drops expired ones, so the table does not grow with every sign-in. */
