@@ -312,6 +312,7 @@ an older one.
 | Deleted item | `<Name> gelöscht` | — |
 | Deleted entry (Verlauf) | `Eintrag gelöscht` | — |
 | Deleted match or result (a game's Verlauf, §7r) | `Partie gelöscht` / `Ergebnis gelöscht` | — |
+| Game restarted (§7o) | `Schach neu gestartet` | — |
 | Update available | `Neue Version verfügbar` | `Neu laden` |
 | Own password changed | `Passwort geändert` | — |
 | Password reset (Konten) | `Passwort von anna zurückgesetzt` | — |
@@ -407,6 +408,7 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 | Match | `Partie löschen?` | `Anna – Ben · Anna gewinnt am 15.11. um 21:00` |
 | Result | `Ergebnis löschen?` | `Daniel · −20 Punkte am 15.11. um 22:12` |
 | Account | `Konto anna löschen?` | `Einträge von anna bleiben erhalten.` |
+| Restart (not a delete; action `Neu starten`) | `Schach neu starten?` | `Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.` |
 
 ### 6.10 Empty and loading states
 
@@ -759,8 +761,15 @@ submit on Enter.
   read when the page opens, every 10 s while visible with `If-None-Match` (304 keeps it), at
   once on focus and after the device's own writes. A failed read keeps what is shown with
   `Stand: HH:mm` in the top bar and retries with backoff up to 60 s.
-- Below the ranking (or the empty state) the text button `Verlauf` (`mdiHistory`, `row-title`,
-  normal case) opens the game's Verlauf (§7r).
+- Below the ranking (or the empty state) a row of text buttons (`row-title`, normal case):
+  `Verlauf` (`mdiHistory`) opens the game's Verlauf (§7r); `Neu starten` (`mdiRestart`) opens
+  the confirmation dialog (§6.9) `Schach neu starten?` – `Die Rangliste beginnt wieder bei null.
+  Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.` with `Abbrechen`
+  and `Neu starten`. Confirming (`POST /api/games/{id}/restart`) starts the game's next run
+  from now: the snackbar `Schach neu gestartet`, the games and the ranking are read again at
+  once, so the page shows the empty state and the context line `Duell · seit heute, 19:30`.
+  A failed restart shows the problem title, keeps the dialog open and the ranking as it was.
+  Every signed-in account may restart a game; nothing recorded is deleted.
 - Loading: a skeleton card and three skeleton rows.
 - A game that no longer exists (deleted on another phone): back to Spiele with
   `Nicht mehr vorhanden` (§9).
@@ -840,7 +849,8 @@ submit on Enter.
     `Daniel · −20 Punkte vom 15.11. löschen`, opening the confirmation dialog (§6.9):
     `Partie löschen?` / `Ergebnis löschen?` with what is deleted and when.
 - Pages of 20: below the list the text button `Ältere laden` (`row-title`, normal case) appends
-  the next older page of the same run (a restart meanwhile does not mix runs); on the last
+  the next older page of the same run (a restart meanwhile does not mix runs: an open Verlauf
+  keeps paging in the run it opened with; reopened, it shows the new run); on the last
   page it is gone. A failed older page shows the problem title and keeps what is loaded.
 - After `Löschen`: the snackbar `Partie gelöscht` / `Ergebnis gelöscht`, the row leaves the list
   (the older pages loaded stay) and the game's ranking is read again at once, so the game's
@@ -876,6 +886,9 @@ submit on Enter.
    tile and the game's ranking show the new sum; next player.
 10. **Fix a game later:** Spiele → Schach → `Verlauf` → delete the match → confirm →
     `Partie gelöscht`, the ranking without it.
+11. **Start a new season:** Spiele → Schach → `Neu starten` → confirm → `Schach neu
+    gestartet`, an empty ranking and Verlauf, `Duell · seit heute, 19:30`; the old matches stay
+    stored but are no longer shown.
 
 ## 9. States and edge cases (every data view defines these)
 

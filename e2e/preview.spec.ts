@@ -392,6 +392,40 @@ test('the fixture preview opens Schach’s Verlauf and deletes a match from it',
   ).toBeVisible();
 });
 
+test('the fixture preview restarts Schach: an empty ranking and Verlauf since today', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/2');
+  await expect(
+    page.getByRole('list', { name: 'Schach' }).getByRole('listitem'),
+  ).toHaveCount(4);
+  await page.getByRole('button', { name: 'Neu starten' }).click();
+
+  const confirm = page.getByRole('dialog');
+  await expect(confirm.getByRole('heading')).toHaveText('Schach neu starten?');
+  await expect(confirm).toContainText(
+    'Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.',
+  );
+  await confirm.getByRole('button', { name: 'Neu starten' }).click();
+
+  await expect(page.getByText('Schach neu gestartet')).toBeVisible();
+  await expect(
+    page.getByText('Seit dem Start noch keine Partien.'),
+  ).toBeVisible();
+  await expect(page.getByRole('banner')).toContainText(
+    /Duell · seit heute, \d\d:\d\d/,
+  );
+
+  await page.getByRole('link', { name: 'Verlauf' }).click();
+  await expect(page).toHaveURL(/#\/spiele\/2\/verlauf$/);
+  await expect(page.getByRole('banner')).toContainText(
+    /Schach · seit heute, \d\d:\d\d/,
+  );
+  await expect(
+    page.getByText('Seit dem Start noch keine Partien.'),
+  ).toBeVisible();
+});
+
 /** Opens an account's menu on Konten once any other menu has closed. */
 async function accountMenu(page: Page, userName: string) {
   const menu = page.getByRole('menu');
