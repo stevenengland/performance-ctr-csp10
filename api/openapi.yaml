@@ -1853,7 +1853,18 @@ components:
     PendingMatch:
       type: object
       additionalProperties: false
-      required: [kind, id, createdAt, accountName, game, earlierRun, first, second, outcome]
+      required:
+        [
+          kind,
+          id,
+          createdAt,
+          accountName,
+          game,
+          earlierRun,
+          first,
+          second,
+          outcome,
+        ]
       properties:
         kind:
           type: string
@@ -2285,7 +2296,8 @@ components:
     DuelRow:
       type: object
       additionalProperties: false
-      required: [personId, name, points, wins, draws, losses, played, pendingCount]
+      required:
+        [personId, name, points, wins, draws, losses, played, pendingCount]
       properties:
         personId:
           type: integer
