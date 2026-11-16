@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext } from './support/playwright.ts';
 import { withoutFactors } from './support/factors.ts';
 import {
@@ -10,19 +11,22 @@ import {
 
 /*
 The four-eyes rule end to end with two accounts (PRD #61): the bootstrap admin
-records a drink, which waits; the verifier confirms it in `Offen`; it counts.
+records a drink, which waits; the verifier confirms it in `Offen`, and it
+counts, or rejects it there, and it is gone.
 */
 
 /** The Rangliste's polling interval. */
 const POLL_MS = 10_000;
 
+/** Creates a person or drink and answers its id. */
 async function created(
   request: APIRequestContext,
   path: '/api/persons' | '/api/drinks',
   data: Record<string, unknown>,
-): Promise<void> {
+): Promise<number> {
   const response = await request.post(path, { data });
   expect(response.status()).toBe(201);
+  return ((await response.json()) as { id: number }).id;
 }
 
 test('one account records a drink, it waits as offen, another confirms it in Offen, and it counts', async ({
@@ -105,5 +109,61 @@ test('one account records a drink, it waits as offen, another confirms it in Off
       .locator('[data-test="audit-event"]')
       .filter({ hasText: `1× ${drink} für ${person}` })
       .filter({ hasText: 'bestätigt' }),
+  ).toContainText(VERIFIER.userName);
+});
+
+test('another account rejects a waiting drink in Offen: it is gone, and Protokoll says abgelehnt', async ({
+  page,
+  browser,
+}) => {
+  await signIn(page);
+  const person = uniqueName('Jule');
+  const drink = uniqueName('Aperol');
+  const personId = await created(page.request, '/api/persons', {
+    name: person,
+  });
+  const drinkId = await created(page.request, '/api/drinks', {
+    name: drink,
+    points: 1,
+  });
+  const recorded = await page.request.put(`/api/entries/${randomUUID()}`, {
+    data: { personId, drinkId, quantity: 2 },
+  });
+  expect(recorded.status()).toBe(201);
+
+  const other = await browser.newContext({
+    baseURL: test.info().project.use.baseURL,
+    viewport: test.info().project.use.viewport,
+    locale: 'de-DE',
+    extraHTTPHeaders: test.info().project.use.extraHTTPHeaders,
+  });
+  try {
+    await verifierOn(other.request);
+    const verifier = await other.newPage();
+    await verifier.goto('/offen');
+    const row = verifier
+      .getByRole('listitem')
+      .filter({ hasText: `2× ${drink} für ${person}` });
+
+    await row
+      .getByRole('button', { name: `2× ${drink} für ${person} ablehnen` })
+      .click();
+
+    await expect(row).toHaveCount(0);
+  } finally {
+    await other.close();
+  }
+
+  // Gone for the recorder too: nothing of the person waits, and Protokoll names the rejecting account.
+  await page.goto('/rangliste');
+  await expect(
+    page.getByRole('link', { name: new RegExp(`^${person},`) }),
+  ).toHaveCount(0, { timeout: POLL_MS + 2_000 });
+  await page.goto('/verwalten/protokoll');
+  await expect(
+    page
+      .locator('[data-test="audit-event"]')
+      .filter({ hasText: `2× ${drink} für ${person}` })
+      .filter({ hasText: 'abgelehnt' }),
   ).toContainText(VERIFIER.userName);
 });

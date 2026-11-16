@@ -194,7 +194,7 @@ test('the fixture preview ranks its sample evening on the Rangliste', async ({
   ).toHaveAccessibleName('Jule, Aperol 1 · Bier 2, +2 offen');
 });
 
-test('the fixture preview lists what anna may verify under Offen with its badge, and Bestätigen lets it count', async ({
+test('the fixture preview lists what anna may verify under Offen with its badge; Bestätigen lets it count, Ablehnen removes it', async ({
   page,
 }) => {
   await page.goto('/index.html#/offen');
@@ -216,9 +216,15 @@ test('the fixture preview lists what anna may verify under Offen with its badge,
   await expect(
     navigation.getByRole('link', { name: 'Offen, 1 offen' }),
   ).toBeVisible();
+
+  await page
+    .getByRole('button', { name: '1× Aperol für Jule ablehnen' })
+    .click();
+
+  await expect(page.getByText('Nichts zu bestätigen.')).toBeVisible();
   await page.goto('/index.html#/rangliste');
   await expect(
-    page.getByRole('link', { name: /^Platz \d+, Jule, 2 Punkte/ }),
+    page.getByRole('link', { name: /^Platz \d+, Jule, 2 Punkte, 2 Getränke$/ }),
   ).toBeVisible();
 });
 
