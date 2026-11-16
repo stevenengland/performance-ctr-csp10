@@ -27,11 +27,12 @@ final class VerificationMigrationsTest extends DatabaseTestCase
     private const MIGRATIONS = [
         'entries' => ['0020_add_entries_verification', '0021_add_entries_pending_index', '0022_add_entries_verifier_foreign_key'],
         'matches' => ['0024_add_matches_verification', '0025_add_matches_pending_index', '0026_add_matches_verifier_foreign_key'],
+        'results' => ['0027_add_results_verification', '0028_add_results_pending_index', '0029_add_results_verifier_foreign_key'],
     ];
     private const ROW = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
 
     /**
-     * @return iterable<string, array{'entries'|'matches'}>
+     * @return iterable<string, array{'entries'|'matches'|'results'}>
      */
     public static function tables(): iterable
     {
@@ -41,7 +42,7 @@ final class VerificationMigrationsTest extends DatabaseTestCase
     }
 
     /**
-     * @param 'entries'|'matches' $table
+     * @param 'entries'|'matches'|'results' $table
      */
     #[DataProvider('tables')]
     public function testTheUpgradeKeepsEveryRowCountingWithoutCopyingTheTable(string $table): void
@@ -58,7 +59,7 @@ final class VerificationMigrationsTest extends DatabaseTestCase
     }
 
     /**
-     * @param 'entries'|'matches' $table
+     * @param 'entries'|'matches'|'results' $table
      */
     #[DataProvider('tables')]
     public function testEachMigrationRunsAgainAfterACrashBeforeItsBookkeepingWithoutChangingAnything(string $table): void
@@ -81,7 +82,7 @@ final class VerificationMigrationsTest extends DatabaseTestCase
     }
 
     /**
-     * @param 'entries'|'matches' $table
+     * @param 'entries'|'matches'|'results' $table
      */
     #[DataProvider('tables')]
     public function testDeletingTheVerifyingAccountClearsTheVerifierAndKeepsTheRow(string $table): void
@@ -108,7 +109,7 @@ final class VerificationMigrationsTest extends DatabaseTestCase
     }
 
     /**
-     * @param 'entries'|'matches' $table
+     * @param 'entries'|'matches'|'results' $table
      */
     #[DataProvider('tables')]
     public function testTheForeignKeyMigrationRestoresTheSessionsForeignKeyChecksAfterAFailure(string $table): void
@@ -136,13 +137,14 @@ final class VerificationMigrationsTest extends DatabaseTestCase
     private const COUNTED = [
         'entries' => ['personId' => 1, 'name' => 'Daniel', 'score' => 2.5, 'count' => 1],
         'matches' => ['personId' => 1, 'name' => 'Daniel', 'points' => 1, 'played' => 1],
+        'results' => ['personId' => 1, 'name' => 'Daniel', 'sum' => 7, 'results' => 1],
     ];
 
     /**
-     * The previous release's catalog writes and its insert of an entry or a match, as far as
+     * The previous release's catalog writes and its insert of an entry, a match or a result, as far as
      * they touch the database.
      *
-     * @param 'entries'|'matches' $table
+     * @param 'entries'|'matches'|'results' $table
      */
     private function previousReleaseRecords(string $table): void
     {
@@ -158,6 +160,14 @@ final class VerificationMigrationsTest extends DatabaseTestCase
 
             return;
         }
+        if ($table === 'results') {
+            $other->prepare("INSERT INTO games (name, kind, draws_allowed, lower_wins, run, started_at, created_at) VALUES ('Wizard', 'points', 0, 0, 1, ?, ?)")
+                ->execute([$now, $now]);
+            $other->prepare('INSERT INTO results (id, game_id, person_id, points, run, account_id, created_at) VALUES (?, 1, 1, 7, 1, NULL, ?)')
+                ->execute([self::ROW, $now]);
+
+            return;
+        }
         $other->prepare("INSERT INTO games (name, kind, draws_allowed, lower_wins, run, started_at, created_at) VALUES ('Schach', 'duel', 1, 0, 1, ?, ?)")
             ->execute([$now, $now]);
         $other->prepare("INSERT INTO matches (id, game_id, first_person_id, second_person_id, outcome, run, account_id, created_at) VALUES (?, 1, 1, 2, 'first', 1, NULL, ?)")
@@ -165,9 +175,9 @@ final class VerificationMigrationsTest extends DatabaseTestCase
     }
 
     /**
-     * The first ranked row of the table's ranking: today's Rangliste, or Schach's standings.
+     * The first ranked row of the table's ranking: today's Rangliste, or Schach's or Wizard's standings.
      *
-     * @param 'entries'|'matches' $table
+     * @param 'entries'|'matches'|'results' $table
      *
      * @return array<string, mixed>
      */
