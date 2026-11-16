@@ -7,6 +7,7 @@ namespace Performance\Http;
 use Performance\Domain\Games\DuelRow;
 use Performance\Domain\Games\Game;
 use Performance\Domain\Games\GameKind;
+use Performance\Domain\Games\PointsRow;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -14,7 +15,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * `GET /api/games/{id}/standings`: the game's ranking in its current run, tagged with its kind.
  * The game, the data revision and the ranking are read in one snapshot, so the ETag (the
  * revision) always names what is sent, and `If-None-Match` with an unchanged revision answers
- * 304 before anything is ranked. A points game has no rows until results can be recorded.
+ * 304 before anything is ranked.
  */
 final readonly class StandingsAction
 {
@@ -54,9 +55,17 @@ final readonly class StandingsAction
                 'kind' => $game->kind->value,
                 'startedAt' => Instant::format($game->startedAt),
                 'lowerWins' => $game->lowerWins,
-                'rows' => [],
+                'rows' => array_map(self::pointsRow(...), $database->results()->standings($game->id, $game->run, $game->lowerWins)),
             ],
         };
+    }
+
+    /**
+     * @return array{personId: int, name: string, sum: int, results: int}
+     */
+    private static function pointsRow(PointsRow $row): array
+    {
+        return ['personId' => $row->personId, 'name' => $row->name, 'sum' => $row->sum, 'results' => $row->results];
     }
 
     /**

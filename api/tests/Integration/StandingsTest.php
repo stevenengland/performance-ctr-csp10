@@ -22,7 +22,7 @@ final class StandingsTest extends DatabaseTestCase
     private const NOW = '2026-11-14T20:00:00.000Z';
 
     private string $session;
-    private int $matches = 0;
+    private int $writes = 0;
 
     protected function setUp(): void
     {
@@ -85,12 +85,97 @@ final class StandingsTest extends DatabaseTestCase
         self::assertSame(['kind' => 'duel', 'startedAt' => self::NOW, 'rows' => []], $this->body($this->standings()));
     }
 
-    public function testAPointsGameAnswersItsKindWithNoRows(): void
+    public function testANewPointsGameAnswersItsKindWithNoRows(): void
     {
         $response = $this->standings(game: 2);
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame(['kind' => 'points', 'startedAt' => self::NOW, 'lowerWins' => true, 'rows' => []], $this->body($response));
+    }
+
+    /**
+     * Rommé ranks the lowest sum first: Ben and Carla tie on 15, so the name puts Ben first;
+     * Daniel, without a result, is absent.
+     */
+    public function testRanksAPointsGameBySumInTheGamesDirectionThenName(): void
+    {
+        $this->score(1, 40);
+        $this->score(3, 20);
+        $this->score(2, -5);
+        $this->score(1, -10);
+        $this->score(2, 20);
+        $this->score(3, -5);
+
+        $response = $this->standings(game: 2);
+
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(
+            [
+                'kind' => 'points',
+                'startedAt' => self::NOW,
+                'lowerWins' => true,
+                'rows' => [
+                    ['personId' => 2, 'name' => 'Ben', 'sum' => 15, 'results' => 2],
+                    ['personId' => 3, 'name' => 'Carla', 'sum' => 15, 'results' => 2],
+                    ['personId' => 1, 'name' => 'Anna', 'sum' => 30, 'results' => 2],
+                ],
+            ],
+            $this->body($response),
+        );
+    }
+
+    public function testChangingLowerWinsReRanksAtOnce(): void
+    {
+        $this->score(1, 40);
+        $this->score(2, 15);
+        $this->score(3, 15);
+        $tag = $this->standings(game: 2)->getHeaderLine('ETag');
+
+        $changed = $this->send('PATCH', '/api/games/2', ['name' => 'Rommé', 'lowerWins' => false], $this->session);
+
+        self::assertSame(200, $changed->getStatusCode(), (string) $changed->getBody());
+        $response = $this->standings($tag, 2);
+        self::assertSame(200, $response->getStatusCode(), 'a new setting is a new ranking');
+        $body = $this->body($response);
+        self::assertFalse($body['lowerWins']);
+        self::assertSame([['Anna', 40], ['Ben', 15], ['Carla', 15]], array_map(self::nameAndSum(...), self::listOf($body['rows'])));
+    }
+
+    public function testAPointsGameCountsOnlyTheCurrentRun(): void
+    {
+        $this->score(1, 40);
+        $this->clock->advance('PT1H');
+        $this->send('POST', '/api/games/2/restart', [], $this->session);
+        $this->score(2, 7);
+
+        $body = $this->body($this->standings(game: 2));
+
+        self::assertSame('2026-11-14T21:00:00.000Z', $body['startedAt']);
+        self::assertSame([['personId' => 2, 'name' => 'Ben', 'sum' => 7, 'results' => 1]], $body['rows']);
+    }
+
+    /**
+     * @return iterable<string, array{string, string, array<string, mixed>|null}>
+     */
+    public static function resultWrites(): iterable
+    {
+        yield 'a recorded result' => ['PUT', '/api/results/00000000-0000-4000-8000-000000000777', ['gameId' => 2, 'personId' => 3, 'points' => 4]];
+        yield 'an undone result' => ['DELETE', '/api/results/00000000-0000-4000-8000-000000000001', null];
+    }
+
+    /**
+     * @param array<string, mixed>|null $json
+     */
+    #[DataProvider('resultWrites')]
+    public function testEveryResultWriteChangesTheTag(string $method, string $path, ?array $json): void
+    {
+        $this->score(1, 40);
+        $tag = $this->standings(game: 2)->getHeaderLine('ETag');
+
+        $write = $this->send($method, $path, $json, $this->session);
+
+        self::assertLessThan(300, $write->getStatusCode(), (string) $write->getBody());
+        self::assertSame(200, $this->standings($tag, 2)->getStatusCode());
     }
 
     public function testAnUnknownGameIs404AndTheRouteNeedsASession(): void
@@ -199,10 +284,40 @@ final class StandingsTest extends DatabaseTestCase
         ];
     }
 
+    /**
+     * @param array<string, mixed> $row
+     *
+     * @return array{mixed, mixed}
+     */
+    private static function nameAndSum(array $row): array
+    {
+        return [$row['name'], $row['sum']];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function listOf(mixed $rows): array
+    {
+        self::assertIsArray($rows);
+
+        /** @var list<array<string, mixed>> */
+        return $rows;
+    }
+
+    /** Records a result in Rommé, numbered with the matches. */
+    private function score(int $person, int $points): void
+    {
+        ++$this->writes;
+        $id = sprintf('00000000-0000-4000-8000-%012d', $this->writes);
+        $response = $this->send('PUT', "/api/results/{$id}", ['gameId' => 2, 'personId' => $person, 'points' => $points], $this->session);
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+    }
+
     private function record(int $first, int $second, string $outcome): void
     {
-        ++$this->matches;
-        $id = sprintf('00000000-0000-4000-8000-%012d', $this->matches);
+        ++$this->writes;
+        $id = sprintf('00000000-0000-4000-8000-%012d', $this->writes);
         $response = $this->send('PUT', "/api/matches/{$id}", ['gameId' => 1, 'firstPersonId' => $first, 'secondPersonId' => $second, 'outcome' => $outcome], $this->session);
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
     }
