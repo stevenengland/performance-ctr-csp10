@@ -114,7 +114,7 @@ final class StandingsTest extends DatabaseTestCase
         self::assertSame(304, $conditional->getStatusCode());
         self::assertSame('', (string) $conditional->getBody());
         self::assertSame($tag, $conditional->getHeaderLine('ETag'));
-        self::assertSame(304, $this->standings($tag . '-gzip')->getStatusCode(), 'as Apache compresses it, like the scoreboard');
+        self::assertSame(304, $this->standings(substr($tag, 0, -1) . '-gzip"')->getStatusCode(), 'as Apache compresses it ("42-gzip"), like the scoreboard');
     }
 
     /**
