@@ -162,6 +162,23 @@ final class MigratorTest extends DatabaseTestCase
         self::assertSame([['outcome' => 'draw']], $this->rows('SELECT outcome FROM matches'), 'the table is kept as it was');
     }
 
+    public function testTheResultsMigrationRunsAgainAfterACrashBeforeItsBookkeepingWithoutChangingAnything(): void
+    {
+        $this->get('/api/health');
+        $other = $this->otherSession();
+        $other->exec("INSERT INTO games (name, kind, started_at, created_at) VALUES ('Rommé', 'points', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+        $other->exec("INSERT INTO persons (name, created_at, updated_at) VALUES ('Daniel', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+        $other->exec("INSERT INTO results (id, game_id, person_id, points, run, created_at) VALUES ('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5', 1, 1, -20, 1, UTC_TIMESTAMP(3))");
+        // A crash between the DDL and its bookkeeping: the table exists, the row says started.
+        $other->exec("UPDATE schema_migrations SET state = 'started', completed_at = NULL WHERE version = '0018_create_results'");
+
+        $health = $this->body($this->get('/api/health'));
+
+        self::assertSame('ok', $health['migration']);
+        self::assertSame('completed', array_column($this->bookkeeping(), 'state', 'version')['0018_create_results']);
+        self::assertSame([['points' => '-20']], $this->rows('SELECT CAST(points AS CHAR) AS points FROM results'), 'the table is kept as it was');
+    }
+
     public function testNoTwoMigrationsShareANumber(): void
     {
         $numbers = array_map(static fn(string $name): string => substr($name, 0, 4), self::migrationNames());
