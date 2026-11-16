@@ -6,6 +6,7 @@ import {
   deleteDrink,
   deleteEntry,
   deleteFactor,
+  deleteMatch,
   deletePerson,
   getDrink,
   getFactor,
@@ -18,6 +19,7 @@ import {
   listEntries,
   onUnauthorized,
   putEntry,
+  putMatch,
   signOut,
   updateAccount,
   updateDrink,
@@ -255,6 +257,35 @@ describe('the API client', () => {
     await expect(deleteEntry(entry.id)).resolves.toBeUndefined();
     expect(remove).toHaveBeenCalledWith(
       `/api/entries/${entry.id}`,
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('records a match under its id and deletes it by that id', async () => {
+    const id = '0b6d2c1e-7f3a-4e5b-9c8d-1a2b3c4d5e6f';
+    const body = {
+      gameId: 1,
+      firstPersonId: 1,
+      secondPersonId: 2,
+      outcome: 'first' as const,
+    };
+    const match = { id, ...body, createdAt: '2026-11-15T20:00:00.000Z' };
+    const fetch = respond(match, {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(putMatch(id, body)).resolves.toEqual(match);
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/matches/${id}`,
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify(body) }),
+    );
+
+    const remove = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', remove);
+    await expect(deleteMatch(id)).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledWith(
+      `/api/matches/${id}`,
       expect.objectContaining({ method: 'DELETE' }),
     );
   });
