@@ -27,6 +27,8 @@ import {
   putEntry,
   getSession,
   listAccounts,
+  listAuditEvents,
+  type AuditEvent,
   signIn,
   signOut,
 } from '../src/core/api-client';
@@ -534,5 +536,311 @@ describe('the fixture backend', () => {
       rows.flatMap(({ drinks }) => drinks.map(({ drinkId }) => drinkId)),
     ).not.toContain(2);
     await expect(getDrink(2)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+/** The newest `limit` events of the log, as the API answers them. */
+async function newest(limit: number): Promise<AuditEvent[]> {
+  const response = await fetch(`/api/audit?limit=${String(limit)}`);
+  const page = (await response.json()) as { events: AuditEvent[] };
+  return page.events;
+}
+
+/** An event as Protokoll tells it apart: who did what to which values, and why. */
+const told = ({
+  operation,
+  subjectKind,
+  subjectId,
+  actor,
+  before,
+  after,
+  cause,
+}: AuditEvent) => ({
+  operation,
+  subjectKind,
+  subjectId,
+  userName: actor.userName,
+  before,
+  after,
+  cause: cause && { subjectKind: cause.subjectKind, name: cause.name },
+});
+
+describe('the fixture backend’s audit log', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('serves its sample events to admins, newest first and a page at a time', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+
+    const pages = [await listAuditEvents()];
+    for (let next = pages[0]?.next; next != null; next = pages.at(-1)?.next) {
+      pages.push(await listAuditEvents(next));
+    }
+
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages[0]?.events).toHaveLength(20);
+    const events = pages.flatMap((page) => page.events);
+    const ids = events.map(({ id }) => id);
+    expect(ids).toEqual([...ids].sort((a, b) => b - a));
+    expect(new Set(ids).size).toBe(fixtures.audit.length);
+    await expect(newest(100)).resolves.toEqual(events);
+    const pageOfAll = await fetch(`/api/audit?limit=${String(ids.length)}`);
+    await expect(pageOfAll.json()).resolves.toMatchObject({ next: null });
+  });
+
+  it('starts with several days, a cascade and an account that no longer exists', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const events = await newest(100);
+
+    const days = new Set(
+      events.map(({ occurredAt }) => new Date(occurredAt).toDateString()),
+    );
+    expect(days.size).toBeGreaterThanOrEqual(3);
+    const caused = events.filter(({ cause }) => cause !== null);
+    expect(caused.length).toBeGreaterThan(1);
+    for (const { cause, subjectKind } of caused) {
+      expect(subjectKind).toBe('entry');
+      expect(events.find(({ id }) => id === cause?.id)).toMatchObject({
+        operation: 'delete',
+        subjectKind: cause?.subjectKind,
+        before: { name: cause?.name },
+      });
+    }
+    const accounts = fixtures.accounts.map(({ account }) => account.userName);
+    expect(events.some(({ actor }) => !accounts.includes(actor.userName))).toBe(
+      true,
+    );
+    // Tonight's entries were counted, so the log has them.
+    const entryIds = new Set(events.map(({ subjectId }) => subjectId));
+    expect(fixtures.entries.every(({ id }) => entryIds.has(id))).toBe(true);
+  });
+
+  it('answers only admins, and invalid paging with the API’s validation', async () => {
+    installFixtureBackend(sampleEvening());
+
+    for (const query of ['before=0', 'before=x', 'limit=0', 'limit=101']) {
+      const response = await fetch(`/api/audit?${query}`);
+      expect(response.status, query).toBe(422);
+    }
+    await expect(
+      (await fetch('/api/audit?before=1&limit=0')).json(),
+    ).resolves.toMatchObject({
+      errors: { limit: '1 bis 100.' },
+    });
+    await expect(
+      (await fetch('/api/audit?before=-3')).json(),
+    ).resolves.toMatchObject({
+      errors: { before: 'Positive ganze Zahl.' },
+    });
+
+    await signIn('ben', SAMPLE_PASSWORD);
+    await expect(listAuditEvents()).rejects.toMatchObject({ status: 403 });
+    await signOut();
+    await expect(listAuditEvents()).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('records the viewer’s catalog writes, and nothing for a save that changes nothing or fails', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const seeded = fixtures.audit.length;
+
+    const drink = await createDrink('Sekt', 2);
+    await updateDrink(drink.id, 'Sekt', 2.5);
+    await updateDrink(drink.id, 'Sekt', 2.5);
+    await expect(updateDrink(drink.id, 'Bier', 1)).rejects.toMatchObject({
+      status: 409,
+    });
+    await expect(createPerson(' ')).rejects.toMatchObject({ status: 422 });
+    const person = await createPerson('Lea');
+    await updatePerson(person.id, 'Lena');
+    await deleteDrink(drink.id);
+    await deletePerson(person.id);
+
+    expect((await newest(6)).map(told).reverse()).toEqual([
+      {
+        operation: 'create',
+        subjectKind: 'drink',
+        subjectId: String(drink.id),
+        userName: 'anna',
+        before: null,
+        after: { name: 'Sekt', points: 2 },
+        cause: null,
+      },
+      {
+        operation: 'update',
+        subjectKind: 'drink',
+        subjectId: String(drink.id),
+        userName: 'anna',
+        before: { name: 'Sekt', points: 2 },
+        after: { name: 'Sekt', points: 2.5 },
+        cause: null,
+      },
+      {
+        operation: 'create',
+        subjectKind: 'person',
+        subjectId: String(person.id),
+        userName: 'anna',
+        before: null,
+        after: { name: 'Lea' },
+        cause: null,
+      },
+      {
+        operation: 'update',
+        subjectKind: 'person',
+        subjectId: String(person.id),
+        userName: 'anna',
+        before: { name: 'Lea' },
+        after: { name: 'Lena' },
+        cause: null,
+      },
+      {
+        operation: 'delete',
+        subjectKind: 'drink',
+        subjectId: String(drink.id),
+        userName: 'anna',
+        before: { name: 'Sekt', points: 2.5 },
+        after: null,
+        cause: null,
+      },
+      {
+        operation: 'delete',
+        subjectKind: 'person',
+        subjectId: String(person.id),
+        userName: 'anna',
+        before: { name: 'Lena' },
+        after: null,
+        cause: null,
+      },
+    ]);
+    expect(fixtures.audit).toHaveLength(seeded + 6);
+    expect(fixtures.audit.at(-1)?.occurredAt).toMatch(/^\d{4}-\d\d-\d\dT.+Z$/);
+  });
+
+  it('records what a person’s, drink’s or factor’s deletion does to each of its entries, caused by it', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const entriesOf = (personId: number) =>
+      fixtures.entries.filter((entry) => entry.personId === personId).length;
+    const danielsEntries = entriesOf(3);
+
+    await deletePerson(3);
+    const personEvents = await newest(danielsEntries + 1);
+    const deletion = personEvents.at(-1);
+    expect(deletion).toMatchObject({
+      operation: 'delete',
+      subjectKind: 'person',
+      subjectId: '3',
+      before: { name: 'Daniel' },
+    });
+    expect(personEvents.slice(0, -1).map(told)).toEqual(
+      Array.from({ length: danielsEntries }, () =>
+        expect.objectContaining({
+          operation: 'delete',
+          subjectKind: 'entry',
+          userName: 'anna',
+          before: expect.objectContaining({ person: 'Daniel' }) as unknown,
+          after: null,
+          cause: { subjectKind: 'person', name: 'Daniel' },
+        }),
+      ),
+    );
+    expect(personEvents[0]?.cause?.id).toBe(deletion?.id);
+
+    // Happy Hour counts one of Ben's entries: it stays and counts ×1.
+    await deleteFactor(2);
+    const [entry, factor] = (await newest(2)).map(told);
+    expect(factor).toMatchObject({
+      operation: 'delete',
+      before: { name: 'Happy Hour', multiplier: 2 },
+    });
+    expect(entry).toEqual({
+      operation: 'update',
+      subjectKind: 'entry',
+      subjectId: expect.any(String) as unknown,
+      userName: 'anna',
+      before: {
+        person: 'Ben',
+        drink: 'Bier',
+        points: 1,
+        quantity: 2,
+        factor: { name: 'Happy Hour', multiplier: 2 },
+      },
+      after: {
+        person: 'Ben',
+        drink: 'Bier',
+        points: 1,
+        quantity: 2,
+        factor: null,
+      },
+      cause: { subjectKind: 'factor', name: 'Happy Hour' },
+    });
+
+    const radler = fixtures.entries.filter(({ drinkId }) => drinkId === 4);
+    await deleteDrink(4);
+    const drinkEvents = await newest(radler.length + 1);
+    expect(drinkEvents.slice(0, -1).map(({ subjectId }) => subjectId)).toEqual(
+      radler
+        .map(({ id }) => id)
+        .sort()
+        .reverse(),
+    );
+    expect(drinkEvents.slice(0, -1).map(({ cause }) => cause?.name)).toEqual(
+      radler.map(() => 'Radler'),
+    );
+  });
+
+  it('records a counted and a deleted entry, but not a replayed or conflicting request', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const id = '9b2f4a10-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+    const seeded = fixtures.audit.length;
+
+    await putEntry(id, { personId: 1, drinkId: 6, quantity: 2, factorId: 1 });
+    await putEntry(id, { personId: 1, drinkId: 6, quantity: 2, factorId: 1 });
+    await expect(
+      putEntry(id, { personId: 1, drinkId: 6, quantity: 3, factorId: 1 }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      putEntry('9b2f4a10-1c2d-4e5f-8a9b-0c1d2e3f4a5c', {
+        personId: 99,
+        drinkId: 6,
+        quantity: 1,
+      }),
+    ).rejects.toMatchObject({ status: 422 });
+    await deleteEntry(id);
+    await putEntry(id, { personId: 1, drinkId: 6, quantity: 2, factorId: 1 });
+
+    const snapshot = {
+      person: 'Anna',
+      drink: 'Wein',
+      points: 2,
+      quantity: 2,
+      factor: { name: 'Geburtstag', multiplier: 1.5 },
+    };
+    expect(fixtures.audit).toHaveLength(seeded + 2);
+    expect((await newest(2)).map(told).reverse()).toEqual([
+      {
+        operation: 'create',
+        subjectKind: 'entry',
+        subjectId: id,
+        userName: 'anna',
+        before: null,
+        after: snapshot,
+        cause: null,
+      },
+      {
+        operation: 'delete',
+        subjectKind: 'entry',
+        subjectId: id,
+        userName: 'anna',
+        before: snapshot,
+        after: null,
+        cause: null,
+      },
+    ]);
   });
 });
