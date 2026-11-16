@@ -644,6 +644,27 @@ paths:
           $ref: '#/components/responses/Problem'
         '422':
           $ref: '#/components/responses/Problem'
+  /api/audit:
+    get:
+      operationId: listAuditEvents
+      summary: The newest audit events, newest first (admins only)
+      description: >-
+        The audit log is application-level append-only history: every create, update and
+        delete of a person, a drink or a factor, recorded in the transaction of the change
+        with the acting account and the values before and after. A write that fails, and an
+        update that changes no value, records nothing. No route changes or deletes an event,
+        and reading the log does not change the data revision. Answers the newest 20 events.
+      responses:
+        '200':
+          description: The newest events, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     session:
@@ -1005,6 +1026,100 @@ components:
         name:
           type: string
         count:
+          type: number
+    AuditPage:
+      type: object
+      additionalProperties: false
+      required: [events]
+      properties:
+        events:
+          type: array
+          description: Newest first, by id
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          occurredAt,
+          operation,
+          subjectKind,
+          subjectId,
+          actor,
+          before,
+          after,
+          cause,
+        ]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+          description: Sequential; a later event has a larger id
+        occurredAt:
+          type: string
+          format: date-time
+          description: Server time of the change, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+        operation:
+          type: string
+          enum: [create, update, delete]
+        subjectKind:
+          type: string
+          enum: [entry, person, drink, factor]
+        subjectId:
+          type: string
+          description: The subject's id as text (an integer for persons, drinks and factors)
+        actor:
+          type: object
+          additionalProperties: false
+          required: [accountId, userName]
+          description: The account that made the change, as it was then; kept after the account is renamed or deleted
+          properties:
+            accountId:
+              type: integer
+            userName:
+              type: string
+        before:
+          description: The subject's values before the change; null for a create
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/AuditSnapshot'
+        after:
+          description: The subject's values after the change; null for a delete
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/AuditSnapshot'
+        cause:
+          description: The event whose change caused this one; null for a direct change
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [id, subjectKind, name]
+              properties:
+                id:
+                  type: integer
+                subjectKind:
+                  type: string
+                  enum: [entry, person, drink, factor]
+                name:
+                  type: string
+    AuditSnapshot:
+      type: object
+      description: >-
+        The subject's values as they were, with referenced names resolved then: a person
+        `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`. Keys are only ever
+        added, never renamed, removed or given a new meaning; a reader treats a key it does
+        not know, or a missing one, as unknown.
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+        points:
+          type: number
+        multiplier:
           type: number
     Health:
       type: object

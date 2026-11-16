@@ -298,6 +298,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/audit': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The newest audit events, newest first (admins only)
+     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink or a factor, recorded in the transaction of the change with the acting account and the values before and after. A write that fails, and an update that changes no value, records nothing. No route changes or deletes an event, and reading the log does not change the data revision. Answers the newest 20 events.
+     */
+    get: operations['listAuditEvents'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -456,6 +476,50 @@ export interface components {
       drinkId: number;
       name: string;
       count: number;
+    };
+    AuditPage: {
+      /** @description Newest first, by id */
+      events: components['schemas']['AuditEvent'][];
+    };
+    AuditEvent: {
+      /** @description Sequential; a later event has a larger id */
+      id: number;
+      /**
+       * Format: date-time
+       * @description Server time of the change, UTC
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      occurredAt: string;
+      /** @enum {string} */
+      operation: 'create' | 'update' | 'delete';
+      /** @enum {string} */
+      subjectKind: 'entry' | 'person' | 'drink' | 'factor';
+      /** @description The subject's id as text (an integer for persons, drinks and factors) */
+      subjectId: string;
+      /** @description The account that made the change, as it was then; kept after the account is renamed or deleted */
+      actor: {
+        accountId: number;
+        userName: string;
+      };
+      /** @description The subject's values before the change; null for a create */
+      before: null | components['schemas']['AuditSnapshot'];
+      /** @description The subject's values after the change; null for a delete */
+      after: null | components['schemas']['AuditSnapshot'];
+      /** @description The event whose change caused this one; null for a direct change */
+      cause: null | {
+        id: number;
+        /** @enum {string} */
+        subjectKind: 'entry' | 'person' | 'drink' | 'factor';
+        name: string;
+      };
+    };
+    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
+    AuditSnapshot: {
+      name?: string;
+      points?: number;
+      multiplier?: number;
+    } & {
+      [key: string]: unknown;
     };
     Health: {
       /**
@@ -1282,6 +1346,28 @@ export interface operations {
       };
       401: components['responses']['Problem'];
       422: components['responses']['Problem'];
+    };
+  };
+  listAuditEvents: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The newest events, newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AuditPage'];
+        };
+      };
+      401: components['responses']['Problem'];
+      403: components['responses']['Problem'];
     };
   };
 }
