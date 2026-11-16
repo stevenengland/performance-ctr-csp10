@@ -54,6 +54,27 @@ final readonly class Verification
     }
 
     /**
+     * Removes a pending row, so that it never counts; the audit log keeps it as it was. The
+     * recorder withdraws an own row through its owner's delete instead.
+     *
+     * @throws NotFound        when there is no such row
+     * @throws OwnRow          when the acting account recorded it
+     * @throws AlreadyVerified when the row counts already
+     */
+    public function reject(Actor $actor, VerifiableKind $kind, string $id): void
+    {
+        $rows = $this->owner($kind);
+        $this->revision->write(function () use ($actor, $kind, $id, $rows): void {
+            $row = self::lockedFor($actor, $rows, $id);
+            if (!$row->pending) {
+                throw new AlreadyVerified($id);
+            }
+            $rows->remove($id);
+            $this->audit->record($actor, AuditOperation::Reject, $kind->subjectKind(), $id, $row->snapshot, null);
+        });
+    }
+
+    /**
      * The rows the account may verify, of every kind and every day, a page at a time in one
      * order: recording instant descending, then kind, then id. A page goes on after the last
      * row of the one before, so rows handled meanwhile never make later rows unreachable;

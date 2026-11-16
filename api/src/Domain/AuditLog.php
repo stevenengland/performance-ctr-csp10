@@ -185,7 +185,7 @@ final readonly class AuditLog
         $fits = match ($operation) {
             AuditOperation::Create => $before === null && $after !== null,
             AuditOperation::Update, AuditOperation::Verify => $before !== null && $after !== null,
-            AuditOperation::Delete => $before !== null && $after === null,
+            AuditOperation::Delete, AuditOperation::Reject => $before !== null && $after === null,
         };
         if (!$fits) {
             throw new LogicException("The snapshots do not fit a {$operation->value}");

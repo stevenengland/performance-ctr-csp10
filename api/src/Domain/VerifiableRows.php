@@ -31,6 +31,9 @@ interface VerifiableRows
      */
     public function markVerified(string $id, int $accountId, DateTimeImmutable $at): array;
 
+    /** Removes the row `lock` returned. */
+    public function remove(string $id): void;
+
     /**
      * Up to `$limit` of the owner's pending rows the account may verify (recorded by another
      * account or by one deleted since), after `$bound` when one is given, newest first and

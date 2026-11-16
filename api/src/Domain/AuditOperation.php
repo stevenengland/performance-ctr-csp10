@@ -12,4 +12,6 @@ enum AuditOperation: string
     case Delete = 'delete';
     /** Another account let a pending row count (PRD #61). */
     case Verify = 'verify';
+    /** Another account removed a pending row, so that it never counts (PRD #61). */
+    case Reject = 'reject';
 }

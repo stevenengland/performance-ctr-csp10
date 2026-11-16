@@ -93,6 +93,7 @@ final class App
         $member($app->put($entry, $entries->put(...)));
         $member($app->delete($entry, $entries->delete(...)));
         $member($app->put($entry . '/verification', $verification->verifyEntry(...)));
+        $member($app->delete($entry . '/verification', $verification->rejectEntry(...)));
         $member($app->get('/api/pending', $verification->queue(...)));
         $member($app->get('/api/scoreboard', new ScoreboardAction($database, $photoUrl)));
         $member($app->get('/api/games', $games->list(...)));

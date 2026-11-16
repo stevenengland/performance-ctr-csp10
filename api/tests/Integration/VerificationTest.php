@@ -119,6 +119,107 @@ final class VerificationTest extends DatabaseTestCase
         self::assertSame(['create', 'verify'], $this->operationsOn($entry));
     }
 
+    public function testAnotherAccountRejectsAPendingEntryAndItIsGoneWithOneRejectEvent(): void
+    {
+        $entry = $this->record(quantity: 2);
+
+        $response = $this->reject($entry, $this->anna);
+
+        self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame([], $this->ranked());
+        self::assertSame([], $this->unranked(), 'nothing of Daniel waits any more');
+        self::assertSame([], $this->history(), 'the entry is gone');
+        $events = $this->body($this->send('GET', '/api/audit?limit=1', session: $this->recorder))['events'];
+        self::assertIsList($events);
+        self::assertIsArray($events[0]);
+        self::assertSame(
+            [
+                'operation' => 'reject',
+                'subjectKind' => 'entry',
+                'subjectId' => $entry,
+                'actor' => ['accountId' => 2, 'userName' => 'anna'],
+                'before' => ['person' => 'Daniel', 'drink' => 'Bier', 'points' => 1, 'quantity' => 2, 'factor' => null, 'pending' => true],
+                'after' => null,
+                'cause' => null,
+            ],
+            array_diff_key($events[0], ['id' => 0, 'occurredAt' => 0]),
+        );
+        self::assertSame(['create', 'reject'], $this->operationsOn($entry), 'exactly one reject and no delete');
+    }
+
+    public function testTheRecordingAccountCannotRejectItsOwnEntry(): void
+    {
+        $entry = $this->record();
+
+        $response = $this->reject($entry, $this->recorder);
+
+        self::assertSame(403, $response->getStatusCode());
+        self::assertSame('urn:performance:problem:own-row', $this->body($response)['type']);
+        self::assertSame(['Daniel'], $this->unranked(), 'the entry still waits');
+        self::assertSame(['create'], $this->operationsOn($entry));
+    }
+
+    public function testRejectingAnEntryThatCountsAlreadyIs409AndChangesNothing(): void
+    {
+        $entry = $this->record();
+        $this->verify($entry, $this->anna);
+        $revision = $this->revision();
+
+        $response = $this->reject($entry, $this->anna);
+
+        self::assertSame(409, $response->getStatusCode());
+        self::assertSame('urn:performance:problem:already-verified', $this->body($response)['type']);
+        self::assertSame([['name' => 'Daniel', 'score' => 1, 'count' => 1, 'pendingCount' => 0]], $this->ranked());
+        self::assertSame($revision, $this->revision(), 'the revision stays');
+        self::assertSame(['create', 'verify'], $this->operationsOn($entry));
+    }
+
+    public function testRejectingAnEntryThatDoesNotExistIs404(): void
+    {
+        $response = $this->reject('00000000-0000-4000-8000-000000000999', $this->anna);
+
+        self::assertSame(404, $response->getStatusCode());
+        self::assertSame('urn:performance:problem:not-found', $this->body($response)['type']);
+    }
+
+    public function testAnEntryWhoseRecordingAccountWasDeletedMayBeRejectedByAnyAccount(): void
+    {
+        $entry = $this->record(session: $this->anna);
+        self::assertSame(204, $this->send('DELETE', '/api/accounts/2', session: $this->recorder)->getStatusCode());
+
+        $response = $this->reject($entry, $this->recorder);
+
+        self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame([], $this->history($this->recorder));
+    }
+
+    public function testADeletionThroughTheEntryRouteStaysADeleteEvenForAPendingEntry(): void
+    {
+        $entry = $this->record();
+
+        self::assertSame(204, $this->send('DELETE', "/api/entries/{$entry}", session: $this->anna)->getStatusCode());
+
+        self::assertSame(['create', 'delete'], $this->operationsOn($entry));
+    }
+
+    private function reject(string $entry, string $session): ResponseInterface
+    {
+        return $this->send('DELETE', "/api/entries/{$entry}/verification", session: $session);
+    }
+
+    /**
+     * The ids of Daniel's entries today, as his Verlauf lists them.
+     *
+     * @return list<mixed>
+     */
+    private function history(?string $session = null): array
+    {
+        $entries = $this->body($this->send('GET', '/api/entries?personId=1&from=2026-11-14T00:00:00.000Z', session: $session ?? $this->anna))['entries'];
+        self::assertIsList($entries);
+
+        return array_column($entries, 'id');
+    }
+
     private function verify(string $entry, string $session): ResponseInterface
     {
         // A PUT carries a JSON body; verifying needs none, so the client sends an empty object.

@@ -14,6 +14,7 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * The four-eyes rule (PRD #61). `PUT /api/entries/{id}/verification`: another account than
  * the recorder lets a pending entry count; repeating it changes nothing.
+ * `DELETE /api/entries/{id}/verification`: such an account rejects a pending entry, which removes it.
  * `GET /api/pending?cursor=`: a page of the rows the signed-in account may verify, the `next`
  * page's cursor and the `count` of all of them.
  */
@@ -49,6 +50,16 @@ final readonly class VerificationActions
     public function verifyEntry(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
     {
         $this->database->verification()->verify(SessionAuth::actor($request), VerifiableKind::Entry, $arguments['id']);
+
+        return $response->withStatus(204);
+    }
+
+    /**
+     * @param array{id: string} $arguments
+     */
+    public function rejectEntry(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
+    {
+        $this->database->verification()->reject(SessionAuth::actor($request), VerifiableKind::Entry, $arguments['id']);
 
         return $response->withStatus(204);
     }

@@ -100,6 +100,11 @@ final readonly class EntryLedger implements VerifiableRows
         return EntrySnapshots::of($this->pdo, $id);
     }
 
+    public function remove(string $id): void
+    {
+        $this->pdo->prepare('DELETE FROM entries WHERE id = ?')->execute([$id]);
+    }
+
     public function pending(int $accountId, ?PendingBound $bound, int $limit): array
     {
         $statement = $this->pdo->prepare(

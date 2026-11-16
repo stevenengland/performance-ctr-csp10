@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Performance\Http;
 
+use Performance\Domain\AlreadyVerified;
 use Performance\Domain\Catalog\DuplicateName;
 use Performance\Domain\DuplicateUserName;
 use Performance\Domain\EntryConflict;
@@ -44,6 +45,7 @@ final readonly class ProblemDetailsHandler
             $exception instanceof RequestConflict => Problem::requestConflict(),
             $exception instanceof NotFound => Problem::notFound(),
             $exception instanceof OwnRow => Problem::ownRow(),
+            $exception instanceof AlreadyVerified => Problem::alreadyVerified(),
             $exception instanceof InvalidCredentials => Problem::invalidCredentials(),
             $exception instanceof TooManyAttempts => Problem::tooManyAttempts(),
             default => Problem::internal(),
