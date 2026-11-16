@@ -9,6 +9,7 @@ import {
   deleteMatch,
   deletePerson,
   deletePersonPhoto,
+  putPersonPhoto,
   deleteResult,
   getDrink,
   getFactor,
@@ -496,6 +497,26 @@ describe('the API client', () => {
     expect(remove).toHaveBeenCalledWith(
       '/api/persons/2/photo',
       expect.objectContaining({ method: 'DELETE', body: undefined }),
+    );
+  });
+
+  it('puts a person’s photo as base64 JSON at the person’s photo path and answers the person', async () => {
+    const person = {
+      id: 2,
+      name: 'Daniel',
+      photoUrl: `/api/persons/2/photo?v=${'a'.repeat(64)}`,
+    };
+    const put = vi.fn(async () => Response.json(person));
+    vi.stubGlobal('fetch', put);
+
+    await expect(putPersonPhoto(2, '/9j/2Q==')).resolves.toEqual(person);
+
+    expect(put).toHaveBeenCalledWith(
+      '/api/persons/2/photo',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ image: '/9j/2Q==' }),
+      }),
     );
   });
 
