@@ -231,6 +231,7 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
 /spiele/:gameId/partie/:firstId/:secondId   duel step 3 — Ergebnis (choice saves)
 /spiele/:gameId/ergebnis                    points step 1 — Für wen?
 /spiele/:gameId/ergebnis/:personId          points step 2 — Wie viele Punkte? (Speichern)
+/spiele/:gameId/verlauf                     a game's matches or results since the start
 /verwalten                                  hub                     [nav: Verwalten]
 /verwalten/personen | getraenke | faktoren  master data
 /verwalten/spiele                           games: create, edit, delete (?anlegen opens create)
@@ -310,6 +311,7 @@ an older one.
 | Problem response | the problem's `title` | — |
 | Deleted item | `<Name> gelöscht` | — |
 | Deleted entry (Verlauf) | `Eintrag gelöscht` | — |
+| Deleted match or result (a game's Verlauf, §7r) | `Partie gelöscht` / `Ergebnis gelöscht` | — |
 | Update available | `Neue Version verfügbar` | `Neu laden` |
 | Own password changed | `Passwort geändert` | — |
 | Password reset (Konten) | `Passwort von anna zurückgesetzt` | — |
@@ -402,6 +404,8 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 | Factor | `Happy Hour löschen?` | `5 Einträge zählen danach ×1.` (one: `1 Eintrag zählt danach ×1.`; none: `Happy Hour wird gelöscht.`) |
 | Game | `Schach löschen?` | `Schach und 9 Partien werden gelöscht.` (a points game: `Rommé und 8 Ergebnisse werden gelöscht.`; one: `1 Partie` / `1 Ergebnis`; none: `Schach wird gelöscht.`) — every run's, not only the current ranking's |
 | Entry | `Eintrag löschen?` | `2× Bier · Happy Hour ×2 um 23:41` (no factor: `1× Margarita um 22:58`) |
+| Match | `Partie löschen?` | `Anna – Ben · Anna gewinnt am 15.11. um 21:00` |
+| Result | `Ergebnis löschen?` | `Daniel · −20 Punkte am 15.11. um 22:12` |
 | Account | `Konto anna löschen?` | `Einträge von anna bleiben erhalten.` |
 
 ### 6.10 Empty and loading states
@@ -755,6 +759,8 @@ submit on Enter.
   read when the page opens, every 10 s while visible with `If-None-Match` (304 keeps it), at
   once on focus and after the device's own writes. A failed read keeps what is shown with
   `Stand: HH:mm` in the top bar and retries with backoff up to 60 s.
+- Below the ranking (or the empty state) the text button `Verlauf` (`mdiHistory`, `row-title`,
+  normal case) opens the game's Verlauf (§7r).
 - Loading: a skeleton card and three skeleton rows.
 - A game that no longer exists (deleted on another phone): back to Spiele with
   `Nicht mehr vorhanden` (§9).
@@ -817,6 +823,36 @@ submit on Enter.
 - A game that no longer exists or is no points game, or a person who no longer exists: back
   to Spiele with `Nicht mehr vorhanden` (§4).
 
+### 7r. Verlauf of a game `/spiele/:gameId/verlauf`
+
+- Reached from `Verlauf` on the game's page (§7o); belongs to the Spiele destination with a
+  back button. Title `Verlauf`; context line the game and its start, `Schach · seit 15.09.`.
+- List `Verlauf` of the game's matches or results since the last (re)start, newest first,
+  rows on `outline-variant` hairlines (as §7g):
+  - **Match:** primary the pairing `Anna – Ben` (`row-title`), secondary
+    `Anna gewinnt · 15.11., 21:00 · anna` (`support`: the outcome, `Remis` for a draw; the local
+    date and time; the recording account).
+  - **Result:** primary `Daniel · −20 Punkte` (real minus sign; `1 Punkt`), secondary
+    `15.11., 22:12 · anna`.
+  - A person deleted since reads `gelöschte Person` (`gelöschte Person – Ben`,
+    `gelöschte Person gewinnt`); an account deleted since reads `gelöschtes Konto`.
+  - Trailing delete icon button named `Anna – Ben vom 15.11. löschen` /
+    `Daniel · −20 Punkte vom 15.11. löschen`, opening the confirmation dialog (§6.9):
+    `Partie löschen?` / `Ergebnis löschen?` with what is deleted and when.
+- Pages of 20: below the list the text button `Ältere laden` (`row-title`, normal case) appends
+  the next older page of the same run (a restart meanwhile does not mix runs); on the last
+  page it is gone. A failed older page shows the problem title and keeps what is loaded.
+- After `Löschen`: the snackbar `Partie gelöscht` / `Ergebnis gelöscht`, the row leaves the list
+  (the older pages loaded stay) and the game's ranking is read again at once, so the game's
+  page and the recording flow follow. A match or result already deleted on another phone (404)
+  counts as deleted; any other failure shows the problem title and keeps the row. A deleted
+  match or result stays deleted: a late retry of its save does not bring it back.
+- Read when the screen opens; not polled.
+- Loading: three skeleton rows. Empty: `Seit dem Start noch keine Partien.` /
+  `Seit dem Start noch keine Ergebnisse.`
+- A game that no longer exists (deleted on another phone): back to Spiele with
+  `Nicht mehr vorhanden` (§9).
+
 ## 8. Key flows
 
 1. **Log two beers in happy hour:** Zählen → Daniel → Bier → 2 → Happy Hour ×2 → back on
@@ -838,6 +874,8 @@ submit on Enter.
 9. **Record a Rommé round:** Spiele → Rommé → `Ergebnis eintragen` → Daniel → `2`, `0`, `±` →
    `Speichern` → back on `Für wen?`, snackbar `Daniel · −20 Punkte` with `Rückgängig`, Daniel's
    tile and the game's ranking show the new sum; next player.
+10. **Fix a game later:** Spiele → Schach → `Verlauf` → delete the match → confirm →
+    `Partie gelöscht`, the ranking without it.
 
 ## 9. States and edge cases (every data view defines these)
 
@@ -892,6 +930,7 @@ submit on Enter.
 | Snackbar `Rückgängig` (match) | `DELETE /api/matches/{uuid}` | 404 counts as undone; the ranking is read again |
 | Ergebnis eintragen | `GET /api/games`, `GET /api/persons`, `GET /api/games/{id}/standings`, `PUT /api/results/{uuid}` | Body `{gameId, personId, points}` with whole `points` from −9 999 to 9 999; 201 new, 200 replay; the same UUID with other content is 409 `request-conflict` |
 | Snackbar `Rückgängig` (result) | `DELETE /api/results/{uuid}` | 404 counts as undone; the ranking is read again |
+| Verlauf of a game | `GET /api/games`, `GET /api/games/{id}/matches?before=` or `GET /api/games/{id}/results?before=`, `DELETE /api/matches/{uuid}` or `DELETE /api/results/{uuid}` | By the game's kind. Answer `{items, next}`, newest first, 20 a page; `next` is the opaque `before` of `Ältere laden` (the cursor keeps its run), null on the last page. A match item: `id`, `first` / `second` (`{id, name}` or `null` once deleted), `outcome`, `createdAt`, `accountName` (or `null`); a result item: `id`, `person` `{id, name}`, `points`, `createdAt`, `accountName`. 404 → game gone; a delete's 404 counts as deleted; after a delete the ranking is read again. No polling |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
 | Protokoll | `GET /api/audit?before=` | Admins only (401/403). Answer `{events, next}`, newest first; `next` is the `before` of `Ältere laden`, null on the last page. Each event: `occurredAt`, `operation`, `subjectKind`, `actor.userName`, snapshots `before`/`after` (names and values as they were), `cause` (`{id, subjectKind, name}` or null). No polling |
 | Update / reload floor | `GET /api/health` | `minClientVersion` |
@@ -925,7 +964,9 @@ the shareable page a UI change is reviewed on before it reaches the host.
   (idempotent on the UUID, which is unique across entries, matches and results; a match only
   in a duel, `Remis` only where allowed, two different persons; a result only in a points
   game, whole points from −9 999 to 9 999); deleting a game takes its matches and results along, deleting a
-  person keeps their matches with that side cleared and removes their results.
+  person keeps their matches with that side cleared and removes their results. Each game's
+  Verlauf is paged by the API's rules (newest first, 20 a page, a cursor that keeps its run,
+  the other kind's route 404).
 - **Audit log in the preview.** Protokoll starts with a seeded log that reaches back over
   several days, holds a cascade (the deletion of `Sekt` with the entries it removed) and names
   an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are

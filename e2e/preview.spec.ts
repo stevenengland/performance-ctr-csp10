@@ -68,6 +68,7 @@ test('the preview marker covers no control of any screen', async ({ page }) => {
     ['spiele/2', 'Schach'],
     ['spiele/2/partie/1/3', 'Schach'],
     ['spiele/1/ergebnis/3', 'Rommé'],
+    ['spiele/2/verlauf', 'Verlauf'],
     ['verwalten/konten', 'Konten'],
     ['verlauf/3', 'Daniel'],
   ] as const) {
@@ -340,6 +341,53 @@ test('the fixture preview records a Rommé result on its number pad and ranks it
   await expect(
     page.getByRole('listitem', {
       name: 'Platz 1, Tom, −20 Punkte, 1 Ergebnis',
+    }),
+  ).toBeVisible();
+});
+
+test('the fixture preview opens Schach’s Verlauf and deletes a match from it', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/2');
+  await page.getByRole('link', { name: 'Verlauf' }).click();
+
+  await expect(page).toHaveURL(/#\/spiele\/2\/verlauf$/);
+  const bar = page.getByRole('banner');
+  await expect(bar.getByRole('heading', { level: 1 })).toHaveText('Verlauf');
+  await expect(bar).toContainText(/Schach · seit \d\d\.\d\d\./);
+  const rows = page
+    .getByRole('list', { name: 'Verlauf' })
+    .getByRole('listitem');
+  await expect(rows).toHaveCount(9);
+  await expect(rows.first()).toContainText(
+    /^Ben – Anna\s*Remis · \d\d\.\d\d\., 21:00 · ben/,
+  );
+  await expect(rows.filter({ hasText: 'gelöschte Person – Ben' })).toHaveText(
+    /Ben gewinnt · \d\d\.\d\d\., 21:00 · ben/,
+  );
+  await expect(rows.filter({ hasText: 'gelöschtes Konto' })).toHaveText(
+    /^Ben – Tom\s*Ben gewinnt/,
+  );
+  await expect(page.getByRole('button', { name: 'Ältere laden' })).toHaveCount(
+    0,
+  );
+
+  await page
+    .getByRole('button', { name: /^Ben – Anna vom \d\d\.\d\d\. löschen$/ })
+    .click();
+  const confirm = page.getByRole('dialog');
+  await expect(confirm.getByRole('heading')).toHaveText('Partie löschen?');
+  await expect(confirm).toContainText(
+    /Ben – Anna · Remis am \d\d\.\d\d\. um 21:00/,
+  );
+  await confirm.getByRole('button', { name: 'Löschen' }).click();
+
+  await expect(page.getByText('Partie gelöscht')).toBeVisible();
+  await expect(rows).toHaveCount(8);
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await expect(
+    page.getByRole('listitem', {
+      name: 'Platz 1, Anna, 3,5 Punkte, 4 Partien · 3 S · 1 R · 0 N',
     }),
   ).toBeVisible();
 });
