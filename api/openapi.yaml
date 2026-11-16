@@ -2103,7 +2103,8 @@ components:
         `{name, photo}` with the photo's version or null (events recorded before photos
         existed have only `name`), a drink `{name, points}`, a factor `{name, multiplier}`, an entry
         `{person, drink, points, quantity, factor}` with the person's and the drink's names,
-        the drink's points, and the factor `{name, multiplier}` or null, a game
+        the drink's points, the factor `{name, multiplier}` or null, and `pending` (whether it
+        waited for verification; events recorded before the four-eyes rule have none), a game
         `{name, kind, drawsAllowed, run, startedAt}` for a duel game and
         `{name, kind, lowerWins, run, startedAt}` for a points game, a match
         `{game, first, second, outcome}` with the game's and both persons' names (a person
@@ -2147,6 +2148,9 @@ components:
           type: [string, 'null']
         outcome:
           $ref: '#/components/schemas/Outcome'
+        pending:
+          type: boolean
+          description: Whether the row waited for verification at the time of the event
         factor:
           oneOf:
             - type: 'null'

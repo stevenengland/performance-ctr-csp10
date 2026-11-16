@@ -355,7 +355,7 @@ final class AuditLogTest extends DatabaseTestCase
             array_slice($this->events(), 1, 2),
         );
         self::assertSame(
-            ['{"person":"Daniel","drink":"Bier","points":"1.50","quantity":2,"factor":{"name":"Happy Hour","multiplier":"2.00"}}'],
+            ['{"person":"Daniel","drink":"Bier","points":"1.50","quantity":2,"factor":{"name":"Happy Hour","multiplier":"2.00"},"pending":true}'],
             array_column($this->rows("SELECT after_json FROM audit_events WHERE subject_id = '" . self::ENTRY . "'"), 'after_json'),
         );
     }
@@ -385,6 +385,22 @@ final class AuditLogTest extends DatabaseTestCase
         );
         self::assertSame('factor', $factorChanged['subjectKind']);
         self::assertSame(self::entrySnapshot(3, ['name' => 'Happy Hour', 'multiplier' => 2]), $created['after']);
+    }
+
+    public function testDeletingAVerifiedEntryRecordsItAsVerifiedAndAPendingOneAsPending(): void
+    {
+        $this->entryCatalog();
+        $this->putEntry(self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 1], $this->admin);
+        $this->putEntry(self::OTHER_ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2], $this->admin);
+        $this->verifyDirectly('entries', self::ENTRY);
+
+        $this->send('DELETE', '/api/entries/' . self::ENTRY, session: $this->admin);
+        $this->send('DELETE', '/api/entries/' . self::OTHER_ENTRY, session: $this->admin);
+
+        [$pending, $verified] = $this->events();
+        self::assertSame(['delete', self::OTHER_ENTRY, self::entrySnapshot(2, null)], [$pending['operation'], $pending['subjectId'], $pending['before']]);
+        self::assertSame(['delete', self::ENTRY, self::entrySnapshot(1, null, false)], [$verified['operation'], $verified['subjectId'], $verified['before']]);
+        self::assertSame([], $this->rows('SELECT id FROM entries'));
     }
 
     public function testEntryRequestsThatReplayConflictOrFailRecordNoEvent(): void
@@ -476,7 +492,7 @@ final class AuditLogTest extends DatabaseTestCase
             array_slice($this->events(), 0, 3),
         );
         self::assertSame(
-            [['after_json' => '{"person":"Daniel","drink":"Bier","points":"1.50","quantity":2,"factor":null}', 'cause_id' => 7]],
+            [['after_json' => '{"person":"Daniel","drink":"Bier","points":"1.50","quantity":2,"factor":null,"pending":true}', 'cause_id' => 7]],
             $this->rows('SELECT after_json, cause_id FROM audit_events WHERE id = 9'),
         );
         self::assertSame([['factor_id' => null], ['factor_id' => null], ['factor_id' => null]], $this->rows('SELECT factor_id FROM entries'));
@@ -601,15 +617,15 @@ final class AuditLogTest extends DatabaseTestCase
     }
 
     /**
-     * An entry of Daniel's Bier (1.5 points) as the API shows it.
+     * An entry of Daniel's Bier (1.5 points) as the API shows it; pending unless verified.
      *
      * @param array{name: string, multiplier: int|float}|null $factor
      *
      * @return array<string, mixed>
      */
-    private static function entrySnapshot(int $quantity, ?array $factor): array
+    private static function entrySnapshot(int $quantity, ?array $factor, bool $pending = true): array
     {
-        return ['person' => 'Daniel', 'drink' => 'Bier', 'points' => 1.5, 'quantity' => $quantity, 'factor' => $factor];
+        return ['person' => 'Daniel', 'drink' => 'Bier', 'points' => 1.5, 'quantity' => $quantity, 'factor' => $factor, 'pending' => $pending];
     }
 
     /**

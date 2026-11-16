@@ -1036,7 +1036,7 @@ export interface components {
         name: string;
       };
     };
-    /** @description The subject's values as they were, with referenced names resolved then: a person `{name, photo}` with the photo's version or null (events recorded before photos existed have only `name`), a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null, a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome}` with the game's and both persons' names (a person deleted before is null), a result `{game, person, points}` with the game's and the person's names. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
+    /** @description The subject's values as they were, with referenced names resolved then: a person `{name, photo}` with the photo's version or null (events recorded before photos existed have only `name`), a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, the factor `{name, multiplier}` or null, and `pending` (whether it waited for verification; events recorded before the four-eyes rule have none), a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome}` with the game's and both persons' names (a person deleted before is null), a result `{game, person, points}` with the game's and the person's names. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
     AuditSnapshot: {
       name?: string;
       /** @description A person's photo version (lowercase hex SHA-256), null without a photo */
@@ -1056,6 +1056,8 @@ export interface components {
       first?: string | null;
       second?: string | null;
       outcome?: components['schemas']['Outcome'];
+      /** @description Whether the row waited for verification at the time of the event */
+      pending?: boolean;
       factor?:
         | null
         | ({
