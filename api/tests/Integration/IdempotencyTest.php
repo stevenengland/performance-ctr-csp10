@@ -60,6 +60,41 @@ final class IdempotencyTest extends DatabaseTestCase
         self::assertSame([['subject_id' => self::ENTRY]], $this->rows("SELECT subject_id FROM audit_events WHERE subject_kind = 'entry'"));
     }
 
+    public function testParallelRequestsWithTheSameIdAndDifferentContentRecordOneEntryAndAnswerTheOthers409(): void
+    {
+        $quantities = [2, 3, 2, 3, 2, 3, 2, 3];
+
+        $outcomes = $this->race($quantities);
+
+        $entries = $this->rows('SELECT id, quantity FROM entries');
+        self::assertCount(1, $entries);
+        $recorded = $entries[0]['quantity'];
+        self::assertSame(['created'], array_values(array_filter($outcomes, static fn(string $outcome): bool => $outcome === 'created')));
+        foreach ($quantities as $process => $quantity) {
+            if ($quantity === $recorded) {
+                self::assertContains($outcomes[$process], ['created', 'replayed']);
+            } else {
+                self::assertSame('conflict', $outcomes[$process], 'the other content is a conflict');
+            }
+        }
+        self::assertCount(1, $this->rows('SELECT id FROM entry_requests'));
+    }
+
+    public function testAfterSevenDaysTheIdOfAnUndoneEntryIsForgottenAndCreatesItAgain(): void
+    {
+        $this->put(self::TWO_BEERS);
+        $this->send('DELETE', '/api/entries/' . self::ENTRY, session: $this->session);
+        $this->clock->advance('P7D');
+
+        $withinTheWindow = $this->put(self::TWO_BEERS);
+        $this->clock->advance('PT1S');
+        $afterTheWindow = $this->put(self::TWO_BEERS);
+
+        self::assertSame(200, $withinTheWindow->getStatusCode(), 'a retry within seven days replays');
+        self::assertSame(201, $afterTheWindow->getStatusCode(), 'after them the id is forgotten');
+        self::assertSame([['id' => self::ENTRY]], $this->rows('SELECT id FROM entries'));
+    }
+
     public function testTheSameIdWithDifferentContentIs409AndChangesNothing(): void
     {
         $this->put(self::TWO_BEERS);
@@ -145,6 +180,40 @@ final class IdempotencyTest extends DatabaseTestCase
             $this->rows('SELECT id FROM entry_requests ORDER BY created_at'),
         );
         self::assertCount(3, $this->rows('SELECT id FROM entries'));
+    }
+
+    /**
+     * Sends the entry from one process per quantity, all at the same instant.
+     *
+     * @param list<int> $quantities
+     *
+     * @return list<string> each process's outcome: created, replayed or conflict
+     */
+    private function race(array $quantities): array
+    {
+        $script = __DIR__ . '/../Support/entry-race.php';
+        $startAt = microtime(true) + 1.0;
+        $processes = [];
+        foreach ($quantities as $quantity) {
+            $process = proc_open(
+                [PHP_BINARY, $script, (string) $startAt, self::ENTRY, '1', '1', (string) $quantity, '1'],
+                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes,
+            );
+            self::assertIsResource($process);
+            $processes[] = [$process, $pipes];
+        }
+        $outcomes = [];
+        foreach ($processes as [$process, $pipes]) {
+            $outcome = (string) stream_get_contents($pipes[1]);
+            $errors = (string) stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            self::assertSame(0, proc_close($process), $outcome . $errors);
+            $outcomes[] = $outcome;
+        }
+
+        return $outcomes;
     }
 
     /**
