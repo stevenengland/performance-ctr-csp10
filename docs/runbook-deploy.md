@@ -227,12 +227,13 @@ newer number, not its own newest migration.
 ## Audit log
 
 *Verwalten → Protokoll* (admins only) reads `audit_events`: every change to entries, persons,
-drinks and factors, with the account that made it and the values before and after.
+drinks, factors, games, matches and results, with the account that made it and the values
+before and after.
 
 **What it is:** application-level append-only history. The API only appends events, in the
 same transaction as the change, and only reads them back (`GET /api/audit`; no route edits or
 deletes an event, other methods answer 405). The table has no foreign keys, so deleting an
-account, person, drink or factor leaves its events as they were.
+account, person, drink, factor or game leaves its events as they were.
 
 **What it is not:** tamper-resistant. Anyone who can log in to the database with the API's
 credentials, or through the host's database administration, can change or delete events
@@ -256,7 +257,8 @@ entries 2 000 at a time, so memory stays flat. Measured locally (MariaDB 10.11, 
 may be slower): 1 000 entries 0.03 s and 3 MB, 10 000 entries 0.3 s and 5 MB, 50 000 entries
 1.5 s and 11 MB peak. Meanwhile counting with that person, drink or factor waits. A person's
 deletion also records one update per match that names them (the match stays, that side
-cleared), a game's deletion one delete per match of the game; those are read in one go. Deletions run
+cleared) and one delete per result of theirs (the results go with them); a game's deletion
+records one delete per match and per result of the game; those are read in one go. Deletions run
 one at a time; one that waits more than 10 s for the one before it answers 500 and changes
 nothing. A write that loses a deadlock is run again, up to three times (ADR 0004, decision 4).
 

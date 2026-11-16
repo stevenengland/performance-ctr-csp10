@@ -204,8 +204,9 @@ final readonly class Catalog
     }
 
     /**
-     * Deletes a person and all of the person's entries (the foreign key cascades); the
-     * person's matches stay with that side cleared (the foreign key sets it to null).
+     * Deletes a person and all of the person's entries and results (the foreign keys
+     * cascade); the person's matches stay with that side cleared (the foreign key sets it to
+     * null). Each of those changes is recorded as caused by the person's deletion.
      *
      * @throws NotFound when there is no such person
      */
