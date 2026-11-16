@@ -56,6 +56,9 @@
    runs a whole write transaction again when it loses a deadlock (1213), up to three times: an
    entry undo locks the entry before its person, drink and factor, a deletion of one of them
    the other way round, and neither order can change without breaking the guarantees above.
+   Matches (PRD #27) follow the same pattern: a person's deletion locks the person, then the
+   matches naming them (through `PersonDependents`), a match undo the match, then its game and
+   persons shared; a deadlock between the two is retried the same way.
    `ConcurrentDeletionTest` forces both interleavings on CI's MariaDB 11.8 with the server's
    default settings (`innodb_snapshot_isolation` on).
 5. **PHP 8.5.12.** `config.platform.php` is `8.5.12` and `require.php` `~8.5.0`; the image is

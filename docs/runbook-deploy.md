@@ -254,7 +254,9 @@ present the log as tamper-proof or as evidence beyond "what the app recorded".
 in the same transaction, and holds the locks on those entries until it commits. It reads the
 entries 2 000 at a time, so memory stays flat. Measured locally (MariaDB 10.11, PHP 8.3; the host
 may be slower): 1 000 entries 0.03 s and 3 MB, 10 000 entries 0.3 s and 5 MB, 50 000 entries
-1.5 s and 11 MB peak. Meanwhile counting with that person, drink or factor waits. Deletions run
+1.5 s and 11 MB peak. Meanwhile counting with that person, drink or factor waits. A person's
+deletion also records one update per match that names them (the match stays, that side
+cleared), a game's deletion one delete per match of the game; those are read in one go. Deletions run
 one at a time; one that waits more than 10 s for the one before it answers 500 and changes
 nothing. A write that loses a deadlock is run again, up to three times (ADR 0004, decision 4).
 
