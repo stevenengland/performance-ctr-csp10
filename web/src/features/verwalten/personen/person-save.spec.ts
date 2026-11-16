@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Person } from '../../../core/api-client';
 import { loadPersons, usePersons } from '../../../core/catalog';
 import { dismissSnackbar, useSnackbar } from '../../../core/snackbar';
-import { personSave } from './person-save';
+import { PhotoUnreadable } from '../../../core/person-photo';
+import { personSave, type PhotoChange } from './person-save';
 
 const PHOTO = '/api/persons/2/photo?v=abc';
+const NEW_PHOTO = '/api/persons/2/photo?v=def';
 const daniel: Person = { id: 2, name: 'Daniel', photoUrl: PHOTO };
 const anna: Person = { id: 1, name: 'Anna', photoUrl: null };
 
@@ -24,12 +26,13 @@ function failure(title: string) {
 }
 
 /**
-A fake API over Anna and Daniel: renames and photo removals change what the list
-answers; a request named in `failing` (`'DELETE /api/persons/2/photo'`) answers 500.
+A fake API over Anna and Daniel: renames, photo uploads (kept in `images`) and
+removals change what the list answers; a request named in `failing` (`'DELETE /api/persons/2/photo'`) answers 500.
 */
 function server() {
   const persons = [anna, { ...daniel }];
   const calls: string[] = [];
+  const images: string[] = [];
   const failing = new Set<string>();
   vi.stubGlobal(
     'fetch',
@@ -47,10 +50,15 @@ function server() {
         person.photoUrl = null;
         return new Response(null, { status: 204 });
       }
+      if (call === 'PUT /api/persons/2/photo') {
+        images.push((JSON.parse(String(init.body)) as { image: string }).image);
+        person.photoUrl = NEW_PHOTO;
+        return json(person);
+      }
       throw new Error(`unexpected ${call}`);
     }),
   );
-  return { calls, failing };
+  return { calls, images, failing };
 }
 
 /** The persons list as the store holds it, loaded once like a screen does. */
@@ -209,5 +217,116 @@ describe('saving a person in the dialog', () => {
       personSave(daniel).save({ name: 'Dani', photo: { kind: 'remove' } }),
     ).rejects.toMatchObject({ status: 500 });
     expect(api.calls).toEqual(['PATCH /api/persons/2']);
+  });
+
+  describe('a new photo', () => {
+    /** A framed photo whose encoding answers `image`, or fails with `failure`. */
+    function framed(image = 'AAAA', failure?: Error) {
+      const encode = vi.fn(() =>
+        failure ? Promise.reject(failure) : Promise.resolve(image),
+      );
+      return { encode, change: { kind: 'new', encode } as PhotoChange };
+    }
+
+    it('encodes the photo before anything is sent, then renames, then puts the photo', async () => {
+      const api = await loadedList();
+      const photo = framed('/9j/AA==');
+      let sentBeforeEncoding: string[] | undefined;
+      photo.encode.mockImplementation(() => {
+        sentBeforeEncoding = [...api.calls];
+        return Promise.resolve('/9j/AA==');
+      });
+
+      const outcome = await personSave(daniel).save({
+        name: 'Dani',
+        photo: photo.change,
+      });
+
+      expect(outcome).toBe('saved');
+      expect(sentBeforeEncoding).toEqual([]);
+      expect(api.calls.slice(0, 2)).toEqual([
+        'PATCH /api/persons/2',
+        'PUT /api/persons/2/photo',
+      ]);
+      expect(api.images).toEqual(['/9j/AA==']);
+    });
+
+    it('sends only the photo when the name is unchanged', async () => {
+      const api = await loadedList();
+
+      await personSave(daniel).save({
+        name: 'Daniel',
+        photo: framed().change,
+      });
+
+      expect(api.calls.slice(0, 1)).toEqual(['PUT /api/persons/2/photo']);
+    });
+
+    it('puts the acknowledged photo in the list at once and reloads it on its own', async () => {
+      const api = await loadedList();
+      const saving = personSave(daniel);
+
+      await saving.save({ name: 'Daniel', photo: framed().change });
+
+      expect(saving.person).toEqual({ ...daniel, photoUrl: NEW_PHOTO });
+      expect(usePersons().value?.[1]).toEqual(saving.person);
+      expect(api.calls).toEqual([
+        'PUT /api/persons/2/photo',
+        'GET /api/persons',
+      ]);
+    });
+
+    it('counts the save when the photo committed and only the reload fails', async () => {
+      const api = await loadedList();
+      api.failing.add('GET /api/persons');
+
+      const outcome = await personSave(daniel).save({
+        name: 'Daniel',
+        photo: framed().change,
+      });
+      await flushPromises();
+
+      expect(outcome).toBe('saved');
+      expect(usePersons().value?.[1]?.photoUrl).toBe(NEW_PHOTO);
+      expect(useSnackbar().value?.text).toBe('GET /api/persons failed');
+    });
+
+    it('sends nothing, not even a pending rename, when the photo cannot be encoded', async () => {
+      const api = await loadedList();
+      const unreadable = new PhotoUnreadable();
+
+      await expect(
+        personSave(daniel).save({
+          name: 'Dani',
+          photo: framed('', unreadable).change,
+        }),
+      ).rejects.toBe(unreadable);
+      expect(api.calls).toEqual([]);
+    });
+
+    it('says the photo is not saved when the rename committed and the upload failed, and retries only the upload', async () => {
+      const api = await loadedList();
+      api.failing.add('PUT /api/persons/2/photo');
+      const saving = personSave(daniel);
+      const draft = { name: 'Dani', photo: framed('/9j/AA==').change };
+
+      await expect(saving.save(draft)).resolves.toBe('photoNotSaved');
+      api.failing.clear();
+      api.calls.length = 0;
+      api.images.length = 0;
+
+      await expect(saving.save(draft)).resolves.toBe('saved');
+      expect(api.calls.slice(0, 1)).toEqual(['PUT /api/persons/2/photo']);
+      expect(api.images).toEqual(['/9j/AA==']);
+    });
+
+    it('fails as a whole when only the upload was pending and it failed', async () => {
+      const api = await loadedList();
+      api.failing.add('PUT /api/persons/2/photo');
+
+      await expect(
+        personSave(daniel).save({ name: 'Daniel', photo: framed().change }),
+      ).rejects.toMatchObject({ status: 500 });
+    });
   });
 });

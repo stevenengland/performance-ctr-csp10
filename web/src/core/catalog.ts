@@ -42,6 +42,16 @@ export async function updatePerson(id: number, name: string): Promise<Person> {
   return person;
 }
 
+/** Sets a person's photo and resolves to the server's answer, which then replaces the person in the list. Does not reload. */
+export async function putPersonPhoto(
+  id: number,
+  image: string,
+): Promise<Person> {
+  const person = await api.putPersonPhoto(id, image);
+  replacePerson(person);
+  return person;
+}
+
 /** Removes a person's photo; once acknowledged the list shows their initials. Does not reload. */
 export async function deletePersonPhoto(id: number): Promise<void> {
   await api.deletePersonPhoto(id);
