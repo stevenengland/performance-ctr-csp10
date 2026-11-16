@@ -159,13 +159,17 @@ test('deleting an account after the dialog ends its sessions and keeps its entri
   );
   expect(logged.status()).toBe(201);
   const from = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const score = async () => {
+  // The entry waits for verification: it is recorded, without a rank yet.
+  const recorded = async () => {
     const board = (await (
       await page.request.get(`/api/scoreboard?from=${encodeURIComponent(from)}`)
-    ).json()) as { rows: { personId: number; score: number }[] };
-    return board.rows.find(({ personId }) => personId === person.id)?.score;
+    ).json()) as {
+      unranked: { personId: number; drinks: { recordedCount: number }[] }[];
+    };
+    return board.unranked.find(({ personId }) => personId === person.id)
+      ?.drinks[0]?.recordedCount;
   };
-  expect(await score()).toBe(3);
+  expect(await recorded()).toBe(2);
   await page.goto('/verwalten/konten');
 
   await choose(page, account.userName, 'Löschen');
@@ -182,7 +186,7 @@ test('deleting an account after the dialog ends its sessions and keeps its entri
   await expect(page.getByText(`${account.userName} gelöscht`)).toBeVisible();
   await expect(row(page, account.userName)).toHaveCount(0);
   expect((await device.context.request.get('/api/session')).status()).toBe(401);
-  expect(await score()).toBe(3);
+  expect(await recorded()).toBe(2);
   await page.goto(`/verlauf/${String(person.id)}`);
   await expect(
     page
@@ -190,7 +194,7 @@ test('deleting an account after the dialog ends its sessions and keeps its entri
       .getByRole('listitem'),
   ).toHaveText([
     new RegExp(
-      `^2× ${drink.name}Kein Faktor · \\d\\d:\\d\\d · gelöschtes Konto$`,
+      `^2× ${drink.name}Kein Faktor · \\d\\d:\\d\\d · gelöschtes Kontooffen$`,
     ),
   ]);
   await device.context.close();

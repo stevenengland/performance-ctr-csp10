@@ -75,7 +75,7 @@ test.afterEach(async ({ page }) => {
   }
 });
 
-test('the Rangliste opens a person’s Verlauf: today’s entries newest first with drink, factor, local time and account', async ({
+test('the Rangliste opens a person’s Verlauf: today’s entries newest first with drink, factor, local time, account and the offen marker', async ({
   page,
 }) => {
   const person = await create(page.request, '/api/persons', {
@@ -113,17 +113,18 @@ test('the Rangliste opens a person’s Verlauf: today’s entries newest first w
     (await history.json()) as { entries: { createdAt: string }[] }
   ).entries;
 
+  // The entries wait for verification: the person is listed without a rank.
   await page.goto('/rangliste');
   await page
-    .getByRole('link', { name: new RegExp(`^Platz \\d+, ${person.name},`) })
+    .getByRole('link', { name: new RegExp(`^${person.name},`) })
     .click();
 
   await expect(page).toHaveURL(new RegExp(`/verlauf/${String(person.id)}$`));
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(person.name);
   await expect(page.getByText('Heute', { exact: true })).toBeVisible();
   await expect(entries(page, person.name)).toHaveText([
-    `2× ${bier.name}${factor.name} ×2 · ${await localTime(page, newest?.createdAt ?? '')} · ${ADMIN.userName}`,
-    `1× ${margarita.name}Kein Faktor · ${await localTime(page, oldest?.createdAt ?? '')} · ${ADMIN.userName}`,
+    `2× ${bier.name}${factor.name} ×2 · ${await localTime(page, newest?.createdAt ?? '')} · ${ADMIN.userName}offen`,
+    `1× ${margarita.name}Kein Faktor · ${await localTime(page, oldest?.createdAt ?? '')} · ${ADMIN.userName}offen`,
   ]);
 });
 
@@ -167,12 +168,8 @@ test('deleting an entry after the dialog removes it from Verlauf and the Ranglis
   ]);
   await page.goto('/rangliste');
   await expect(
-    page.getByRole('link', {
-      name: new RegExp(`^Platz \\d+, ${person.name},`),
-    }),
-  ).toHaveAccessibleName(
-    new RegExp(`^Platz \\d+, ${person.name}, 1,5 Punkte, 1 Getränk$`),
-  );
+    page.getByRole('link', { name: new RegExp(`^${person.name},`) }),
+  ).toHaveAccessibleName(`${person.name}, ${bier.name} 1, +1 offen`);
 });
 
 test('Verwalten → Personen opens a Verlauf, which says when there are no entries today', async ({

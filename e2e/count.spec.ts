@@ -102,10 +102,13 @@ test('without factors Daniel → Bier → + twice → Speichern saves 2 beers an
 
   expect((await saved).status()).toBe(201);
   await expect(page).toHaveURL(/\/zaehlen$/);
-  await expect(page.getByText(`2× ${drink} · ${person}`)).toBeVisible();
+  await expect(
+    page.getByText(`2× ${drink} · ${person} · wartet auf Bestätigung`),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Rückgängig' })).toBeVisible();
+  // It waits for verification: no points yet, but the drink's counter shows it.
   await expect(tile(page, person)).toHaveAccessibleName(
-    `${person}, 2 Punkte heute`,
+    `${person}, noch nichts`,
   );
   await tile(page, person).click();
   await expect(tile(page, drink)).toHaveAccessibleName(

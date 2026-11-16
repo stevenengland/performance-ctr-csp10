@@ -125,10 +125,11 @@ test('deleting a person after a dialog that names the entries removes them from 
     { personId: person.id, drinkId: drink.id, quantity: 1 },
     3,
   );
-  await page.goto('/zaehlen');
-  await expect(personTile(page, person.name)).toHaveAccessibleName(
-    `${person.name}, 4,5 Punkte heute`,
-  );
+  // The entries wait for verification: the person is listed without a rank.
+  await page.goto('/rangliste');
+  await expect(
+    page.getByRole('link', { name: new RegExp(`^${person.name}, `) }),
+  ).toHaveAccessibleName(`${person.name}, ${drink.name} 3, +3 offen`);
 
   await page.goto('/verwalten/personen');
   await page.getByRole('button', { name: `${person.name} löschen` }).click();
@@ -149,7 +150,7 @@ test('deleting a person after a dialog that names the entries removes them from 
   expect(entries.status()).toBe(404);
 });
 
-test('editing a drink’s name and points changes today’s score of its entries', async ({
+test('editing a drink’s name and points shows on the counter of its entries', async ({
   page,
 }) => {
   const { person, drink } = await evening(page.request);
@@ -174,8 +175,9 @@ test('editing a drink’s name and points changes today’s score of its entries
   );
 
   await page.goto('/zaehlen');
+  // The entry waits for verification, so it scores nothing yet.
   await expect(personTile(page, person.name)).toHaveAccessibleName(
-    `${person.name}, 4,5 Punkte heute`,
+    `${person.name}, noch nichts`,
   );
   await personTile(page, person.name).click();
   await expect(

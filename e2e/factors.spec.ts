@@ -72,6 +72,22 @@ async function openFactorStep(
   await expect(page.getByRole('heading', { name: 'Faktor?' })).toBeVisible();
 }
 
+/**
+A drink tile's accessible name on the person's drink step: its counter is what
+was recorded today, entries that wait for verification included.
+*/
+async function drinkTile(
+  page: Page,
+  person: string,
+  drink: string,
+): Promise<string | null> {
+  await page.goto('/zaehlen');
+  await tile(page, person).click();
+  const found = tile(page, drink);
+  await expect(found).toBeVisible();
+  return found.getAttribute('aria-label');
+}
+
 /** Deletes the factors a test created by name, whatever happened to it. */
 const ownFactors: string[] = [];
 
@@ -96,7 +112,7 @@ function factorName(prefix: string): string {
   return name;
 }
 
-test('Happy Hour ×2 from Verwalten → Faktoren doubles the counter and the score of Daniel → Bier → 2', async ({
+test('Happy Hour ×2 from Verwalten → Faktoren doubles the counter of Daniel → Bier → 2', async ({
   page,
 }) => {
   const { person, drink } = await evening(page.request);
@@ -128,10 +144,13 @@ test('Happy Hour ×2 from Verwalten → Faktoren doubles the counter and the sco
   expect((await saved).status()).toBe(201);
   await expect(page).toHaveURL(/\/zaehlen$/);
   await expect(
-    page.getByText(`2× ${drink.name} · ${happyHour} ×2 · ${person.name}`),
+    page.getByText(
+      `2× ${drink.name} · ${happyHour} ×2 · ${person.name} · wartet auf Bestätigung`,
+    ),
   ).toBeVisible();
+  // It waits for verification, so it scores nothing yet.
   await expect(tile(page, person.name)).toHaveAccessibleName(
-    `${person.name}, 6 Punkte heute`,
+    `${person.name}, noch nichts`,
   );
   // The finished flow left the history: back goes to where the flow began.
   await page.goBack();
@@ -161,8 +180,8 @@ test('Kein Faktor counts once', async ({ page }) => {
   await expect(
     page.getByText(`2× ${drink.name} · ${person.name}`),
   ).toBeVisible();
-  await expect(tile(page, person.name)).toHaveAccessibleName(
-    `${person.name}, 3 Punkte heute`,
+  await expect(drinkTile(page, person.name, drink.name)).resolves.toBe(
+    `${drink.name}, 1,5 Punkte, heute 2`,
   );
 });
 
@@ -207,7 +226,7 @@ test('factors are listed alphabetically, edited and validated with inline errors
   await expect(rows.first()).toContainText('×99,99');
 });
 
-test('editing a multiplier changes today’s score of the entries that use it', async ({
+test('editing a multiplier changes today’s counter of the entries that use it', async ({
   page,
 }) => {
   const { person, drink } = await evening(page.request);
@@ -218,9 +237,8 @@ test('editing a multiplier changes today’s score of the entries that use it', 
   });
   const entry = { personId: person.id, drinkId: drink.id, quantity: 2 };
   await addEntry(page.request, entry, factor.id);
-  await page.goto('/zaehlen');
-  await expect(tile(page, person.name)).toHaveAccessibleName(
-    `${person.name}, 6 Punkte heute`,
+  await expect(drinkTile(page, person.name, drink.name)).resolves.toBe(
+    `${drink.name}, 1,5 Punkte, heute 4`,
   );
 
   await page.goto('/verwalten/faktoren');
@@ -232,9 +250,8 @@ test('editing a multiplier changes today’s score of the entries that use it', 
     .click();
   await expect(page.getByRole('dialog')).toBeHidden();
 
-  await page.goto('/zaehlen');
-  await expect(tile(page, person.name)).toHaveAccessibleName(
-    `${person.name}, 9 Punkte heute`,
+  await expect(drinkTile(page, person.name, drink.name)).resolves.toBe(
+    `${drink.name}, 1,5 Punkte, heute 6`,
   );
 });
 
@@ -263,9 +280,8 @@ test('deleting a factor after its dialog keeps its entries, which then count ×1
   await expect(
     page.getByRole('button', { name: `${name} löschen` }),
   ).toHaveCount(0);
-  await page.goto('/zaehlen');
-  await expect(tile(page, person.name)).toHaveAccessibleName(
-    `${person.name}, 7,5 Punkte heute`,
+  await expect(drinkTile(page, person.name, drink.name)).resolves.toBe(
+    `${drink.name}, 1,5 Punkte, heute 5`,
   );
 });
 
