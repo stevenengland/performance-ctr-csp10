@@ -57,9 +57,7 @@ export function currentRun(
     Date.parse(standings.startedAt) >= Date.parse(game.startedAt)
   )
     return standings;
-  return standings.kind === 'duel'
-    ? { ...standings, startedAt: game.startedAt, rows: [], unranked: [] }
-    : { ...standings, startedAt: game.startedAt, rows: [] };
+  return { ...standings, startedAt: game.startedAt, rows: [], unranked: [] };
 }
 
 /**
@@ -210,8 +208,7 @@ export function gameStandings(
 export function unrankedGameStandings(
   standings: DeepReadonly<Standings>,
 ): UnrankedGameStanding[] {
-  const unranked = standings.kind === 'duel' ? standings.unranked : [];
-  return unranked.map(({ personId, name, pendingCount }) => {
+  return standings.unranked.map(({ personId, name, pendingCount }) => {
     const pending = messages.pending.hint(pendingCount);
     return { personId, name, pending, label: `${name}, ${pending}` };
   });

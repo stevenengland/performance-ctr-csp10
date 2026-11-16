@@ -48,6 +48,7 @@ const noRows = (subject: Game): Standings =>
         startedAt: subject.startedAt,
         lowerWins: subject.lowerWins,
         rows: [],
+        unranked: [],
       };
 
 /** The API with the games and each game's ranking (none recorded unless given). */
@@ -276,9 +277,10 @@ describe('a game’s page', () => {
         startedAt: STARTED,
         lowerWins: true,
         rows: [
-          { personId: 3, name: 'Daniel', sum: -11, results: 2 },
-          { personId: 2, name: 'Ben', sum: 39, results: 2 },
+          { personId: 3, name: 'Daniel', sum: -11, results: 2, pendingCount: 0 },
+          { personId: 2, name: 'Ben', sum: 39, results: 2, pendingCount: 0 },
         ],
+        unranked: [],
       },
     });
 
@@ -293,6 +295,38 @@ describe('a game’s page', () => {
       'Platz 2, Ben, 39 Punkte, 2 Ergebnisse',
     ]);
     expect(wrapper.get('.game-leader__value').text()).toBe('−11');
+  });
+
+  it('ranks only who has a counting result and lists who only waits apart, even on a pending zero in a lowest-wins game', async () => {
+    api([game(2, 'Rommé', 'points', { lowerWins: true })], {
+      2: {
+        kind: 'points',
+        startedAt: STARTED,
+        lowerWins: true,
+        rows: [
+          { personId: 3, name: 'Daniel', sum: -11, results: 2, pendingCount: 1 },
+          { personId: 2, name: 'Ben', sum: 39, results: 2, pendingCount: 0 },
+        ],
+        unranked: [{ personId: 4, name: 'Jule', pendingCount: 1 }],
+      },
+    });
+
+    wrapper = await spiel(2);
+
+    expect(
+      wrapper
+        .findAll('[data-test="game-place"]')
+        .map((place) => place.attributes('aria-label')),
+    ).toEqual([
+      'Platz 1, Daniel, −11 Punkte, 2 Ergebnisse, +1 offen',
+      'Platz 2, Ben, 39 Punkte, 2 Ergebnisse',
+    ]);
+    expect(wrapper.get('.game-leader__value').text()).toBe('−11');
+    expect(
+      wrapper
+        .findAll('[data-test="game-unranked"]')
+        .map((row) => row.attributes('aria-label')),
+    ).toEqual(['Jule, +1 offen']);
   });
 
   it('shows maintenance in the snackbar when the ranking cannot be read', async () => {
@@ -435,6 +469,7 @@ describe('keeping a game’s page current', () => {
       startedAt: '2026-11-15T21:00:00.000Z',
       lowerWins: true,
       rows: [],
+      unranked: [],
     };
     await vi.advanceTimersByTimeAsync(10_000);
 

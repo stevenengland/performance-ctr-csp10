@@ -87,6 +87,7 @@ function romme(): ResultItem[] {
       points: -20,
       createdAt: '2026-11-15T21:12:00.000Z',
       accountName: 'anna',
+      pending: false,
     },
     {
       id: 'r1',
@@ -94,6 +95,7 @@ function romme(): ResultItem[] {
       points: 35,
       createdAt: '2026-11-15T20:05:00.000Z',
       accountName: 'ben',
+      pending: false,
     },
   ];
 }
@@ -290,6 +292,19 @@ describe('a game’s Verlauf', () => {
       false,
       false,
     ]);
+    expect(marked[0]?.text()).toBe('offen');
+  });
+
+  it('marks a result that waits for verification offen', async () => {
+    const [waiting, ...rest] = romme();
+    api({ results: [{ ...(waiting as ResultItem), pending: true }, ...rest] });
+
+    wrapper = await verlauf(1);
+
+    const marked = wrapper
+      .findAll('[data-test="game-history-row"]')
+      .map((row) => row.find('[data-test="pending"]'));
+    expect(marked.map((marker) => marker.exists())).toEqual([true, false]);
     expect(marked[0]?.text()).toBe('offen');
   });
 

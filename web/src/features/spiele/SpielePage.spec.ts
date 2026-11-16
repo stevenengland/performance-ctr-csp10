@@ -156,7 +156,10 @@ describe('Spiele', () => {
           kind: 'points',
           startedAt: started,
           lowerWins: true,
-          rows: [{ personId: 3, name: 'Daniel', sum: -11, results: 2 }],
+          rows: [
+            { personId: 3, name: 'Daniel', sum: -11, results: 2, pendingCount: 0 },
+          ],
+          unranked: [],
         },
       },
     );

@@ -69,9 +69,10 @@ export const POINTS_RANKING: Extract<Standings, { kind: 'points' }> = {
   startedAt: ROMME.startedAt,
   lowerWins: false,
   rows: [
-    { personId: 3, name: 'Carla', sum: 25, results: 3 },
-    { personId: 2, name: 'Ben', sum: -11, results: 2 },
+    { personId: 3, name: 'Carla', sum: 25, results: 3, pendingCount: 0 },
+    { personId: 2, name: 'Ben', sum: -11, results: 2, pendingCount: 0 },
   ],
+  unranked: [],
 };
 
 interface RouterViewSlot {

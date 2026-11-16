@@ -222,8 +222,8 @@ describe('the points of a result', () => {
     state.points = {
       ...POINTS_RANKING,
       rows: [
-        { personId: 3, name: 'Carla', sum: 25, results: 3 },
-        { personId: 2, name: 'Ben', sum: -31, results: 3 },
+        { personId: 3, name: 'Carla', sum: 25, results: 3, pendingCount: 0 },
+        { personId: 2, name: 'Ben', sum: -31, results: 3, pendingCount: 0 },
       ],
     };
 
@@ -236,7 +236,9 @@ describe('the points of a result', () => {
     expect(results.map(({ method, body }) => [method, body])).toEqual([
       ['PUT', { gameId: 2, personId: 2, points: -20 }],
     ]);
-    expect(useSnackbar().value?.text).toBe('Ben · −20 Punkte');
+    expect(useSnackbar().value?.text).toBe(
+      'Ben · −20 Punkte · wartet auf Bestätigung',
+    );
     expect(useSnackbar().value?.action?.label).toBe('Rückgängig');
     expect(wrapper.text()).toContain('Für wen?');
     expect(tileLabels(wrapper)[1]).toBe('Ben, −31 Punkte');
@@ -250,7 +252,7 @@ describe('the points of a result', () => {
     state.points = {
       ...POINTS_RANKING,
       rows: [
-        { personId: 1, name: 'Anna', sum: 40, results: 1 },
+        { personId: 1, name: 'Anna', sum: 40, results: 1, pendingCount: 0 },
         ...POINTS_RANKING.rows,
       ],
     };
@@ -316,7 +318,9 @@ describe('the points of a result', () => {
       results[0]?.url,
       results[0]?.url,
     ]);
-    expect(useSnackbar().value?.text).toBe('Ben · 3 Punkte');
+    expect(useSnackbar().value?.text).toBe(
+      'Ben · 3 Punkte · wartet auf Bestätigung',
+    );
   });
 
   it('keeps Speichern disabled until a digit is typed', async () => {
