@@ -157,6 +157,31 @@ final readonly class Results implements GameDependents, PersonDependents
         );
     }
 
+    /**
+     * A page of a points game's Verlauf: its results of one run, newest first, with the person
+     * and the recording account's name (null once deleted).
+     *
+     * @param string|null $before the `next` of the previous page; null for the newest page of the current run
+     *
+     * @return HistoryPage<ResultItem>
+     *
+     * @throws NotFound         when the game is a duel game
+     * @throws ValidationFailed for a `before` that names no page or a limit outside 1–100
+     */
+    public function history(Game $game, ?string $before, int $limit): HistoryPage
+    {
+        return (new GameHistory($this->pdo))->page(
+            $game,
+            GameKind::Points,
+            'SELECT h.id, h.created_at, h.points, h.person_id, p.name AS person_name, a.user_name AS account_name
+             FROM results h FORCE INDEX (results_game) JOIN persons p ON p.id = h.person_id
+             LEFT JOIN accounts a ON a.id = h.account_id',
+            $before,
+            $limit,
+            self::itemOf(...),
+        );
+    }
+
     /** How many results of every run belong to the game; read without locks, for the delete dialog. */
     public function count(int $gameId): int
     {
@@ -292,5 +317,19 @@ final readonly class Results implements GameDependents, PersonDependents
     private static function snapshotOf(array $row): array
     {
         return ['game' => (string) $row['game'], 'person' => (string) $row['person'], 'points' => (int) $row['points']];
+    }
+
+    /**
+     * @param array<string, scalar|null> $row
+     */
+    private static function itemOf(array $row): ResultItem
+    {
+        return new ResultItem(
+            (string) $row['id'],
+            new PersonRef((int) $row['person_id'], (string) $row['person_name']),
+            (int) $row['points'],
+            GameHistory::instant($row['created_at']),
+            $row['account_name'] === null ? null : (string) $row['account_name'],
+        );
     }
 }

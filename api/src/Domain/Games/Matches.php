@@ -185,6 +185,33 @@ final readonly class Matches implements GameDependents, PersonDependents
         );
     }
 
+    /**
+     * A page of a duel game's Verlauf: its matches of one run, newest first, with each side's
+     * person (null once deleted) and the recording account's name (null once deleted).
+     *
+     * @param string|null $before the `next` of the previous page; null for the newest page of the current run
+     *
+     * @return HistoryPage<MatchItem>
+     *
+     * @throws NotFound         when the game is a points game
+     * @throws ValidationFailed for a `before` that names no page or a limit outside 1–100
+     */
+    public function history(Game $game, ?string $before, int $limit): HistoryPage
+    {
+        return (new GameHistory($this->pdo))->page(
+            $game,
+            GameKind::Duel,
+            'SELECT h.id, h.created_at, h.outcome, h.first_person_id, f.name AS first_name,
+                    h.second_person_id, s.name AS second_name, a.user_name AS account_name
+             FROM matches h FORCE INDEX (matches_game)
+             LEFT JOIN persons f ON f.id = h.first_person_id LEFT JOIN persons s ON s.id = h.second_person_id
+             LEFT JOIN accounts a ON a.id = h.account_id',
+            $before,
+            $limit,
+            self::itemOf(...),
+        );
+    }
+
     /** How many matches of every run belong to the game; read without locks, for the delete dialog. */
     public function count(int $gameId): int
     {
@@ -335,6 +362,27 @@ final readonly class Matches implements GameDependents, PersonDependents
             'second' => $row['second'] === null ? null : (string) $row['second'],
             'outcome' => (string) $row['outcome'],
         ];
+    }
+
+    /**
+     * @param array<string, scalar|null> $row
+     */
+    private static function itemOf(array $row): MatchItem
+    {
+        return new MatchItem(
+            (string) $row['id'],
+            self::personOf($row['first_person_id'], $row['first_name']),
+            self::personOf($row['second_person_id'], $row['second_name']),
+            Outcome::from((string) $row['outcome']),
+            GameHistory::instant($row['created_at']),
+            $row['account_name'] === null ? null : (string) $row['account_name'],
+        );
+    }
+
+    /** A match's side as the Verlauf shows it: null once its person was deleted. */
+    private static function personOf(bool|float|int|string|null $id, bool|float|int|string|null $name): ?PersonRef
+    {
+        return $id === null ? null : new PersonRef((int) $id, (string) $name);
     }
 
     /** A refused insert as the persons it names that do not exist; the game is locked, so it is not the one missing. */

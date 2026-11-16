@@ -84,6 +84,8 @@ final class App
         $member($app->delete($game, $games->delete(...)));
         $member($app->post($game . '/restart', $games->restart(...)));
         $member($app->get($game . '/standings', new StandingsAction($database)));
+        $member($app->get($game . '/matches', $matches->list(...)));
+        $member($app->get($game . '/results', $results->list(...)));
         $match = '/api/matches/{id:' . EntryActions::ID_PATTERN . '}';
         $member($app->put($match, $matches->put(...)));
         $member($app->delete($match, $matches->delete(...)));

@@ -828,6 +828,63 @@ paths:
           $ref: '#/components/responses/Problem'
         '404':
           $ref: '#/components/responses/Problem'
+  /api/games/{id}/matches:
+    parameters:
+      - $ref: '#/components/parameters/GameId'
+    get:
+      operationId: listMatches
+      summary: A page of a duel game's Verlauf, newest first
+      description: >-
+        The game's matches of one run, newest first by recording time and then id. The first
+        page reads the current run; `next` is the opaque `before` of the next older page and
+        names the run, time and id it continues from, so a restart or new matches between two
+        requests never mix runs, repeat or skip a row. A deleted person's side is null; a
+        deleted account's name is null. A points game, like an unknown game, is 404; a `before`
+        that names no page, or a `limit` outside 1 to 100, is 422.
+      parameters:
+        - $ref: '#/components/parameters/HistoryBefore'
+        - $ref: '#/components/parameters/HistoryLimit'
+      responses:
+        '200':
+          description: A page of matches, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/games/{id}/results:
+    parameters:
+      - $ref: '#/components/parameters/GameId'
+    get:
+      operationId: listResults
+      summary: A page of a points game's Verlauf, newest first
+      description: >-
+        The game's results of one run, paged as the matches of a duel game: newest first by
+        recording time and then id, the first page in the current run, `next` the opaque
+        `before` of the next older page in the same run. A deleted account's name is null. A
+        duel game, like an unknown game, is 404; a `before` that names no page, or a `limit`
+        outside 1 to 100, is 422.
+      parameters:
+        - $ref: '#/components/parameters/HistoryBefore'
+        - $ref: '#/components/parameters/HistoryLimit'
+      responses:
+        '200':
+          description: A page of results, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
   /api/matches/{id}:
     parameters:
       - $ref: '#/components/parameters/ClientId'
@@ -1006,6 +1063,23 @@ components:
       schema:
         type: string
         pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    HistoryBefore:
+      name: before
+      in: query
+      required: false
+      description: The `next` of the previous page, unchanged; omitted for the newest page of the current run
+      schema:
+        type: string
+    HistoryLimit:
+      name: limit
+      in: query
+      required: false
+      description: Rows per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
   responses:
     Problem:
       description: An error, described as a problem
@@ -1541,6 +1615,89 @@ components:
           format: date-time
           description: Server time of the first request, UTC
           examples: ['2026-11-14T22:41:07.123Z']
+    PersonRef:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+    MatchItem:
+      type: object
+      additionalProperties: false
+      required: [id, first, second, outcome, createdAt, accountName]
+      properties:
+        id:
+          type: string
+        first:
+          description: Null once that person was deleted (`gelöschte Person`)
+          oneOf:
+            - $ref: '#/components/schemas/PersonRef'
+            - type: 'null'
+        second:
+          description: Null once that person was deleted (`gelöschte Person`)
+          oneOf:
+            - $ref: '#/components/schemas/PersonRef'
+            - type: 'null'
+        outcome:
+          $ref: '#/components/schemas/Outcome'
+        createdAt:
+          type: string
+          format: date-time
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: The account that recorded the match; null once it was deleted
+    MatchPage:
+      type: object
+      additionalProperties: false
+      required: [items, next]
+      properties:
+        items:
+          type: array
+          description: Newest first
+          items:
+            $ref: '#/components/schemas/MatchItem'
+        next:
+          type: [string, 'null']
+          description: >-
+            The `before` of the next older page in the same run; null on the last page, so a
+            last page that is exactly full is not followed by an empty one
+    ResultItem:
+      type: object
+      additionalProperties: false
+      required: [id, person, points, createdAt, accountName]
+      properties:
+        id:
+          type: string
+        person:
+          $ref: '#/components/schemas/PersonRef'
+        points:
+          $ref: '#/components/schemas/GamePoints'
+        createdAt:
+          type: string
+          format: date-time
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: The account that recorded the result; null once it was deleted
+    ResultPage:
+      type: object
+      additionalProperties: false
+      required: [items, next]
+      properties:
+        items:
+          type: array
+          description: Newest first
+          items:
+            $ref: '#/components/schemas/ResultItem'
+        next:
+          type: [string, 'null']
+          description: >-
+            The `before` of the next older page in the same run; null on the last page, so a
+            last page that is exactly full is not followed by an empty one
     Standings:
       oneOf:
         - $ref: '#/components/schemas/DuelStandings'

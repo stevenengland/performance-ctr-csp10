@@ -396,6 +396,52 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/games/{id}/matches': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /**
+     * A page of a duel game's Verlauf, newest first
+     * @description The game's matches of one run, newest first by recording time and then id. The first page reads the current run; `next` is the opaque `before` of the next older page and names the run, time and id it continues from, so a restart or new matches between two requests never mix runs, repeat or skip a row. A deleted person's side is null; a deleted account's name is null. A points game, like an unknown game, is 404; a `before` that names no page, or a `limit` outside 1 to 100, is 422.
+     */
+    get: operations['listMatches'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}/results': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /**
+     * A page of a points game's Verlauf, newest first
+     * @description The game's results of one run, paged as the matches of a duel game: newest first by recording time and then id, the first page in the current run, `next` the opaque `before` of the next older page in the same run. A deleted account's name is null. A duel game, like an unknown game, is 404; a `before` that names no page, or a `limit` outside 1 to 100, is 422.
+     */
+    get: operations['listResults'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/matches/{id}': {
     parameters: {
       query?: never;
@@ -723,6 +769,49 @@ export interface components {
        */
       createdAt: string;
     };
+    PersonRef: {
+      id: number;
+      name: string;
+    };
+    MatchItem: {
+      id: string;
+      /** @description Null once that person was deleted (`gelöschte Person`) */
+      first: components['schemas']['PersonRef'] | null;
+      /** @description Null once that person was deleted (`gelöschte Person`) */
+      second: components['schemas']['PersonRef'] | null;
+      outcome: components['schemas']['Outcome'];
+      /**
+       * Format: date-time
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+      /** @description The account that recorded the match; null once it was deleted */
+      accountName: string | null;
+    };
+    MatchPage: {
+      /** @description Newest first */
+      items: components['schemas']['MatchItem'][];
+      /** @description The `before` of the next older page in the same run; null on the last page, so a last page that is exactly full is not followed by an empty one */
+      next: string | null;
+    };
+    ResultItem: {
+      id: string;
+      person: components['schemas']['PersonRef'];
+      points: components['schemas']['GamePoints'];
+      /**
+       * Format: date-time
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+      /** @description The account that recorded the result; null once it was deleted */
+      accountName: string | null;
+    };
+    ResultPage: {
+      /** @description Newest first */
+      items: components['schemas']['ResultItem'][];
+      /** @description The `before` of the next older page in the same run; null on the last page, so a last page that is exactly full is not followed by an empty one */
+      next: string | null;
+    };
     Standings:
       | components['schemas']['DuelStandings']
       | components['schemas']['PointsStandings'];
@@ -928,6 +1017,10 @@ export interface components {
     GameId: number;
     /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
     ClientId: string;
+    /** @description The `next` of the previous page, unchanged; omitted for the newest page of the current run */
+    HistoryBefore: string;
+    /** @description Rows per page */
+    HistoryLimit: number;
   };
   requestBodies: never;
   headers: never;
@@ -1873,6 +1966,68 @@ export interface operations {
       };
       401: components['responses']['Problem'];
       404: components['responses']['Problem'];
+    };
+  };
+  listMatches: {
+    parameters: {
+      query?: {
+        /** @description The `next` of the previous page, unchanged; omitted for the newest page of the current run */
+        before?: components['parameters']['HistoryBefore'];
+        /** @description Rows per page */
+        limit?: components['parameters']['HistoryLimit'];
+      };
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of matches, newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MatchPage'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  listResults: {
+    parameters: {
+      query?: {
+        /** @description The `next` of the previous page, unchanged; omitted for the newest page of the current run */
+        before?: components['parameters']['HistoryBefore'];
+        /** @description Rows per page */
+        limit?: components['parameters']['HistoryLimit'];
+      };
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of results, newest first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ResultPage'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      422: components['responses']['Problem'];
     };
   };
   recordMatch: {
