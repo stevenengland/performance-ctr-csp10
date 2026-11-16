@@ -16,6 +16,8 @@ use Performance\Domain\Timestamp;
 final readonly class HistoryCursor
 {
     private const TIME_FORMAT = 'Y-m-d H:i:s.v';
+    /** The shape TIME_FORMAT writes; checked first, since the date parser throws on a null byte. */
+    private const TIME = '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/D';
     private const ID = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/D';
 
     public function __construct(
@@ -40,7 +42,10 @@ final readonly class HistoryCursor
             return null;
         }
         [$run, $createdAt, $id] = $values;
-        if (!is_int($run) || $run < 1 || !is_string($createdAt) || !is_string($id) || preg_match(self::ID, $id) !== 1) {
+        if (!is_int($run) || $run < 1 || !is_string($id) || preg_match(self::ID, $id) !== 1) {
+            return null;
+        }
+        if (!is_string($createdAt) || preg_match(self::TIME, $createdAt) !== 1) {
             return null;
         }
         $instant = DateTimeImmutable::createFromFormat('!' . self::TIME_FORMAT, $createdAt, new DateTimeZone('UTC'));

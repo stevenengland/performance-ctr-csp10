@@ -217,6 +217,7 @@ final class GameHistoryTest extends DatabaseTestCase
         yield 'a cursor without its run' => [$cursor('["2026-11-14 20:00:00.000","00000000-0000-4000-8000-000000000001"]'), 'before'];
         yield 'a cursor with run 0' => [$cursor('[0,"2026-11-14 20:00:00.000","00000000-0000-4000-8000-000000000001"]'), 'before'];
         yield 'a cursor with an impossible time' => [$cursor('[1,"2026-13-45 20:00:00.000","00000000-0000-4000-8000-000000000001"]'), 'before'];
+        yield 'a cursor with a null byte in its time' => [$cursor('[1,"2026-11-14 20:00:00.000\\u0000","00000000-0000-4000-8000-000000000001"]'), 'before'];
         yield 'a cursor with another id' => [$cursor('[1,"2026-11-14 20:00:00.000","1; DROP TABLE matches"]'), 'before'];
     }
 
