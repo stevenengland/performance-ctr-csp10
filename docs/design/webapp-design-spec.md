@@ -324,9 +324,12 @@ an older one.
 height 104 dp, padding 12 × 14 dp, a 3 dp inset bottom edge in `outline-variant`, content
 left-aligned. Pressed or saving: `primary-container` / `on-primary-container`, edge removed.
 
-- **Person tile:** name (`tile-name`) at the top; at the bottom `Punkte heute` in `support` on
-  the left and the person's total score for today (`numeral`) on the right, or just
-  `noch nichts` in `support` when there are no entries today. No tally marks here.
+- **Person tile:** the person's avatar (§6.12, 40 dp) and, 8 dp to its right, the name
+  (`tile-name`) at the top; at the bottom `Punkte heute` in `support` on the left and the
+  person's total score for today (`numeral`) on the right, or just `noch nichts` in `support`
+  when there are no entries today. No tally marks here. The avatar comes through the tile's
+  generic `leading` slot, which sits left of the name; the tile knows nothing about photos.
+  The avatar adds nothing to the accessible name (`Daniel, 13,5 Punkte heute`).
 - **Drink tile:** top row — name left, today's counter for the chosen person right (`numeral`,
   omitted at 0); bottom row — points in `support` (`1 Punkt`, `3 Punkte`, `0,5 Punkte`) left,
   tally (18 dp) right.
@@ -432,8 +435,9 @@ submit on Enter.
 ### 6.12 Person avatar
 
 `PersonAvatar` — a person's round avatar (a beer mat seen from above), the same size with or
-without a photo, so rows line up either way. Each surface sets its size (Personen rows 40 dp,
-§7i).
+without a photo, so rows line up either way. Each surface sets its size: Zählen tiles 40 dp
+(§6.4), Personen rows 40 dp (§7i), Rangliste rows 44 dp and the leader card 64 dp (§7f), the
+person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 
 - **Photo:** the person's `photoUrl` in an `<img>` with `alt=""`, `object-fit: cover`. A photo
   that fails to load shows the initials instead.
@@ -464,8 +468,8 @@ without a photo, so rows line up either way. Each surface sets its size (Persone
 ### 7b. Zählen, step 1 — Namen `/zaehlen`
 
 - Title `Zählen`; step indicator at 1. Question `Für wen?` in `question`.
-- Grid of person tiles (§6.4), alphabetical, each with the person's total score for today
-  (from the scoreboard feed).
+- Grid of person tiles (§6.4), alphabetical, each with the person's avatar (40 dp, left of the
+  name) and total score for today (from the scoreboard feed).
 - Empty: `Noch keine Personen.` + button `Person anlegen` → `/verwalten/personen?anlegen` (the
   query opens the create dialog).
 
@@ -521,22 +525,27 @@ without a photo, so rows line up either way. Each surface sets its size (Persone
 
 - Title `Rangliste` with the context line `Heute`.
 - Persons with entries today, ranked by score (ties by name):
-  - **Rank 1 — leader card:** `primary-container`, corner 18 dp. Name (`name-hero`) and the
-    tally of the total count (26 dp) on the left, score (`score-hero`) on the right; below,
-    the total count (`9 Getränke`, `label`) and the per-drink counters
-    (`Bier 4 · Margarita 1`, `support`).
+  - **Rank 1 — leader card:** `primary-container`, corner 18 dp. On the left the avatar
+    (§6.12, 64 dp, with a 3 dp ring in `on-primary-container`), under it the name
+    (`name-hero`) and the tally of the total count (26 dp); score (`score-hero`) on the right;
+    below, the total count (`9 Getränke`, `label`) and the per-drink counters
+    (`Bier 4 · Margarita 1`, `support`). The avatar sits above the name, not beside it:
+    beside it, the name had no room left (`DANIEL` was cut off).
   - **Ranks 2+ — rows** separated by `outline-variant` hairlines: rank numeral (`title`,
-    `on-surface-variant`), name (`rank-name`) with per-drink counters beneath (`support`),
-    and on the right the score (`numeral`) with the total count beneath (12 dp, Text 400,
-    `on-surface-variant`, as in the mockup).
+    `on-surface-variant`, 28 dp column), the avatar (44 dp), name (`rank-name`) with
+    per-drink counters beneath (`support`), and on the right the score (`numeral`) with the
+    total count beneath (12 dp, Text 400, `on-surface-variant`, as in the mockup).
   - The rank is the position in the API's order (score, ties by name); tied persons get
     consecutive ranks. Per-drink counters are listed alphabetically, as the API sends them.
     A total count of one reads `1 Getränk`.
 - Card and rows form one ordered list `Rangliste`; each place has the accessible name
-  `Platz 1, Daniel, 13,5 Punkte, 9 Getränke`. The card and each row are links with that name
+  `Platz 1, Daniel, 13,5 Punkte, 9 Getränke` (avatars are decorative, §10). The card and each row are links with that name
   (inside their list items) and open `/verlauf/:personId`.
 - Loading: a skeleton card and three skeleton rows.
 - Persons without entries today are not listed.
+- Photos come from versioned URLs the browser caches, so a running app keeps showing the photos
+  it has loaded when the connection drops (best effort; reopening the app offline is not
+  promised). A photo changed on another phone shows with the next refresh.
 - Empty: `Heute noch keine Getränke.` + button `Zählen` → `/zaehlen`.
 - Stale indicator (§6.6) in the top app bar.
 
@@ -632,8 +641,9 @@ without a photo, so rows line up either way. Each surface sets its size (Persone
   problem title shows in the snackbar and the list reloads. After deleting, the snackbar
   `Daniel gelöscht` (§6.3).
 - Deleting a person or a drink deletes its entries; the Rangliste and the counters show it on
-  their next refresh. A rename shows on the Rangliste the same way; a drink's new points
-  change today's scores of its entries.
+  their next refresh. A rename shows on the Rangliste the same way, and so does a photo set,
+  changed or removed (initials then); a drink's new points change today's scores of its
+  entries.
 
 ### 7j. Konten `/verwalten/konten` (admins only)
 
