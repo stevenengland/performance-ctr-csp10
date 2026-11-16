@@ -23,6 +23,8 @@ export interface FixtureAccount {
 /** An entry with the account that logged it (`null` once that account is deleted), as the database keeps it. */
 export interface FixtureEntry extends Entry {
   accountId: number | null;
+  /** Whether it waits for verification by another account (PRD #61). */
+  pending: boolean;
 }
 
 /** A game with the run its ranking is in, which the API keeps to itself. */
@@ -85,7 +87,7 @@ export function entrySnapshot(
     drinks,
     factors,
   }: Pick<Fixtures, 'persons' | 'drinks' | 'factors'>,
-  entry: Entry,
+  entry: Entry & { pending: boolean },
 ): AuditSnapshot {
   const drink = drinks.find(({ id }) => id === entry.drinkId);
   const factor = factors.find(({ id }) => id === entry.factorId);
@@ -97,6 +99,7 @@ export function entrySnapshot(
     factor: factor
       ? { name: factor.name, multiplier: factor.multiplier }
       : null,
+    pending: entry.pending,
   };
 }
 
@@ -238,10 +241,12 @@ function sampleGames(
 }
 
 /**
-Tonight so far: person, drink, quantity, factor and the logging account — in the
-order they were logged. One account was deleted since (`jonas`).
+Tonight so far: person, drink, quantity, factor, the logging account and whether
+the entry still waits for verification — in the order they were logged. One
+account was deleted since (`jonas`). The last three wait: one of Mara's, and
+Jule's only ones, so she is listed without a rank.
 */
-const LOG: [string, string, number, string | null, string][] = [
+const LOG: [string, string, number, string | null, string, boolean?][] = [
   ['Anna', 'Wein', 1, null, 'anna'],
   ['Daniel', 'Bier', 2, null, 'ben'],
   ['Mara', 'Aperol', 2, null, 'mara'],
@@ -255,6 +260,9 @@ const LOG: [string, string, number, string | null, string][] = [
   ['Anna', 'Wein', 2, null, 'ben'],
   ['Daniel', 'Aperol', 1, null, 'anna'],
   ['Daniel', 'Bier', 2, null, 'anna'],
+  ['Mara', 'Wein', 1, null, 'anna', true],
+  ['Jule', 'Aperol', 1, null, 'mara', true],
+  ['Jule', 'Bier', 2, null, 'ben', true],
 ];
 
 /**
@@ -275,17 +283,20 @@ function sampleEntries(
   const accountOf = (userName: string) =>
     accounts.find(({ account }) => account.userName === userName)?.account.id ??
     null;
-  return LOG.map(([person, drink, quantity, factor, account], index) => ({
-    id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
-    personId: idOf(persons, person),
-    drinkId: idOf(drinks, drink),
-    quantity,
-    factorId: factor === null ? null : idOf(factors, factor),
-    accountId: accountOf(account),
-    createdAt: new Date(
-      midnight + Math.floor((span * (index + 1)) / (LOG.length + 1)),
-    ).toISOString(),
-  }));
+  return LOG.map(
+    ([person, drink, quantity, factor, account, pending], index) => ({
+      id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+      personId: idOf(persons, person),
+      drinkId: idOf(drinks, drink),
+      quantity,
+      factorId: factor === null ? null : idOf(factors, factor),
+      accountId: accountOf(account),
+      createdAt: new Date(
+        midnight + Math.floor((span * (index + 1)) / (LOG.length + 1)),
+      ).toISOString(),
+      pending: pending ?? false,
+    }),
+  );
 }
 
 /** A deletion as the events it brings about name it, like the API: by its id, kind and the name it recorded. */

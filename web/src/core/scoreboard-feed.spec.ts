@@ -16,14 +16,16 @@ const board: Scoreboard = {
       photoUrl: null,
       score: 13.5,
       count: 6,
+      pendingCount: 0,
       drinks: [
-        { drinkId: 1, name: 'Bier', count: 4 },
-        { drinkId: 2, name: 'Margarita', count: 2 },
+        { drinkId: 1, name: 'Bier', count: 4, recordedCount: 4 },
+        { drinkId: 2, name: 'Margarita', count: 2, recordedCount: 2 },
       ],
     },
   ],
+  unranked: [],
 };
-const empty: Scoreboard = { rows: [] };
+const empty: Scoreboard = { rows: [], unranked: [] };
 
 type Reply = () => Response | Promise<Response>;
 

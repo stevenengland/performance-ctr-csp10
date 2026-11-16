@@ -18,9 +18,11 @@ const BOARD: Scoreboard = {
       photoUrl: null,
       score: 13.5,
       count: 9,
-      drinks: [{ drinkId: 2, name: 'Bier', count: 9 }],
+      pendingCount: 0,
+      drinks: [{ drinkId: 2, name: 'Bier', count: 9, recordedCount: 9 }],
     },
   ],
+  unranked: [],
 };
 
 function api() {

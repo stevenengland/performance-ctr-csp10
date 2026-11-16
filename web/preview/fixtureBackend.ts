@@ -3,9 +3,10 @@ import type {
   Entry,
   HistoryEntry,
   Person,
-  ScoreRow,
   Scoreboard,
 } from '../src/core/api-client';
+
+type DrinkCount = Scoreboard['rows'][number]['drinks'][number];
 import { gameBackend } from './fixtureGames';
 import {
   type AuditSnapshot,
@@ -93,9 +94,26 @@ function multiplierError(multiplier: unknown): string | undefined {
     : 'Zahl über 0 bis 99,99.';
 }
 
-/** The day's standings, aggregated like the API's Scoreboard: factors at their current multiplier. */
+/** A person's tally of the day while the standings are aggregated. */
+interface Tally {
+  personId: number;
+  name: string;
+  photoUrl: string | null;
+  score: number;
+  count: number;
+  verifiedEntries: number;
+  pendingCount: number;
+  drinks: DrinkCount[];
+}
+
+/**
+The day's standings, aggregated like the API's Scoreboard: factors at their current
+multiplier; score, count and each drink's `count` over verified entries only,
+`recordedCount` over every entry, the pending entries counted per person, and a
+person whose entries all wait listed apart in `unranked`, by name.
+*/
 function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
-  const rows = new Map<number, ScoreRow>();
+  const tallies = new Map<number, Tally>();
   for (const entry of fixtures.entries) {
     if (new Date(entry.createdAt) < from) continue;
     const person = fixtures.persons.find(({ id }) => id === entry.personId);
@@ -104,38 +122,68 @@ function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
     const multiplier =
       fixtures.factors.find(({ id }) => id === entry.factorId)?.multiplier ?? 1;
     const counted = entry.quantity * multiplier;
-    const row = rows.get(person.id) ?? {
+    const verified = entry.pending ? 0 : counted;
+    const tally = tallies.get(person.id) ?? {
       personId: person.id,
       name: person.name,
       photoUrl: person.photoUrl,
       score: 0,
       count: 0,
+      verifiedEntries: 0,
+      pendingCount: 0,
       drinks: [],
     };
-    row.score += counted * drink.points;
-    row.count += counted;
-    const counter = row.drinks.find(({ drinkId }) => drinkId === drink.id);
-    if (counter) counter.count += counted;
-    else
-      row.drinks.push({
+    tally.score += verified * drink.points;
+    tally.count += verified;
+    if (entry.pending) tally.pendingCount += 1;
+    else tally.verifiedEntries += 1;
+    const counter = tally.drinks.find(({ drinkId }) => drinkId === drink.id);
+    if (counter) {
+      counter.count += verified;
+      counter.recordedCount += counted;
+    } else {
+      tally.drinks.push({
         drinkId: drink.id,
         name: drink.name,
-        count: counted,
+        count: verified,
+        recordedCount: counted,
       });
-    rows.set(person.id, row);
+    }
+    tallies.set(person.id, tally);
   }
   const round = (value: number) => Math.round(value * 100) / 100;
+  const drinksOf = ({ drinks }: Tally) =>
+    drinks
+      .map((drink) => ({
+        ...drink,
+        count: round(drink.count),
+        recordedCount: round(drink.recordedCount),
+      }))
+      .sort(byName);
+  const all = [...tallies.values()];
   return {
-    rows: [...rows.values()]
-      .map((row) => ({
-        ...row,
-        score: round(row.score),
-        count: round(row.count),
-        drinks: row.drinks
-          .map((drink) => ({ ...drink, count: round(drink.count) }))
-          .sort(byName),
+    rows: all
+      .filter(({ verifiedEntries }) => verifiedEntries > 0)
+      .map((tally) => ({
+        personId: tally.personId,
+        name: tally.name,
+        photoUrl: tally.photoUrl,
+        score: round(tally.score),
+        count: round(tally.count),
+        pendingCount: tally.pendingCount,
+        drinks: drinksOf(tally),
       }))
       .sort((a, b) => b.score - a.score || byName(a, b)),
+    unranked: all
+      .filter(({ verifiedEntries }) => verifiedEntries === 0)
+      .map((tally) => ({
+        personId: tally.personId,
+        name: tally.name,
+        photoUrl: tally.photoUrl,
+        pendingCount: tally.pendingCount,
+        drinks: drinksOf(tally),
+      }))
+      .sort(byName),
   };
 }
 
@@ -169,6 +217,7 @@ function history(
           : null,
         createdAt: entry.createdAt,
         accountName: account?.account.userName ?? null,
+        pending: entry.pending,
       };
     });
 }
@@ -739,7 +788,7 @@ function saveNamed<T extends Named>(
   return json(item, status);
 }
 
-/** Adds an entry idempotently on its id, like the API's EntryLedger, recording the account. */
+/** Adds an entry idempotently on its id, like the API's EntryLedger, recording the account; it waits for verification. */
 function putEntry(
   fixtures: Fixtures,
   id: string,
@@ -766,7 +815,7 @@ function putEntry(
     (createdAt) =>
       addEntry(
         fixtures,
-        { id, quantity, factorId, accountId, createdAt },
+        { id, quantity, factorId, accountId, createdAt, pending: true },
         personId,
         drinkId,
       ),
