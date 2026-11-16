@@ -804,7 +804,7 @@ paths:
       operationId: listPending
       summary: A page of the rows the signed-in account may verify, and how many there are
       description: >-
-        Every pending row the account may verify, entries and matches: recorded by another
+        Every pending row the account may verify, entries, matches and results: recorded by another
         account, or by one deleted since. All days and game runs, newest first by recording instant, then by kind, then by id,
         20 per page. `next` is the `cursor` of the next page (null on the last one); a page
         goes on after the last row of the one before, so rows verified, rejected or deleted
@@ -1270,7 +1270,9 @@ paths:
       summary: Record one person's points in a points game, idempotently on its id
       description: >-
         The result is recorded in the game's current run, with the account and the server time
-        (UTC). Replays and conflicts as for matches: a repeated request with the same id and
+        (UTC). It waits for verification by another account and stays out of the standings
+        until then (PRD #61); the response is the same either way. Replays and conflicts as
+        for matches: a repeated request with the same id and
         content answers 200 with the original result and records nothing, even after the result
         was deleted or its game deleted; the same id with other content, or an id already used
         for an entry or a match, answers 409 `request-conflict`. Ids are remembered for seven
@@ -1315,6 +1317,59 @@ paths:
           $ref: '#/components/responses/Problem'
         '404':
           $ref: '#/components/responses/Problem'
+  /api/results/{id}/verification:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - name: id
+        in: path
+        required: true
+        description: The result's UUID; anything that is not a lower-case UUID v4 is 404
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    put:
+      operationId: verifyResult
+      summary: Verify a pending result, so that it counts in the standings (four-eyes rule)
+      description: >-
+        The same rule and answers as `PUT /api/entries/{id}/verification`. Verifying a result
+        of an earlier run leaves the current standings unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '204':
+          description: The result counts
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: rejectResult
+      summary: Reject a pending result, so that it never counts (four-eyes rule)
+      description: >-
+        The same rule and answers as `DELETE /api/entries/{id}/verification`: removes the
+        result with one `reject` event, 403 `own-row` for the recording account (which undoes
+        it through `DELETE /api/results/{id}` instead), 409 `already-verified` for a result
+        that counts already, 404 for one that no longer exists.
+      responses:
+        '204':
+          description: The result is removed
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
   /api/audit:
     parameters:
       - $ref: '#/components/parameters/ClientVersion'
@@ -1326,9 +1381,9 @@ paths:
         delete of a person, a drink, a factor or a game (a restart is an update of its `run`
         and `startedAt`), and every entry counted or deleted and every match or result recorded
         or deleted (a game's deletion records one for each of its matches or results, caused by
-        it; a person's deletion one for each of their results), and every entry verified by
-        another account (`verify`, with the entry before and after) or rejected by one
-        (`reject`, with the entry before), recorded in the transaction of
+        it; a person's deletion one for each of their results), and every entry, match or
+        result verified by another account (`verify`, with the row before and after) or
+        rejected by one (`reject`, with the row before), recorded in the transaction of
         the change with the acting account and the values before and after. A write that fails,
         a replayed entry, match or result request, and an update that changes no
         value record nothing. No route changes or deletes an event (other methods on this
@@ -1792,11 +1847,13 @@ components:
       oneOf:
         - $ref: '#/components/schemas/PendingEntry'
         - $ref: '#/components/schemas/PendingMatch'
+        - $ref: '#/components/schemas/PendingResult'
       discriminator:
         propertyName: kind
         mapping:
           entry: '#/components/schemas/PendingEntry'
           match: '#/components/schemas/PendingMatch'
+          result: '#/components/schemas/PendingResult'
     PendingEntry:
       type: object
       additionalProperties: false
@@ -1905,6 +1962,43 @@ components:
             - type: 'null'
         outcome:
           $ref: '#/components/schemas/Outcome'
+    PendingResult:
+      type: object
+      additionalProperties: false
+      required:
+        [kind, id, createdAt, accountName, game, earlierRun, person, points]
+      properties:
+        kind:
+          type: string
+          const: result
+        id:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the recording, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: User name of the account that recorded it; null once that account was deleted
+        game:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        earlierRun:
+          type: boolean
+          description: >-
+            The result belongs to an earlier run of its game (recorded before a restart);
+            verifying it leaves the current standings unchanged
+        person:
+          $ref: '#/components/schemas/PersonRef'
+        points:
+          $ref: '#/components/schemas/GamePoints'
     Scoreboard:
       type: object
       additionalProperties: false
@@ -2214,7 +2308,7 @@ components:
     ResultItem:
       type: object
       additionalProperties: false
-      required: [id, person, points, createdAt, accountName]
+      required: [id, person, points, createdAt, accountName, pending]
       properties:
         id:
           type: string
@@ -2229,6 +2323,9 @@ components:
         accountName:
           type: [string, 'null']
           description: The account that recorded the result; null once it was deleted
+        pending:
+          type: boolean
+          description: The result waits for verification (`offen`) and is not in the standings
     ResultPage:
       type: object
       additionalProperties: false
@@ -2324,7 +2421,7 @@ components:
     PointsStandings:
       type: object
       additionalProperties: false
-      required: [kind, startedAt, lowerWins, rows]
+      required: [kind, startedAt, lowerWins, rows, unranked]
       properties:
         kind:
           type: string
@@ -2337,13 +2434,23 @@ components:
           type: boolean
         rows:
           type: array
-          description: Ranked by the sum in the game's direction, then name; persons without a result in the run are absent
+          description: >-
+            Persons with at least one verified result in the run, ranked by the sum in the
+            game's direction, then name; only verified results count. Persons without a result
+            in the run are absent
           items:
             $ref: '#/components/schemas/PointsRow'
+        unranked:
+          type: array
+          description: >-
+            Persons whose results in the run all wait for verification, by name: they have no
+            rank and never lead, whichever way the game ranks and whatever the others' sums
+          items:
+            $ref: '#/components/schemas/UnrankedPlayer'
     PointsRow:
       type: object
       additionalProperties: false
-      required: [personId, name, sum, results]
+      required: [personId, name, sum, results, pendingCount]
       properties:
         personId:
           type: integer
@@ -2351,10 +2458,14 @@ components:
           type: string
         sum:
           type: integer
-          description: The sum of the person's points in the run
+          description: The sum of the person's verified points in the run
         results:
           type: integer
-          description: How many results make up the sum
+          description: How many verified results make up the sum
+        pendingCount:
+          type: integer
+          minimum: 0
+          description: The person's results in the run that wait for verification (`+n offen`)
     AuditPage:
       type: object
       additionalProperties: false
@@ -2463,8 +2574,9 @@ components:
         `{name, kind, lowerWins, run, startedAt}` for a points game, a match
         `{game, first, second, outcome, pending}` with the game's and both persons' names (a
         person deleted before is null) and whether it waited for verification (events
-        recorded before the four-eyes rule have none), a result `{game, person, points}` with the game's and the
-        person's names. Keys are only ever
+        recorded before the four-eyes rule have none), a result `{game, person, points, pending}`
+        with the game's and the person's names and whether it waited for verification (events
+        recorded before the four-eyes rule have none). Keys are only ever
         added, never renamed, removed or given a new meaning; a reader treats a key it does
         not know, or a missing one, as unknown.
       additionalProperties: true
