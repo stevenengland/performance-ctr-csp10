@@ -641,7 +641,9 @@ submit on Enter.
   `/verwalten/protokoll` sends them to `/verwalten`.
 - **All days** — the one exception to "today only" (§1). Events newest first under day
   headings in `label`, `on-surface-variant`: `Heute`, `Gestern`, otherwise the date
-  (`Sa., 14.11.2026`), by calendar day in the browser's time zone.
+  (`Sa., 14.11.2026`), by calendar day in the browser's time zone. The headings move on at local
+  midnight and when the page is shown or focused again, so a page left open overnight labels
+  yesterday's events `Gestern`; the loaded events are not read again.
 - Rows on `outline-variant` hairlines, without actions:
   - primary (`row-title`): the subject with its kind, `Getränk Bier`, `Person Daniel`,
     `Faktor Happy Hour`, `Eintrag 2× Bier für Daniel`, `Spiel Schach`, `Partie Anna – Ben`

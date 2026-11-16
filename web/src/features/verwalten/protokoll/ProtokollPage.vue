@@ -3,6 +3,7 @@ import { computed, onMounted, ref, shallowRef } from 'vue';
 import { listAuditEvents, type AuditEvent } from '../../../core/api-client';
 import { messages } from '../../../core/messages';
 import { showProblem } from '../../../core/snackbar';
+import { useToday } from '../../../core/today';
 import { auditDays, type AuditRow } from './audit-rows';
 
 /**
@@ -18,8 +19,10 @@ const next = shallowRef<number | null>(null);
 const loading = ref(false);
 /** The first page failed: nothing to show but the failure and a retry. */
 const failed = ref(false);
+/** Heute and Gestern move on with the day, even while the page stays open. */
+const today = useToday();
 const days = computed(() =>
-  events.value ? auditDays(events.value) : undefined,
+  events.value ? auditDays(events.value, today.value) : undefined,
 );
 
 const support = (row: AuditRow) =>
