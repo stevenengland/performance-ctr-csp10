@@ -10,12 +10,15 @@ use PDO;
 
 /**
  * Sign-in sessions: a random 256-bit token per sign-in, of which only the SHA-256
- * hash is stored; valid for 180 days from its last use. Sign-in is throttled per
- * user name and client address.
+ * hash is stored; valid for 180 days from its last renewal. A request renews its session
+ * only when the last renewal is at least RENEWAL_INTERVAL_HOURS old, so polling clients
+ * cause one write a day, not one per request; a session therefore ends 179 to 180 days after
+ * its last use. Sign-in is throttled per user name and client address.
  */
 final readonly class Sessions
 {
     public const LIFETIME_DAYS = 180;
+    public const RENEWAL_INTERVAL_HOURS = 24;
     public const MAX_FAILURES = 5;
     public const FAILURE_WINDOW_MINUTES = 15;
 
@@ -27,7 +30,10 @@ final readonly class Sessions
 
     /**
      * The attempt is reserved in the database before the password is checked, so parallel
-     * requests cannot all pass one read of the failure count (see `reserveAttempt`).
+     * requests cannot all pass one read of the failure count (see `reserveAttempt`). It stays
+     * pending while the password is checked and then becomes a recorded failure, or, on
+     * success, is removed together with the failures that had finished; failures still being
+     * checked by parallel requests are not forgotten.
      *
      * @throws TooManyAttempts after five failures for this user name and address in the window
      * @throws InvalidCredentials for an unknown user name or a wrong password alike
@@ -35,15 +41,16 @@ final readonly class Sessions
     public function signIn(string $userName, string $password, string $clientAddress): IssuedSession
     {
         $userName = mb_substr(trim($userName), 0, 255, 'UTF-8');
-        $this->reserveAttempt($userName, $clientAddress);
-        $credential = $this->accounts->verify($userName, $password);
-        if ($credential === null) {
-            // The reservation stays as the recorded failure.
-            throw new InvalidCredentials();
+        $attempt = $this->reserveAttempt($userName, $clientAddress);
+        try {
+            $credential = $this->accounts->verify($userName, $password) ?? throw new InvalidCredentials();
+            // A password reset or change in the meantime refuses it.
+            $session = $this->start($credential);
+        } catch (InvalidCredentials $failure) {
+            $this->recordFailure($attempt);
+            throw $failure;
         }
-        // A password reset or change in the meantime refuses it, and the reservation stays.
-        $session = $this->start($credential);
-        $this->forgetFailures($userName, $clientAddress);
+        $this->forgetFailures($attempt, $userName, $clientAddress);
 
         return $session;
     }
@@ -61,24 +68,31 @@ final readonly class Sessions
     }
 
     /**
-     * The signed-in account of a token that is known and not expired; using it extends the session.
+     * The signed-in account of a token that is known and not expired, renewing the session when
+     * its last renewal is RENEWAL_INTERVAL_HOURS old or older.
+     *
+     * The session row is read under a shared lock, so a sign-out, password reset, account
+     * deletion or purge of expired sessions that is under way finishes first and the session
+     * is then seen gone: the answer is the session as it is when this returns, never as it was
+     * before a revocation that has committed. The renewal changes the row only while it is
+     * still the one read and still valid; an update of no row is never taken for success: the
+     * session is read again, with its account, and must still be valid. Each statement locks
+     * one row and holds nothing else, so none can deadlock with account changes, which lock
+     * the account before its sessions.
      */
-    public function verify(string $token): ?Account
+    public function verify(string $token): ?VerifiedSession
     {
         $now = $this->clock->now();
-        $statement = $this->pdo->prepare(
-            'SELECT a.id, a.user_name, a.is_admin FROM sessions s JOIN accounts a ON a.id = s.account_id
-             WHERE s.token_hash = ? AND s.expires_at > ?',
-        );
-        $statement->execute([self::tokenHash($token), Timestamp::of($now)]);
-        $row = $statement->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
+        $hash = self::tokenHash($token);
+        $lastSeenAt = $this->validSession($hash, $now)['last_seen_at'] ?? null;
+        if (!is_string($lastSeenAt)) {
             return null;
         }
-        $this->pdo->prepare('UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ?')
-            ->execute([Timestamp::of($now), Timestamp::of($now->add(self::lifetime())), self::tokenHash($token)]);
+        $renewed = $this->renewalDue($lastSeenAt, $now) && $this->renew($hash, $lastSeenAt, $now);
+        // Read again: a renewal that changed no row was a parallel request's, or the session is gone.
+        $account = $this->accountOf($hash, $now);
 
-        return Account::fromRow($row);
+        return $account === null ? null : new VerifiedSession($account, $renewed);
     }
 
     public function revoke(string $token): void
@@ -95,6 +109,56 @@ final readonly class Sessions
     public static function lifetimeSeconds(): int
     {
         return self::LIFETIME_DAYS * 24 * 60 * 60;
+    }
+
+    /**
+     * The session of a token hash that has not expired, read under a shared lock (waiting for
+     * a change of the row that is under way), or null.
+     *
+     * @return array<string, scalar|null>|null
+     */
+    private function validSession(string $hash, DateTimeImmutable $now): ?array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT account_id, last_seen_at FROM sessions WHERE token_hash = ? AND expires_at > ? LOCK IN SHARE MODE',
+        );
+        $statement->execute([$hash, Timestamp::of($now)]);
+        /** @var array<string, scalar|null>|false $row */
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    private function renewalDue(string $lastSeenAt, DateTimeImmutable $now): bool
+    {
+        return $lastSeenAt <= Timestamp::of($now->sub(new DateInterval(sprintf('PT%dH', self::RENEWAL_INTERVAL_HOURS))));
+    }
+
+    /**
+     * Extends the session from `$now`, but only if it is still valid and nobody renewed it
+     * since it was read (`$lastSeenAt`): true when this request renewed it.
+     */
+    private function renew(string $hash, string $lastSeenAt, DateTimeImmutable $now): bool
+    {
+        $renewal = $this->pdo->prepare(
+            'UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ? AND last_seen_at = ? AND expires_at > ?',
+        );
+        $renewal->execute([Timestamp::of($now), Timestamp::of($now->add(self::lifetime())), $hash, $lastSeenAt, Timestamp::of($now)]);
+
+        return $renewal->rowCount() === 1;
+    }
+
+    /** The account of a session that is still valid, or null when the session or the account is gone. */
+    private function accountOf(string $hash, DateTimeImmutable $now): ?Account
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT a.id, a.user_name, a.is_admin FROM sessions s JOIN accounts a ON a.id = s.account_id
+             WHERE s.token_hash = ? AND s.expires_at > ?',
+        );
+        $statement->execute([$hash, Timestamp::of($now)]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) ? Account::fromRow($row) : null;
     }
 
     /** Issues a new session and drops expired ones, so the table does not grow with every sign-in. */
@@ -117,37 +181,58 @@ final readonly class Sessions
     }
 
     /**
-     * Records this attempt first and only then counts the attempts in the window, itself
-     * included. Each insert commits before its count, so of any set of parallel attempts
-     * the k-th to count sees at least k rows: no more than MAX_FAILURES attempts ever get
-     * past the count, however many arrive at once. A refused attempt removes its row
-     * again, so refusals do not extend the lock; a failed one keeps it as the failure.
-     * Attempts that left the window are dropped here, so the table stays small.
+     * Records this attempt, pending, first and only then counts the attempts in the window,
+     * itself and pending ones included. Each insert commits before its count, so of any set of
+     * parallel attempts the k-th to count sees at least k rows: no more than MAX_FAILURES
+     * attempts ever get past the count, however many arrive at once. A refused attempt removes
+     * its row again, so refusals do not extend the lock. Attempts that left the window are
+     * dropped here, pending ones too (a request that never finished), so the table stays small.
+     *
+     * @return int the attempt's id
      *
      * @throws TooManyAttempts
      */
-    private function reserveAttempt(string $userName, string $clientAddress): void
+    private function reserveAttempt(string $userName, string $clientAddress): int
     {
         $windowStart = Timestamp::of($this->windowStart());
         $this->pdo->prepare('DELETE FROM login_attempts WHERE attempted_at <= ?')->execute([$windowStart]);
-        $this->pdo->prepare('INSERT INTO login_attempts (user_name, client_address, attempted_at) VALUES (?, ?, ?)')
+        $this->pdo->prepare('INSERT INTO login_attempts (user_name, client_address, attempted_at, pending) VALUES (?, ?, ?, 1)')
             ->execute([$userName, $clientAddress, Timestamp::of($this->clock->now())]);
-        $reservation = (int) $this->pdo->lastInsertId();
+        $attempt = (int) $this->pdo->lastInsertId();
         $count = $this->pdo->prepare(
             'SELECT COUNT(*) FROM login_attempts WHERE user_name = ? AND client_address = ? AND attempted_at > ?',
         );
         $count->execute([$userName, $clientAddress, $windowStart]);
         if ((int) $count->fetchColumn() > self::MAX_FAILURES) {
-            $this->pdo->prepare('DELETE FROM login_attempts WHERE id = ?')->execute([$reservation]);
+            $this->pdo->prepare('DELETE FROM login_attempts WHERE id = ?')->execute([$attempt]);
 
             throw new TooManyAttempts();
         }
+
+        return $attempt;
     }
 
-    private function forgetFailures(string $userName, string $clientAddress): void
+    /** The attempt's password check failed: its row stays as a failure in the window. */
+    private function recordFailure(int $attempt): void
     {
-        $this->pdo->prepare('DELETE FROM login_attempts WHERE user_name = ? AND client_address = ?')
-            ->execute([$userName, $clientAddress]);
+        $this->pdo->prepare('UPDATE login_attempts SET pending = 0 WHERE id = ?')->execute([$attempt]);
+    }
+
+    /**
+     * Removes the successful attempt and the failures of this user name and address that had
+     * finished, by primary key, so the delete locks only those rows (a finished attempt never
+     * turns pending again). Attempts still pending belong to parallel requests: they stay,
+     * and count once they fail.
+     */
+    private function forgetFailures(int $attempt, string $userName, string $clientAddress): void
+    {
+        $finished = $this->pdo->prepare('SELECT id FROM login_attempts WHERE user_name = ? AND client_address = ? AND pending = 0');
+        $finished->execute([$userName, $clientAddress]);
+        /** @var list<int|string> $finishedIds */
+        $finishedIds = $finished->fetchAll(PDO::FETCH_COLUMN);
+        $ids = [$attempt, ...array_map(intval(...), $finishedIds)];
+        $this->pdo->prepare('DELETE FROM login_attempts WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')')
+            ->execute($ids);
     }
 
     private function windowStart(): DateTimeImmutable
