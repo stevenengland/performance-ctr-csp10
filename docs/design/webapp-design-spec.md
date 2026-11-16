@@ -375,8 +375,9 @@ polls: it reads each game's ranking on open and on focus only.
 - **Update prompt:** a waiting service worker shows the snackbar `Neue Version verfügbar` with
   `Neu laden`; the app never reloads on its own. Unlike other snackbars it does not time out: it stays until
   the user taps `Neu laden` or a newer snackbar replaces it.
-- **Reload floor:** when health reports a `minClientVersion` above the running client, a
-  non-dismissable dialog `Bitte neu laden` — `Diese Version ist veraltet.` — with one button
+- **Reload floor:** when health reports a `minClientVersion` above the running client at
+  start-up, or any later request is refused with the problem `client-outdated` (every request
+  sends the app version in `X-Client-Version`), a non-dismissable dialog `Bitte neu laden` — `Diese Version ist veraltet.` — with one button
   `Neu laden`. A plain reload would get the old shell again from the old service worker, so the
   button first activates the waiting service worker through the same path as the update prompt
   (`SKIP_WAITING`) and reloads once it is active. When no worker is waiting, it first asks the
@@ -961,7 +962,7 @@ submit on Enter.
 | Verlauf of a game | `GET /api/games`, `GET /api/games/{id}/matches?before=` or `GET /api/games/{id}/results?before=`, `DELETE /api/matches/{uuid}` or `DELETE /api/results/{uuid}` | By the game's kind. Answer `{items, next}`, newest first, 20 a page; `next` is the opaque `before` of `Ältere laden` (the cursor keeps its run), null on the last page. A match item: `id`, `first` / `second` (`{id, name}` or `null` once deleted), `outcome`, `createdAt`, `accountName` (or `null`); a result item: `id`, `person` `{id, name}`, `points`, `createdAt`, `accountName`. 404 → game gone; a delete's 404 counts as deleted; after a delete the ranking is read again. No polling |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
 | Protokoll | `GET /api/audit?before=` | Admins only (401/403). Answer `{events, next}`, newest first; `next` is the `before` of `Ältere laden`, null on the last page. Each event: `occurredAt`, `operation`, `subjectKind`, `actor.userName`, snapshots `before`/`after` (names and values as they were), `cause` (`{id, subjectKind, name}` or null). No polling |
-| Update / reload floor | `GET /api/health` | `minClientVersion` |
+| Update / reload floor | `GET /api/health`; every request | `minClientVersion` at start-up; afterwards 400 `client-outdated` on any request but health (the app version goes along in `X-Client-Version`) |
 
 `from` is always local midnight of the current day in the browser's time zone, as a UTC instant.
 

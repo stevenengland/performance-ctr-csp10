@@ -176,19 +176,27 @@ The ledger keeps the active release and the two before it, plus anything deactiv
 
 What may change in one release, and what needs two (expand, then contract), is set in
 [ADR 0006](adr/0006-rollout-compatibility.md): the schema only grows for the previous
-release's code, the API only grows while an older client may still be running, and a
+release's code, the API only grows while an older client may still be served (a break raises
+the client floor, below), and a
 migration that could copy a table or lock it for long needs its own plan. Each schema change
 comes with a test in `RolloutCompatibilityTest` that runs the previous release's statements
 against it.
 
-A new contract that older apps cannot use ships beside the old one and raises
-`MIN_CLIENT_VERSION` in `api/src/Http/Compatibility.php`; an older app shows `Bitte neu laden`
-when it next starts. An app that is already open does not check the floor again, so the old
-contract stays served: no release removes it until running clients observe the floor (ADR 0006,
-decision 3). Bump the `version` in
-`web/package.json` to at least the new floor in the same pull request: the artifact build and
-`scripts/artifact.test.ts` fail otherwise, because the freshly deployed client would be below
-its own API's floor and ask to reload forever.
+A contract that older apps cannot use ships together with a raised `MIN_CLIENT_VERSION` in
+`api/src/Http/Compatibility.php` (ADR 0006, decision 3). Every app sends its version in
+`X-Client-Version`, and the API refuses one below the floor with 400 `client-outdated` before
+the route runs, on every route but `/api/health`. So an app that starts after the deploy shows
+`Bitte neu laden` at once, and an app that is already open shows it on its next request, which
+changed nothing (a refused write is not booked; the user enters it again after reloading).
+Apps before 0.2.0 send no header: a request without it counts as
+`Compatibility::LAST_VERSION_WITHOUT_HEADER` (0.1.0), so it is served while the floor is 0.1.0
+and refused once the floor is raised. Anything else that calls the API besides health (a
+script, a manual `curl`) must then send the header as well.
+
+Bump the `version` in `web/package.json` to at least the new floor in the same pull request:
+the artifact build and `scripts/artifact.test.ts` fail otherwise, because the freshly deployed
+client would be below its own API's floor and be refused on every request. A break makes every
+open app reload, so prefer growth where it is cheap.
 
 **Pending contract steps** (ADR 0006, decision 1), each due in a later release:
 
