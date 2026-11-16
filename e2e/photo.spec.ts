@@ -63,7 +63,7 @@ test('a PNG is chosen, framed from the keyboard and saved as a 256 × 256 JPEG t
     dialog.getByRole('button', { name: 'Foto wählen' }),
     PICTURES.halves,
   );
-  const crop = dialog.getByRole('img', { name: 'Ausschnitt des Fotos' });
+  const crop = dialog.getByRole('application', { name: 'Ausschnitt des Fotos' });
   await expect(crop).toBeVisible();
   await expect(crop).toHaveAccessibleDescription(
     'Ziehen zum Verschieben · zoomen mit zwei Fingern oder dem Regler Pfeiltasten verschieben, Plus und Minus zoomen.',
@@ -135,7 +135,7 @@ test('a JPEG with EXIF orientation is framed upright', async ({ page }) => {
     .setInputFiles(PICTURES.exifRotated);
 
   // Upright the stored left half (red) is on top.
-  const crop = dialog.getByRole('img', { name: 'Ausschnitt des Fotos' });
+  const crop = dialog.getByRole('application', { name: 'Ausschnitt des Fotos' });
   await expect(crop).toBeVisible();
   expect(
     await coloursAt(crop, [
@@ -158,7 +158,7 @@ test('a photo the browser cannot open is named under the photo and changes nothi
     'Dieses Foto lässt sich nicht öffnen.',
   );
   await expect(
-    dialog.getByRole('img', { name: 'Ausschnitt des Fotos' }),
+    dialog.getByRole('application', { name: 'Ausschnitt des Fotos' }),
   ).toHaveCount(0);
   await expect(
     dialog.getByRole('button', { name: 'Foto wählen' }),

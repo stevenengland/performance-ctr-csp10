@@ -195,8 +195,9 @@ export const messages = {
     otherPhoto: 'Anderes Foto',
     removePhoto: 'Foto entfernen',
     keepPhoto: 'Foto behalten',
-    /** `PhotoCrop`: the canvas's name, its visible hint and its keys (both its description), the slider. */
+    /** `PhotoCrop`: the canvas's name and role, its visible hint and its keys (both its description), the slider. */
     crop: 'Ausschnitt des Fotos',
+    cropRole: 'Fotoausschnitt',
     cropHint:
       'Ziehen zum Verschieben · zoomen mit zwei Fingern oder dem Regler',
     cropKeys: 'Pfeiltasten verschieben, Plus und Minus zoomen.',

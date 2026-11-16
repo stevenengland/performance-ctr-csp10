@@ -652,7 +652,7 @@ test('the fixture preview sets and replaces a person’s photo in Person bearbei
     PICTURES.halves,
   );
   await expect(
-    dialog.getByRole('img', { name: 'Ausschnitt des Fotos' }),
+    dialog.getByRole('application', { name: 'Ausschnitt des Fotos' }),
   ).toBeVisible();
   await dialog.getByRole('button', { name: 'Speichern' }).click();
   await expect(dialog).toBeHidden();
@@ -700,7 +700,7 @@ test('the fixture preview creates a person with a photo in Person anlegen', asyn
     PICTURES.halves,
   );
   await expect(
-    dialog.getByRole('img', { name: 'Ausschnitt des Fotos' }),
+    dialog.getByRole('application', { name: 'Ausschnitt des Fotos' }),
   ).toBeVisible();
   await dialog.getByRole('button', { name: 'Speichern' }).click();
   await expect(dialog).toBeHidden();

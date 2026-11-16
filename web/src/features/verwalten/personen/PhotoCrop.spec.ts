@@ -79,6 +79,9 @@ describe('PhotoCrop', () => {
 
     const canvas = canvasOf(wrapper).element;
     expect(canvas.tabIndex).toBe(0);
+    // An application, so a screen reader passes the arrow keys on instead of reading on.
+    expect(canvas.getAttribute('role')).toBe('application');
+    expect(canvas.getAttribute('aria-roledescription')).toBe('Fotoausschnitt');
     expect(canvas.getAttribute('aria-label')).toBe('Ausschnitt des Fotos');
     const description = (canvas.getAttribute('aria-describedby') ?? '')
       .split(' ')

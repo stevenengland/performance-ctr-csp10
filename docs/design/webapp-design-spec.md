@@ -607,8 +607,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   pointer drags, two pinch, the wheel and the `Zoom` slider (magnifier icons, `primary`) zoom
   from 1 (the picture just covers the frame) to 4; the frame is never uncovered. Under the
   canvas, `Ziehen zum Verschieben · zoomen mit zwei Fingern oder dem Regler` (`support`,
-  `on-surface-variant`). The canvas is focusable (`Ausschnitt des Fotos`), described by that
-  hint and `Pfeiltasten verschieben, Plus und Minus zoomen.`; the arrow keys move it, `+`/`-`
+  `on-surface-variant`). The canvas is focusable and an application (`role="application"`,
+  role description `Fotoausschnitt`, so screen readers hand it the arrow keys), named
+  `Ausschnitt des Fotos` and described by that hint and `Pfeiltasten verschieben, Plus und Minus zoomen.`; the arrow keys move it, `+`/`-`
   zoom, and the slider's value says the zoom (`×1,5`). The canvas is the preview, so the CSP
   needs no `blob:` or `data:` images.
 - Only `Speichern` sends the photo, after the name: it is encoded first (256 × 256 JPEG at

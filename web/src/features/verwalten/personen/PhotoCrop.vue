@@ -120,7 +120,8 @@ function key(event: KeyboardEvent) {
       <canvas
         ref="canvas"
         class="photo-crop__canvas"
-        role="img"
+        role="application"
+        :aria-roledescription="messages.personen.cropRole"
         :tabindex="disabled ? -1 : 0"
         :aria-label="messages.personen.crop"
         :aria-describedby="`${id}-hint ${id}-keys`"
