@@ -7,6 +7,7 @@ const board: Scoreboard = {
     {
       personId: 3,
       name: 'Daniel',
+      photoUrl: null,
       score: 13.5,
       count: 9,
       drinks: [
@@ -17,6 +18,7 @@ const board: Scoreboard = {
     {
       personId: 1,
       name: 'Anna',
+      photoUrl: null,
       score: 9,
       count: 6,
       drinks: [{ drinkId: 6, name: 'Wein', count: 6 }],
@@ -24,6 +26,7 @@ const board: Scoreboard = {
     {
       personId: 6,
       name: 'Tom',
+      photoUrl: null,
       score: 1,
       count: 1,
       drinks: [{ drinkId: 4, name: 'Radler', count: 1 }],

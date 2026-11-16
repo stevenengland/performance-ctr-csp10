@@ -398,6 +398,25 @@ describe('the fixture backend', () => {
     expect(person.photoUrl).toBeNull();
   });
 
+  it('answers each scoreboard row with its person’s photoUrl', async () => {
+    const fixtures = sampleEvening();
+    const photoUrl = `/api/persons/1/photo?v=${'0'.repeat(64)}`;
+    fixtures.persons = fixtures.persons.map((person) =>
+      person.id === 1 ? { ...person, photoUrl } : person,
+    );
+    installFixtureBackend(fixtures);
+
+    const { rows } = await standings(todayFrom());
+
+    expect(rows.map((row) => [row.name, row.photoUrl])).toEqual([
+      ['Daniel', null],
+      ['Anna', photoUrl],
+      ['Mara', null],
+      ['Ben', null],
+      ['Tom', null],
+    ]);
+  });
+
   it('creates persons and drinks with the API’s validation', async () => {
     installFixtureBackend(sampleEvening());
 

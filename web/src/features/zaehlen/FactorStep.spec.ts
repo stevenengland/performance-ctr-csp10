@@ -16,6 +16,7 @@ const BOARD: Scoreboard = {
     {
       personId: 3,
       name: 'Daniel',
+      photoUrl: null,
       score: 13.5,
       count: 9,
       drinks: [{ drinkId: 2, name: 'Bier', count: 4 }],

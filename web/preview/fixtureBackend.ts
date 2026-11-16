@@ -77,6 +77,7 @@ function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
     const row = rows.get(person.id) ?? {
       personId: person.id,
       name: person.name,
+      photoUrl: person.photoUrl,
       score: 0,
       count: 0,
       drinks: [],

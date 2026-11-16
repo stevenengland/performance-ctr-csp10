@@ -363,7 +363,7 @@ export interface paths {
     };
     /**
      * Standings since `from`, the start of the viewer's day
-     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. The ETag names the data revision, which every write of entries, persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged.
+     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. The ETag names the data revision, which every write of entries, persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
      */
     get: operations['getScoreboard'];
     put?: never;
@@ -774,6 +774,7 @@ export interface components {
     ScoreRow: {
       personId: number;
       name: string;
+      photoUrl: components['schemas']['PhotoUrl'];
       score: number;
       count: number;
       /** @description By drink name; only drinks with entries */
