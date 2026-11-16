@@ -6,7 +6,6 @@ namespace Performance\Tests\Integration;
 
 use Performance\Http\Config;
 use Performance\Tests\Support\DatabaseTestCase;
-use Slim\Psr7\Factory\ServerRequestFactory;
 
 final class HealthTest extends DatabaseTestCase
 {
@@ -26,7 +25,7 @@ final class HealthTest extends DatabaseTestCase
         self::assertMatchesRegularExpression('/^\d+\.\d+\.\d+$/', $database['version']);
         self::assertSame(self::schemaVersion(), $health['schemaVersion']);
         self::assertSame('ok', $health['migration']);
-        self::assertSame('0.1.0', $health['minClientVersion']);
+        self::assertSame('0.3.0', $health['minClientVersion']);
     }
 
     /**
@@ -59,7 +58,7 @@ final class HealthTest extends DatabaseTestCase
 
     public function testAnswersAnUnsupportedMethodWithA405Problem(): void
     {
-        $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/health');
+        $request = $this->request('POST', '/api/health');
 
         $response = $this->app()->handle($request);
 

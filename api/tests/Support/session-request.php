@@ -11,6 +11,8 @@ declare(strict_types=1);
  */
 
 use Performance\Http\App;
+use Performance\Http\ClientVersionGate;
+use Performance\Http\Compatibility;
 use Performance\Http\Config;
 use Performance\Tests\Support\TestClock;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -32,6 +34,7 @@ $app = App::create(
 );
 $request = (new ServerRequestFactory())->createServerRequest('GET', '/api/session')
     ->withCookieParams(['session' => $token])
-    ->withHeader('Cookie', "session={$token}");
+    ->withHeader('Cookie', "session={$token}")
+    ->withHeader(ClientVersionGate::HEADER, Compatibility::MIN_CLIENT_VERSION);
 $response = $app->handle($request);
 echo json_encode(['status' => $response->getStatusCode(), 'setCookie' => $response->getHeaderLine('Set-Cookie')], JSON_THROW_ON_ERROR);

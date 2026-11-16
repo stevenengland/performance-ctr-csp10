@@ -14,7 +14,6 @@ use Performance\Domain\Snapshot;
 use Performance\Tests\Support\DatabaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
-use Slim\Psr7\Factory\ServerRequestFactory;
 
 /** A game's ranking at `GET /api/games/{id}/standings`, with its ETag. */
 final class StandingsTest extends DatabaseTestCase
@@ -324,8 +323,7 @@ final class StandingsTest extends DatabaseTestCase
 
     private function standings(?string $ifNoneMatch = null, int $game = 1): ResponseInterface
     {
-        $request = (new ServerRequestFactory())
-            ->createServerRequest('GET', "/api/games/{$game}/standings")
+        $request = $this->request('GET', "/api/games/{$game}/standings")
             ->withCookieParams(['session' => $this->session]);
         if ($ifNoneMatch !== null) {
             $request = $request->withHeader('If-None-Match', $ifNoneMatch);

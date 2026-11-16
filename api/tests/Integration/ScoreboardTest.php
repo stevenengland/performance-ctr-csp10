@@ -12,7 +12,6 @@ use Performance\Domain\Snapshot;
 use Performance\Tests\Support\DatabaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
-use Slim\Psr7\Factory\ServerRequestFactory;
 
 final class ScoreboardTest extends DatabaseTestCase
 {
@@ -337,8 +336,7 @@ final class ScoreboardTest extends DatabaseTestCase
 
     private function scoreboard(?string $ifNoneMatch = null, string $from = '2026-11-13T23:00:00.000Z'): ResponseInterface
     {
-        $request = (new ServerRequestFactory())
-            ->createServerRequest('GET', '/api/scoreboard?from=' . rawurlencode($from))
+        $request = $this->request('GET', '/api/scoreboard?from=' . rawurlencode($from))
             ->withCookieParams(['session' => $this->session]);
         if ($ifNoneMatch !== null) {
             $request = $request->withHeader('If-None-Match', $ifNoneMatch);

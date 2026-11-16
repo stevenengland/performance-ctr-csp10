@@ -159,13 +159,15 @@ final class ClientVersionGateTest extends TestCase
         self::assertSame(400, $response->getStatusCode());
     }
 
-    public function testTheShippedFloorStillServesClientsThatSendNoHeader(): void
+    /** The four-eyes release (PRD #61) retires the clients that send no header. */
+    public function testTheShippedFloorRefusesClientsThatSendNoHeader(): void
     {
         $gate = new ClientVersionGate(new ResponseFactory(), self::BASE_PATH);
 
         $response = $gate->process($this->request('GET', '/base/api/games'), $this->route());
 
-        self::assertSame(200, $response->getStatusCode());
+        self::assertSame([], $this->handled->getArrayCopy());
+        self::assertSame(400, $response->getStatusCode());
     }
 
     private function gate(string $minClientVersion, string $lastVersionWithoutHeader = '0.1.0'): ClientVersionGate

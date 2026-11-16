@@ -15,7 +15,6 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Slim\Psr7\Factory\ResponseFactory;
-use Slim\Psr7\Factory\ServerRequestFactory;
 
 /**
  * A person's photo through HTTP: `PUT`, `GET` and `DELETE /api/persons/{id}/photo`, observed through
@@ -587,7 +586,7 @@ final class PersonPhotoTest extends DatabaseTestCase
     /** A photo `PUT` of exactly these bytes, as a client that does not send JSON could make it. */
     private function putRaw(string $body, string $contentType = 'application/json', ?string $contentLength = null): ResponseInterface
     {
-        $request = (new ServerRequestFactory())->createServerRequest('PUT', self::PHOTO)
+        $request = $this->request('PUT', self::PHOTO)
             ->withHeader('Content-Type', $contentType)
             ->withCookieParams(['session' => $this->member]);
         $request->getBody()->write($body);
@@ -735,8 +734,7 @@ final class PersonPhotoTest extends DatabaseTestCase
     /** Today's scoreboard, conditional on a tag if one is given, as a phone refreshes its Rangliste. */
     private function scoreboard(?string $ifNoneMatch = null, ?RequestHandlerInterface $app = null, string $basePath = ''): ResponseInterface
     {
-        $request = (new ServerRequestFactory())
-            ->createServerRequest('GET', $basePath . '/api/scoreboard?from=' . rawurlencode('2026-11-13T23:00:00.000Z'))
+        $request = $this->request('GET', $basePath . '/api/scoreboard?from=' . rawurlencode('2026-11-13T23:00:00.000Z'))
             ->withCookieParams(['session' => $this->member]);
         if ($ifNoneMatch !== null) {
             $request = $request->withHeader('If-None-Match', $ifNoneMatch);

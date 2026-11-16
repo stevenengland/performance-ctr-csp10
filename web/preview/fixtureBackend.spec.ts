@@ -77,7 +77,7 @@ describe('the fixture backend', () => {
     const { health } = sampleEvening();
 
     expect(health.migration).toBe('ok');
-    expect(health.minClientVersion).toBe('0.1.0');
+    expect(health.minClientVersion).toBe('0.3.0');
   });
 
   it('starts signed in as an admin', async () => {

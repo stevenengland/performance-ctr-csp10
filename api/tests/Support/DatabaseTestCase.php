@@ -7,9 +7,12 @@ namespace Performance\Tests\Support;
 use PDO;
 use Performance\Domain\BootstrapAdmin;
 use Performance\Http\App;
+use Performance\Http\ClientVersionGate;
+use Performance\Http\Compatibility;
 use Performance\Http\Config;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Slim\Psr7\Factory\ServerRequestFactory;
 
@@ -106,9 +109,20 @@ abstract class DatabaseTestCase extends TestCase
 
     protected function get(string $path, ?RequestHandlerInterface $app = null): ResponseInterface
     {
-        $request = (new ServerRequestFactory())->createServerRequest('GET', $path);
+        return ($app ?? $this->app())->handle($this->request('GET', $path));
+    }
 
-        return ($app ?? $this->app())->handle($request);
+    /**
+     * A request as the current web client sends it: naming its version, which is the API's
+     * client floor (`ClientVersionGate` refuses one below it, and one without a version).
+     *
+     * @param array<string, mixed> $serverParameters
+     */
+    protected function request(string $method, string $path, array $serverParameters = []): ServerRequestInterface
+    {
+        return (new ServerRequestFactory())
+            ->createServerRequest($method, $path, $serverParameters)
+            ->withHeader(ClientVersionGate::HEADER, Compatibility::MIN_CLIENT_VERSION);
     }
 
     /**
@@ -124,7 +138,7 @@ abstract class DatabaseTestCase extends TestCase
         ?RequestHandlerInterface $app = null,
         string $clientAddress = '192.0.2.10',
     ): ResponseInterface {
-        $request = (new ServerRequestFactory())->createServerRequest($method, $path, ['REMOTE_ADDR' => $clientAddress]);
+        $request = $this->request($method, $path, ['REMOTE_ADDR' => $clientAddress]);
         if ($json !== null) {
             $request->getBody()->write(json_encode($json, JSON_THROW_ON_ERROR));
             $request = $request->withHeader('Content-Type', 'application/json');

@@ -13,7 +13,7 @@ final class Compatibility
      * already open gets that dialog on its next request, which `ClientVersionGate` refuses
      * unprocessed (ADR 0006, decision 3).
      */
-    public const MIN_CLIENT_VERSION = '0.1.0';
+    public const MIN_CLIENT_VERSION = '0.3.0';
 
     /**
      * The last web client that sent no `X-Client-Version`; every later one sends it. A

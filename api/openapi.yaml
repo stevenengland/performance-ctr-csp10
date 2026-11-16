@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Performance API
-  version: 0.2.0
+  version: 0.3.0
   description: >-
     JSON API of the Performance drink counter. Fields are camelCase, timestamps
     ISO-8601 UTC, decimals JSON numbers rounded to two places. Every error is
