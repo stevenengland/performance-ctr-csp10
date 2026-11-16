@@ -169,6 +169,36 @@ export interface paths {
     patch: operations['updatePerson'];
     trace?: never;
   };
+  '/api/persons/{id}/photo': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Set or replace a person's photo
+     * @description Any member may set the photo of any person. The client crops and scales it to a 256 × 256 JPEG; the server does not trust that. A body over 98 304 bytes (96 KiB) is 413 before it is parsed, an `image` over 87 384 characters 422 before it is decoded. The server decodes strict base64 and rewrites the JPEG keeping only its image data (no EXIF, GPS, XMP, ICC or comments); anything that is not a 256 × 256 JPEG of 1 or 3 components and at most 64 KiB once rewritten is 422 on `image`. The photo's version is the SHA-256 of the stored bytes: the same version again changes nothing, neither the data revision nor the audit log. A change bumps the data revision and is recorded as an update of the person whose snapshot's `photo` changes.
+     */
+    put: operations['putPersonPhoto'];
+    post?: never;
+    /**
+     * Remove a person's photo
+     * @description Any member may remove the photo of any person. Without a photo nothing changes, neither the data revision nor the audit log.
+     */
+    delete: operations['deletePersonPhoto'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/drinks': {
     parameters: {
       query?: never;
@@ -632,6 +662,10 @@ export interface components {
     NewPerson: {
       name: components['schemas']['Name'];
     };
+    NewPersonPhoto: {
+      /** @description A 256 × 256 JPEG of at most 64 KiB, as padded base64 without line breaks */
+      image: string;
+    };
     /** @description Alcohol base points, 0–9 999.99 with at most two decimals */
     Points: number;
     Drink: {
@@ -970,9 +1004,11 @@ export interface components {
         name: string;
       };
     };
-    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null, a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome}` with the game's and both persons' names (a person deleted before is null), a result `{game, person, points}` with the game's and the person's names. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
+    /** @description The subject's values as they were, with referenced names resolved then: a person `{name, photo}` with the photo's version or null (events recorded before photos existed have only `name`), a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null, a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome}` with the game's and both persons' names (a person deleted before is null), a result `{game, person, points}` with the game's and the person's names. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
     AuditSnapshot: {
       name?: string;
+      /** @description A person's photo version (lowercase hex SHA-256), null without a photo */
+      photo?: string | null;
       points?: number;
       multiplier?: number;
       person?: string;
@@ -1488,6 +1524,67 @@ export interface operations {
       409: components['responses']['Problem'];
       415: components['responses']['Problem'];
       422: components['responses']['Problem'];
+    };
+  };
+  putPersonPhoto: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewPersonPhoto'];
+      };
+    };
+    responses: {
+      /** @description Set (or unchanged); the person */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Person'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      413: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  deletePersonPhoto: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Removed, or there was none */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
     };
   };
   listDrinks: {
