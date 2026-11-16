@@ -371,7 +371,11 @@ export interface paths {
      */
     put: operations['verifyEntry'];
     post?: never;
-    delete?: never;
+    /**
+     * Reject a pending entry, so that it never counts (four-eyes rule)
+     * @description Any signed-in account other than the one that recorded the entry may reject it, by the same rule as verifying; an entry whose recording account was deleted may be rejected by any account. Rejecting removes the entry and records one `reject` event with the entry before, never a `delete`, and bumps the data revision. The recording account is refused with 403 `own-row` and withdraws its own entry through `DELETE /api/entries/{id}` instead. An entry that counts already is refused with 409 `already-verified` and stays; only that delete removes it. An entry that no longer exists (rejected, deleted, or never recorded) is 404. Its id stays known for the seven days of the retry window, so a late retry of the recording cannot bring it back.
+     */
+    delete: operations['rejectEntry'];
     options?: never;
     head?: never;
     patch?: never;
@@ -648,7 +652,7 @@ export interface paths {
     };
     /**
      * A page of audit events, newest first (admins only)
-     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink, a factor or a game (a restart is an update of its `run` and `startedAt`), and every entry counted or deleted and every match or result recorded or deleted (a game's deletion records one for each of its matches or results, caused by it; a person's deletion one for each of their results), and every entry verified by another account (`verify`, with the entry before and after), recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry, match or result request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
+     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink, a factor or a game (a restart is an update of its `run` and `startedAt`), and every entry counted or deleted and every match or result recorded or deleted (a game's deletion records one for each of its matches or results, caused by it; a person's deletion one for each of their results), and every entry verified by another account (`verify`, with the entry before and after) or rejected by one (`reject`, with the entry before), recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry, match or result request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
      */
     get: operations['listAuditEvents'];
     put?: never;
@@ -1100,10 +1104,10 @@ export interface components {
        */
       occurredAt: string;
       /**
-       * @description `verify`: another account let a pending row count; `before` and `after` are the row with `pending` true and false
+       * @description `verify`: another account let a pending row count; `before` and `after` are the row with `pending` true and false. `reject`: another account removed a pending row; `before` is the row with `pending` true, `after` is null. A row removed through its delete route is always `delete`
        * @enum {string}
        */
-      operation: 'create' | 'update' | 'delete' | 'verify';
+      operation: 'create' | 'update' | 'delete' | 'verify' | 'reject';
       /** @enum {string} */
       subjectKind:
         'entry' | 'person' | 'drink' | 'factor' | 'game' | 'match' | 'result';
@@ -1199,6 +1203,7 @@ export interface components {
         | 'urn:performance:problem:invalid-credentials'
         | 'urn:performance:problem:forbidden'
         | 'urn:performance:problem:own-row'
+        | 'urn:performance:problem:already-verified'
         | 'urn:performance:problem:duplicate-user-name'
         | 'urn:performance:problem:duplicate-name'
         | 'urn:performance:problem:last-admin'
@@ -2167,6 +2172,34 @@ export interface operations {
       403: components['responses']['Problem'];
       404: components['responses']['Problem'];
       415: components['responses']['Problem'];
+    };
+  };
+  rejectEntry: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The entry's UUID; anything that is not a lower-case UUID v4 is 404 */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The entry is removed */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      403: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
     };
   };
   listPending: {

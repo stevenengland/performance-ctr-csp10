@@ -772,6 +772,31 @@ paths:
           $ref: '#/components/responses/Problem'
         '415':
           $ref: '#/components/responses/Problem'
+    delete:
+      operationId: rejectEntry
+      summary: Reject a pending entry, so that it never counts (four-eyes rule)
+      description: >-
+        Any signed-in account other than the one that recorded the entry may reject it, by
+        the same rule as verifying; an entry whose recording account was deleted may be
+        rejected by any account. Rejecting removes the entry and records one `reject` event
+        with the entry before, never a `delete`, and bumps the data revision. The recording
+        account is refused with 403 `own-row` and withdraws its own entry through
+        `DELETE /api/entries/{id}` instead. An entry that counts already is refused with
+        409 `already-verified` and stays; only that delete removes it. An entry that no
+        longer exists (rejected, deleted, or never recorded) is 404. Its id stays known for
+        the seven days of the retry window, so a late retry of the recording cannot bring
+        it back.
+      responses:
+        '204':
+          description: The entry is removed
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
   /api/pending:
     parameters:
       - $ref: '#/components/parameters/ClientVersion'
@@ -1246,7 +1271,8 @@ paths:
         and `startedAt`), and every entry counted or deleted and every match or result recorded
         or deleted (a game's deletion records one for each of its matches or results, caused by
         it; a person's deletion one for each of their results), and every entry verified by
-        another account (`verify`, with the entry before and after), recorded in the transaction of
+        another account (`verify`, with the entry before and after) or rejected by one
+        (`reject`, with the entry before), recorded in the transaction of
         the change with the acting account and the values before and after. A write that fails,
         a replayed entry, match or result request, and an update that changes no
         value record nothing. No route changes or deletes an event (other methods on this
@@ -2225,10 +2251,12 @@ components:
           examples: ['2026-11-14T22:41:07.123Z']
         operation:
           type: string
-          enum: [create, update, delete, verify]
+          enum: [create, update, delete, verify, reject]
           description: >-
             `verify`: another account let a pending row count; `before` and `after` are the
-            row with `pending` true and false
+            row with `pending` true and false. `reject`: another account removed a pending
+            row; `before` is the row with `pending` true, `after` is null. A row removed
+            through its delete route is always `delete`
         subjectKind:
           type: string
           enum: [entry, person, drink, factor, game, match, result]
@@ -2399,6 +2427,7 @@ components:
             - urn:performance:problem:invalid-credentials
             - urn:performance:problem:forbidden
             - urn:performance:problem:own-row
+            - urn:performance:problem:already-verified
             - urn:performance:problem:duplicate-user-name
             - urn:performance:problem:duplicate-name
             - urn:performance:problem:last-admin
