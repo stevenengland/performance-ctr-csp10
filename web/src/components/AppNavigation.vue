@@ -53,7 +53,8 @@ function labelOf(name: Destination): string | undefined {
     >
       <span class="navigation__pill">
         <v-badge
-          :model-value="destination.name === 'offen' && pending > 0"
+          v-if="destination.name === 'offen'"
+          :model-value="pending > 0"
           :content="pending"
           :label="messages.pending.marker"
           color="error"
@@ -62,6 +63,7 @@ function labelOf(name: Destination): string | undefined {
         >
           <v-icon :icon="destination.icon" size="24" />
         </v-badge>
+        <v-icon v-else :icon="destination.icon" size="24" />
       </span>
       <span class="type-caption">{{
         messages.navigation[destination.name]
