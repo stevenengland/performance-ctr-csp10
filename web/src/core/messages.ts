@@ -239,6 +239,21 @@ export const messages = {
     sinceToday: (time: string) => `seit heute, ${time}`,
     /** A game's context line: `Duell · seit 15.09.`. */
     context: (kind: string, since: string) => `${kind} · ${since}`,
+    /** A game's leader in the Spiele list: `1. Anna · 4 Punkte`. */
+    leader: (name: string, value: string) => `1. ${name} · ${value}`,
+    noResults: 'noch keine Ergebnisse',
+    /** Game points with their unit: `7,5 Punkte`, `1 Punkt`, `−20 Punkte`. */
+    gamePoints: (formatted: string, value: number) =>
+      `${formatted} ${Math.abs(value) === 1 ? 'Punkt' : 'Punkte'}`,
+    /** A duel place's record: `5 Partien · 3 S · 1 R · 1 N`. */
+    record: (played: number, wins: number, draws: number, losses: number) =>
+      `${String(played)} ${played === 1 ? 'Partie' : 'Partien'} · ${String(wins)} S · ${String(draws)} R · ${String(losses)} N`,
+    /** A points place's count: `3 Ergebnisse`. */
+    resultCount: (count: number) =>
+      `${String(count)} ${count === 1 ? 'Ergebnis' : 'Ergebnisse'}`,
+    /** Accessible name of a place: `Platz 1, Anna, 3,5 Punkte, 5 Partien · …`. */
+    place: (rank: number, name: string, value: string, details: string) =>
+      `Platz ${String(rank)}, ${name}, ${value}, ${details}`,
     noneYetDuel: 'Seit dem Start noch keine Partien.',
     noneYetPoints: 'Seit dem Start noch keine Ergebnisse.',
     /** A deleted game's matches or results go with it. */

@@ -11,6 +11,7 @@ import {
   getFactor,
   getHealth,
   getScoreboard,
+  getStandings,
   getPerson,
   getSession,
   listAuditEvents,
@@ -407,6 +408,24 @@ describe('the API client', () => {
     expect(remove).toHaveBeenCalledWith(
       '/api/drinks/4',
       expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('reads a game’s ranking, tagged with its kind', async () => {
+    const standings = {
+      kind: 'duel',
+      startedAt: '2026-09-15T10:00:00.000Z',
+      rows: [],
+    };
+    const fetch = respond(standings, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(getStandings(2)).resolves.toEqual(standings);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/games/2/standings',
+      expect.anything(),
     );
   });
 

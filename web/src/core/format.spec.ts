@@ -5,6 +5,7 @@ import {
   formatMultiplier,
   formatNumber,
   formatPoints,
+  formatSigned,
   formatTime,
   parseDecimal,
 } from './format';
@@ -20,6 +21,18 @@ describe('de-DE formatting', () => {
     'shows %d as %s: up to two decimals, comma, no trailing zeros',
     (value, text) => {
       expect(formatNumber(value)).toBe(text);
+    },
+  );
+
+  it.each([
+    [-20, '−20'],
+    [-1234, '−1.234'],
+    [0, '0'],
+    [35, '35'],
+  ])(
+    'shows game points %d as %s, negative with a real minus sign',
+    (value, text) => {
+      expect(formatSigned(value)).toBe(text);
     },
   );
 

@@ -1,16 +1,23 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { loadGames, useGames } from '../../core/games';
+import {
+  loadGames,
+  refreshStandings,
+  useGames,
+  useStandings,
+} from '../../core/games';
 import { messages } from '../../core/messages';
 import { showProblem, showSnackbar } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
-import { contextLine, ruleLine } from './game-view';
+import GameStandingList from './GameStandingList.vue';
+import { contextLine, gameStandings, ruleLine } from './game-view';
 
 /**
 A game's page (§7o): its name and context line in the top bar, the rule that
-decides its ranking, and the ranking since the last (re)start — still empty
-until matches and results can be recorded.
+decides its ranking, and the ranking since the last (re)start, shaped like the
+Rangliste. The ranking is read when the page opens and after the device's own
+writes.
 */
 const props = defineProps<{ gameId: string }>();
 const SKELETON_ROWS = 3;
@@ -20,6 +27,10 @@ const games = useGames();
 const gameId = computed(() => Number(props.gameId));
 const game = computed(() =>
   games.value?.find((candidate) => candidate.id === gameId.value),
+);
+const ranking = useStandings(gameId.value);
+const standings = computed(() =>
+  ranking.value ? gameStandings(ranking.value) : undefined,
 );
 
 provideTopBar(() => ({
@@ -37,6 +48,7 @@ onMounted(async () => {
   try {
     await loadGames();
     if (!game.value) leaveGone();
+    else await refreshStandings(gameId.value);
   } catch (failure) {
     showProblem(failure);
   }
@@ -45,7 +57,8 @@ onMounted(async () => {
 
 <template>
   <section class="spiel">
-    <div v-if="game === undefined" aria-busy="true">
+    <p v-if="game" class="type-label spiel__rule">{{ ruleLine(game) }}</p>
+    <div v-if="standings === undefined" aria-busy="true">
       <div class="spiel__skeleton-card" />
       <div
         v-for="row in SKELETON_ROWS"
@@ -53,16 +66,18 @@ onMounted(async () => {
         class="spiel__skeleton-row"
       />
     </div>
-    <template v-else>
-      <p class="type-label spiel__rule">{{ ruleLine(game) }}</p>
-      <p class="type-body empty-state">
-        {{
-          game.kind === 'points'
-            ? messages.spiele.noneYetPoints
-            : messages.spiele.noneYetDuel
-        }}
-      </p>
-    </template>
+    <p v-else-if="standings.length === 0" class="type-body empty-state">
+      {{
+        game?.kind === 'points'
+          ? messages.spiele.noneYetPoints
+          : messages.spiele.noneYetDuel
+      }}
+    </p>
+    <GameStandingList
+      v-else
+      :standings="standings"
+      :label="game?.name ?? messages.spiele.title"
+    />
   </section>
 </template>
 

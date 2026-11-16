@@ -38,6 +38,11 @@ export function formatDay(instant: Date, timeZone?: string): string {
   }).format(instant);
 }
 
+/** Game points can be negative: `−20` with a real minus sign, `0`, `35`. */
+export function formatSigned(value: number): string {
+  return value < 0 ? `−${formatNumber(-value)}` : formatNumber(value);
+}
+
 /** Alcohol base points with their unit: `1 Punkt`, `3 Punkte`, `0,5 Punkte`. */
 export function formatPoints(value: number): string {
   return `${formatNumber(value)} ${value === 1 ? messages.points.one : messages.points.other}`;

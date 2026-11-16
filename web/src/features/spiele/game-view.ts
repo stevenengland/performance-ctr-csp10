@@ -1,7 +1,12 @@
 import type { DeepReadonly } from 'vue';
-import type { Game } from '../../core/api-client';
+import type { Game, Standings } from '../../core/api-client';
 import { startOfToday } from '../../core/day-window';
-import { formatDay, formatTime } from '../../core/format';
+import {
+  formatDay,
+  formatNumber,
+  formatSigned,
+  formatTime,
+} from '../../core/format';
 import { messages } from '../../core/messages';
 
 export const gamePath = (gameId: number) => `/spiele/${String(gameId)}`;
@@ -49,4 +54,72 @@ export function ruleLine(game: DeepReadonly<Game>): string {
   return game.lowerWins
     ? messages.spiele.lowerWins
     : messages.spiele.higherWins;
+}
+
+/** One place of a game's ranking, formatted for display. */
+export interface GameStanding {
+  personId: number;
+  /** The position: tied places get consecutive ranks, as in the drink Rangliste. */
+  rank: number;
+  name: string;
+  /** The big number: duel points `3,5`, or a points sum `−20`. */
+  value: string;
+  /** With its unit: `3,5 Punkte`. */
+  valueText: string;
+  /** `5 Partien · 3 S · 1 R · 1 N`, or `3 Ergebnisse`. */
+  details: string;
+  label: string;
+}
+
+function place(
+  index: number,
+  { personId, name }: { personId: number; name: string },
+  value: string,
+  points: number,
+  details: string,
+): GameStanding {
+  const valueText = messages.spiele.gamePoints(value, points);
+  return {
+    personId,
+    rank: index + 1,
+    name,
+    value,
+    valueText,
+    details,
+    label: messages.spiele.place(index + 1, name, valueText, details),
+  };
+}
+
+/** The API's ranking as a game's page shows it, in the API's order. */
+export function gameStandings(
+  standings: DeepReadonly<Standings>,
+): GameStanding[] {
+  if (standings.kind === 'duel') {
+    return standings.rows.map((row, index) =>
+      place(
+        index,
+        row,
+        formatNumber(row.points),
+        row.points,
+        messages.spiele.record(row.played, row.wins, row.draws, row.losses),
+      ),
+    );
+  }
+  return standings.rows.map((row, index) =>
+    place(
+      index,
+      row,
+      formatSigned(row.sum),
+      row.sum,
+      messages.spiele.resultCount(row.results),
+    ),
+  );
+}
+
+/** The game's leader in the Spiele list: `1. Anna · 4 Punkte`, or `noch keine Ergebnisse`. */
+export function leaderLine(standings: DeepReadonly<Standings>): string {
+  const [leader] = gameStandings(standings);
+  return leader
+    ? messages.spiele.leader(leader.name, leader.valueText)
+    : messages.spiele.noResults;
 }

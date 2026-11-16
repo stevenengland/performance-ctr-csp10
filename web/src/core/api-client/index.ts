@@ -21,6 +21,9 @@ export type Game = components['schemas']['Game'];
 export type GameDetail = components['schemas']['GameDetail'];
 export type NewGame = components['schemas']['NewGame'];
 export type GameChange = components['schemas']['GameChange'];
+export type Standings = components['schemas']['Standings'];
+export type DuelRow = components['schemas']['DuelRow'];
+export type PointsRow = components['schemas']['PointsRow'];
 export type ApiPath = keyof paths;
 /** Field errors of a 422 problem, keyed by the API field name. */
 export type FieldErrors = Readonly<Record<string, string>>;
@@ -344,6 +347,13 @@ export function deleteGame(id: number): Promise<void> {
   return request<undefined>('/api/games/{id}', {
     method: 'DELETE',
     params: { id: String(id) },
+  });
+}
+
+/** A game's ranking in its current run, tagged with the game's kind. */
+export function getStandings(gameId: number): Promise<Standings> {
+  return request<Standings>('/api/games/{id}/standings', {
+    params: { id: String(gameId) },
   });
 }
 
