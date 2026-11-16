@@ -4,6 +4,16 @@ function counted(count: number, one: string, many: string) {
   return count === 1 ? `1 ${one}` : `${String(count)} ${many}`;
 }
 
+/** The four-eyes rule (PRD #61): a recorded row waits until another account verifies it. */
+const pending = {
+  /** The marker of a pending row in a Verlauf. */
+  marker: 'offen',
+  /** A person's pending rows beside their counters: `+2 offen`. */
+  hint: (count: number) => `+${String(count)} offen`,
+  /** Appended to a saved snackbar: `2× Bier · Daniel · wartet auf Bestätigung`. */
+  saved: (text: string) => `${text} · wartet auf Bestätigung`,
+};
+
 /** Every user-visible German text of the app. */
 export const messages = {
   appName: 'Performance',
@@ -20,6 +30,7 @@ export const messages = {
     today: 'Heute',
   },
   points: { one: 'Punkt', other: 'Punkte' },
+  pending,
   zaehlen: {
     question: 'Für wen?',
     noPersons: 'Noch keine Personen.',
@@ -55,11 +66,13 @@ export const messages = {
     countsTimes: (multiplier: string) => `zählt ${multiplier}-fach`,
     /** Accessible name of a factor tile: `Happy Hour, ×2`. */
     factorTile: (name: string, multiplier: string) => `${name}, ${multiplier}`,
-    /** The saved snackbar (§6.3): `2× Bier · Happy Hour ×2 · Daniel`, without the factor part for none. */
+    /** The saved snackbar (§6.3): `2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung`, without the factor part for none. */
     saved: (quantity: number, drink: string, person: string, factor?: string) =>
-      [`${String(quantity)}× ${drink}`, factor, person]
-        .filter((part) => part !== undefined)
-        .join(' · '),
+      pending.saved(
+        [`${String(quantity)}× ${drink}`, factor, person]
+          .filter((part) => part !== undefined)
+          .join(' · '),
+      ),
     undo: 'Rückgängig',
     undone: 'Rückgängig gemacht',
     notSaved: 'Nicht gespeichert – keine Verbindung',

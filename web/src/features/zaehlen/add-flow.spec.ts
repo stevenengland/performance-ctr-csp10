@@ -126,7 +126,7 @@ describe('saving an entry', () => {
     ]);
   });
 
-  it('says what was saved, returns to the name list and offers Rückgängig', async () => {
+  it('says what was saved and that it waits for verification, returns to the name list and offers Rückgängig', async () => {
     const calls = api(created, noContent);
     const done = vi.fn();
 
@@ -134,7 +134,7 @@ describe('saving an entry', () => {
 
     expect(done).toHaveBeenCalledOnce();
     const shown = useSnackbar().value;
-    expect(shown?.text).toBe('2× Bier · Daniel');
+    expect(shown?.text).toBe('2× Bier · Daniel · wartet auf Bestätigung');
     expect(shown?.timeoutMs).toBe(8000);
     expect(shown?.action?.label).toBe('Rückgängig');
     const [put] = entryCalls(calls);
@@ -169,7 +169,7 @@ describe('saving an entry', () => {
     });
     const [first, retry] = entryCalls(calls);
     expect(retry).toEqual(first);
-    expect(useSnackbar().value?.text).toBe('2× Bier · Daniel');
+    expect(useSnackbar().value?.text).toBe('2× Bier · Daniel · wartet auf Bestätigung');
   });
 
   it('books a later save of the same content under a new id, after an ignored Erneut versuchen', async () => {
@@ -205,7 +205,7 @@ describe('saving an entry', () => {
       vi.fn(),
     );
 
-    expect(useSnackbar().value?.text).toBe('2× Bier · Happy Hour ×2 · Daniel');
+    expect(useSnackbar().value?.text).toBe('2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung');
   });
 
   it('shows a problem’s title', async () => {

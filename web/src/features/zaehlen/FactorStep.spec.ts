@@ -194,7 +194,7 @@ describe('the quantity and factor steps', () => {
     expect(puts.map(({ body }) => body)).toEqual([
       { personId: 3, drinkId: 2, quantity: 2, factorId: 1 },
     ]);
-    expect(useSnackbar().value?.text).toBe('2× Bier · Happy Hour ×2 · Daniel');
+    expect(useSnackbar().value?.text).toBe('2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung');
     expect(useSnackbar().value?.action?.label).toBe('Rückgängig');
   });
 
@@ -208,7 +208,7 @@ describe('the quantity and factor steps', () => {
     expect(puts.map(({ body }) => body)).toEqual([
       { personId: 3, drinkId: 2, quantity: 2, factorId: null },
     ]);
-    expect(useSnackbar().value?.text).toBe('2× Bier · Daniel');
+    expect(useSnackbar().value?.text).toBe('2× Bier · Daniel · wartet auf Bestätigung');
   });
 
   it('turns the tapped tile amber and holds the others while it saves', async () => {
@@ -275,6 +275,6 @@ describe('the quantity and factor steps', () => {
     expect(puts.map(({ body }) => body)).toEqual([
       { personId: 3, drinkId: 2, quantity: 1, factorId: null },
     ]);
-    expect(useSnackbar().value?.text).toBe('1× Bier · Daniel');
+    expect(useSnackbar().value?.text).toBe('1× Bier · Daniel · wartet auf Bestätigung');
   });
 });
