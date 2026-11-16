@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatDay,
   formatDecimalInput,
   formatMultiplier,
   formatNumber,
@@ -21,6 +22,12 @@ describe('de-DE formatting', () => {
       expect(formatNumber(value)).toBe(text);
     },
   );
+
+  it('shows a day as dd.MM. without the year in the given time zone', () => {
+    const instant = new Date('2026-09-14T22:30:00Z');
+    expect(formatDay(instant, 'Europe/Berlin')).toBe('15.09.');
+    expect(formatDay(instant, 'America/Mexico_City')).toBe('14.09.');
+  });
 
   it('shows times as HH:mm in the given time zone', () => {
     const instant = new Date('2026-11-15T22:41:00Z');

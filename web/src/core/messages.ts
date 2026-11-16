@@ -5,6 +5,7 @@ export const messages = {
     label: 'Hauptnavigation',
     zaehlen: 'Zählen',
     rangliste: 'Rangliste',
+    spiele: 'Spiele',
     verwalten: 'Verwalten',
   },
   topBar: {
@@ -202,7 +203,7 @@ export const messages = {
       return `${String(entries)} Einträge zählen danach ×1.`;
     },
   },
-  /** Verwalten → Spiele (§7m). */
+  /** Spiele, a game's page (§7n, §7o) and Verwalten → Spiele (§7m). */
   spiele: {
     title: 'Spiele',
     empty: 'Noch keine Spiele.',
@@ -217,10 +218,19 @@ export const messages = {
     pointsHint: 'Eine Person, eine Punktzahl',
     drawsAllowed: 'Remis möglich',
     noDraws: 'kein Remis',
+    /** The duel rule above a game's ranking, where it stands alone. */
+    noDrawsRule: 'Kein Remis',
     higherWins: 'Höchste Summe gewinnt',
     lowerWins: 'Niedrigste Summe gewinnt',
     /** A game's setting in the list: `Duell · Remis möglich`. */
     setting: (kind: string, setting: string) => `${kind} · ${setting}`,
+    /** `seit 15.09.`, or `seit heute, 19:30` for a game (re)started today. */
+    since: (day: string) => `seit ${day}`,
+    sinceToday: (time: string) => `seit heute, ${time}`,
+    /** A game's context line: `Duell · seit 15.09.`. */
+    context: (kind: string, since: string) => `${kind} · ${since}`,
+    noneYetDuel: 'Seit dem Start noch keine Partien.',
+    noneYetPoints: 'Seit dem Start noch keine Ergebnisse.',
     /** A deleted game's matches or results go with it. */
     removeBody: (name: string, kind: 'duel' | 'points', count: number) => {
       if (count === 0) return `${name} wird gelöscht.`;

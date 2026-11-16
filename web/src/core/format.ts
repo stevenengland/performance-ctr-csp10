@@ -29,6 +29,15 @@ export function formatTime(instant: Date, timeZone?: string): string {
   }).format(instant);
 }
 
+/** A day without the year: `15.09.`, in the browser's time zone unless one is given. */
+export function formatDay(instant: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone,
+  }).format(instant);
+}
+
 /** Alcohol base points with their unit: `1 Punkt`, `3 Punkte`, `0,5 Punkte`. */
 export function formatPoints(value: number): string {
   return `${formatNumber(value)} ${value === 1 ? messages.points.one : messages.points.other}`;

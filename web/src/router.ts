@@ -9,7 +9,7 @@ import { messages } from './core/messages';
 import AnmeldenPage from './features/anmelden/AnmeldenPage.vue';
 import { resolveSession, returnPath, SIGN_IN_PATH } from './core/session';
 
-export type Destination = 'zaehlen' | 'rangliste' | 'verwalten';
+export type Destination = 'zaehlen' | 'rangliste' | 'spiele' | 'verwalten';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -99,6 +99,17 @@ export const routes: RouteRecordRaw[] = [
       destination: 'rangliste',
       child: true,
     },
+  },
+  {
+    path: '/spiele',
+    component: () => import('./features/spiele/SpielePage.vue'),
+    meta: { title: messages.navigation.spiele, destination: 'spiele' },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)',
+    component: () => import('./features/spiele/SpielPage.vue'),
+    props: true,
+    meta: { title: messages.spiele.title, destination: 'spiele', child: true },
   },
   {
     path: '/verwalten',
