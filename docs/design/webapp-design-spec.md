@@ -529,7 +529,8 @@ submit on Enter.
   navigation, as in the mockup).
 - Title `Daniel` with the context line `Heute` (`Verlauf` until the person has loaded), back to
   the previous screen (the Rangliste when there is none).
-- List `Einträge von Daniel` of today's entries (since local midnight), newest first, rows on
+- List `Einträge von Daniel` of today's entries (since local midnight; at the next local midnight,
+  or when the page is shown or focused again after it, read again for the new day), newest first, rows on
   `outline-variant` hairlines: primary `2× Bier` (`row-title`), secondary
   `Happy Hour ×2 · 23:41 · anna` (`support`; the factor with its current multiplier,
   `Kein Faktor` when none or deleted; the local time; the account's user name, or

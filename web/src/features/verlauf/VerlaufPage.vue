@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { mdiDeleteOutline } from '@mdi/js';
-import { computed, onMounted, ref, shallowRef } from 'vue';
+import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import ConfirmDialog from '../../components/ConfirmDialog.vue';
 import {
@@ -14,6 +14,7 @@ import { todayFrom } from '../../core/day-window';
 import { messages } from '../../core/messages';
 import { refreshScoreboard } from '../../core/scoreboard-feed';
 import { showProblem, showSnackbar } from '../../core/snackbar';
+import { useToday } from '../../core/today';
 import { provideTopBar } from '../../core/top-bar';
 import { historyRows, type HistoryRow } from './history';
 
@@ -79,17 +80,27 @@ async function confirm() {
   }
 }
 
+/** A read failed: a missing person leads back, anything else is shown. */
+function readFailed(failure: unknown) {
+  if (failure instanceof ApiProblem && failure.status === NOT_FOUND) {
+    leaveGone();
+  } else {
+    showProblem(failure);
+  }
+}
+
 onMounted(async () => {
   try {
     await Promise.all([loadPersons(), load()]);
     if (!person.value) leaveGone();
   } catch (failure) {
-    if (failure instanceof ApiProblem && failure.status === NOT_FOUND) {
-      leaveGone();
-    } else {
-      showProblem(failure);
-    }
+    readFailed(failure);
   }
+});
+
+/** A new day starts empty: its entries are read when the page is used after midnight. */
+watch(useToday(), () => {
+  load().catch(readFailed);
 });
 </script>
 
