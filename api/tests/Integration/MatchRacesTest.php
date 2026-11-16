@@ -94,6 +94,39 @@ final class MatchRacesTest extends DatabaseTestCase
     }
 
     /**
+     * The person's deletion records what exists under its lock: a match recorded before it is
+     * in that set and keeps its row with the person's side cleared; a recording that waited for
+     * it finds no person (422) and leaves nothing behind. Every affected match records one
+     * update event, caused by the deletion.
+     */
+    public function testARecordRacingThePersonsDeletionIsInTheRecordedSetOrRefused(): void
+    {
+        $session = $this->signIn();
+        foreach (['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002'] as $earlier) {
+            $this->send('PUT', "/api/matches/{$earlier}", ['gameId' => 1, 'firstPersonId' => 1, 'secondPersonId' => 2, 'outcome' => 'draw'], $session);
+        }
+
+        [$record, $deletion] = $this->race([['record', 'first'], ['delete-person', 'first']]);
+
+        self::assertSame('done', $deletion);
+        self::assertContains($record, ['created', 'invalid']);
+        $kept = array_column($this->rows('SELECT id FROM matches WHERE first_person_id IS NULL AND second_person_id = 2 ORDER BY id'), 'id');
+        self::assertCount($record === 'created' ? 3 : 2, $kept);
+        self::assertSame($kept, array_column($this->rows('SELECT id FROM matches ORDER BY id'), 'id'));
+        self::assertSame(
+            $kept,
+            array_column(
+                $this->rows(
+                    "SELECT e.subject_id FROM audit_events e JOIN audit_events c ON c.id = e.cause_id
+                      WHERE e.subject_kind = 'match' AND e.operation = 'update' AND c.subject_kind = 'person' ORDER BY e.id",
+                ),
+                'subject_id',
+            ),
+        );
+        self::assertCount(count($kept), $this->rows('SELECT id FROM idempotency_keys'));
+    }
+
+    /**
      * The game lock orders a recording and a restart: the match is in the run it committed in,
      * the old one if it locked the game first, the new one if it waited for the restart.
      */

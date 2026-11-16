@@ -10,6 +10,7 @@ use Performance\Domain\AuditLog;
 use Performance\Domain\Catalog\Catalog;
 use Performance\Domain\Clock;
 use Performance\Domain\CompositeGameDependents;
+use Performance\Domain\CompositePersonDependents;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
 use Performance\Domain\Games\Games;
@@ -65,9 +66,10 @@ final class Database
         return $this->sessions ??= new Sessions($this->pdo(), $this->accounts(), $this->clock);
     }
 
+    /** The catalog with the dependents of a person: one composite of the modules whose rows name persons (Matches; Results to come). */
     public function catalog(): Catalog
     {
-        return $this->catalog ??= new Catalog($this->pdo(), $this->clock, $this->revision(), $this->audit());
+        return $this->catalog ??= new Catalog($this->pdo(), $this->clock, $this->revision(), $this->audit(), new CompositePersonDependents($this->matches()));
     }
 
     public function entries(): EntryLedger

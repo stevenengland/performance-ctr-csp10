@@ -6,8 +6,9 @@ declare(strict_types=1);
  * One of several processes that write a match or its game at the same instant, as requests
  * running beside each other would:
  *   php match-race.php <start at (unix time)> <role> <match id> <game id> <first person id> <second person id> <outcome> <account id>
- * Role `record` records the match, `undo` deletes it, `delete-game` deletes the game and
- * `restart` restarts it; the persons and the outcome matter to `record` only. Prints the
+ * Role `record` records the match, `undo` deletes it, `delete-game` deletes the game,
+ * `restart` restarts it and `delete-person` deletes the first person; the persons matter to
+ * `record` and `delete-person` only, the outcome to `record` only. Prints the
  * outcome: created, replayed, conflict, not-found, invalid or done. Connects with the DB_*
  * environment of the test run.
  */
@@ -52,6 +53,10 @@ try {
             break;
         case 'restart':
             $database->games()->restart($actor, (int) $gameId);
+            echo 'done';
+            break;
+        case 'delete-person':
+            $database->catalog()->deletePerson($actor, (int) $firstPersonId);
             echo 'done';
             break;
         default:

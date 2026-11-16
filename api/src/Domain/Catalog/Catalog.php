@@ -17,6 +17,8 @@ use Performance\Domain\DeletionLock;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntrySnapshots;
 use Performance\Domain\NotFound;
+use Performance\Domain\PersonDependentCounts;
+use Performance\Domain\PersonDependents;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
 
@@ -24,7 +26,8 @@ use Performance\Domain\ValidationFailed;
  * Persons, drinks and factors: names trimmed, 1–40 characters and unique regardless
  * of case (the table's collation and unique key decide); drinks carry alcohol base
  * points, factors a multiplier. Every write names its actor and is recorded in the audit
- * log in its own transaction, with the item's values before and after.
+ * log in its own transaction, with the item's values before and after. What a person's
+ * deletion does to other modules' rows (matches, results) it asks through PersonDependents.
  */
 final readonly class Catalog
 {
@@ -37,6 +40,7 @@ final readonly class Catalog
         private Clock $clock,
         private DataRevision $revision,
         private AuditLog $audit,
+        private PersonDependents $personDependents,
     ) {}
 
     /**
@@ -136,6 +140,12 @@ final readonly class Catalog
         return $this->countEntries('person_id', $id);
     }
 
+    /** The other modules' rows that name the person: deleting the person keeps the matches. */
+    public function dependentsOfPerson(int $id): PersonDependentCounts
+    {
+        return $this->personDependents->countOfPerson($id);
+    }
+
     /** How many entries of every day are of the drink: deleting the drink deletes them. */
     public function entriesOfDrink(int $id): int
     {
@@ -194,7 +204,8 @@ final readonly class Catalog
     }
 
     /**
-     * Deletes a person and all of the person's entries (the foreign key cascades).
+     * Deletes a person and all of the person's entries (the foreign key cascades); the
+     * person's matches stay with that side cleared (the foreign key sets it to null).
      *
      * @throws NotFound when there is no such person
      */
@@ -372,6 +383,8 @@ final readonly class Catalog
      * record; then delete. An entry insert takes a shared lock on its person, drink and factor
      * for its foreign key checks, so it either committed before the row was locked, and its
      * entry is read and recorded here, or it waits and then fails because the row is gone.
+     * A person's deletion then has its PersonDependents lock, read and record their rows,
+     * after its own event and its entries'; a match recording waits and fails just the same.
      *
      * The DeletionLock lets one deletion run at a time, game deletions included. Without it, two
      * deletions of different rows that share an entry (its person and its drink, say) would
@@ -388,7 +401,7 @@ final readonly class Catalog
                 $entryIds = EntrySnapshots::lockReferencing($this->pdo, $kind, $id);
                 // A factor's entries stay and lose it; a person's or a drink's go with it.
                 $clearsFactor = $kind === AuditSubjectKind::Factor;
-                $this->audit->recordDeletion(
+                $cause = $this->audit->recordDeletion(
                     $actor,
                     $kind,
                     (string) $id,
@@ -396,6 +409,9 @@ final readonly class Catalog
                     $clearsFactor ? AuditOperation::Update : AuditOperation::Delete,
                     $this->entryChanges($entryIds, $clearsFactor),
                 );
+                if ($kind === AuditSubjectKind::Person) {
+                    $this->personDependents->recordPersonDeletion($actor, $id, $cause);
+                }
                 $this->pdo->prepare('DELETE FROM ' . self::table($kind) . ' WHERE id = ?')->execute([$id]);
             });
         });

@@ -13,7 +13,6 @@ declare(strict_types=1);
 
 use Performance\Domain\Actor;
 use Performance\Domain\AuditLog;
-use Performance\Domain\Catalog\Catalog;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
 use Performance\Domain\Idempotency;
@@ -42,7 +41,8 @@ $clock = new SystemClock();
 $revision = new DataRevision($pdo);
 $audit = new AuditLog($pdo, $clock);
 $actor = new Actor((int) $accountId, 'race');
-$catalog = new Catalog($pdo, $clock, $revision, $audit);
+// The catalog as the composition root wires it, with the dependents of a person.
+$catalog = (new Database($config, $clock))->catalog();
 
 try {
     switch ($role) {

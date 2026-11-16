@@ -17,15 +17,18 @@ use Performance\Domain\DataRevision;
 use Performance\Domain\GameDependents;
 use Performance\Domain\Idempotency;
 use Performance\Domain\NotFound;
+use Performance\Domain\PersonDependentCounts;
+use Performance\Domain\PersonDependents;
 use Performance\Domain\RequestConflict;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
 
 /**
  * The matches of duel games, end to end: record one idempotently on the client's UUID, undo
- * it, and rank a game's run. As a GameDependents member, a game's matches go with it. Every write names its actor and is recorded in the audit log in its own
- * transaction, together with the data revision bump; a replay, a conflict or a failure records
- * nothing.
+ * it, and rank a game's run. As a GameDependents member, a game's matches go with it; as a
+ * PersonDependents member, a deleted person's matches stay with that side cleared. Every write
+ * names its actor and is recorded in the audit log in its own transaction, together with the
+ * data revision bump; a replay, a conflict or a failure records nothing.
  *
  * Recording locks the game row `FOR SHARE` first, so it checks the kind and `drawsAllowed`,
  * and copies the run, while no restart, edit or deletion of the game can change them: a
@@ -36,11 +39,13 @@ use Performance\Domain\ValidationFailed;
  *
  * @phpstan-type MatchSnapshot array{game: string, first: string|null, second: string|null, outcome: string}
  */
-final readonly class Matches implements GameDependents
+final readonly class Matches implements GameDependents, PersonDependents
 {
     /** The fingerprint tag of a match request: a UUID is unique across entries, matches and results. */
     private const KIND = 'match';
     private const PERSON_ERROR = 'Person nicht gefunden.';
+    /** A match's two sides, each with the index of its person column. */
+    private const SIDES = ['first' => 'matches_first', 'second' => 'matches_second'];
     /**
      * Matches with their game's and their persons' names, as the audit log keeps them (a cleared
      * side is null), read through the index given (`%s`) and then their references, in exactly
@@ -214,6 +219,42 @@ final readonly class Matches implements GameDependents
             AuditSubjectKind::Match,
             array_map(static fn(array $row): array => [(string) $row['id'], self::snapshotOf($row), null], $rows),
         );
+    }
+
+    /** How many matches name the person on either side; read without locks, for the delete dialog. */
+    public function countOfPerson(int $personId): PersonDependentCounts
+    {
+        $statement = $this->pdo->prepare('SELECT COUNT(*) FROM matches WHERE first_person_id = ? OR second_person_id = ?');
+        $statement->execute([$personId, $personId]);
+
+        return new PersonDependentCounts(matches: (int) $statement->fetchColumn());
+    }
+
+    /**
+     * Locks the matches that name the person on either side for update, then records one
+     * update per match in match id order, caused by the person's deletion: before still names
+     * the person, after has that side cleared, as the foreign key will leave it. The person
+     * row is locked already, so no match can be recorded for the person until the deletion ends.
+     */
+    public function recordPersonDeletion(Actor $actor, int $personId, int $cause): void
+    {
+        // Each side through its own index, so the locks cover exactly the person's matches.
+        foreach (self::SIDES as $side => $index) {
+            $this->pdo->prepare("SELECT id FROM matches FORCE INDEX ({$index}) WHERE {$side}_person_id = ? FOR UPDATE")->execute([$personId]);
+        }
+        $changes = [];
+        foreach (self::SIDES as $side => $index) {
+            $statement = $this->pdo->prepare(sprintf(self::SNAPSHOT, $index) . " WHERE m.{$side}_person_id = ? LOCK IN SHARE MODE");
+            $statement->execute([$personId]);
+            /** @var list<array<string, scalar|null>> $rows */
+            $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as $row) {
+                $before = self::snapshotOf($row);
+                $changes[(string) $row['id']] = [(string) $row['id'], $before, [...$before, $side => null]];
+            }
+        }
+        ksort($changes, SORT_STRING);
+        $this->audit->recordCaused($actor, $cause, AuditOperation::Update, AuditSubjectKind::Match, array_values($changes));
     }
 
     /**
