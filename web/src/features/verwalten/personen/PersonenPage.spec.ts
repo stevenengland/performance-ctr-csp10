@@ -35,8 +35,8 @@ describe('Verwalten → Personen', () => {
 
   it('lists the persons as the API sends them, each with edit and delete', async () => {
     api([
-      { id: 1, name: 'Anna' },
-      { id: 2, name: 'Daniel' },
+      { id: 1, name: 'Anna', photoUrl: null },
+      { id: 2, name: 'Daniel', photoUrl: null },
     ]);
 
     wrapper = await page();
@@ -47,7 +47,7 @@ describe('Verwalten → Personen', () => {
   });
 
   it('opens a person’s Verlauf from their row', async () => {
-    api([{ id: 2, name: 'Daniel' }]);
+    api([{ id: 2, name: 'Daniel', photoUrl: null }]);
 
     wrapper = await page();
 
@@ -72,7 +72,7 @@ describe('Verwalten → Personen', () => {
   });
 
   it('renames a person in a dialog that starts with the name', async () => {
-    const calls = api([{ id: 2, name: 'Daniel' }]);
+    const calls = api([{ id: 2, name: 'Daniel', photoUrl: null }]);
     wrapper = await page();
 
     await click(buttonIn(document, 'Daniel bearbeiten'));
@@ -92,8 +92,8 @@ describe('Verwalten → Personen', () => {
   it('shows a taken name under the name field', async () => {
     api(
       [
-        { id: 1, name: 'Anna' },
-        { id: 2, name: 'Daniel' },
+        { id: 1, name: 'Anna', photoUrl: null },
+        { id: 2, name: 'Daniel', photoUrl: null },
       ],
       {
         replies: [
@@ -115,7 +115,9 @@ describe('Verwalten → Personen', () => {
   });
 
   it('deletes a person after a dialog that names the entries deleted with them', async () => {
-    const calls = api([{ id: 2, name: 'Daniel' }], { entryCount: 23 });
+    const calls = api([{ id: 2, name: 'Daniel', photoUrl: null }], {
+      entryCount: 23,
+    });
     wrapper = await page();
 
     await click(buttonIn(document, 'Daniel löschen'));
@@ -135,7 +137,7 @@ describe('Verwalten → Personen', () => {
   });
 
   it('says only the person is deleted when there are no entries', async () => {
-    api([{ id: 2, name: 'Daniel' }], { entryCount: 0 });
+    api([{ id: 2, name: 'Daniel', photoUrl: null }], { entryCount: 0 });
     wrapper = await page();
 
     await click(buttonIn(document, 'Daniel löschen'));
@@ -144,7 +146,7 @@ describe('Verwalten → Personen', () => {
   });
 
   it('keeps the person when the dialog is cancelled', async () => {
-    const calls = api([{ id: 2, name: 'Daniel' }]);
+    const calls = api([{ id: 2, name: 'Daniel', photoUrl: null }]);
     wrapper = await page();
 
     await click(buttonIn(document, 'Daniel löschen'));

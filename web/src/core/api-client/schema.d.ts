@@ -148,6 +148,34 @@ export interface paths {
     patch: operations['updatePerson'];
     trace?: never;
   };
+  '/api/persons/{id}/photo': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    /**
+     * The person's photo, a 256×256 JPEG
+     * @description Reached through the person's `photoUrl`, which names the photo's version, so the answer is cached privately for a year; a new photo is a new URL.
+     */
+    get: operations['getPersonPhoto'];
+    /**
+     * Set or replace a person's photo
+     * @description Any member may set the photo of any person. The client crops and scales it; the server checks that it is a 256×256 JPEG of at most 64 KiB.
+     */
+    put: operations['putPersonPhoto'];
+    post?: never;
+    /** Remove a person's photo; the person shows initials again */
+    delete: operations['deletePersonPhoto'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/drinks': {
     parameters: {
       query?: never;
@@ -337,6 +365,8 @@ export interface components {
     Person: {
       id: number;
       name: components['schemas']['Name'];
+      /** @description The person's photo (256×256 JPEG), or null without one; versioned, so it can be cached */
+      photoUrl: string | null;
     };
     PersonDetail: {
       id: number;
@@ -349,6 +379,10 @@ export interface components {
     };
     NewPerson: {
       name: components['schemas']['Name'];
+    };
+    NewPersonPhoto: {
+      /** @description A 256×256 JPEG of at most 64 KiB, base64-encoded */
+      image: string;
     };
     /** @description Alcohol base points, 0–9 999.99 with at most two decimals */
     Points: number;
@@ -447,6 +481,8 @@ export interface components {
     ScoreRow: {
       personId: number;
       name: string;
+      /** @description The person's photo (256×256 JPEG), or null without one; versioned, so it can be cached */
+      photoUrl: string | null;
       score: number;
       count: number;
       /** @description By drink name; only drinks with entries */
@@ -894,6 +930,85 @@ export interface operations {
       409: components['responses']['Problem'];
       415: components['responses']['Problem'];
       422: components['responses']['Problem'];
+    };
+  };
+  getPersonPhoto: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The photo */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'image/jpeg': string;
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  putPersonPhoto: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewPersonPhoto'];
+      };
+    };
+    responses: {
+      /** @description Set; the person with the new `photoUrl` */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Person'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  deletePersonPhoto: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Removed (also when there was none) */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
     };
   };
   listDrinks: {

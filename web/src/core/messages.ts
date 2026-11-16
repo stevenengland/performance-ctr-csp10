@@ -115,6 +115,20 @@ export const messages = {
     edit: 'Person bearbeiten',
     name: 'Name',
     empty: 'Noch keine Personen.',
+    /** The photo control of the dialog (§7i). */
+    choosePhoto: 'Foto wählen',
+    changePhoto: 'Foto ändern',
+    otherPhoto: 'Anderes Foto',
+    removePhoto: 'Foto entfernen',
+    keepPhoto: 'Foto behalten',
+    photoOf: (name: string) => (name ? `Foto von ${name}` : 'Foto'),
+    cropLabel: (name: string) =>
+      `Ausschnitt${name ? ` für ${name}` : ''}: ziehen zum Verschieben, Pfeiltasten und Plus/Minus`,
+    cropHint:
+      'Ziehen zum Verschieben · zoomen mit zwei Fingern oder dem Regler',
+    zoom: 'Zoom',
+    photoUnreadable: 'Dieses Foto lässt sich nicht öffnen.',
+    photoFailed: 'Foto nicht gespeichert.',
   },
   getraenke: {
     title: 'Getränke',

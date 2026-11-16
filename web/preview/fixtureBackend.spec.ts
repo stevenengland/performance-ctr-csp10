@@ -401,7 +401,11 @@ describe('the fixture backend', () => {
     await createPerson(' Zoe ');
     await createDrink('Cola', 0.25);
 
-    expect((await listPersons()).at(-1)).toEqual({ id: 7, name: 'Zoe' });
+    expect((await listPersons()).at(-1)).toEqual({
+      id: 7,
+      name: 'Zoe',
+      photoUrl: null,
+    });
     expect(await listDrinks()).toContainEqual({
       id: 7,
       name: 'Cola',
@@ -484,6 +488,7 @@ describe('the fixture backend', () => {
     await expect(updatePerson(daniel.id, ' Dani ')).resolves.toEqual({
       id: daniel.id,
       name: 'Dani',
+      photoUrl: daniel.photoUrl,
     });
     expect((await standings(todayFrom())).rows[0]?.name).toBe('Dani');
     const { entryCount } = await getPerson(daniel.id);

@@ -303,6 +303,70 @@ paths:
           $ref: '#/components/responses/Problem'
         '404':
           $ref: '#/components/responses/Problem'
+  /api/persons/{id}/photo:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The person's id; anything but a positive integer is 404
+        schema:
+          type: integer
+          minimum: 1
+    get:
+      operationId: getPersonPhoto
+      summary: The person's photo, a 256×256 JPEG
+      description: >-
+        Reached through the person's `photoUrl`, which names the photo's version, so the
+        answer is cached privately for a year; a new photo is a new URL.
+      responses:
+        '200':
+          description: The photo
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: putPersonPhoto
+      summary: Set or replace a person's photo
+      description: >-
+        Any member may set the photo of any person. The client crops and scales it; the
+        server checks that it is a 256×256 JPEG of at most 64 KiB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewPersonPhoto'
+      responses:
+        '200':
+          description: Set; the person with the new `photoUrl`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Person'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deletePersonPhoto
+      summary: Remove a person's photo; the person shows initials again
+      responses:
+        '204':
+          description: Removed (also when there was none)
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
   /api/drinks:
     get:
       operationId: listDrinks
@@ -741,13 +805,16 @@ components:
     Person:
       type: object
       additionalProperties: false
-      required: [id, name]
+      required: [id, name, photoUrl]
       properties:
         id:
           type: integer
           minimum: 1
         name:
           $ref: '#/components/schemas/Name'
+        photoUrl:
+          type: [string, 'null']
+          description: The person's photo (256×256 JPEG), or null without one; versioned, so it can be cached
     PersonDetail:
       type: object
       additionalProperties: false
@@ -777,6 +844,15 @@ components:
       properties:
         name:
           $ref: '#/components/schemas/Name'
+    NewPersonPhoto:
+      type: object
+      required: [image]
+      properties:
+        image:
+          type: string
+          contentEncoding: base64
+          contentMediaType: image/jpeg
+          description: A 256×256 JPEG of at most 64 KiB, base64-encoded
     Points:
       type: number
       description: Alcohol base points, 0–9 999.99 with at most two decimals
@@ -980,12 +1056,15 @@ components:
     ScoreRow:
       type: object
       additionalProperties: false
-      required: [personId, name, score, count, drinks]
+      required: [personId, name, photoUrl, score, count, drinks]
       properties:
         personId:
           type: integer
         name:
           type: string
+        photoUrl:
+          type: [string, 'null']
+          description: The person's photo (256×256 JPEG), or null without one; versioned, so it can be cached
         score:
           type: number
         count:

@@ -217,6 +217,23 @@ export function updatePerson(id: number, name: string): Promise<Person> {
 }
 
 /** Deletes the person and all of their entries. */
+/** Sets or replaces a person's photo (any member, any person): a 256×256 JPEG, base64. */
+export function putPersonPhoto(id: number, image: string): Promise<Person> {
+  return request<Person>('/api/persons/{id}/photo', {
+    method: 'PUT',
+    params: { id: String(id) },
+    body: { image },
+  });
+}
+
+/** Removes a person's photo; the person shows initials again. */
+export function deletePersonPhoto(id: number): Promise<void> {
+  return request<undefined>('/api/persons/{id}/photo', {
+    method: 'DELETE',
+    params: { id: String(id) },
+  });
+}
+
 export function deletePerson(id: number): Promise<void> {
   return request<undefined>('/api/persons/{id}', {
     method: 'DELETE',

@@ -272,3 +272,10 @@ p {
 .catalog-page {
   padding-bottom: 88px;
 }
+
+/* A leading avatar (Personen) sits left of the name. */
+.list__main:has(.person-avatar) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}

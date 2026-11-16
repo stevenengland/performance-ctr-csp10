@@ -46,7 +46,8 @@ const nameSize = computed(() => {
     :disabled="disabled"
     @click="emit('click')"
   >
-    <span class="count-tile__row">
+    <span class="count-tile__row count-tile__row--top">
+      <slot name="leading" />
       <span class="type-tile-name count-tile__name" :class="nameSize">{{
         name
       }}</span>
@@ -76,6 +77,15 @@ const nameSize = computed(() => {
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
+}
+
+.count-tile__row--top {
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.count-tile__row--top > .type-numeral {
+  margin-left: auto;
 }
 
 .count-tile__name {

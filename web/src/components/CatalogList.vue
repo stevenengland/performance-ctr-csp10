@@ -38,9 +38,11 @@ const SKELETON_ROWS = 3;
         :aria-label="link(item).label"
         class="list__main list__link"
       >
+        <slot name="leading" :item="item" />
         <span class="type-row-title list__title">{{ item.name }}</span>
       </RouterLink>
       <span v-else class="list__main">
+        <slot name="leading" :item="item" />
         <span class="type-row-title list__title">{{ item.name }}</span>
         <span v-if="support" class="type-support list__support">{{
           support(item)

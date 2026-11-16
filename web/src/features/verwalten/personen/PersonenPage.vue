@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import AppFab from '../../../components/AppFab.vue';
 import CatalogList from '../../../components/CatalogList.vue';
 import ConfirmDialog from '../../../components/ConfirmDialog.vue';
+import PersonAvatar from '../../../components/PersonAvatar.vue';
 import { getPerson, type Person } from '../../../core/api-client';
 import { deletePerson, loadPersons, usePersons } from '../../../core/catalog';
 import { useConfirmedDelete } from '../../../core/confirmed-delete';
@@ -51,7 +52,11 @@ onMounted(() => {
       :link="verlauf"
       @edit="openDialog"
       @remove="removal.ask"
-    />
+    >
+      <template #leading="{ item }">
+        <PersonAvatar :name="item.name" :photo-url="item.photoUrl" :size="40" />
+      </template>
+    </CatalogList>
     <AppFab :label="messages.personen.create" @click="openDialog()" />
     <PersonDialog v-model="editing" :person="edited" />
     <ConfirmDialog

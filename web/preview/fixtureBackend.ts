@@ -159,6 +159,7 @@ function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
     const row = rows.get(person.id) ?? {
       personId: person.id,
       name: person.name,
+      photoUrl: person.photoUrl,
       score: 0,
       count: 0,
       drinks: [],
@@ -260,6 +261,8 @@ function routeOf(path: string): { route: string; id: string } {
   if (entry && ENTRY_ID.test(entry)) {
     return { route: '/api/entries/{id}', id: entry };
   }
+  const photo = /^\/api\/persons\/([1-9]\d*)\/photo$/.exec(path)?.[1];
+  if (photo) return { route: '/api/persons/{id}/photo', id: photo };
   const item = /^\/api\/(persons|drinks|factors|accounts)\/([1-9]\d*)$/.exec(
     path,
   );
@@ -481,7 +484,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     ...catalogRoutes(
       'persons',
       () => fixtures.persons,
-      (id) => ({ id, name: '' }),
+      (id) => ({ id, name: '', photoUrl: null }),
       {
         uses: (entry, person) => entry.personId === person.id,
         // Like the foreign key: the person's entries go with them.
@@ -491,6 +494,30 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
           )),
       },
     ),
+    // A person's photo (any member, any person). The preview keeps the bytes as a
+    // data: URL, so the uploaded photo shows without a server.
+    [
+      'PUT /api/persons/{id}/photo',
+      guarded((_me, body, { id }) => {
+        const person = fixtures.persons.find((item) => item.id === Number(id));
+        if (!person) return problem(PROBLEMS.notFound);
+        const image = typeof body.image === 'string' ? body.image : '';
+        if (!/^\/9j\/[A-Za-z0-9+/=]+$/.test(image)) {
+          return validation({ image: 'Kein JPEG-Foto.' });
+        }
+        person.photoUrl = `data:image/jpeg;base64,${image}`;
+        return json(person);
+      }),
+    ],
+    [
+      'DELETE /api/persons/{id}/photo',
+      guarded((_me, _body, { id }) => {
+        const person = fixtures.persons.find((item) => item.id === Number(id));
+        if (!person) return problem(PROBLEMS.notFound);
+        person.photoUrl = null;
+        return new Response(null, { status: 204 });
+      }),
+    ],
     ...catalogRoutes(
       'drinks',
       () => fixtures.drinks,

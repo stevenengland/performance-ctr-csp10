@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PersonAvatar from '../../components/PersonAvatar.vue';
 import { verlaufPath } from '../verlauf/history';
 import type { Standing } from './standings';
 
@@ -19,6 +20,11 @@ defineProps<{ standing: Standing }>();
       :aria-label="standing.label"
     >
       <span class="type-title rank__position">{{ standing.rank }}</span>
+      <PersonAvatar
+        :name="standing.name"
+        :photo-url="standing.photoUrl"
+        :size="44"
+      />
       <span class="rank__who">
         <span class="rank__name">{{ standing.name }}</span>
         <span class="type-support rank__drinks">{{ standing.drinks }}</span>
@@ -38,7 +44,7 @@ defineProps<{ standing: Standing }>();
 
 .rank {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-columns: 28px 44px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
   padding: 12px 4px;

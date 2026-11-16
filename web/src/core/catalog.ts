@@ -18,8 +18,20 @@ export async function loadDrinks(): Promise<void> {
   drinks.value = await api.listDrinks();
 }
 
-export async function createPerson(name: string): Promise<void> {
-  await api.createPerson(name);
+/** Creates a person and answers it, so a photo can follow (§7i). */
+export async function createPerson(name: string): Promise<Person> {
+  const person = await api.createPerson(name);
+  await loadPersons();
+  return person;
+}
+
+/** Sets (`image`, base64 JPEG) or removes (`null`) a person's photo. */
+export async function savePersonPhoto(
+  id: number,
+  image: string | null,
+): Promise<void> {
+  if (image === null) await api.deletePersonPhoto(id);
+  else await api.putPersonPhoto(id, image);
   await loadPersons();
 }
 
