@@ -185,6 +185,11 @@ export const messages = {
     edit: 'Person bearbeiten',
     name: 'Name',
     empty: 'Noch keine Personen.',
+    /** The photo block of `Person bearbeiten` (§7i). */
+    removePhoto: 'Foto entfernen',
+    keepPhoto: 'Foto behalten',
+    /** The name committed and the photo did not; `Speichern` retries only the photo. */
+    photoNotSaved: 'Person gespeichert, Foto nicht.',
   },
   getraenke: {
     title: 'Getränke',

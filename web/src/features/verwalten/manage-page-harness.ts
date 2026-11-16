@@ -36,10 +36,11 @@ export function problem(status: number, body: Record<string, unknown>) {
 
 /**
 A fake API over one collection (`/api/persons` with key `persons`, …): writes
-answer with the next given reply (or succeed), the list always reads the current
-items, and reading one item adds `entryCount`. A created item gets the fields of
-`created` the request does not send (a person's `photoUrl: null`); a changed one
-keeps them.
+answer with the next given reply (or succeed, also for an `undefined` one), the list reads the current items
+unless its next `lists` reply says otherwise (`undefined` reads them too), and
+reading one item adds `entryCount`. A created item gets the fields of `created`
+the request does not send (a person's `photoUrl: null`); a changed one keeps
+them. Deleting an item's `/photo` sets its `photoUrl` to `null`.
 */
 export function catalogApi<T extends Item>(
   path: string,
@@ -47,8 +48,9 @@ export function catalogApi<T extends Item>(
   items: T[],
   {
     entryCount = 5,
-    replies = [] as (() => Response)[],
+    replies = [] as ((() => Response) | undefined)[],
     created = {} as Partial<T>,
+    lists = [] as ((() => Response) | undefined)[],
   } = {},
 ) {
   const calls: Call[] = [];
@@ -59,12 +61,19 @@ export function catalogApi<T extends Item>(
       const body =
         typeof init.body === 'string' ? (JSON.parse(init.body) as unknown) : {};
       calls.push({ method, url, body });
-      if (method === 'GET' && url === path) return json({ [key]: items });
+      if (method === 'GET' && url === path) {
+        return lists.shift()?.() ?? json({ [key]: items });
+      }
       const reply = replies.shift();
       if (reply) return reply();
-      const id = Number(url.split('/').pop());
+      const [, member, photo] = /\/(\d+)(\/photo)?$/.exec(url) ?? [];
+      const id = Number(member);
       const index = items.findIndex((candidate) => candidate.id === id);
       if (method === 'GET') return json({ ...items[index], entryCount });
+      if (method === 'DELETE' && photo) {
+        items.splice(index, 1, { ...items[index], photoUrl: null } as T);
+        return new Response(null, { status: 204 });
+      }
       if (method === 'DELETE') {
         items.splice(index, 1);
         return new Response(null, { status: 204 });

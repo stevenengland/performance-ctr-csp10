@@ -5,6 +5,7 @@ import { dismissSnackbar, useSnackbar } from '../../../core/snackbar';
 import {
   buttonIn,
   catalogApi,
+  type Call,
   click,
   dialog,
   field,
@@ -141,6 +142,166 @@ describe('Verwalten → Personen', () => {
       body: { name: 'Dani' },
     });
     expect(rows(wrapper)).toEqual(['Dani']);
+  });
+
+  describe('the photo in Person bearbeiten', () => {
+    const photoUrl = '/api/persons/2/photo?v=abc';
+    const writes = (calls: Call[]) =>
+      calls.filter(({ method }) => method !== 'GET');
+    const dialogAvatar = () => dialog().querySelector('.person-avatar');
+    const listAvatar = (wrapper: VueWrapper) =>
+      wrapper.get('.list__main .person-avatar');
+
+    it('shows the person’s avatar at 112 px', async () => {
+      api([{ id: 2, name: 'Daniel', photoUrl }]);
+      wrapper = await page();
+
+      await click(buttonIn(document, 'Daniel bearbeiten'));
+
+      expect(dialogAvatar()?.getAttribute('style')).toContain('width: 112px');
+      expect(dialogAvatar()?.querySelector('img')?.getAttribute('src')).toBe(
+        photoUrl,
+      );
+    });
+
+    it('shows the initials after Foto entfernen and the photo again after Foto behalten', async () => {
+      api([{ id: 2, name: 'Daniel', photoUrl }]);
+      wrapper = await page();
+      await click(buttonIn(document, 'Daniel bearbeiten'));
+
+      await click(buttonIn(dialog(), 'Foto entfernen'));
+
+      expect(dialogAvatar()?.querySelector('img')).toBeNull();
+      expect(
+        dialogAvatar()
+          ?.querySelector('[data-initials]')
+          ?.getAttribute('data-initials'),
+      ).toBe('D');
+      expect(() => buttonIn(dialog(), 'Foto entfernen')).toThrow();
+
+      await click(buttonIn(dialog(), 'Foto behalten'));
+
+      expect(dialogAvatar()?.querySelector('img')?.getAttribute('src')).toBe(
+        photoUrl,
+      );
+      expect(() => buttonIn(dialog(), 'Foto behalten')).toThrow();
+    });
+
+    it('offers no removal without a photo', async () => {
+      api([{ id: 2, name: 'Daniel', photoUrl: null }]);
+      wrapper = await page();
+
+      await click(buttonIn(document, 'Daniel bearbeiten'));
+
+      expect(dialogAvatar()?.querySelector('[data-initials]')).toBeTruthy();
+      expect(() => buttonIn(dialog(), 'Foto entfernen')).toThrow();
+    });
+
+    it('removes the photo with Speichern, sending no name request, and the list shows the initials', async () => {
+      const calls = api([{ id: 2, name: 'Daniel', photoUrl }]);
+      wrapper = await page();
+      await click(buttonIn(document, 'Daniel bearbeiten'));
+
+      await click(buttonIn(dialog(), 'Foto entfernen'));
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(writes(calls)).toEqual([
+        { method: 'DELETE', url: '/api/persons/2/photo', body: {} },
+      ]);
+      expect(listAvatar(wrapper).find('img').exists()).toBe(false);
+      expect(
+        listAvatar(wrapper).get('[data-initials]').attributes('data-initials'),
+      ).toBe('D');
+    });
+
+    it('sends nothing on Abbrechen after Foto entfernen', async () => {
+      const calls = api([{ id: 2, name: 'Daniel', photoUrl }]);
+      wrapper = await page();
+      await click(buttonIn(document, 'Daniel bearbeiten'));
+
+      await click(buttonIn(dialog(), 'Foto entfernen'));
+      await click(buttonIn(dialog(), 'Abbrechen'));
+
+      expect(writes(calls)).toEqual([]);
+      expect(listAvatar(wrapper).get('img').attributes('src')).toBe(photoUrl);
+    });
+
+    it('renames first and removes the photo second', async () => {
+      const calls = api([{ id: 2, name: 'Daniel', photoUrl }]);
+      wrapper = await page();
+      await click(buttonIn(document, 'Daniel bearbeiten'));
+
+      await type('Name', 'Dani');
+      await click(buttonIn(dialog(), 'Foto entfernen'));
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(
+        writes(calls).map(({ method, url }) => `${method} ${url}`),
+      ).toEqual(['PATCH /api/persons/2', 'DELETE /api/persons/2/photo']);
+      expect(rows(wrapper)).toEqual(['Dani']);
+    });
+
+    it('closes as saved and shows the change when only the reload of the list fails', async () => {
+      api([{ id: 2, name: 'Daniel', photoUrl }], {
+        lists: [
+          undefined,
+          () =>
+            problem(503, {
+              type: 'urn:performance:problem:maintenance',
+              title: 'Wartung läuft.',
+            }),
+        ],
+      });
+      wrapper = await page();
+      await click(buttonIn(document, 'Daniel bearbeiten'));
+
+      await type('Name', 'Dani');
+      await click(buttonIn(dialog(), 'Foto entfernen'));
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(document.querySelector('.v-overlay--active')).toBeNull();
+      expect(rows(wrapper)).toEqual(['Dani']);
+      expect(listAvatar(wrapper).find('img').exists()).toBe(false);
+      expect(useSnackbar().value?.text).toBe('Wartung läuft.');
+    });
+
+    it('stays on the renamed person when the removal fails, and Speichern again sends only the removal', async () => {
+      const calls = api([{ id: 2, name: 'Daniel', photoUrl }], {
+        replies: [
+          undefined,
+          () =>
+            problem(503, {
+              type: 'urn:performance:problem:maintenance',
+              title: 'Wartung läuft.',
+            }),
+        ],
+      });
+      wrapper = await page();
+      await click(buttonIn(document, 'Daniel bearbeiten'));
+      await type('Name', 'Dani');
+      await click(buttonIn(dialog(), 'Foto entfernen'));
+
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(document.querySelector('.v-overlay--active')).not.toBeNull();
+      const message = dialog().querySelector('[role="alert"]');
+      expect(message?.textContent.trim()).toBe(
+        'Person gespeichert, Foto nicht.',
+      );
+      expect(message?.previousElementSibling?.textContent.trim()).toBe(
+        'Foto behalten',
+      );
+      expect(rows(wrapper)).toEqual(['Dani']);
+      calls.length = 0;
+
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(writes(calls)).toEqual([
+        { method: 'DELETE', url: '/api/persons/2/photo', body: {} },
+      ]);
+      expect(document.querySelector('.v-overlay--active')).toBeNull();
+      expect(listAvatar(wrapper).find('img').exists()).toBe(false);
+    });
   });
 
   it('shows a taken name under the name field', async () => {
