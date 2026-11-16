@@ -626,8 +626,12 @@ submit on Enter.
   line ends with its cause, `23:41 · anna · durch Löschen von Wein`. The cause comes with the
   event itself, so it shows even when the deletion is on another page.
 - Pages of 20: below the list the tonal button `Ältere laden` appends the next older page; on
-  the last page it is gone. A failed page shows the problem title and keeps what is loaded.
-- Loading: four skeleton rows. Empty: `Noch keine Änderungen.` Below everything the closing
+  the last page it is gone. A failed older page shows the problem title and keeps what is
+  loaded.
+- Loading: four skeleton rows. Empty: `Noch keine Änderungen.` A failed first page has nothing
+  to keep, so instead of the skeleton it shows the empty-state pattern: `Protokoll nicht
+  geladen.` with the button `Erneut versuchen`, which loads it again (skeleton meanwhile); a
+  problem the API names also shows its title in the snackbar. Below everything the closing
   line (`support`) `Jede Änderung mit Konto und Zeit. Das Protokoll kann nicht bearbeitet oder
   gelöscht werden.` — the log is application-level append-only history; the screen has no
   other action.
@@ -718,6 +722,13 @@ the shareable page a UI change is reviewed on before it reaches the host.
   (marked as sample data: persons, drinks, factors and entries timed relative to now, so the
   preview never ages out of "today"), keeps writes in memory for the session (adds, undo,
   deletes, CRUD), and answers anything else with 503.
+- **Audit log in the preview.** Protokoll starts with a seeded log that reaches back over
+  several days, holds a cascade (the deletion of `Sekt` with the entries it removed) and names
+  an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are
+  then recorded in memory by the API's rules: one event per change with the signed-in account,
+  the entries a deletion removes or changes as consequential events with their cause, and
+  nothing for a save that changes nothing, a write that fails, a replayed or conflicting entry
+  request, or an account change.
 - **No service worker.** The preview build does not register the service worker; the update
   prompt and reload floor can be triggered from a small preview-only menu. The menu's summary
   `Vorschau · Beispieldaten` (the sample-data marker) is a thin strip above the app that pushes
