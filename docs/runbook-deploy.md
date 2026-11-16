@@ -215,7 +215,9 @@ and refused once the floor is raised. Other callers, checked for this release:
   `web/package.json` version are 0.3.0: every app that is open across the deploy shows
   `Bitte neu laden` on its next request (a refused write is not booked), and header-less
   clients (before 0.2.0) are refused from now on. Request and response bodies of recording
-  are unchanged; the release adds `PUT /api/entries/{id}/verification` and `GET /api/pending`.
+  are unchanged; the release adds `PUT` and `DELETE /api/{entries|matches|results}/{id}/verification`
+  and `GET /api/pending`, and `pending`, `pendingCount`, `recordedCount` and `unranked` to the
+  history, scoreboard and standings reads.
   Callers checked: the deploy and `live-check.yml` read only health; the stack e2e tests send
   the version from every request context, the extra browser contexts of the specs included;
   a manual `curl` needs `X-Client-Version: 0.3.0`. A request that is already executing the

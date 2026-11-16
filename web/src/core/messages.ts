@@ -126,7 +126,7 @@ export const messages = {
     /** A row's supporting line: `Happy Hour ×2 · 15.11., 21:00 · anna`, `Schach · 15.11., 21:00 · anna`. */
     details: (what: string, day: string, time: string, account: string) =>
       `${what} · ${day}, ${time} · ${account}`,
-    /** A match's game when it belongs to an earlier run: `Schach · vor dem Neustart`. */
+    /** A match's or result's game when it belongs to an earlier run: `Schach · vor dem Neustart`. */
     earlierRun: (game: string) => `${game} · vor dem Neustart`,
     verify: 'Bestätigen',
     /** The button's accessible name: `2× Bier für Daniel bestätigen`. */

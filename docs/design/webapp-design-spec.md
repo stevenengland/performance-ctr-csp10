@@ -293,8 +293,9 @@ button on every screen below a navigation destination, and the account icon on t
 (4 dp high, filled segments in `primary`; three segments when no factors exist); the duel flow
 (§7p) always has three, the points flow (§7q) two. On add-flow
 steps 2–4 the bar also shows, right-aligned before the account icon, the chosen person's
-total score for today — all drinks, factors applied — as a numeral (`title`) over the caption
-`Punkte heute` (from the scoreboard feed; `0` when there are no entries). On the
+total score for today — all drinks, factors applied, verified entries only (§7f) — as a
+numeral (`title`) over the caption `Punkte heute` (from the scoreboard feed; `0` when no entry
+of today counts yet). On the
 Rangliste and a game's page (§7o) the bar also shows `Stand: HH:mm` in `error` when data is
 stale (§6.6).
 
@@ -347,8 +348,8 @@ left-aligned. Pressed or saving: `primary-container` / `on-primary-container`, e
 
 - **Person tile:** the person's avatar (§6.12, 40 dp) and, 8 dp to its right, the name
   (`tile-name`) at the top; at the bottom `Punkte heute` in `support` on the left and the
-  person's total score for today (`numeral`) on the right, or just `noch nichts` in `support`
-  when there are no entries today. No tally marks here. The avatar comes through the tile's
+  person's total score for today (`numeral`, verified entries only, §7f) on the right, or just
+  `noch nichts` in `support` while no entry of today counts. No tally marks here. The avatar comes through the tile's
   generic `leading` slot, which sits left of the name; the tile knows nothing about photos.
   The avatar adds nothing to the accessible name (`Daniel, 13,5 Punkte heute`).
 - **Drink tile:** top row — name left, today's counter for the chosen person right (`numeral`,
@@ -434,6 +435,8 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 | Result | `Ergebnis löschen?` | `Daniel · −20 Punkte am 15.11. um 22:12` |
 | Account | `Konto anna löschen?` | `Einträge von anna bleiben erhalten.` |
 | Restart (not a delete; action `Neu starten`) | `Schach neu starten?` | `Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.` |
+
+The counts in these dialogs include the rows that wait for verification (§1).
 
 ### 6.10 Empty and loading states
 
@@ -744,8 +747,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 
 ### 7l. Protokoll `/verwalten/protokoll` (admins only)
 
-- The audit log: every create, change and delete of an entry, a person, a drink or a factor,
-  with the account that did it. Title `Protokoll` with a back button; the navigation keeps
+- The audit log: every create, change and delete of an entry, a person, a drink, a factor, a
+  game, a match or a result, and every verification and rejection of an entry, a match or a
+  result, with the account that did it. Title `Protokoll` with a back button; the navigation keeps
   `Verwalten` active. Non-admins never see it: the row is missing on the hub and
   `/verwalten/protokoll` sends them to `/verwalten`.
 - **All days** — the one exception to "today only" (§1). Events newest first under day
@@ -839,7 +843,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   context line — the kind and since when its ranking counts: `Duell · seit 15.09.`,
   `Punktespiel · seit heute, 19:30` (§3.5). Under it, 6 dp apart, in `label`, the game's
   leader with the value of its ranking (§7o): `1. Anna · 4 Punkte`, `1. Daniel · −11 Punkte`, or
-  `noch keine Ergebnisse` before anything was recorded since the start; the line keeps its
+  `noch keine Ergebnisse` while nothing since the start counts (rows that wait for verification
+  lead nothing); the line keeps its
   height (20 dp) until the rankings have loaded. The tiles form the list `Spiele`.
 - Loading: three skeleton tiles. Empty: `Noch keine Spiele.` + button `Spiel anlegen` →
   `/verwalten/spiele?anlegen` (Verwalten → Spiele with its create dialog open).
@@ -1045,7 +1050,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     (`Anna – Ben · Anna gewinnt bestätigen` for a match, `Daniel · −20 Punkte bestätigen` for a
     result). One tap each, no confirm dialog; while one is under way the other is disabled.
 - `Bestätigen` verifies the row: it leaves the list, the badge and the rankings follow at once
-  (the queue and the scoreboard feed are read again), and nothing else is said. A row that is
+  (the queue and the scoreboard feed are read again; a game's ranking is read when its page or
+  flow is open, §6.6), and nothing else is said. A row that is
   gone already — verified by someone else, deleted or undone meanwhile (404) — leaves the list
   the same way, without an error. A refusal (403: the account recorded the row itself) or any
   other problem shows its title in the snackbar and keeps the row; without an answer the
@@ -1067,7 +1073,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 ## 8. Key flows
 
 1. **Log two beers in happy hour:** Zählen → Daniel → Bier → 2 → Happy Hour ×2 → back on
-   Namen, snackbar `2× Bier · Happy Hour ×2 · Daniel` with `Rückgängig`.
+   Namen, snackbar `2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung` with
+   `Rückgängig`; the beers count once another account verifies them in Offen (flow 12).
 2. **Undo:** tap `Rückgängig` within 8 s → entry deleted, snackbar `Rückgängig gemacht`, counters
    back.
 3. **Lost response:** save fails → `Erneut versuchen` → same UUID → server returns the original
