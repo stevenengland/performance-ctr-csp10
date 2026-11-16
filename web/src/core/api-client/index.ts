@@ -518,6 +518,14 @@ export function verifyEntry(id: string): Promise<void> {
   });
 }
 
+/** Removes another account's pending entry, so that it never counts. */
+export function rejectEntry(id: string): Promise<void> {
+  return request<undefined>('/api/entries/{id}/verification', {
+    method: 'DELETE',
+    params: { id },
+  });
+}
+
 /** The first page of the pending queue with the ETag that names it, to ask on condition of next time. */
 export interface PendingAnswer {
   page: PendingPage;

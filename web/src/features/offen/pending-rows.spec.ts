@@ -30,6 +30,7 @@ describe('the Offen rows', () => {
         title: '2× Bier für Daniel',
         details: 'Happy Hour ×2 · 15.11., 21:00 · anna',
         verifyLabel: '2× Bier für Daniel bestätigen',
+        rejectLabel: '2× Bier für Daniel ablehnen',
       },
     ]);
   });

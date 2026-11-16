@@ -13,6 +13,8 @@ export interface PendingRow {
   details: string;
   /** The button's accessible name: `2× Bier für Daniel bestätigen`. */
   verifyLabel: string;
+  /** The button's accessible name: `2× Bier für Daniel ablehnen`. */
+  rejectLabel: string;
 }
 
 /** The queue's items in its order, as Offen shows them; times in the browser's time zone unless one is given. */
@@ -40,6 +42,7 @@ export function pendingRows(
         item.accountName ?? messages.verlauf.deletedAccount,
       ),
       verifyLabel: messages.offen.verifyLabel(title),
+      rejectLabel: messages.offen.rejectLabel(title),
     };
   });
 }

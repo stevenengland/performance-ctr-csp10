@@ -16,6 +16,14 @@ const OWN_ROW = {
   type: 'urn:performance:problem:own-row',
   title: 'Das muss ein anderes Konto bestätigen.',
 };
+const ALREADY_VERIFIED = {
+  type: 'urn:performance:problem:already-verified',
+  title: 'Wurde schon bestätigt.',
+};
+const NOT_FOUND = {
+  type: 'urn:performance:problem:not-found',
+  title: 'Nicht gefunden',
+};
 
 function entry(n: number, person = 'Daniel'): PendingItem {
   return {
@@ -34,14 +42,15 @@ type Reply = () => Response | Promise<Response>;
 
 /**
 A fake API over the queue: the first page holds `pageSize` rows, a cursor `p<n>`
-reads on from the n-th row; a verification takes the next given reply or
-succeeds and removes the row. The scoreboard answers empty.
+reads on from the n-th row; a verification or rejection takes the next given
+reply or succeeds and removes the row. The scoreboard answers empty.
 */
 function api(
   queue: PendingItem[],
   { pageSize = 20, replies = [] as Reply[] } = {},
 ) {
   const verified: string[] = [];
+  const rejected: string[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init: RequestInit) => {
@@ -58,10 +67,11 @@ function api(
         });
       }
       const id = /\/api\/entries\/([^/]+)\/verification$/.exec(pathname)?.[1];
-      if (init.method !== 'PUT' || !id) throw new Error(`unexpected ${url}`);
+      const decided = { PUT: verified, DELETE: rejected }[init.method ?? ''];
+      if (!decided || !id) throw new Error(`unexpected ${url}`);
       const reply = replies.shift();
       if (reply) return reply();
-      verified.push(id);
+      decided.push(id);
       queue.splice(
         queue.findIndex((item) => item.id === id),
         1,
@@ -69,7 +79,7 @@ function api(
       return new Response(null, { status: 204 });
     }),
   );
-  return verified;
+  return { verified, rejected };
 }
 
 const snackbar = useSnackbar();
@@ -92,7 +102,7 @@ describe('Offen', () => {
     vi.unstubAllGlobals();
   });
 
-  it('lists the rows the account may verify, each with Bestätigen', async () => {
+  it('lists the rows the account may verify, each with Ablehnen and Bestätigen', async () => {
     api([entry(2), entry(1, 'Jule')]);
 
     wrapper = await mountPage('/offen', OffenPage);
@@ -104,6 +114,9 @@ describe('Offen', () => {
     expect(
       buttonIn(document, '2× Bier für Daniel bestätigen').textContent,
     ).toContain('Bestätigen');
+    expect(
+      buttonIn(document, '2× Bier für Daniel ablehnen').textContent,
+    ).toContain('Ablehnen');
   });
 
   it('says so when there is nothing to verify', async () => {
@@ -115,7 +128,7 @@ describe('Offen', () => {
   });
 
   it('verifies a row with Bestätigen and removes it', async () => {
-    const verified = api([entry(2), entry(1)]);
+    const { verified } = api([entry(2), entry(1)]);
     wrapper = await mountPage('/offen', OffenPage);
 
     await click(buttonIn(document, '2× Bier für Daniel bestätigen'));
@@ -174,7 +187,7 @@ describe('Offen', () => {
   });
 
   it('blocks Bestätigen while offline, like saving', async () => {
-    const verified = api([entry(2)]);
+    const { verified } = api([entry(2)]);
     online = false;
     wrapper = await mountPage('/offen', OffenPage);
 
@@ -183,6 +196,101 @@ describe('Offen', () => {
 
     expect(button.disabled).toBe(true);
     expect(verified).toEqual([]);
+  });
+
+  it('treats a 409 on Bestätigen as an error, not as handled', async () => {
+    api([entry(2)], { replies: [() => problem(409, ALREADY_VERIFIED)] });
+    wrapper = await mountPage('/offen', OffenPage);
+
+    await click(buttonIn(document, '2× Bier für Daniel bestätigen'));
+
+    expect(rows(wrapper)).toHaveLength(1);
+    expect(snackbar.value?.text).toBe(ALREADY_VERIFIED.title);
+  });
+
+  it('rejects a row with Ablehnen and removes it', async () => {
+    const { rejected, verified } = api([entry(2), entry(1)]);
+    wrapper = await mountPage('/offen', OffenPage);
+
+    await click(buttonIn(document, '2× Bier für Daniel ablehnen'));
+
+    expect(rejected).toEqual([entry(2).id]);
+    expect(verified).toEqual([]);
+    expect(rows(wrapper)).toEqual([
+      expect.stringContaining('1× Bier für Daniel'),
+    ]);
+    expect(snackbar.value).toBeUndefined();
+  });
+
+  it.each([
+    ['gone already (404)', 404, NOT_FOUND],
+    ['verified meanwhile (409)', 409, ALREADY_VERIFIED],
+  ])(
+    'removes a row it cannot reject because it is %s as handled, without an error',
+    async (_, status, body) => {
+      const queue = [entry(2), entry(1)];
+      api(queue, {
+        replies: [
+          () => {
+            // Handled on another phone meanwhile.
+            queue.shift();
+            return problem(status, body);
+          },
+        ],
+      });
+      wrapper = await mountPage('/offen', OffenPage);
+
+      await click(buttonIn(document, '2× Bier für Daniel ablehnen'));
+
+      expect(rows(wrapper)).toEqual([
+        expect.stringContaining('1× Bier für Daniel'),
+      ]);
+      expect(snackbar.value).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ['a refusal (403)', 403, OWN_ROW],
+    [
+      'any other problem',
+      500,
+      { type: 'urn:performance:problem:internal', title: 'Interner Fehler' },
+    ],
+  ])(
+    'keeps a row on %s to reject it and shows why',
+    async (_, status, body) => {
+      api([entry(2)], { replies: [() => problem(status, body)] });
+      wrapper = await mountPage('/offen', OffenPage);
+
+      await click(buttonIn(document, '2× Bier für Daniel ablehnen'));
+
+      expect(rows(wrapper)).toHaveLength(1);
+      expect(snackbar.value?.text).toBe(body.title);
+    },
+  );
+
+  it('keeps a row without an answer to its rejection and says it was not rejected', async () => {
+    api([entry(2)], {
+      replies: [() => Promise.reject(new TypeError('Failed to fetch'))],
+    });
+    wrapper = await mountPage('/offen', OffenPage);
+
+    await click(buttonIn(document, '2× Bier für Daniel ablehnen'));
+
+    expect(rows(wrapper)).toHaveLength(1);
+    expect(snackbar.value?.text).toBe('Nicht abgelehnt – keine Verbindung');
+  });
+
+  it('blocks Ablehnen while offline, like saving', async () => {
+    const { rejected } = api([entry(2)]);
+    online = false;
+    wrapper = await mountPage('/offen', OffenPage);
+
+    const button = buttonIn(document, '2× Bier für Daniel ablehnen');
+    await click(button);
+
+    expect(button.disabled).toBe(true);
+    expect(rejected).toEqual([]);
   });
 
   it('appends the next page with Ältere laden', async () => {

@@ -129,8 +129,13 @@ export const messages = {
     verify: 'Bestätigen',
     /** The button's accessible name: `2× Bier für Daniel bestätigen`. */
     verifyLabel: (what: string) => `${what} bestätigen`,
+    reject: 'Ablehnen',
+    /** The button's accessible name: `2× Bier für Daniel ablehnen`. */
+    rejectLabel: (what: string) => `${what} ablehnen`,
     /** No answer: the row stays, nothing was verified. */
     notVerified: 'Nicht bestätigt – keine Verbindung',
+    /** No answer: the row stays, nothing was rejected. */
+    notRejected: 'Nicht abgelehnt – keine Verbindung',
     more: 'Ältere laden',
   },
   /** The time of the last successful refresh while the latest one failed (§6.6). */

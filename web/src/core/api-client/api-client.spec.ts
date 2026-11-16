@@ -17,6 +17,7 @@ import {
   getPending,
   listPending,
   verifyEntry,
+  rejectEntry,
   getScoreboard,
   getStandings,
   getPerson,
@@ -719,6 +720,19 @@ describe('the API client', () => {
     expect(fetch).toHaveBeenCalledWith(
       '/api/entries/6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5/verification',
       expect.objectContaining({ method: 'PUT', body: '{}' }),
+    );
+  });
+
+  it('rejects an entry with a DELETE of its verification', async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(
+      rejectEntry('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5'),
+    ).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/entries/6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5/verification',
+      expect.objectContaining({ method: 'DELETE' }),
     );
   });
 
