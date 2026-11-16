@@ -24,6 +24,11 @@ export interface AuditSnapshotView {
   drink?: string;
   quantity?: number;
   factor?: { name?: string; multiplier?: number } | null;
+  game?: string;
+  /** A match's persons; null once that person was deleted. */
+  first?: string | null;
+  second?: string | null;
+  outcome?: 'first' | 'second' | 'draw';
 }
 
 /** What Protokoll reads of an audit event of the API. */
@@ -93,9 +98,24 @@ function entryName({ quantity, drink, person }: Snapshot): string {
   return text.entry(what ?? '', person).trimStart();
 }
 
-/** A person's, drink's or factor's name, an entry's `2× Bier für Daniel`; empty when unknown. */
+/** A match side's name: the person's, `gelöschte Person` once cleared, empty when unknown. */
+const sideName = (side: string | null | undefined) =>
+  side === null ? text.deletedPerson : (side ?? '');
+
+/** A match's `Anna gewinnt` or `Remis`; empty when a part is unknown. */
+function outcomeText({ outcome, first, second }: Snapshot): string {
+  if (outcome === 'draw') return text.draw;
+  const winner = sideName(outcome === 'first' ? first : second);
+  return outcome === undefined || winner === '' ? '' : text.wins(winner);
+}
+
+/** A person's, drink's, factor's or game's name, an entry's `2× Bier für Daniel`, a match's `Anna – Ben`; empty when unknown. */
 function subjectName(kind: SubjectKind, snapshot: Snapshot): string {
-  return kind === 'entry' ? entryName(snapshot) : (snapshot.name ?? '');
+  if (kind === 'entry') return entryName(snapshot);
+  if (kind === 'match') {
+    return text.match(sideName(snapshot.first), sideName(snapshot.second));
+  }
+  return snapshot.name ?? '';
 }
 
 /** `Getränk Bier`, or only the kind when the name is unknown. */
@@ -119,6 +139,10 @@ function fields(snapshot: Snapshot): Field[] {
   }
   if (snapshot.factor !== undefined) {
     known.push([text.factor, factorText(snapshot.factor)]);
+  }
+  if (snapshot.game !== undefined) known.push([text.game, snapshot.game]);
+  if (snapshot.outcome !== undefined) {
+    known.push([text.outcome, outcomeText(snapshot)]);
   }
   return known;
 }

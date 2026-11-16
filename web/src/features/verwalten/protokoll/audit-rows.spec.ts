@@ -76,6 +76,28 @@ describe('the Protokoll rows', () => {
     ).toBe('Spiel Schach');
   });
 
+  it('names a match Partie with both persons, and shows its game and outcome', () => {
+    const recorded = only({
+      subjectKind: 'match',
+      operation: 'create',
+      after: { game: 'Schach', first: 'Anna', second: 'Ben', outcome: 'first' },
+    });
+    const removed = only({
+      subjectKind: 'match',
+      operation: 'delete',
+      before: { game: 'Schach', first: null, second: 'Ben', outcome: 'draw' },
+    });
+
+    expect([recorded.title, recorded.changes]).toEqual([
+      'Partie Anna – Ben',
+      'Schach · Anna gewinnt',
+    ]);
+    expect([removed.title, removed.changes]).toEqual([
+      'Partie gelöschte Person – Ben',
+      'Schach · Remis',
+    ]);
+  });
+
   it('labels the operation Angelegt, Geändert or Gelöscht', () => {
     const labels = (['create', 'update', 'delete'] as const).map(
       (operation) =>

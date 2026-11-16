@@ -133,6 +133,7 @@ export const messages = {
       drink: 'Getränk',
       factor: 'Faktor',
       game: 'Spiel',
+      match: 'Partie',
     },
     operation: {
       create: 'Angelegt',
@@ -144,6 +145,15 @@ export const messages = {
     /** An entry's name: `2× Bier für Daniel`. */
     entry: (quantityOf: string, person: string) =>
       `${quantityOf} für ${person}`,
+    /** A match's name: `Anna – Ben`. */
+    match: (first: string, second: string) => `${first} – ${second}`,
+    /** A side of a match whose person was deleted. */
+    deletedPerson: 'gelöschte Person',
+    /** A match's outcome: `Anna gewinnt`. */
+    wins: (name: string) => `${name} gewinnt`,
+    draw: 'Remis',
+    game: 'Spiel',
+    outcome: 'Ergebnis',
     /** A changed value: `Punkte: 1 Punkt → 0,5 Punkte`. */
     change: (label: string, before: string, after: string) =>
       `${label}: ${before} → ${after}`,
