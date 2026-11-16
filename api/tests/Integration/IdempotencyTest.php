@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Performance\Tests\Integration;
 
 use Performance\Tests\Support\DatabaseTestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Psr\Http\Message\ResponseInterface;
 
 final class IdempotencyTest extends DatabaseTestCase
 {
@@ -93,6 +95,59 @@ final class IdempotencyTest extends DatabaseTestCase
         self::assertSame(200, $withinTheWindow->getStatusCode(), 'a retry within seven days replays');
         self::assertSame(201, $afterTheWindow->getStatusCode(), 'after them the id is forgotten');
         self::assertSame([['id' => self::ENTRY]], $this->rows('SELECT id FROM entries'));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function decisions(): iterable
+    {
+        yield 'rejected by another account' => ['reject'];
+        yield 'deleted' => ['delete'];
+        yield 'verified by another account' => ['verify'];
+    }
+
+    /**
+     * Within seven days of the recording a replay answers as the recording did, whatever
+     * happened to the entry since: a rejected or deleted entry stays gone, a verified one stays
+     * the only one and keeps counting.
+     */
+    #[DataProvider('decisions')]
+    public function testAReplayWithinSevenDaysAnswersTheOriginalOutcomeWhateverHappenedToTheEntry(string $decision): void
+    {
+        $first = $this->put(self::TWO_BEERS);
+        $this->decide($decision);
+        $this->clock->advance('P7D');
+
+        $replay = $this->put(self::TWO_BEERS);
+
+        self::assertSame(200, $replay->getStatusCode(), (string) $replay->getBody());
+        self::assertSame($this->body($first), $this->body($replay));
+        self::assertSame($decision === 'verify' ? [[self::ENTRY, false]] : [], $this->history());
+    }
+
+    /** After the seven days the id is forgotten, so the same request records the entry again, pending as every new one. */
+    #[DataProvider('removals')]
+    public function testAReplayAfterSevenDaysRecordsANewPendingEntry(string $removal): void
+    {
+        $this->put(self::TWO_BEERS);
+        $this->decide($removal);
+        $this->clock->advance('P7D');
+        $this->clock->advance('PT1S');
+
+        $afterTheWindow = $this->put(self::TWO_BEERS);
+
+        self::assertSame(201, $afterTheWindow->getStatusCode(), (string) $afterTheWindow->getBody());
+        self::assertSame([[self::ENTRY, true]], $this->history());
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function removals(): iterable
+    {
+        yield 'rejected by another account' => ['reject'];
+        yield 'deleted' => ['delete'];
     }
 
     public function testTheSameIdWithDifferentContentIs409AndChangesNothing(): void
@@ -249,10 +304,44 @@ final class IdempotencyTest extends DatabaseTestCase
         return $outcomes;
     }
 
+    /** Rejects, deletes or verifies the entry; Anna, another account, rejects and verifies. */
+    private function decide(string $decision): void
+    {
+        $this->createAccount('anna', 'annas-startpasswort');
+        $anna = $this->signIn('anna', 'annas-startpasswort');
+        $response = match ($decision) {
+            'reject' => $this->send('DELETE', '/api/entries/' . self::ENTRY . '/verification', session: $anna),
+            'delete' => $this->send('DELETE', '/api/entries/' . self::ENTRY, session: $this->session),
+            'verify' => $this->send('PUT', '/api/entries/' . self::ENTRY . '/verification', [], $anna),
+            default => self::fail("Unknown decision {$decision}"),
+        };
+        self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+    }
+
+    /**
+     * Daniel's entries since the recording, as his Verlauf lists them: id and whether it waits.
+     *
+     * @return list<array{mixed, mixed}>
+     */
+    private function history(): array
+    {
+        $entries = $this->body($this->send('GET', '/api/entries?personId=1&from=2026-11-14T00:00:00.000Z', session: $this->session))['entries'];
+        self::assertIsList($entries);
+
+        return array_map(
+            static function (mixed $entry): array {
+                self::assertIsArray($entry);
+
+                return [$entry['id'], $entry['pending']];
+            },
+            $entries,
+        );
+    }
+
     /**
      * @param array<string, int|null> $content
      */
-    private function put(array $content, string $id = self::ENTRY): \Psr\Http\Message\ResponseInterface
+    private function put(array $content, string $id = self::ENTRY): ResponseInterface
     {
         return $this->send('PUT', "/api/entries/{$id}", $content, $this->session);
     }
