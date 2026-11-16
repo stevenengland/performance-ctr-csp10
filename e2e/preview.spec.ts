@@ -200,11 +200,15 @@ test('the fixture preview lists what anna may verify under Offen with its badge;
   await page.goto('/index.html#/offen');
   const navigation = page.getByRole('navigation', { name: 'Hauptnavigation' });
   await expect(
-    navigation.getByRole('link', { name: 'Offen, 2 offen' }),
+    navigation.getByRole('link', { name: 'Offen, 3 offen' }),
   ).toBeVisible();
   await expect(
     page.getByRole('list', { name: 'Zu bestätigen' }).getByRole('listitem'),
-  ).toHaveText([/^2× Bier für Jule.* · ben/, /^1× Aperol für Jule.* · mara/]);
+  ).toHaveText([
+    /^2× Bier für Jule.* · ben/,
+    /^1× Aperol für Jule.* · mara/,
+    /^Jule – Tom · Tom gewinnt\s*Tischtennis · \d\d\.\d\d\., 21:00 · mara/,
+  ]);
 
   await page
     .getByRole('button', { name: '2× Bier für Jule bestätigen' })
@@ -212,13 +216,19 @@ test('the fixture preview lists what anna may verify under Offen with its badge;
 
   await expect(
     page.getByRole('list', { name: 'Zu bestätigen' }).getByRole('listitem'),
-  ).toHaveText([/^1× Aperol für Jule/]);
+  ).toHaveText([/^1× Aperol für Jule/, /^Jule – Tom/]);
   await expect(
-    navigation.getByRole('link', { name: 'Offen, 1 offen' }),
+    navigation.getByRole('link', { name: 'Offen, 2 offen' }),
   ).toBeVisible();
 
   await page
     .getByRole('button', { name: '1× Aperol für Jule ablehnen' })
+    .click();
+  await expect(
+    navigation.getByRole('link', { name: 'Offen, 1 offen' }),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Jule – Tom · Tom gewinnt bestätigen' })
     .click();
 
   await expect(page.getByText('Nichts zu bestätigen.')).toBeVisible();
@@ -341,17 +351,18 @@ test('the fixture preview records a Schach match in three taps and undoes it', a
   await expect(page.getByRole('button', { name: 'Remis' })).toBeVisible();
   await page.getByRole('button', { name: 'Daniel gewinnt' }).click();
 
-  await expect(page.getByText('Daniel – Tom · Daniel gewinnt')).toBeVisible();
+  await expect(
+    page.getByText('Daniel – Tom · Daniel gewinnt · wartet auf Bestätigung'),
+  ).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Wer spielt?' }),
   ).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: 'Daniel, 1,5 Punkte' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Rückgängig' }).click();
+  // The match waits for another account, so Daniel's standing stays as it was.
   await expect(
     page.getByRole('button', { name: 'Daniel, 0,5 Punkte' }),
   ).toBeVisible();
+  await page.getByRole('button', { name: 'Rückgängig' }).click();
+  await expect(page.getByText('Rückgängig gemacht')).toBeVisible();
 });
 
 test('the fixture preview records a Rommé result on its number pad and ranks it', async ({

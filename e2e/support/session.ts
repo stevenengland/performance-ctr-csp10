@@ -54,14 +54,17 @@ export const VERIFIER = {
   password: 'e2e-pruefer-passwort',
 };
 
+/** The rows the four-eyes rule applies to, by their route. */
+export type VerifiableRows = 'entries' | 'matches';
+
 /**
 Signs a request context of its own in as the verifier, creating that account
-first when it is missing, and returns how it verifies an entry: the entry then
-counts.
+first when it is missing, and returns how it verifies a row: an entry by
+default, or a match; the row then counts.
 */
 export async function verifierOn(
   request: APIRequestContext,
-): Promise<(entryId: string) => Promise<void>> {
+): Promise<(id: string, rows?: VerifiableRows) => Promise<void>> {
   await signInVia(request);
   const created = await request.post('/api/accounts', { data: VERIFIER });
   if (![201, 409].includes(created.status())) {
@@ -70,14 +73,12 @@ export async function verifierOn(
     );
   }
   await signInVia(request, VERIFIER);
-  return async (entryId) => {
-    const verified = await request.put(`/api/entries/${entryId}/verification`, {
+  return async (id, rows = 'entries') => {
+    const verified = await request.put(`/api/${rows}/${id}/verification`, {
       data: {},
     });
     if (verified.status() !== 204) {
-      throw new Error(
-        `verifying ${entryId} failed: ${String(verified.status())}`,
-      );
+      throw new Error(`verifying ${id} failed: ${String(verified.status())}`);
     }
   };
 }

@@ -11,17 +11,17 @@ import {
 
 /*
 The four-eyes rule end to end with two accounts (PRD #61): the bootstrap admin
-records a drink, which waits; the verifier confirms it in `Offen`, and it
-counts, or rejects it there, and it is gone.
+records a drink or a match, which waits; the verifier confirms it in `Offen`,
+and it counts, or rejects it there, and it is gone.
 */
 
 /** The Rangliste's polling interval. */
 const POLL_MS = 10_000;
 
-/** Creates a person or drink and answers its id. */
+/** Creates a person, drink or game and answers its id. */
 async function created(
   request: APIRequestContext,
-  path: '/api/persons' | '/api/drinks',
+  path: '/api/persons' | '/api/drinks' | '/api/games',
   data: Record<string, unknown>,
 ): Promise<number> {
   const response = await request.post(path, { data });
@@ -166,4 +166,76 @@ test('another account rejects a waiting drink in Offen: it is gone, and Protokol
       .filter({ hasText: `2× ${drink} für ${person}` })
       .filter({ hasText: 'abgelehnt' }),
   ).toContainText(VERIFIER.userName);
+});
+
+test('a match waits as offen for both players until another account confirms it in Offen, then counts on both sides', async ({
+  page,
+  browser,
+}) => {
+  await signIn(page);
+  const anna = uniqueName('Anna');
+  const ben = uniqueName('Ben');
+  const annaId = await created(page.request, '/api/persons', { name: anna });
+  const benId = await created(page.request, '/api/persons', { name: ben });
+  const game = uniqueName('Schach');
+  const gameId = await created(page.request, '/api/games', {
+    name: game,
+    kind: 'duel',
+  });
+  const recorded = await page.request.put(`/api/matches/${randomUUID()}`, {
+    data: {
+      gameId,
+      firstPersonId: annaId,
+      secondPersonId: benId,
+      outcome: 'draw',
+    },
+  });
+  expect(recorded.status()).toBe(201);
+
+  // It waits: offen in the game's Verlauf, both players without a rank.
+  await page.goto(`/spiele/${String(gameId)}/verlauf`);
+  await expect(
+    page.getByRole('list', { name: 'Verlauf' }).getByRole('listitem'),
+  ).toHaveText([new RegExp(`^${anna} – ${ben}\\s*Remis · .*offen$`)]);
+  await page.goto(`/spiele/${String(gameId)}`);
+  await expect(
+    page
+      .getByRole('list', { name: 'Noch nicht gewertet' })
+      .getByRole('listitem'),
+  ).toHaveCount(2);
+
+  const other = await browser.newContext({
+    baseURL: test.info().project.use.baseURL,
+    viewport: test.info().project.use.viewport,
+    locale: 'de-DE',
+    extraHTTPHeaders: test.info().project.use.extraHTTPHeaders,
+  });
+  try {
+    await verifierOn(other.request);
+    const verifier = await other.newPage();
+    await verifier.goto('/offen');
+    const row = verifier
+      .getByRole('listitem')
+      .filter({ hasText: `${anna} – ${ben} · Remis` });
+    await expect(row).toContainText(`${game} · `);
+
+    await row
+      .getByRole('button', { name: `${anna} – ${ben} · Remis bestätigen` })
+      .click();
+
+    await expect(row).toHaveCount(0);
+  } finally {
+    await other.close();
+  }
+
+  // Both players count it within one refresh: half a point each.
+  await expect(
+    page.getByRole('listitem', { name: new RegExp(`^Platz 1, ${anna},`) }),
+  ).toHaveAccessibleName(
+    new RegExp(`^Platz 1, ${anna}, 0,5 Punkte, 1 Partie · 0 S · 1 R · 0 N$`),
+    { timeout: POLL_MS + 2_000 },
+  );
+  await expect(
+    page.getByRole('listitem', { name: new RegExp(`^Platz 2, ${ben},`) }),
+  ).toBeVisible();
 });
