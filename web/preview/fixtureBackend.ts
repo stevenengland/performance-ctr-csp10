@@ -42,6 +42,14 @@ const MAX_MULTIPLIER = 99.99;
 const MAX_QUANTITY = 99;
 /** A positive integer id in a query, as the API's routes accept it. */
 const QUERY_ID = /^[1-9]\d{0,9}$/;
+/**
+A photo upload the preview takes: base64 that starts like a JPEG (`FF D8 FF`),
+at most the API's 87 384 characters. Unlike the API it does not walk the JPEG.
+*/
+const BASE64_JPEG =
+  /^\/9j\/(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const MAX_PHOTO_CHARACTERS = 87_384;
+const INVALID_PHOTO = 'Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).';
 
 /** A number up to `max` with at most two decimals. */
 function isDecimal(value: unknown, max: number): value is number {
@@ -521,6 +529,25 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         cascade: games.clearPerson,
       },
     ),
+    [
+      // Any member, any person. The preview keeps the upload as a data: URL in
+      // place of the API's versioned URL (the artifact host allows data: images).
+      'PUT /api/persons/{id}/photo',
+      guarded((_me, body, { id }) => {
+        const person = fixtures.persons.find((item) => item.id === Number(id));
+        if (!person) return problem(PROBLEMS.notFound);
+        const { image } = body;
+        if (
+          typeof image !== 'string' ||
+          image.length > MAX_PHOTO_CHARACTERS ||
+          !BASE64_JPEG.test(image)
+        ) {
+          return validation({ image: INVALID_PHOTO });
+        }
+        person.photoUrl = `data:image/jpeg;base64,${image}`;
+        return json(person);
+      }),
+    ],
     [
       // Any member, any person; without a photo nothing changes, like the API.
       'DELETE /api/persons/{id}/photo',

@@ -26,6 +26,7 @@ import {
   listEntries,
   listPersons,
   putEntry,
+  putPersonPhoto,
   getSession,
   listAccounts,
   listAuditEvents,
@@ -437,6 +438,36 @@ describe('the fixture backend', () => {
     await expect(deletePersonPhoto(99)).rejects.toMatchObject({
       status: 404,
     });
+  });
+
+  it('keeps an uploaded photo as a data: URL on the person and their scoreboard row', async () => {
+    installFixtureBackend(sampleEvening());
+    const image = '/9j/2Q==';
+
+    const ben = await putPersonPhoto(2, image);
+
+    const photoUrl = `data:image/jpeg;base64,${image}`;
+    expect(ben).toEqual({ id: 2, name: 'Ben', photoUrl });
+    expect((await getPerson(2)).photoUrl).toBe(photoUrl);
+    const { rows } = await standings(todayFrom());
+    expect(rows.find(({ name }) => name === 'Ben')?.photoUrl).toBe(photoUrl);
+  });
+
+  it('refuses a photo that is no base64 JPEG like the API, and an unknown person', async () => {
+    installFixtureBackend(sampleEvening());
+
+    for (const image of ['iVBORw0KGgo=', '/9j/ not base64', '']) {
+      await expect(putPersonPhoto(2, image)).rejects.toMatchObject({
+        status: 422,
+        errors: {
+          image: 'Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).',
+        },
+      });
+    }
+    await expect(putPersonPhoto(99, '/9j/2Q==')).rejects.toMatchObject({
+      status: 404,
+    });
+    expect((await getPerson(2)).photoUrl).toBeNull();
   });
 
   it('creates persons and drinks with the API’s validation', async () => {
