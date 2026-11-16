@@ -32,6 +32,7 @@ import {
   updatePerson,
 } from './index';
 import type { Health } from './index';
+import { resetReloadFloor, useReloadFloor } from '../../pwa/reload-floor';
 
 const health: Health = {
   appVersion: '0.1.0+abc',
@@ -52,6 +53,7 @@ describe('the API client', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     onUnauthorized(undefined);
+    resetReloadFloor();
   });
 
   it('reads health through whatever fetch is installed when it is called', async () => {
@@ -230,6 +232,64 @@ describe('the API client', () => {
       status: 401,
     });
     expect(ended).toHaveBeenCalledOnce();
+  });
+
+  it('tells the server its app version on every request, health included', async () => {
+    const fetch = respond(health, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await getHealth();
+    await createAccount('anna', 'annas-startpasswort');
+    await signOut();
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    for (const [, init] of fetch.mock.calls as unknown as [
+      string,
+      RequestInit,
+    ][]) {
+      expect(init.headers).toMatchObject({
+        'X-Client-Version': __APP_VERSION__,
+      });
+    }
+  });
+
+  it('shows the reload floor when the server refuses this version as outdated', async () => {
+    const outdated = {
+      type: 'urn:performance:problem:client-outdated',
+      title: 'Diese Version ist veraltet. Bitte neu laden.',
+      status: 400,
+    };
+    respond(outdated, {
+      status: 400,
+      headers: { 'Content-Type': 'application/problem+json' },
+    });
+
+    await expect(createAccount('anna', 'x')).rejects.toMatchObject({
+      status: 400,
+      type: 'urn:performance:problem:client-outdated',
+    });
+    expect(useReloadFloor().value).toBe(true);
+  });
+
+  it('keeps the app running on any other refusal', async () => {
+    respond(
+      {
+        type: 'urn:performance:problem:bad-request',
+        title: 'Ungültige Anfrage',
+        status: 400,
+      },
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/problem+json' },
+      },
+    );
+
+    await expect(createAccount('anna', 'x')).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(useReloadFloor().value).toBe(false);
   });
 
   it('puts an entry under its id and deletes it by that id', async () => {

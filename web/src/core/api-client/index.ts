@@ -1,3 +1,4 @@
+import { requireReload } from '../../pwa/reload-floor';
 import type { components, paths } from './schema';
 
 export type Health = components['schemas']['Health'];
@@ -101,6 +102,11 @@ export function onUnauthorized(listener: Unauthorized | undefined): void {
 }
 
 const NOT_MODIFIED = 304;
+/**
+The server refuses a request from an app below its `minClientVersion` with this
+problem, before it processes anything (ADR 0006, decision 3).
+*/
+const CLIENT_OUTDATED = 'urn:performance:problem:client-outdated';
 
 interface RequestInit {
   method?: string;
@@ -115,7 +121,9 @@ interface RequestInit {
 /**
 The single fetch wrapper: every HTTP call of the app goes through here. It looks
 up the global `fetch` on every call, so whatever is installed at that time answers.
-A body is sent as JSON. An error answer throws its ApiProblem; 304 passes.
+Every request names the app version in `X-Client-Version`, so the server can refuse
+an app below its floor; that refusal shows the reload floor. A body is sent as
+JSON. An error answer throws its ApiProblem; 304 passes.
 */
 async function send(path: ApiPath, init: RequestInit = {}): Promise<Response> {
   const resolved = path.replace(/\{(\w+)\}/g, (_, name: string) =>
@@ -125,7 +133,10 @@ async function send(path: ApiPath, init: RequestInit = {}): Promise<Response> {
     ? `?${new URLSearchParams(init.query).toString()}`
     : '';
   const url = `${import.meta.env.BASE_URL}${resolved.slice(1)}${query}`;
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-Client-Version': __APP_VERSION__,
+  };
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
   if (init.ifNoneMatch !== undefined)
     headers['If-None-Match'] = init.ifNoneMatch;
@@ -137,7 +148,9 @@ async function send(path: ApiPath, init: RequestInit = {}): Promise<Response> {
   });
   if (!response.ok && response.status !== NOT_MODIFIED) {
     if (response.status === 401 && path !== '/api/session') unauthorized?.();
-    throw await ApiProblem.from(response);
+    const problem = await ApiProblem.from(response);
+    if (problem.type === CLIENT_OUTDATED) requireReload();
+    throw problem;
   }
   return response;
 }
