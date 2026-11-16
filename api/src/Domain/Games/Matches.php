@@ -301,7 +301,7 @@ final readonly class Matches implements GameDependents
     {
         $statement = $this->pdo->prepare('SELECT id FROM persons WHERE id IN (?, ?)');
         $statement->execute([$match->firstPersonId, $match->secondPersonId]);
-        $existing = array_map(intval(...), $statement->fetchAll(PDO::FETCH_COLUMN));
+        $existing = array_map(static fn(mixed $id): int => is_numeric($id) ? (int) $id : 0, $statement->fetchAll(PDO::FETCH_COLUMN));
         $missing = array_filter([
             'firstPersonId' => in_array($match->firstPersonId, $existing, true) ? null : self::PERSON_ERROR,
             'secondPersonId' => in_array($match->secondPersonId, $existing, true) ? null : self::PERSON_ERROR,

@@ -27,6 +27,16 @@ final class Migrator
     private array $migrations;
 
     /**
+     * Every migration file loaded in this process, by path. Each `require` of a file that
+     * returns an anonymous class compiles it again and declares one more class, which PHP never
+     * frees, so a long process (the test suite, one Migrator per request) would grow without
+     * bound. A request loads each file once anyway, so production is unchanged.
+     *
+     * @var array<string, Migration>
+     */
+    private static array $loaded = [];
+
+    /**
      * @param array<string, Migration> $migrations keyed by name (`NNNN_snake_case`)
      */
     public function __construct(
@@ -45,15 +55,21 @@ final class Migrator
         $migrations = [];
         foreach ($directories as $directory) {
             foreach (glob($directory . '/[0-9][0-9][0-9][0-9]_*.php') ?: [] as $file) {
-                $migration = require $file;
-                if (!$migration instanceof Migration) {
-                    throw new RuntimeException('Migration file does not return a Migration: ' . basename($file));
-                }
-                $migrations[basename($file, '.php')] = $migration;
+                $migrations[basename($file, '.php')] = self::$loaded[$file] ??= self::load($file);
             }
         }
 
         return new self($pdo, $migrations);
+    }
+
+    private static function load(string $file): Migration
+    {
+        $migration = require $file;
+        if (!$migration instanceof Migration) {
+            throw new RuntimeException('Migration file does not return a Migration: ' . basename($file));
+        }
+
+        return $migration;
     }
 
     /**
