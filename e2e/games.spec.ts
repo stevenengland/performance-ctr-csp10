@@ -62,3 +62,33 @@ test('a match recorded in one browser appears on another browser’s game page w
     await other.close();
   }
 });
+
+test('a result typed on the number pad is saved and ranked on the game’s page', async ({
+  page,
+}) => {
+  const daniel = uniqueName('Daniel');
+  await created(page.request, '/api/persons', { name: daniel });
+  const gameId = await created(page.request, '/api/games', {
+    name: uniqueName('Rommé'),
+    kind: 'points',
+  });
+
+  await page.goto(`/spiele/${String(gameId)}`);
+  await page.getByRole('button', { name: 'Ergebnis eintragen' }).click();
+  await page.getByRole('button', { name: `${daniel}, noch nichts` }).click();
+  await page.getByRole('button', { name: 'Ziffer 2' }).click();
+  await page.getByRole('button', { name: 'Ziffer 0' }).click();
+  await page.getByRole('button', { name: 'Vorzeichen wechseln' }).click();
+  await page.getByRole('button', { name: 'Speichern' }).click();
+
+  await expect(page.getByText(`${daniel} · −20 Punkte`)).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: `${daniel}, −20 Punkte` }),
+  ).toBeVisible();
+  await page.goto(`/spiele/${String(gameId)}`);
+  await expect(
+    page.getByRole('listitem', {
+      name: `Platz 1, ${daniel}, −20 Punkte, 1 Ergebnis`,
+    }),
+  ).toBeVisible();
+});

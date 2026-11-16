@@ -386,9 +386,9 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/matches/<uuid>`, `/api/persons/<n>`, `/api/games/<n>/standings`, … */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/matches/<uuid>`, `/api/results/<uuid>`, `/api/persons/<n>`, `/api/games/<n>/standings`, … */
 function routeOf(path: string): { route: string; id: string } {
-  const record = /^\/api\/(entries|matches)\/([^/]+)$/.exec(path);
+  const record = /^\/api\/(entries|matches|results)\/([^/]+)$/.exec(path);
   if (record?.[1] && record[2] && ENTRY_ID.test(record[2])) {
     return { route: `/api/${record[1]}/{id}`, id: record[2] };
   }
@@ -598,6 +598,19 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       outcome: match.outcome,
     };
   };
+  /** A result as the audit log records it; `deleted` names a game or person whose deletion is being recorded. */
+  const resultSnapshot = (
+    result: FixtureResult,
+    deleted: { game?: string; person?: string } = {},
+  ): AuditSnapshot => {
+    const nameOf = (rows: { id: number; name: string }[], id: number) =>
+      rows.find((row) => row.id === id)?.name ?? '';
+    return {
+      game: deleted.game ?? nameOf(fixtures.games, result.gameId),
+      person: deleted.person ?? nameOf(fixtures.persons, result.personId),
+      points: result.points,
+    };
+  };
   const byId = (a: { id: string }, b: { id: string }) =>
     a.id.localeCompare(b.id);
   /**
@@ -612,18 +625,12 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     cause: AuditEvent | undefined,
     deleted: { game?: string; person?: string },
   ) => {
-    const nameOf = (rows: { id: number; name: string }[], id: number) =>
-      rows.find((row) => row.id === id)?.name ?? '';
     for (const result of fixtures.results.filter(goes).sort(byId)) {
       record(
         me,
         'delete',
         ['result', result.id],
-        {
-          game: deleted.game ?? nameOf(fixtures.games, result.gameId),
-          person: deleted.person ?? nameOf(fixtures.persons, result.personId),
-          points: result.points,
-        },
+        resultSnapshot(result, deleted),
         null,
         cause,
       );
@@ -1060,6 +1067,32 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       }),
     ],
     [
+      'PUT /api/results/{id}',
+      guarded((me, body, { id }) => {
+        const response = putResult(fixtures, id, body, me.account.id);
+        const result = fixtures.results.find(
+          (candidate) => candidate.id === id,
+        );
+        // Only a new result is a change: a replay answers 200 and records nothing.
+        if (response.status === 201 && result) {
+          record(me, 'create', ['result', id], null, resultSnapshot(result));
+        }
+        return response;
+      }),
+    ],
+    [
+      'DELETE /api/results/{id}',
+      guarded((me, _body, { id }) => {
+        const result = fixtures.results.find(
+          (candidate) => candidate.id === id,
+        );
+        if (!result) return problem(PROBLEMS.notFound);
+        record(me, 'delete', ['result', id], resultSnapshot(result), null);
+        fixtures.results.splice(fixtures.results.indexOf(result), 1);
+        return new Response(null, { status: 204 });
+      }),
+    ],
+    [
       'GET /api/audit',
       guarded(
         (_me, _body, { query }) => auditPage(fixtures.audit, query),
@@ -1283,6 +1316,62 @@ function putMatch(
   fixtures.entryRequests.set(id, fingerprint);
   fixtures.matches.push(match);
   return json({ id, ...values, createdAt: match.createdAt }, 201);
+}
+
+/** A result's points: whole numbers from −9 999 to 9 999. */
+const MAX_RESULT_POINTS = 9999;
+const POINTS_ERROR = 'Ganze Zahl von −9.999 bis 9.999.';
+
+/**
+Records a result idempotently on its id, like the API's Results: the person and
+the points are checked first; a replay answers 200 even after the result or its
+game was deleted; then the game must be a points game and the person must exist.
+*/
+function putResult(
+  fixtures: Fixtures,
+  id: string,
+  body: Body,
+  accountId: number,
+): Response {
+  const personId = integer(body, 'personId');
+  const points = integer(body, 'points');
+  const errors: Record<string, string> = {};
+  if (personId === undefined) errors.personId = PERSON_NOT_FOUND;
+  if (points === undefined || Math.abs(points) > MAX_RESULT_POINTS) {
+    errors.points = POINTS_ERROR;
+  }
+  if (personId === undefined || points === undefined || errors.points) {
+    return validation(errors);
+  }
+  const values = { gameId: integer(body, 'gameId') ?? 0, personId, points };
+  const fingerprint = JSON.stringify(['result', ...Object.values(values)]);
+  const known = fixtures.entryRequests.get(id);
+  if (known !== undefined) {
+    if (known !== fingerprint) return problem(PROBLEMS.requestConflict);
+    // The original result, as sent; its time only while it still exists.
+    const result = fixtures.results.find((candidate) => candidate.id === id);
+    return json({ id, ...values, createdAt: result?.createdAt ?? '' });
+  }
+  const game = fixtures.games.find(
+    ({ id: gameId }) => gameId === values.gameId,
+  );
+  if (!game) return problem(PROBLEMS.notFound);
+  if (game.kind !== 'points') {
+    return validation({ gameId: 'Kein Punktespiel.' });
+  }
+  if (!fixtures.persons.some((person) => person.id === personId)) {
+    return validation({ personId: PERSON_NOT_FOUND });
+  }
+  const result: FixtureResult = {
+    id,
+    ...values,
+    run: game.run,
+    accountId,
+    createdAt: new Date().toISOString(),
+  };
+  fixtures.entryRequests.set(id, fingerprint);
+  fixtures.results.push(result);
+  return json({ id, ...values, createdAt: result.createdAt }, 201);
 }
 
 async function bodyOf(

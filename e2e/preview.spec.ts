@@ -67,6 +67,7 @@ test('the preview marker covers no control of any screen', async ({ page }) => {
     ['spiele', 'Spiele'],
     ['spiele/2', 'Schach'],
     ['spiele/2/partie/1/3', 'Schach'],
+    ['spiele/1/ergebnis/3', 'Rommé'],
     ['verwalten/konten', 'Konten'],
     ['verlauf/3', 'Daniel'],
   ] as const) {
@@ -154,7 +155,9 @@ test('the fixture preview renames a drink and deletes a person with their entrie
 
   await page.goto('/index.html#/verwalten/personen');
   await page.getByRole('button', { name: 'Daniel löschen' }).click();
-  await expect(dialog).toContainText('Daniel und 5 Einträge werden gelöscht.');
+  await expect(dialog).toContainText(
+    'Daniel, 5 Einträge und 2 Ergebnisse werden gelöscht.',
+  );
   await dialog.getByRole('button', { name: 'Löschen' }).click();
   await expect(page.getByText('Daniel gelöscht')).toBeVisible();
 
@@ -300,6 +303,44 @@ test('the fixture preview records a Schach match in three taps and undoes it', a
   await page.getByRole('button', { name: 'Rückgängig' }).click();
   await expect(
     page.getByRole('button', { name: 'Daniel, 0,5 Punkte' }),
+  ).toBeVisible();
+});
+
+test('the fixture preview records a Rommé result on its number pad and ranks it', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/1');
+  await page.getByRole('button', { name: 'Ergebnis eintragen' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Für wen?' })).toBeVisible();
+  await expect(page.getByRole('banner')).toContainText('Ergebnis eintragen');
+  await expect(
+    page.getByRole('button', { name: 'Daniel, −11 Punkte' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Tom, noch nichts' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Wie viele Punkte?' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('progressbar', { name: 'Schritt 2 von 2' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Ziffer 2' }).click();
+  await page.getByRole('button', { name: 'Ziffer 0' }).click();
+  // A keyboard works too: the minus key sets the sign.
+  await page.keyboard.press('-');
+  await expect(page.locator('output')).toHaveText('−20');
+  await page.getByRole('button', { name: 'Speichern' }).click();
+
+  await expect(page.getByText('Tom · −20 Punkte')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Für wen?' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Tom, −20 Punkte' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await expect(
+    page.getByRole('listitem', {
+      name: 'Platz 1, Tom, −20 Punkte, 1 Ergebnis',
+    }),
   ).toBeVisible();
 });
 

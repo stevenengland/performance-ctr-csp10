@@ -13,6 +13,7 @@ import {
   deleteGame,
   deleteEntry,
   deleteMatch,
+  deleteResult,
   deleteFactor,
   deletePerson,
   getDrink,
@@ -33,6 +34,7 @@ import {
   listPersons,
   putEntry,
   putMatch,
+  putResult,
   getSession,
   listAccounts,
   listAuditEvents,
@@ -1440,6 +1442,115 @@ describe('the fixture backend’s games', () => {
     await expect(record({ outcome: 'won' })).rejects.toMatchObject({
       status: 422,
       errors: { outcome: 'Sieg des Ersten, des Zweiten oder Remis.' },
+    });
+  });
+
+  it('records results idempotently, audits them and never brings an undone one back', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const romme = await gameId('Rommé');
+    const persons = await listPersons();
+    const tom = persons.find((person) => person.name === 'Tom')?.id ?? 0;
+    const id = '2c3d4e5f-6071-4b8c-9d0e-1f2a3b4c5d6e';
+    const result = { gameId: romme, personId: tom, points: -20 };
+    const put = (key: string, body: object) =>
+      fetch(`/api/results/${key}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    const created = await put(id, result);
+    expect(created.status).toBe(201);
+    await expect(created.json()).resolves.toMatchObject({ id, ...result });
+    expect((await put(id, result)).status).toBe(200);
+    const conflict = await put(id, { ...result, points: 20 });
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toMatchObject({
+      type: 'urn:performance:problem:request-conflict',
+    });
+    expect(await ranking(romme)).toEqual([
+      'Tom -20 (1)',
+      'Daniel -11 (2)',
+      'Anna 15 (2)',
+      'Ben 39 (2)',
+      'Mara 79 (2)',
+    ]);
+    await expect(getGame(romme)).resolves.toMatchObject({ resultCount: 9 });
+    await expect(getPerson(tom)).resolves.toMatchObject({ resultCount: 1 });
+    const [recorded] = (await newest(1)).map(told);
+    expect(recorded).toEqual({
+      operation: 'create',
+      subjectKind: 'result',
+      subjectId: id,
+      userName: 'anna',
+      before: null,
+      after: { game: 'Rommé', person: 'Tom', points: -20 },
+      cause: null,
+    });
+
+    await deleteResult(id);
+    expect((await put(id, result)).status).toBe(200);
+    await expect(getGame(romme)).resolves.toMatchObject({ resultCount: 8 });
+    const [undone] = (await newest(1)).map(told);
+    expect(undone).toMatchObject({
+      operation: 'delete',
+      subjectKind: 'result',
+      subjectId: id,
+      before: recorded?.after,
+      after: null,
+    });
+    await expect(deleteResult(id)).rejects.toMatchObject({ status: 404 });
+    // A UUID is unique across entries, matches and results.
+    await expect(
+      putMatch(id, {
+        gameId: await gameId('Schach'),
+        firstPersonId: tom,
+        secondPersonId: persons[0]?.id ?? 0,
+        outcome: 'first',
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('refuses a result with the API’s validation', async () => {
+    installFixtureBackend(sampleEvening());
+    const [anna] = await listPersons();
+    const result = {
+      gameId: await gameId('Rommé'),
+      personId: anna?.id ?? 0,
+      points: 5,
+    };
+    let next = 0;
+    const record = (body: object) => {
+      next += 1;
+      return putResult(
+        `2c3d4e5f-6071-4b8c-9d0e-${String(next).padStart(12, '0')}`,
+        { ...result, ...body },
+      );
+    };
+    const pointsError = 'Ganze Zahl von −9.999 bis 9.999.';
+
+    await expect(record({ gameId: 999 })).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(
+      record({ gameId: await gameId('Schach') }),
+    ).rejects.toMatchObject({
+      status: 422,
+      errors: { gameId: 'Kein Punktespiel.' },
+    });
+    await expect(record({ personId: 999 })).rejects.toMatchObject({
+      status: 422,
+      errors: { personId: 'Person nicht gefunden.' },
+    });
+    for (const points of [10000, -10000, 1.5]) {
+      await expect(record({ points })).rejects.toMatchObject({
+        status: 422,
+        errors: { points: pointsError },
+      });
+    }
+    await expect(record({ points: -9999 })).resolves.toMatchObject({
+      points: -9999,
     });
   });
 });

@@ -64,8 +64,9 @@ export interface Fixtures {
   matches: FixtureMatch[];
   results: FixtureResult[];
   /**
-  Fingerprints of every entry and match id ever put, so a replay never recreates
-  an undone one; like the API's retry keys, an id is unique across both.
+  Fingerprints of every entry, match and result id ever put, so a replay never
+  recreates an undone one; like the API's retry keys, an id is unique across all
+  three.
   */
   entryRequests: Map<string, string>;
   /** The audit log, oldest first, as the API answers its events. */
