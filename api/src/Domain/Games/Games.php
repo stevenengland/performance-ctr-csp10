@@ -127,18 +127,14 @@ final readonly class Games
             throw new ValidationFailed(['name' => Catalog::nameError()]);
         }
 
-        try {
-            return $this->change($actor, $id, static function (Game $game) use ($name, $kind, $drawsAllowed, $lowerWins): Game {
-                if ($kind !== null && $kind !== $game->kind->value) {
-                    throw new ValidationFailed(['kind' => 'Die Art eines Spiels ist fest.']);
-                }
-                [$draws, $lower] = self::setting($game->kind, $game->drawsAllowed, $game->lowerWins, $drawsAllowed, $lowerWins);
+        return $this->change($actor, $id, static function (Game $game) use ($name, $kind, $drawsAllowed, $lowerWins): Game {
+            if ($kind !== null && $kind !== $game->kind->value) {
+                throw new ValidationFailed(['kind' => 'Die Art eines Spiels ist fest.']);
+            }
+            [$draws, $lower] = self::setting($game->kind, $game->drawsAllowed, $game->lowerWins, $drawsAllowed, $lowerWins);
 
-                return new Game($game->id, $name, $game->kind, $draws, $lower, $game->run, $game->startedAt);
-            });
-        } catch (PDOException $failure) {
-            throw self::duplicateOr($failure, $name);
-        }
+            return new Game($game->id, $name, $game->kind, $draws, $lower, $game->run, $game->startedAt);
+        });
     }
 
     /**
@@ -184,14 +180,19 @@ final readonly class Games
      * @param callable(Game): Game $change
      *
      * @throws NotFound when there is no such game
+     * @throws DuplicateName when the changed name is another game's, ignoring case
      */
     private function change(Actor $actor, int $id, callable $change): Game
     {
         return $this->revision->write(function () use ($actor, $id, $change): Game {
             $before = $this->find($id, ' FOR UPDATE');
             $after = $change($before);
-            $this->pdo->prepare('UPDATE games SET name = ?, draws_allowed = ?, lower_wins = ?, run = ?, started_at = ? WHERE id = ?')
-                ->execute([$after->name, (int) $after->drawsAllowed, (int) $after->lowerWins, $after->run, Timestamp::of($after->startedAt), $id]);
+            try {
+                $this->pdo->prepare('UPDATE games SET name = ?, draws_allowed = ?, lower_wins = ?, run = ?, started_at = ? WHERE id = ?')
+                    ->execute([$after->name, (int) $after->drawsAllowed, (int) $after->lowerWins, $after->run, Timestamp::of($after->startedAt), $id]);
+            } catch (PDOException $failure) {
+                throw self::duplicateOr($failure, $after->name);
+            }
             $this->audit->record($actor, AuditOperation::Update, AuditSubjectKind::Game, (string) $id, $before->snapshot(), $after->snapshot());
 
             return $after;
