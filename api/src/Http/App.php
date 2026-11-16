@@ -114,6 +114,8 @@ final class App
         $result = '/api/results/{id:' . EntryActions::ID_PATTERN . '}';
         $member($app->put($result, $results->put(...)));
         $member($app->delete($result, $results->delete(...)));
+        $member($app->put($result . '/verification', $verification->verifyResult(...)));
+        $member($app->delete($result . '/verification', $verification->rejectResult(...)));
         $admin($app->get('/api/audit', $audit->list(...)));
 
         $app->addRoutingMiddleware();

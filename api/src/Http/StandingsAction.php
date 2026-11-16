@@ -49,12 +49,7 @@ final readonly class StandingsAction
     {
         return match ($game->kind) {
             GameKind::Duel => self::duel($game, $database->matches()->standings($game->id, $game->run)),
-            GameKind::Points => [
-                'kind' => $game->kind->value,
-                'startedAt' => Instant::format($game->startedAt),
-                'lowerWins' => $game->lowerWins,
-                'rows' => array_map(self::pointsRow(...), $database->results()->standings($game->id, $game->run, $game->lowerWins)),
-            ],
+            GameKind::Points => self::points($game, $database->results()->standings($game->id, $game->run, $game->lowerWins)),
         };
     }
 
@@ -77,6 +72,25 @@ final readonly class StandingsAction
     }
 
     /**
+     * The points ranking in the game's direction: the ranked `rows` and the `unranked` persons
+     * whose results in the run all wait for verification (PRD #61).
+     *
+     * @param Standings<PointsRow> $standings
+     *
+     * @return array<string, mixed>
+     */
+    private static function points(Game $game, Standings $standings): array
+    {
+        return [
+            'kind' => $game->kind->value,
+            'startedAt' => Instant::format($game->startedAt),
+            'lowerWins' => $game->lowerWins,
+            'rows' => array_map(self::pointsRow(...), $standings->rows),
+            'unranked' => array_map(self::unranked(...), $standings->unranked),
+        ];
+    }
+
+    /**
      * @return array{personId: int, name: string, pendingCount: int}
      */
     private static function unranked(UnrankedPlayer $player): array
@@ -85,11 +99,11 @@ final readonly class StandingsAction
     }
 
     /**
-     * @return array{personId: int, name: string, sum: int, results: int}
+     * @return array{personId: int, name: string, sum: int, results: int, pendingCount: int}
      */
     private static function pointsRow(PointsRow $row): array
     {
-        return ['personId' => $row->personId, 'name' => $row->name, 'sum' => $row->sum, 'results' => $row->results];
+        return ['personId' => $row->personId, 'name' => $row->name, 'sum' => $row->sum, 'results' => $row->results, 'pendingCount' => $row->pendingCount];
     }
 
     /**

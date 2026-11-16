@@ -205,11 +205,11 @@ final class ResultsTest extends DatabaseTestCase
         $this->put(['gameId' => 3, 'personId' => 1, 'points' => 250], self::OTHER_RESULT, $member);
         $this->send('DELETE', '/api/results/' . self::RESULT, session: $member);
 
-        $danielMinus20 = ['game' => 'Rommé', 'person' => 'Daniel', 'points' => -20];
+        $danielMinus20 = ['game' => 'Rommé', 'person' => 'Daniel', 'points' => -20, 'pending' => true];
         self::assertSame(
             [
                 ['delete', self::RESULT, $danielMinus20, null],
-                ['create', self::OTHER_RESULT, null, ['game' => 'Kniffel', 'person' => 'Anna', 'points' => 250]],
+                ['create', self::OTHER_RESULT, null, ['game' => 'Kniffel', 'person' => 'Anna', 'points' => 250, 'pending' => true]],
                 ['create', self::RESULT, null, $danielMinus20],
             ],
             array_map(
@@ -238,13 +238,15 @@ final class ResultsTest extends DatabaseTestCase
 
     /**
      * A game's deletion takes its results of every run with it. Before they go, each is
-     * recorded as deleted, caused by the game's deletion, with the names it had.
+     * recorded as deleted, caused by the game's deletion, with the names and the
+     * verification state it had.
      */
     public function testDeletingAGameRecordsTheDeletionOfEachOfItsResultsOfEveryRun(): void
     {
         $this->put(self::DANIEL_MINUS_20);
         $this->send('POST', '/api/games/1/restart', [], $this->session);
         $this->put(['gameId' => 1, 'personId' => 1, 'points' => 35], self::OTHER_RESULT);
+        $this->verifyDirectly('results', self::OTHER_RESULT);
         $this->put([...self::DANIEL_MINUS_20, 'gameId' => 3], '1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c');
 
         $deleted = $this->send('DELETE', '/api/games/1', session: $this->session);
@@ -258,8 +260,8 @@ final class ResultsTest extends DatabaseTestCase
         self::assertSame(
             [
                 ['game', '1', null, null],
-                ['result', self::OTHER_RESULT, ['game' => 'Rommé', 'person' => 'Anna', 'points' => 35], ['game', '1']],
-                ['result', self::RESULT, ['game' => 'Rommé', 'person' => 'Daniel', 'points' => -20], ['game', '1']],
+                ['result', self::OTHER_RESULT, ['game' => 'Rommé', 'person' => 'Anna', 'points' => 35, 'pending' => false], ['game', '1']],
+                ['result', self::RESULT, ['game' => 'Rommé', 'person' => 'Daniel', 'points' => -20, 'pending' => true], ['game', '1']],
             ],
             array_map(
                 static fn(array $event): array => [

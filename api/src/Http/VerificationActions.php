@@ -10,14 +10,15 @@ use Performance\Domain\PendingEntry;
 use Performance\Domain\PendingItem;
 use Performance\Domain\PendingMatch;
 use Performance\Domain\PendingPage;
+use Performance\Domain\PendingResult;
 use Performance\Domain\VerifiableKind;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * The four-eyes rule (PRD #61). `PUT /api/{entries|matches}/{id}/verification`: another account
+ * The four-eyes rule (PRD #61). `PUT /api/{entries|matches|results}/{id}/verification`: another account
  * than the recorder lets a pending row count; repeating it changes nothing.
- * `DELETE /api/{entries|matches}/{id}/verification`: such an account rejects a pending row,
+ * `DELETE /api/{entries|matches|results}/{id}/verification`: such an account rejects a pending row,
  * which removes it.
  * `GET /api/pending?cursor=`: a page of the rows the signed-in account may verify, the `next`
  * page's cursor and the `count` of all of them.
@@ -89,6 +90,26 @@ final readonly class VerificationActions
     }
 
     /**
+     * @param array{id: string} $arguments
+     */
+    public function verifyResult(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
+    {
+        $this->database->verification()->verify(SessionAuth::actor($request), VerifiableKind::Result, $arguments['id']);
+
+        return $response->withStatus(204);
+    }
+
+    /**
+     * @param array{id: string} $arguments
+     */
+    public function rejectResult(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
+    {
+        $this->database->verification()->reject(SessionAuth::actor($request), VerifiableKind::Result, $arguments['id']);
+
+        return $response->withStatus(204);
+    }
+
+    /**
      * @return array{items: list<array<string, mixed>>, next: string|null, count: int}
      */
     private static function page(PendingPage $page): array
@@ -109,7 +130,11 @@ final readonly class VerificationActions
         ];
         $details = $item->details;
 
-        return $details instanceof PendingEntry ? [...$common, ...self::entry($details)] : [...$common, ...self::match($details)];
+        return [...$common, ...match (true) {
+            $details instanceof PendingEntry => self::entry($details),
+            $details instanceof PendingMatch => self::match($details),
+            $details instanceof PendingResult => self::result($details),
+        }];
     }
 
     /**
@@ -136,6 +161,19 @@ final readonly class VerificationActions
             'first' => self::person($match->first),
             'second' => self::person($match->second),
             'outcome' => $match->outcome->value,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function result(PendingResult $result): array
+    {
+        return [
+            'game' => ['id' => $result->gameId, 'name' => $result->gameName],
+            'earlierRun' => $result->earlierRun,
+            'person' => self::person($result->person),
+            'points' => $result->points,
         ];
     }
 

@@ -68,11 +68,13 @@ final class GameHistoryTest extends DatabaseTestCase
         ], $this->body($response));
     }
 
-    public function testListsAPointsGamesResultsNewestFirstWithPersonPointsTimeAndAccount(): void
+    public function testListsAPointsGamesResultsNewestFirstWithPersonPointsTimeAccountAndPending(): void
     {
+        $this->createAccount('anna', 'annas-startpasswort');
         $older = $this->score(2, -20);
         $this->clock->advance('PT1M');
         $newer = $this->score(1, 45);
+        $this->send('PUT', "/api/results/{$newer}/verification", [], $this->signIn('anna', 'annas-startpasswort'));
 
         $response = $this->history('results', game: self::ROMME);
 
@@ -85,6 +87,7 @@ final class GameHistoryTest extends DatabaseTestCase
                     'points' => 45,
                     'createdAt' => '2026-11-14T20:01:00.000Z',
                     'accountName' => self::ADMIN,
+                    'pending' => false,
                 ],
                 [
                     'id' => $older,
@@ -92,6 +95,7 @@ final class GameHistoryTest extends DatabaseTestCase
                     'points' => -20,
                     'createdAt' => '2026-11-14T20:00:00.000Z',
                     'accountName' => self::ADMIN,
+                    'pending' => true,
                 ],
             ],
             'next' => null,

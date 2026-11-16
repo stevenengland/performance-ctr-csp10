@@ -10,7 +10,7 @@ use Performance\Tests\Support\DatabaseTestCase;
 use Psr\Http\Message\ResponseInterface;
 
 /**
- * `GET /api/pending`: the rows the acting account may verify, entries and matches, across all
+ * `GET /api/pending`: the rows the acting account may verify, entries, matches and results, across all
  * days and game runs, newest first, a bounded page at a time, with the count of all of them
  * (PRD #61).
  */
@@ -188,6 +188,69 @@ final class PendingQueueTest extends DatabaseTestCase
         self::assertSame(21, $second['count']);
     }
 
+    /**
+     * A pending result is listed with its game, its person, the points and its recorder, and
+     * marked when it belongs to an earlier run of its game.
+     */
+    public function testListsPendingResultsWithGamePersonPointsAndRecorderAndMarksAnEarlierRun(): void
+    {
+        $this->send('POST', '/api/persons', ['name' => 'Erik'], $this->chef);
+        $this->send('POST', '/api/games', ['name' => 'Wizard', 'kind' => 'points'], $this->chef);
+        $earlier = $this->recordResult($this->chef, 1, -20);
+        $this->send('POST', '/api/games/1/restart', [], $this->chef);
+        $this->clock->advance('PT1M');
+        $current = $this->recordResult($this->chef, 2, 40);
+
+        $queue = $this->body($this->pending($this->anna));
+
+        self::assertSame(2, $queue['count']);
+        self::assertSame(
+            [
+                [
+                    'kind' => 'result',
+                    'id' => $current,
+                    'createdAt' => '2026-11-14T20:01:00.000Z',
+                    'accountName' => self::ADMIN,
+                    'game' => ['id' => 1, 'name' => 'Wizard'],
+                    'earlierRun' => false,
+                    'person' => ['id' => 2, 'name' => 'Erik'],
+                    'points' => 40,
+                ],
+                [
+                    'kind' => 'result',
+                    'id' => $earlier,
+                    'createdAt' => '2026-11-14T20:00:00.000Z',
+                    'accountName' => self::ADMIN,
+                    'game' => ['id' => 1, 'name' => 'Wizard'],
+                    'earlierRun' => true,
+                    'person' => ['id' => 1, 'name' => 'Daniel'],
+                    'points' => -20,
+                ],
+            ],
+            $queue['items'],
+        );
+        self::assertSame(0, $this->body($this->pending($this->chef))['count'], 'the recorder may verify none of them');
+    }
+
+    /** Rows of one instant follow by kind (`entry`, `match`, `result`), then by id, across pages. */
+    public function testResultsOfOneInstantFollowEntriesAndMatchesAcrossPages(): void
+    {
+        $this->send('POST', '/api/persons', ['name' => 'Erik'], $this->chef);
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $this->chef);
+        $this->send('POST', '/api/games', ['name' => 'Wizard', 'kind' => 'points'], $this->chef);
+        $results = array_map(fn(): string => $this->recordResult($this->chef, 1, 5, 2), range(1, 18));
+        $matches = [$this->recordMatch($this->chef, 1, 2, 'first')];
+        $entries = [$this->record($this->chef), $this->record($this->chef)];
+
+        $first = $this->body($this->pending($this->anna));
+        self::assertIsString($first['next']);
+        $second = $this->body($this->pending($this->anna, $first['next']));
+
+        self::assertSame([...$entries, ...$matches, ...array_slice($results, 0, 17)], $this->idsIn($first));
+        self::assertSame([$results[17]], $this->idsIn($second));
+        self::assertSame(21, $second['count']);
+    }
+
     public function testACursorThatNamesNoPositionIs422(): void
     {
         $response = $this->send('GET', '/api/pending?cursor=nonsense', session: $this->anna);
@@ -266,6 +329,17 @@ final class PendingQueueTest extends DatabaseTestCase
         ++$this->entries;
         $id = sprintf('00000000-0000-4000-8000-%012d', $this->entries);
         $response = $this->send('PUT', "/api/matches/{$id}", ['gameId' => 1, 'firstPersonId' => $first, 'secondPersonId' => $second, 'outcome' => $outcome], $session);
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+
+        return $id;
+    }
+
+    /** Records a result in a points game (the first game unless named), numbered with the entries; it waits for verification. */
+    private function recordResult(string $session, int $person, int $points, int $game = 1): string
+    {
+        ++$this->entries;
+        $id = sprintf('00000000-0000-4000-8000-%012d', $this->entries);
+        $response = $this->send('PUT', "/api/results/{$id}", ['gameId' => $game, 'personId' => $person, 'points' => $points], $session);
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
 
         return $id;

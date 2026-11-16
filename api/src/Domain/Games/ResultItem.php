@@ -8,7 +8,8 @@ use DateTimeImmutable;
 
 /**
  * One result of a game's Verlauf: the person and their points, when it was recorded and by
- * which account (null once that account was deleted).
+ * which account (null once that account was deleted), and whether it still waits for
+ * verification.
  */
 final readonly class ResultItem
 {
@@ -18,5 +19,6 @@ final readonly class ResultItem
         public int $points,
         public DateTimeImmutable $createdAt,
         public ?string $accountName,
+        public bool $pending,
     ) {}
 }

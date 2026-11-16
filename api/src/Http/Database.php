@@ -111,6 +111,7 @@ final class Database
         return $this->verification ??= new Verification($this->revision(), $this->audit(), $this->clock, [
             VerifiableKind::Entry->value => $this->entries(),
             VerifiableKind::Match->value => $this->matches()->verifiableRows(),
+            VerifiableKind::Result->value => $this->results()->verifiableRows(),
         ]);
     }
 

@@ -282,6 +282,28 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
         );
     }
 
+    /**
+     * The verification migrations add `pending` to results with the default 0 (PRD #61). A
+     * result the previous release still inserts names no `pending`, so it counts at once, as it
+     * did there; a result this release records waits for verification next to it and stays out
+     * of the sum.
+     */
+    public function testAResultThePreviousReleaseInsertsCountsNextToAPendingOne(): void
+    {
+        $session = $this->signIn();
+        $this->send('POST', '/api/persons', ['name' => 'Anna'], $session);
+        $this->send('POST', '/api/games', ['name' => 'Wizard', 'kind' => 'points'], $session);
+        $this->otherSession()->prepare(
+            'INSERT INTO results (id, game_id, person_id, points, run, account_id, created_at) VALUES (?, 1, 1, 30, 1, 1, ?)',
+        )->execute([self::ENTRY, Timestamp::of($this->clock->now())]);
+        $recorded = $this->send('PUT', '/api/results/0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b', ['gameId' => 1, 'personId' => 1, 'points' => -50], $session);
+        self::assertSame(201, $recorded->getStatusCode(), (string) $recorded->getBody());
+
+        $standings = $this->body($this->send('GET', '/api/games/1/standings', session: $session));
+
+        self::assertSame([['personId' => 1, 'name' => 'Anna', 'sum' => 30, 'results' => 1, 'pendingCount' => 1]], $standings['rows']);
+    }
+
     private function previousReleaseReserves(): void
     {
         $this->otherSession()->prepare(self::PREVIOUS_RESERVATION)->execute([self::ADMIN, self::ADDRESS, Timestamp::of($this->clock->now())]);

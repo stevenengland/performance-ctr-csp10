@@ -132,13 +132,13 @@ final class PersonDeletionTest extends DatabaseTestCase
     /**
      * After the person's deletion and its matches' updates, one delete per result of the
      * person, in result id order, each caused by the person's deletion with the names it had.
-     * Results of others record nothing.
+     * Results of others record nothing. A pending result's snapshot says it was pending.
      */
     public function testTheDeletionRecordsOneDeletePerResultCausedByThePersonsDeletion(): void
     {
         $this->pointsGames();
         $this->score(self::RESULT, 2, self::BEN, 15);
-        $this->score(self::OTHER_RESULT, 3, self::BEN, -5);
+        $this->score(self::OTHER_RESULT, 3, self::BEN, -5, verified: false);
         $this->score(self::THIRD_RESULT, 2, self::CARLA, 80);
 
         $this->send('DELETE', '/api/persons/' . self::BEN, session: $this->session);
@@ -160,7 +160,7 @@ final class PersonDeletionTest extends DatabaseTestCase
             array_map(static fn(array $event): array => [$event['subject_kind'], $event['subject_id'], $event['operation'], $event['cause_id']], $events),
         );
         self::assertSame(
-            [['game' => 'Rommé', 'person' => 'Ben', 'points' => 15], ['game' => 'Kniffel', 'person' => 'Ben', 'points' => -5]],
+            [['game' => 'Rommé', 'person' => 'Ben', 'points' => 15, 'pending' => false], ['game' => 'Kniffel', 'person' => 'Ben', 'points' => -5, 'pending' => true]],
             array_map(static fn(array $event): ?array => self::decoded($event['before_json']), array_slice($events, 3)),
         );
         self::assertSame([null, null], array_map(static fn(array $event): ?array => self::decoded($event['after_json']), array_slice($events, 3)));
@@ -257,10 +257,14 @@ final class PersonDeletionTest extends DatabaseTestCase
         }
     }
 
-    private function score(string $id, int $game, int $person, int $points, ?string $session = null): void
+    /** Records a result, verified unless said otherwise, so it counts: these tests are about deletions, not about the four-eyes rule. */
+    private function score(string $id, int $game, int $person, int $points, ?string $session = null, bool $verified = true): void
     {
         $response = $this->send('PUT', "/api/results/{$id}", ['gameId' => $game, 'personId' => $person, 'points' => $points], $session ?? $this->session);
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        if ($verified) {
+            $this->verifyDirectly('results', $id);
+        }
     }
 
     private function record(string $id, int $first, int $second, string $outcome, ?string $session = null): void
