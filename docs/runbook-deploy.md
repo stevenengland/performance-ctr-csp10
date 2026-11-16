@@ -199,6 +199,11 @@ its own API's floor and ask to reload forever.
 
 - **Before the API pointer switched** (upload, config, settings): nothing changed for users.
   Fix the cause and re-run the failed job; the deploy resumes where it stopped.
+- **Health stayed `running`:** a migration keeps waiting for a table that long transactions
+  use. Each attempt gives up after `Migrator::TABLE_LOCK_WAIT_SECONDS` and is retried by the
+  next request, so nothing is stuck and the API answers 503 `maintenance` meanwhile; the deploy
+  polls health for about two minutes and then fails. The migration completes on a later
+  request once those transactions ended; then re-run the job to switch the shell.
 - **Health failed** (failed migration, wrong app or schema version): the run is red,
   `index.html`, the manifest and the service worker still belong to the previous release, but
   `/api/*` is served by the new PHP release. After a failed migration every API route answers

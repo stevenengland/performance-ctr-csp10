@@ -46,7 +46,12 @@ is the only way past a schema change.
 
    Request-triggered DDL holds the migration lock, and every other request gets 503 until it
    finishes. So a migration states its algorithm where MariaDB can do it in place
-   (`ALGORITHM=INSTANT`, else `INPLACE, LOCK=NONE`), which fails instead of silently copying. A
+   (`ALGORITHM=INSTANT`, else `INPLACE, LOCK=NONE`), which fails instead of silently copying.
+   That bounds the work, not the wait: DDL first waits for its table's metadata lock until every
+   open transaction that used the table ended. The `Migrator` therefore runs every migration with
+   `lock_wait_timeout` at `Migrator::TABLE_LOCK_WAIT_SECONDS` (5 s). A migration that times out
+   is not failed: it stays `started`, health reports `running` (the deploy keeps polling), other
+   requests get 503 `maintenance` with `Retry-After`, and the next request tries again. A
    migration that cannot be cheap needs its own plan in its pull request: duration measured on a
    copy of production data, a quiet time, and announcement.
 3. **The API only grows for clients at or above `MIN_CLIENT_VERSION`.** A release may add routes,

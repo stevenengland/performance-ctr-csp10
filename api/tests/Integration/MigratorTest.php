@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Performance\Tests\Integration;
 
 use PDO;
+use Performance\Domain\MigrationState;
 use Performance\Domain\Migrator;
+use Performance\Http\Database;
 use Performance\Tests\Support\DatabaseTestCase;
 
 final class MigratorTest extends DatabaseTestCase
@@ -98,6 +100,56 @@ final class MigratorTest extends DatabaseTestCase
         $before = $lastAttempt();
         $this->get('/api/anything', $app);
         self::assertNotSame($before, $lastAttempt(), 'after the backoff, the next request retries');
+    }
+
+    /**
+     * Request-triggered DDL holds the migration lock, so its wait for a table that an open
+     * transaction uses is bounded: it gives up, the gate stays `running` (503 with Retry-After,
+     * the deploy keeps polling health), nothing is recorded as failed, and a later request
+     * applies it once the transaction ended.
+     */
+    public function testADdlThatWaitsForATableInUseGivesUpAfterTheBoundAndALaterRequestAppliesIt(): void
+    {
+        $this->get('/api/health');
+        $app = $this->app($this->config($this->fixtureMigrations('table-lock')));
+        $reader = $this->otherSession();
+        $reader->beginTransaction();
+        $read = $reader->prepare('SELECT COUNT(*) FROM accounts');
+        $read->execute();
+        $read->fetchAll();
+
+        $started = microtime(true);
+        $health = $this->body($this->get('/api/health', $app));
+        $waited = microtime(true) - $started;
+
+        self::assertSame('running', $health['migration']);
+        self::assertGreaterThanOrEqual(Migrator::TABLE_LOCK_WAIT_SECONDS - 1, $waited);
+        self::assertLessThan(Migrator::TABLE_LOCK_WAIT_SECONDS + 5, $waited, 'bounded, not lock_wait_timeout (a day)');
+        self::assertSame('started', array_column($this->bookkeeping(), 'state', 'version')['9001_add_accounts_lock_probe']);
+        $probe = $this->otherSession()->prepare('SELECT IS_FREE_LOCK(?)');
+        $probe->execute([Migrator::lockName($reader)]);
+        self::assertSame(1, (int) $probe->fetchColumn(), 'the migration lock is released');
+
+        $reader->commit();
+        $next = $this->get('/api/anything', $app);
+
+        self::assertSame(404, $next->getStatusCode(), 'past the gate');
+        self::assertSame('completed', array_column($this->bookkeeping(), 'state', 'version')['9001_add_accounts_lock_probe']);
+    }
+
+    /** The bound applies to the migration only: the request goes on with the session's own setting. */
+    public function testTheMigrationRestoresTheSessionsLockWaitTimeout(): void
+    {
+        $config = $this->config($this->fixtureMigrations('table-lock'));
+        $database = new Database($config, $this->clock);
+        $timeout = $database->pdo()->prepare('SELECT @@SESSION.lock_wait_timeout');
+        $timeout->execute();
+        $before = $timeout->fetchColumn();
+
+        self::assertSame(MigrationState::Ok, $database->migrator()->migrate());
+
+        $timeout->execute();
+        self::assertSame($before, $timeout->fetchColumn());
     }
 
     public function testRunningAgainIsHarmless(): void
