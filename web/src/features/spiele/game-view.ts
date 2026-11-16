@@ -44,6 +44,23 @@ export function sinceLabel(startedAt: string, now: Date): string {
 }
 
 /**
+The ranking of the game's current run. A run's start only moves forward, so a
+ranking read before the start the game already knows (this device's restart,
+whose re-read failed) belongs to the previous run: the new one is still empty.
+*/
+export function currentRun(
+  game: DeepReadonly<Game>,
+  standings: DeepReadonly<Standings> | undefined,
+): DeepReadonly<Standings> | undefined {
+  if (
+    !standings ||
+    Date.parse(standings.startedAt) >= Date.parse(game.startedAt)
+  )
+    return standings;
+  return { ...standings, startedAt: game.startedAt, rows: [] };
+}
+
+/**
 The game as its ranking was read: the ranking carries the run's start and, on a
 points game, its direction, so a restart or rule edit on another device shows
 with the ranking it changed.

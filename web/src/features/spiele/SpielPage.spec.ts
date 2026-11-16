@@ -627,6 +627,28 @@ describe('restarting a game', () => {
     );
   });
 
+  it('shows the new run after a restart even when the ranking cannot be read after it', async () => {
+    restartable(game(36, 'Schach', 'duel'));
+    wrapper = await spiel(36);
+    expect(wrapper.get('.game-leader').text()).toContain('Anna');
+    const answer = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation(async (url, init) =>
+      url === '/api/games/36/standings'
+        ? problem(503, { title: 'Wird aktualisiert – gleich wieder da' })
+        : (answer?.(url, init) ?? Promise.reject(new Error('no answer'))),
+    );
+
+    await click(buttonIn(document, 'Neu starten'));
+    await click(buttonIn(dialog(), 'Neu starten'));
+
+    expect(useSnackbar().value?.text).toBe('Schach neu gestartet');
+    expect(wrapper.get('.top-bar__context').text()).toBe(
+      'Duell · seit heute, 19:30',
+    );
+    expect(wrapper.find('.game-leader').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Seit dem Start noch keine Partien.');
+  });
+
   it('keeps the ranking and shows the problem when the restart fails', async () => {
     restartable(game(34, 'Schach', 'duel'), () =>
       problem(503, { title: 'Wird aktualisiert – gleich wieder da' }),

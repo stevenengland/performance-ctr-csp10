@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { mdiHistory, mdiRestart } from '@mdi/js';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch, type DeepReadonly } from 'vue';
 import { useRouter } from 'vue-router';
 import AppFab from '../../components/AppFab.vue';
 import ConfirmDialog from '../../components/ConfirmDialog.vue';
+import type { Game } from '../../core/api-client';
 import { formatTime } from '../../core/format';
 import {
   forgetStandings,
@@ -20,6 +21,7 @@ import GameStandingList from './GameStandingList.vue';
 import { leaveGone } from './game-flow';
 import {
   contextLine,
+  currentRun,
   gameAsRanked,
   gameHistoryPath,
   gameStandings,
@@ -49,11 +51,15 @@ const game = computed(() => {
   const listed = games.value?.find(
     (candidate) => candidate.id === gameId.value,
   );
-  return listed && gameAsRanked(listed, ranking.value.value);
+  return listed && gameAsRanked(listed, run(listed));
 });
-const standings = computed(() =>
-  ranking.value.value ? gameStandings(ranking.value.value) : undefined,
-);
+/** The ranking of the run the game knows of; the page waits for the game before it shows one. */
+const run = (listed: DeepReadonly<Game>) =>
+  currentRun(listed, ranking.value.value);
+const standings = computed(() => {
+  const ranked = game.value ? run(game.value) : ranking.value.value;
+  return ranked ? gameStandings(ranked) : undefined;
+});
 
 /** `seit heute, 19:30` turns into the date at midnight, even while the page stays open. */
 const today = useToday();

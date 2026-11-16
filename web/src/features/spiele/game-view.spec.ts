@@ -8,6 +8,7 @@ import type {
 } from '../../core/api-client';
 import {
   contextLine,
+  currentRun,
   gameAsRanked,
   gameHistoryPath,
   gameStandings,
@@ -94,6 +95,39 @@ describe('a game in words', () => {
       }),
     ).toEqual(game('duel', { drawsAllowed: false, startedAt: restarted }));
     expect(gameAsRanked(game('duel'), undefined)).toEqual(game('duel'));
+  });
+
+  it('counts a ranking read before the game’s known start as the new run, still empty', () => {
+    const restarted = '2026-11-15T21:00:00.000Z';
+    const older = {
+      kind: 'duel' as const,
+      startedAt: '2026-09-15T10:00:00Z',
+      rows: [
+        {
+          personId: 1,
+          name: 'Anna',
+          points: 1,
+          wins: 1,
+          draws: 0,
+          losses: 0,
+          played: 1,
+        },
+      ],
+    };
+    const ownRestart = game('duel', { startedAt: restarted });
+
+    expect(currentRun(ownRestart, older)).toEqual({
+      kind: 'duel',
+      startedAt: restarted,
+      rows: [],
+    });
+    expect(gameAsRanked(ownRestart, currentRun(ownRestart, older))).toEqual(
+      ownRestart,
+    );
+    // A restart elsewhere: the ranking is newer than the game, and it wins.
+    const remote = { ...older, startedAt: restarted };
+    expect(currentRun(game('duel'), remote)).toBe(remote);
+    expect(currentRun(game('duel'), undefined)).toBeUndefined();
   });
 
   it('keeps the setting line of Verwalten → Spiele', () => {

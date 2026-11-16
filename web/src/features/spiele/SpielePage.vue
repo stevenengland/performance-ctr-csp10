@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { mdiChevronRight } from '@mdi/js';
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted, type DeepReadonly } from 'vue';
+import type { Game } from '../../core/api-client';
 import {
   loadGames,
   refreshStandings,
@@ -10,7 +11,7 @@ import {
 import { messages } from '../../core/messages';
 import { showProblem } from '../../core/snackbar';
 import { useToday } from '../../core/today';
-import { contextLine, gamePath, leaderLine } from './game-view';
+import { contextLine, currentRun, gamePath, leaderLine } from './game-view';
 
 /**
 Spiele (§7n): every game alphabetically, each with its kind, the day its
@@ -25,9 +26,9 @@ const games = useGames();
 /** `seit heute, 19:30` turns into the date at midnight, even while the page stays open. */
 const today = useToday();
 
-/** The game's leader line; empty until its ranking was first read. */
-function leaderOf(gameId: number): string {
-  const ranking = viewStandings(gameId).value.value;
+/** The game's leader line; empty until its ranking was first read, and in a run no ranking was read of yet. */
+function leaderOf(game: DeepReadonly<Game>): string {
+  const ranking = currentRun(game, viewStandings(game.id).value.value);
   return ranking ? leaderLine(ranking) : '';
 }
 
@@ -82,9 +83,7 @@ onUnmounted(() => {
           <span class="type-support game-card__context">{{
             contextLine(game, today)
           }}</span>
-          <span class="type-label game-card__leader">{{
-            leaderOf(game.id)
-          }}</span>
+          <span class="type-label game-card__leader">{{ leaderOf(game) }}</span>
         </RouterLink>
       </li>
     </ul>
