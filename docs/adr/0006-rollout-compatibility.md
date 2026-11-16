@@ -54,13 +54,22 @@ is the only way past a schema change.
    requests get 503 `maintenance` with `Retry-After`, and the next request tries again. A
    migration that cannot be cheap needs its own plan in its pull request: duration measured on a
    copy of production data, a quiet time, and announcement.
-3. **The API only grows for clients at or above `MIN_CLIENT_VERSION`.** A release may add routes,
+3. **The API only grows while an older client may still be running.** A release may add routes,
    optional request fields and response fields (clients ignore unknown keys). It may not remove or
    rename a field, change a field's type or meaning, make an optional field required, or change a
-   status or header a client relies on. Any of those raises `MIN_CLIENT_VERSION` (runbook,
-   "Breaking API changes"), and with it the reload floor for every older client. Behaviour clients
-   do not see stays free: the session cookie is browser-managed, so sending it less often (ADR
-   0005) needs no new floor.
+   status or header a client relies on.
+
+   Raising `MIN_CLIENT_VERSION` alone does not make such a break safe. A client reads the floor
+   only when it starts (`startApp` → `loadServerHealth`); a tab or installed app opened before the
+   deploy never reads it again, and the update prompt waits for the user. Such a client keeps
+   sending the old requests and reading the new answers without ever seeing `Bitte neu laden`.
+   So a break, too, is expanded first and contracted later: the release that brings the new
+   contract keeps serving the old one beside it and raises the floor (runbook, "Breaking API
+   changes"), so every client that starts from then on is new. Removing the old contract is a
+   contract step, and it may ship only once clients that are already running observe the floor
+   before their next request. They do not yet (see Consequences), so until then no release
+   removes or changes what a supported client relies on. Behaviour clients do not see stays free:
+   the session cookie is browser-managed, so sending it less often (ADR 0005) needs no new floor.
 4. **Every migration is guarded and idempotent** (`isApplied`), as before. Migration numbers only
    order them. Two branches that each add one take different numbers (0012 for the audit log in
    PR #26, 0013 here), so either can merge and deploy first.
@@ -84,8 +93,14 @@ is the only way past a schema change.
   end-to-end tests that drive the previous release's built web client against the new API in the
   e2e stack. Both need the host or the Docker-based e2e stack, which are not available to the
   session that wrote this.
+- **Running clients do not observe the floor** (review of PR #45). The floor is checked once,
+  at start-up; later requests, polls, navigation and the update prompt do not check it. Until
+  that changes, decision 3 rules out every contract step of the API. An acceptance test for the
+  mechanism that closes the gap starts the previous built client *before* the floor is raised and
+  then uses it without reloading; starting an old client after the deploy only proves the
+  start-up check.
 - **A new value in a response's enum** is growth when older clients only show it less well, and
-  a break (raise the floor) when they would act on it wrongly. PRD #27 adds `game`, `match` and
+  a break (decision 3) when they would act on it wrongly. PRD #27 adds `game`, `match` and
   `result` to the audit event's `subjectKind`. Until it reloads, the previous web client's
   Protokoll (admins only, read-only) shows those events as `undefined Schach`, with an empty
   title or with entry-shaped fragments; every open client is offered `Neu laden` after the

@@ -176,13 +176,16 @@ The ledger keeps the active release and the two before it, plus anything deactiv
 
 What may change in one release, and what needs two (expand, then contract), is set in
 [ADR 0006](adr/0006-rollout-compatibility.md): the schema only grows for the previous
-release's code, the API only grows for clients at or above `MIN_CLIENT_VERSION`, and a
+release's code, the API only grows while an older client may still be running, and a
 migration that could copy a table or lock it for long needs its own plan. Each schema change
 comes with a test in `RolloutCompatibilityTest` that runs the previous release's statements
 against it.
 
-A change that older installed apps cannot use raises `MIN_CLIENT_VERSION` in
-`api/src/Http/Compatibility.php`; those apps then show `Bitte neu laden`. Bump the `version` in
+A new contract that older apps cannot use ships beside the old one and raises
+`MIN_CLIENT_VERSION` in `api/src/Http/Compatibility.php`; an older app shows `Bitte neu laden`
+when it next starts. An app that is already open does not check the floor again, so the old
+contract stays served: no release removes it until running clients observe the floor (ADR 0006,
+decision 3). Bump the `version` in
 `web/package.json` to at least the new floor in the same pull request: the artifact build and
 `scripts/artifact.test.ts` fail otherwise, because the freshly deployed client would be below
 its own API's floor and ask to reload forever.
