@@ -63,6 +63,12 @@ final readonly class Problem
         return new self('entry-conflict', 'Eintrag wurde schon mit anderem Inhalt gespeichert.', 409);
     }
 
+    /** A retry key (a client UUID) was used before for a request with other content. */
+    public static function requestConflict(): self
+    {
+        return new self('request-conflict', 'Wurde schon mit anderem Inhalt gespeichert.', 409);
+    }
+
     public static function unsupportedMediaType(): self
     {
         return new self('unsupported-media-type', 'Nur JSON wird angenommen', 415);

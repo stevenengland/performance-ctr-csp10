@@ -10,6 +10,7 @@ use Performance\Domain\EntryConflict;
 use Performance\Domain\InvalidCredentials;
 use Performance\Domain\NotFound;
 use Performance\Domain\LastAdmin;
+use Performance\Domain\RequestConflict;
 use Performance\Domain\Sessions;
 use Performance\Domain\TooManyAttempts;
 use Performance\Domain\ValidationFailed;
@@ -39,6 +40,7 @@ final readonly class ProblemDetailsHandler
             $exception instanceof DuplicateName => Problem::duplicateName(),
             $exception instanceof LastAdmin => Problem::lastAdmin(),
             $exception instanceof EntryConflict => Problem::entryConflict(),
+            $exception instanceof RequestConflict => Problem::requestConflict(),
             $exception instanceof NotFound => Problem::notFound(),
             $exception instanceof InvalidCredentials => Problem::invalidCredentials(),
             $exception instanceof TooManyAttempts => Problem::tooManyAttempts(),

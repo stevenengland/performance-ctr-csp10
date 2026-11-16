@@ -38,6 +38,7 @@ final class App
         $entries = new EntryActions($database);
         $audit = new AuditActions($database);
         $games = new GameActions($database);
+        $matches = new MatchActions($database);
 
         // Open routes: health and sign-in. Every other route requires a session.
         $app->get('/api/health', new HealthAction($database, $config->appVersion));
@@ -81,6 +82,9 @@ final class App
         $member($app->patch($game, $games->update(...)));
         $member($app->delete($game, $games->delete(...)));
         $member($app->post($game . '/restart', $games->restart(...)));
+        $match = '/api/matches/{id:' . EntryActions::ID_PATTERN . '}';
+        $member($app->put($match, $matches->put(...)));
+        $member($app->delete($match, $matches->delete(...)));
         $admin($app->get('/api/audit', $audit->list(...)));
 
         $app->addRoutingMiddleware();

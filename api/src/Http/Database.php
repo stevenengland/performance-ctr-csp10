@@ -13,6 +13,7 @@ use Performance\Domain\CompositeGameDependents;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
 use Performance\Domain\Games\Games;
+use Performance\Domain\Games\Matches;
 use Performance\Domain\Idempotency;
 use Performance\Domain\Migrator;
 use Performance\Domain\Scoreboard;
@@ -36,6 +37,7 @@ final class Database
     private ?AuditLog $audit = null;
     private ?Idempotency $idempotency = null;
     private ?Games $games = null;
+    private ?Matches $matches = null;
 
     public function __construct(
         private readonly Config $config,
@@ -79,6 +81,11 @@ final class Database
     public function games(): Games
     {
         return $this->games ??= new Games($this->pdo(), $this->clock, $this->revision(), $this->audit(), new CompositeGameDependents());
+    }
+
+    public function matches(): Matches
+    {
+        return $this->matches ??= new Matches($this->pdo(), $this->clock, $this->revision(), $this->audit(), $this->idempotency());
     }
 
     public function scoreboard(): Scoreboard

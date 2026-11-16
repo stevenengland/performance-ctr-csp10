@@ -117,6 +117,33 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
         );
     }
 
+    /**
+     * The matches migration adds a table the previous release does not know. Its foreign keys
+     * still act when the previous release deletes a person or an account: the match stays,
+     * with that side and the recording account cleared, and nothing the previous release does
+     * fails on it.
+     */
+    public function testThePreviousReleaseDeletesAPersonAndAnAccountThatMatchesReference(): void
+    {
+        $this->createAccount('daniel', 'daniels-passwort');
+        $member = $this->signIn('daniel', 'daniels-passwort');
+        $this->send('POST', '/api/persons', ['name' => 'Anna'], $member);
+        $this->send('POST', '/api/persons', ['name' => 'Ben'], $member);
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $member);
+        $recorded = $this->send('PUT', '/api/matches/' . self::ENTRY, ['gameId' => 1, 'firstPersonId' => 1, 'secondPersonId' => 2, 'outcome' => 'draw'], $member);
+        self::assertSame(201, $recorded->getStatusCode(), (string) $recorded->getBody());
+        $other = $this->otherSession();
+
+        // The previous release's person and account deletions, as far as they touch the database.
+        $other->exec('DELETE FROM persons WHERE id = 2');
+        $other->exec('DELETE FROM accounts WHERE id = 2');
+
+        self::assertSame(
+            [['first_person_id' => '1', 'second_person_id' => null, 'account_id' => null, 'outcome' => 'draw']],
+            $this->rows('SELECT CAST(first_person_id AS CHAR) AS first_person_id, second_person_id, account_id, outcome FROM matches'),
+        );
+    }
+
     private function previousReleaseReserves(): void
     {
         $this->otherSession()->prepare(self::PREVIOUS_RESERVATION)->execute([self::ADMIN, self::ADDRESS, Timestamp::of($this->clock->now())]);
