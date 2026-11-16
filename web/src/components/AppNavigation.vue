@@ -2,12 +2,14 @@
 import {
   mdiCardsPlayingOutline,
   mdiCogOutline,
+  mdiEyeCheckOutline,
   mdiGlassMugVariant,
   mdiPodium,
 } from '@mdi/js';
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { messages } from '../core/messages';
+import { usePendingQueue } from '../core/pending-queue';
 import type { Destination } from '../router';
 
 defineProps<{ variant: 'bar' | 'rail' }>();
@@ -16,11 +18,22 @@ const destinations: { name: Destination; to: string; icon: string }[] = [
   { name: 'zaehlen', to: '/zaehlen', icon: mdiGlassMugVariant },
   { name: 'rangliste', to: '/rangliste', icon: mdiPodium },
   { name: 'spiele', to: '/spiele', icon: mdiCardsPlayingOutline },
+  { name: 'offen', to: '/offen', icon: mdiEyeCheckOutline },
   { name: 'verwalten', to: '/verwalten', icon: mdiCogOutline },
 ];
 
 const route = useRoute();
 const active = computed(() => route.meta.destination);
+/** The rows the account may verify: Offen's badge, on every screen of the shell. */
+const queue = usePendingQueue();
+const pending = computed(() => queue.value.page?.count ?? 0);
+
+/** Offen's accessible name says the badge too: `Offen, 3 offen`. */
+function labelOf(name: Destination): string | undefined {
+  return name === 'offen' && pending.value > 0
+    ? messages.offen.navigation(pending.value)
+    : undefined;
+}
 </script>
 
 <template>
@@ -36,9 +49,19 @@ const active = computed(() => route.meta.destination);
       class="navigation__item"
       :class="{ 'navigation__item--active': active === destination.name }"
       :aria-current="active === destination.name ? 'page' : undefined"
+      :aria-label="labelOf(destination.name)"
     >
       <span class="navigation__pill">
-        <v-icon :icon="destination.icon" size="24" />
+        <v-badge
+          :model-value="destination.name === 'offen' && pending > 0"
+          :content="pending"
+          :label="messages.pending.marker"
+          color="error"
+          max="99"
+          floating
+        >
+          <v-icon :icon="destination.icon" size="24" />
+        </v-badge>
       </span>
       <span class="type-caption">{{
         messages.navigation[destination.name]
@@ -58,7 +81,7 @@ const active = computed(() => route.meta.destination);
   bottom: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   padding: 8px 8px calc(12px + env(safe-area-inset-bottom));
 }
 

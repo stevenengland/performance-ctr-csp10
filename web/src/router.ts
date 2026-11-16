@@ -9,7 +9,8 @@ import { messages } from './core/messages';
 import AnmeldenPage from './features/anmelden/AnmeldenPage.vue';
 import { resolveSession, returnPath, SIGN_IN_PATH } from './core/session';
 
-export type Destination = 'zaehlen' | 'rangliste' | 'spiele' | 'verwalten';
+export type Destination =
+  'zaehlen' | 'rangliste' | 'spiele' | 'offen' | 'verwalten';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -182,6 +183,11 @@ export const routes: RouteRecordRaw[] = [
       destination: 'spiele',
       child: true,
     },
+  },
+  {
+    path: '/offen',
+    component: () => import('./features/offen/OffenPage.vue'),
+    meta: { title: messages.navigation.offen, destination: 'offen' },
   },
   {
     path: '/verwalten',

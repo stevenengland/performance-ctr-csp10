@@ -1716,7 +1716,8 @@ components:
     PendingEntry:
       type: object
       additionalProperties: false
-      required: [kind, id, createdAt, accountName, person, drink, quantity, factor]
+      required:
+        [kind, id, createdAt, accountName, person, drink, quantity, factor]
       properties:
         kind:
           type: string

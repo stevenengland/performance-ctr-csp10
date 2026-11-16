@@ -22,6 +22,7 @@ export const messages = {
     zaehlen: 'Zählen',
     rangliste: 'Rangliste',
     spiele: 'Spiele',
+    offen: 'Offen',
     verwalten: 'Verwalten',
   },
   topBar: {
@@ -111,6 +112,26 @@ export const messages = {
     removed: 'Eintrag gelöscht',
     /** The link from a person's row under Personen: `Verlauf von Daniel`. */
     open: (person: string) => `Verlauf von ${person}`,
+  },
+  /** Offen (§7s): the rows the signed-in account may verify, of every day (PRD #61). */
+  offen: {
+    /** The navigation item's accessible name with its badge: `Offen, 3 offen`. */
+    navigation: (count: number) => `Offen, ${String(count)} ${pending.marker}`,
+    /** The list's accessible name. */
+    list: 'Zu bestätigen',
+    empty: 'Nichts zu bestätigen.',
+    /** An entry: `2× Bier für Daniel`. */
+    entry: (quantityOf: string, person: string) =>
+      `${quantityOf} für ${person}`,
+    /** A row's supporting line: `Happy Hour ×2 · 15.11., 21:00 · anna`. */
+    details: (factor: string, day: string, time: string, account: string) =>
+      `${factor} · ${day}, ${time} · ${account}`,
+    verify: 'Bestätigen',
+    /** The button's accessible name: `2× Bier für Daniel bestätigen`. */
+    verifyLabel: (what: string) => `${what} bestätigen`,
+    /** No answer: the row stays, nothing was verified. */
+    notVerified: 'Nicht bestätigt – keine Verbindung',
+    more: 'Ältere laden',
   },
   /** The time of the last successful refresh while the latest one failed (§6.6). */
   stand: (time: string) => `Stand: ${time}`,

@@ -1,5 +1,5 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import type { Destination } from '../router';
 import { createAppVuetify } from '../theme';
@@ -23,6 +23,7 @@ async function navigation(
       route('/verlauf/:personId', 'rangliste', true),
       route('/spiele', 'spiele'),
       route('/spiele/:gameId', 'spiele', true),
+      route('/offen', 'offen'),
       route('/verwalten', 'verwalten'),
     ],
   });
@@ -38,20 +39,42 @@ async function navigation(
 const destinations = (wrapper: VueWrapper) =>
   wrapper
     .findAll('a')
-    .map((link) => [link.text(), link.attributes('href')] as const);
+    .map(
+      (link) =>
+        [link.get('.type-caption').text(), link.attributes('href')] as const,
+    );
 
 const active = (wrapper: VueWrapper) =>
-  wrapper.get('a[aria-current="page"]').text();
+  wrapper.get('a[aria-current="page"] .type-caption').text();
+
+/** The pending queue answers `count` rows to verify. */
+function pending(count: number) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ items: [], next: null, count }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ETag: '"1-1"' },
+        }),
+    ),
+  );
+}
 
 describe('the navigation', () => {
   let wrapper: VueWrapper | undefined;
 
+  beforeEach(() => {
+    pending(0);
+  });
+
   afterEach(() => {
     wrapper?.unmount();
+    vi.unstubAllGlobals();
   });
 
   it.each(['bar', 'rail'] as const)(
-    'offers Zählen, Rangliste, Spiele and Verwalten in that order as a %s',
+    'offers Zählen, Rangliste, Spiele, Offen and Verwalten in that order as a %s',
     async (variant) => {
       wrapper = await navigation(variant, '/zaehlen');
 
@@ -60,6 +83,7 @@ describe('the navigation', () => {
         ['Zählen', '/zaehlen'],
         ['Rangliste', '/rangliste'],
         ['Spiele', '/spiele'],
+        ['Offen', '/offen'],
         ['Verwalten', '/verwalten'],
       ]);
     },
@@ -78,5 +102,23 @@ describe('the navigation', () => {
     wrapper = await navigation('bar', '/verlauf/3');
 
     expect(active(wrapper)).toBe('Rangliste');
+  });
+
+  it('shows how many rows the account may verify as a badge on Offen, and none without any', async () => {
+    pending(3);
+    wrapper = await navigation('bar', '/zaehlen');
+
+    const offen = wrapper.get('a[href="/offen"]');
+    expect(offen.get('.v-badge__badge').text()).toBe('3');
+    expect(offen.attributes('aria-label')).toBe('Offen, 3 offen');
+    wrapper.unmount();
+
+    pending(0);
+    wrapper = await navigation('rail', '/zaehlen');
+    const none = wrapper.get('a[href="/offen"]');
+    expect(none.get('.v-badge__badge').attributes('style')).toContain(
+      'display: none',
+    );
+    expect(none.attributes('aria-label')).toBeUndefined();
   });
 });
