@@ -248,6 +248,14 @@ export function updatePerson(id: number, name: string): Promise<Person> {
   });
 }
 
+/** Removes the person's photo (any member, any person); without one nothing changes. */
+export function deletePersonPhoto(id: number): Promise<void> {
+  return request<undefined>('/api/persons/{id}/photo', {
+    method: 'DELETE',
+    params: { id: String(id) },
+  });
+}
+
 /** Deletes the person and all of their entries. */
 export function deletePerson(id: number): Promise<void> {
   return request<undefined>('/api/persons/{id}', {

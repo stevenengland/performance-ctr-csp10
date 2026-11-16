@@ -8,6 +8,7 @@ import {
   deleteFactor,
   deleteMatch,
   deletePerson,
+  deletePersonPhoto,
   deleteResult,
   getDrink,
   getFactor,
@@ -483,6 +484,18 @@ describe('the API client', () => {
     expect(remove).toHaveBeenCalledWith(
       '/api/factors/3',
       expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('removes a person’s photo at the person’s photo path', async () => {
+    const remove = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', remove);
+
+    await expect(deletePersonPhoto(2)).resolves.toBeUndefined();
+
+    expect(remove).toHaveBeenCalledWith(
+      '/api/persons/2/photo',
+      expect.objectContaining({ method: 'DELETE', body: undefined }),
     );
   });
 

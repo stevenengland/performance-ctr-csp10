@@ -31,9 +31,28 @@ export async function createDrink(
   await loadDrinks();
 }
 
-export async function updatePerson(id: number, name: string): Promise<void> {
-  await api.updatePerson(id, name);
-  await loadPersons();
+/**
+Renames a person and resolves to the server's answer as soon as it is
+acknowledged, which then replaces the person in the list; reloading the list is
+up to the caller (`loadPersons`), so a failed reload never fails the rename.
+*/
+export async function updatePerson(id: number, name: string): Promise<Person> {
+  const person = await api.updatePerson(id, name);
+  replacePerson(person);
+  return person;
+}
+
+/** Removes a person's photo; once acknowledged the list shows their initials. Does not reload. */
+export async function deletePersonPhoto(id: number): Promise<void> {
+  await api.deletePersonPhoto(id);
+  const person = persons.value?.find((candidate) => candidate.id === id);
+  if (person) replacePerson({ ...person, photoUrl: null });
+}
+
+function replacePerson(person: Person): void {
+  persons.value = persons.value?.map((candidate) =>
+    candidate.id === person.id ? person : candidate,
+  );
 }
 
 export async function deletePerson(id: number): Promise<void> {
