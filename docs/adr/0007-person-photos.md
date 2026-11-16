@@ -63,9 +63,11 @@
    `no-store` as the default for every other answer, every photo error included, but no longer
    overwrites a header an action set. It is also the first API response loaded outside the
    single fetch wrapper (through `<img>`). An `<img>` request sends the session cookie but no
-   `X-Client-Version`, so it counts as the last client without the header (0.1.0): raising
-   `MIN_CLIENT_VERSION` past 0.1.0 would refuse every photo, and that change has to let the
-   photo `GET` through.
+   `X-Client-Version`, so it would count as the last client without the header (0.1.0) and be
+   refused once `MIN_CLIENT_VERSION` rises past 0.1.0. So `ClientVersionGate` lets a `GET` on
+   exactly `<basePath>/api/persons/{id}/photo` through without a version check, as it does
+   health: the route only reads a version-addressed photo, so no client can be too old for it.
+   Its other methods stay gated.
    *Rejected (owner decision):* sending only a version and painting bytes fetched by the fetch
    wrapper into canvases, which also uses the HTTP cache, but the CSP blocks `blob:` images, so
    it needs a canvas per avatar, DPR handling and its own failure states.
@@ -107,4 +109,10 @@
   "A new value …"), not a break.
 - Photo bytes are part of the database and its backups: at most 64 KiB per person.
 - A photo write locks the person row, so it waits for, and makes wait, renames and deletions of
-  the same person; it never waits for writes of other persons.
+  the same person. For a person without a photo, its `FOR UPDATE` read of the missing photo row
+  takes a gap lock on `person_photos` (REPEATABLE READ), not a row lock. Gap locks do not block
+  each other but block inserts into the gap, so first uploads of different persons whose ids
+  fall into the same gap can deadlock, and renames or deletions of a person without a photo can
+  make another person's first upload wait. InnoDB rolls one deadlocked write back and the
+  whole-transaction retry (`DataRevision::ATTEMPTS`) runs it again; only a pile-up of more
+  concurrent first uploads than retries would fail one with 500.

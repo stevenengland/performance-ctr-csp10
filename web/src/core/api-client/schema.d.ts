@@ -184,12 +184,12 @@ export interface paths {
     };
     /**
      * A person's photo, by its version
-     * @description Served only while `v` is the photo's stored version, the one the server put in the person's `photoUrl`; version and bytes are read together, so no URL ever answers another version's bytes. Re-uploading an earlier photo gives it its old version, which then answers exactly those bytes again. A missing, malformed or stale `v`, a person without a photo and an unknown person are all 404. The only API answer that may be cached: every other answer of this and every route, every problem included, is `no-store`. Browsers load it through `<img>`, which sends the session cookie but no `X-Client-Version`.
+     * @description Served only while `v` is the photo's stored version, the one the server put in the person's `photoUrl`; version and bytes are read together, so no URL ever answers another version's bytes. Re-uploading an earlier photo gives it its old version, which then answers exactly those bytes again. A missing, malformed or stale `v`, a person without a photo and an unknown person are all 404. The only API answer that may be cached: every other answer of this and every route, every problem included, is `no-store`. Browsers load it through `<img>`, which sends the session cookie but no `X-Client-Version`; so this `GET`, unlike every other route but health, is never refused as `client-outdated`, whatever the client floor (it only reads a version-addressed photo).
      */
     get: operations['getPersonPhoto'];
     /**
      * Set or replace a person's photo
-     * @description Any member may set the photo of any person. The client crops and scales it to a 256 × 256 JPEG; the server does not trust that. A body over 98 304 bytes (96 KiB) is 413 before it is parsed, an `image` over 87 384 characters 422 before it is decoded. The server decodes strict base64 and rewrites the JPEG keeping only its image data (no EXIF, GPS, XMP, ICC or comments); anything that is not a 256 × 256 JPEG of 1 or 3 components and at most 64 KiB once rewritten is 422 on `image`. The photo's version is the SHA-256 of the stored bytes: the same version again changes nothing, neither the data revision nor the audit log. A change bumps the data revision and is recorded as an update of the person whose snapshot's `photo` changes.
+     * @description Any member may set the photo of any person. The client crops and scales it to a 256 × 256 JPEG; the server does not trust that. A body over 98 304 bytes (96 KiB) is 413 before it is parsed, an `image` over 87 384 characters 422 before it is decoded. The server decodes strict base64 and rewrites the JPEG keeping only its image data (no EXIF, GPS, XMP, ICC or comments); anything that is not a 256 × 256 JPEG of 1 or 3 components and at most 64 KiB once rewritten is 422 on `image`. The photo's version is the SHA-256 of the stored bytes: the same version again changes nothing, neither the data revision nor the audit log. A change bumps the data revision and is recorded as an update of the person whose snapshot's `photo` changes. The body is checked before the person is looked up, so an invalid image is 422 even for an unknown person; a valid one for an unknown person is 404.
      */
     put: operations['putPersonPhoto'];
     post?: never;
@@ -1089,6 +1089,7 @@ export interface components {
         | 'urn:performance:problem:entry-conflict'
         | 'urn:performance:problem:request-conflict'
         | 'urn:performance:problem:unsupported-media-type'
+        | 'urn:performance:problem:content-too-large'
         | 'urn:performance:problem:validation'
         | 'urn:performance:problem:too-many-attempts'
         | 'urn:performance:problem:not-found'

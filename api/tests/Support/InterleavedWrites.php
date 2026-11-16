@@ -16,15 +16,18 @@ trait InterleavedWrites
      * the next and waits until it waits too, and so on, then lets go of the row.
      *
      * @param 'matches'|'results'|'persons' $table
+     * @param string|list<string>           $ids the row held, or the rows held when the writes start on different rows
      * @param list<array{string, string}>  $writes each one's role and id, as concurrent-write.php takes them
      *
      * @return list<int> the exit codes, in the order given: 0 succeeded, 3 found its row gone
      */
-    private function interleave(string $table, string $id, array $writes): array
+    private function interleave(string $table, string|array $ids, array $writes): array
     {
         $holder = $this->otherSession();
         $holder->beginTransaction();
-        $holder->prepare("SELECT id FROM {$table} WHERE id = ? LOCK IN SHARE MODE")->execute([$id]);
+        foreach ((array) $ids as $id) {
+            $holder->prepare("SELECT id FROM {$table} WHERE id = ? LOCK IN SHARE MODE")->execute([$id]);
+        }
         $started = [];
         foreach ($writes as [$role, $subject]) {
             $process = proc_open(

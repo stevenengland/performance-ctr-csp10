@@ -351,7 +351,9 @@ paths:
         a photo and an unknown person are all 404. The only API answer that may be cached:
         every other answer of this and every route, every problem included, is `no-store`.
         Browsers load it through `<img>`, which sends the session cookie but no
-        `X-Client-Version`.
+        `X-Client-Version`; so this `GET`, unlike every other route but health, is never
+        refused as `client-outdated`, whatever the client floor (it only reads a
+        version-addressed photo).
       parameters:
         - name: v
           in: query
@@ -389,7 +391,9 @@ paths:
         components and at most 64 KiB once rewritten is 422 on `image`. The photo's version is
         the SHA-256 of the stored bytes: the same version again changes nothing, neither the
         data revision nor the audit log. A change bumps the data revision and is recorded as
-        an update of the person whose snapshot's `photo` changes.
+        an update of the person whose snapshot's `photo` changes. The body is checked before
+        the person is looked up, so an invalid image is 422 even for an unknown person; a
+        valid one for an unknown person is 404.
       requestBody:
         required: true
         content:
@@ -2170,6 +2174,7 @@ components:
             - urn:performance:problem:entry-conflict
             - urn:performance:problem:request-conflict
             - urn:performance:problem:unsupported-media-type
+            - urn:performance:problem:content-too-large
             - urn:performance:problem:validation
             - urn:performance:problem:too-many-attempts
             - urn:performance:problem:not-found

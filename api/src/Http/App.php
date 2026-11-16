@@ -113,7 +113,7 @@ final class App
         $app->addRoutingMiddleware();
         $app->add(new MigrationGate($database, $responses, $basePath . '/api/health'));
         // Before the migration gate: an outdated client is told to reload, whatever the schema's state.
-        $app->add(new ClientVersionGate($responses, $basePath . '/api/health'));
+        $app->add(new ClientVersionGate($responses, $basePath));
         $app->addErrorMiddleware(false, false, false)
             ->setDefaultErrorHandler($problems);
         // Outermost, so problem responses carry it too. An action that sets its own

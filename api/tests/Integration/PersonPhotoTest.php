@@ -6,12 +6,15 @@ namespace Performance\Tests\Integration;
 
 use Performance\Domain\Catalog\CleanJpeg;
 use Performance\Http\App;
+use Performance\Http\ClientVersionGate;
 use Performance\Http\PersonPhotoActions;
 use Performance\Tests\Support\DatabaseTestCase;
 use Performance\Tests\Support\InterleavedWrites;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Slim\Psr7\Factory\ResponseFactory;
 use Slim\Psr7\Factory\ServerRequestFactory;
 
 /**
@@ -119,6 +122,31 @@ final class PersonPhotoTest extends DatabaseTestCase
         self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
         self::assertSame($revision + 1, $this->revision());
         self::assertSame([['update', 'race', ['name' => 'Anna', 'photo' => null], ['name' => 'Anna', 'photo' => 'B']]], $this->photoEvents());
+    }
+
+    /**
+     * Two persons' first photos at once: each write holds a gap lock on the empty photo table
+     * and waits for the other's to insert, so InnoDB rolls one back, and the whole-transaction
+     * retry runs it again (ADR 0007). Whether a deadlock happens is not the point; both land.
+     */
+    public function testParallelFirstUploadsOfTwoPersonsBothLand(): void
+    {
+        $created = $this->send('POST', '/api/persons', ['name' => 'Berta'], $this->admin);
+        self::assertSame(201, $created->getStatusCode(), (string) $created->getBody());
+        $revision = $this->revision();
+
+        $exitCodes = $this->interleave('persons', ['1', '2'], [['set-photo', '1'], ['set-photo', '2']]);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame(
+            [['1', 'B'], ['2', 'B']],
+            array_map(fn(array $row): array => [$row['person_id'], $this->label($row['version'])], $this->storedPhotos()),
+        );
+        self::assertSame($revision + 2, $this->revision());
+        $events = $this->photoEvents();
+        self::assertCount(2, $events);
+        self::assertContains(['update', 'race', ['name' => 'Anna', 'photo' => null], ['name' => 'Anna', 'photo' => 'B']], $events);
+        self::assertContains(['update', 'race', ['name' => 'Berta', 'photo' => null], ['name' => 'Berta', 'photo' => 'B']], $events);
     }
 
     /** The client never composes a photo URL: the one the person carries serves the photo as it is. */
@@ -234,6 +262,32 @@ final class PersonPhotoTest extends DatabaseTestCase
         self::assertSame('image/jpeg', $response->getHeaderLine('Content-Type'));
         self::assertSame(self::fixture('metadata-cleaned.jpg'), (string) $response->getBody());
         self::assertSame('private, max-age=31536000, immutable', $response->getHeaderLine('Cache-Control'));
+    }
+
+    /**
+     * An `<img>` sends no `X-Client-Version`, so it counts as the oldest client. Once the floor
+     * rises past it, every other route refuses such a request, but the photo still loads.
+     */
+    public function testARaisedClientFloorStillServesThePhotoToAnImageThatSendsNoVersion(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+        $raised = new class ($this->app()) implements RequestHandlerInterface {
+            public function __construct(private RequestHandlerInterface $app) {}
+
+            /** The application behind a gate whose floor is far past the last version that sent none. */
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                return (new ClientVersionGate(new ResponseFactory(), '', minClientVersion: '9.0.0'))->process($request, $this->app);
+            }
+        };
+
+        $photo = $this->send('GET', self::versioned('A'), session: $this->member, app: $raised);
+        $persons = $this->send('GET', '/api/persons', session: $this->member, app: $raised);
+
+        self::assertSame(200, $photo->getStatusCode(), (string) $photo->getBody());
+        self::assertSame(self::fixture('metadata-cleaned.jpg'), (string) $photo->getBody());
+        self::assertSame(400, $persons->getStatusCode());
+        self::assertSame('urn:performance:problem:client-outdated', $this->body($persons)['type']);
     }
 
     /**
