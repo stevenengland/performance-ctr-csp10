@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 namespace Performance\Domain\Catalog;
 
+use LogicException;
 use PDO;
 use PDOException;
+use Performance\Domain\Actor;
+use Performance\Domain\AuditLog;
+use Performance\Domain\AuditOperation;
+use Performance\Domain\AuditSubjectKind;
 use Performance\Domain\Clock;
 use Performance\Domain\DatabaseError;
 use Performance\Domain\DataRevision;
@@ -16,7 +21,8 @@ use Performance\Domain\ValidationFailed;
 /**
  * Persons, drinks and factors: names trimmed, 1–40 characters and unique regardless
  * of case (the table's collation and unique key decide); drinks carry alcohol base
- * points, factors a multiplier.
+ * points, factors a multiplier. Every write names its actor and is recorded in the audit
+ * log in its own transaction, with the item's values before and after.
  */
 final readonly class Catalog
 {
@@ -28,39 +34,40 @@ final readonly class Catalog
         private PDO $pdo,
         private Clock $clock,
         private DataRevision $revision,
+        private AuditLog $audit,
     ) {}
 
     /**
      * @throws ValidationFailed for a name outside 1–40 characters
      * @throws DuplicateName when the name is taken, ignoring case
      */
-    public function createPerson(string $name): Person
+    public function createPerson(Actor $actor, string $name): Person
     {
         $name = self::validPerson($name);
 
-        return new Person($this->insert('persons', ['name' => $name]), $name);
+        return new Person($this->insert($actor, AuditSubjectKind::Person, ['name' => $name]), $name);
     }
 
     /**
      * @throws ValidationFailed for a name outside 1–40 characters or points outside 0–9 999.99
      * @throws DuplicateName when the name is taken, ignoring case
      */
-    public function createDrink(string $name, int|float|null $points): Drink
+    public function createDrink(Actor $actor, string $name, int|float|null $points): Drink
     {
         [$name, $decimal] = self::validDrink($name, $points);
 
-        return new Drink($this->insert('drinks', ['name' => $name, 'points' => $decimal]), $name, $decimal);
+        return new Drink($this->insert($actor, AuditSubjectKind::Drink, ['name' => $name, 'points' => $decimal]), $name, $decimal);
     }
 
     /**
      * @throws ValidationFailed for a name outside 1–40 characters or a multiplier outside (0, 99.99]
      * @throws DuplicateName when the name is taken, ignoring case
      */
-    public function createFactor(string $name, int|float|null $multiplier): Factor
+    public function createFactor(Actor $actor, string $name, int|float|null $multiplier): Factor
     {
         [$name, $decimal] = self::validFactor($name, $multiplier);
 
-        return new Factor($this->insert('factors', ['name' => $name, 'multiplier' => $decimal]), $name, $decimal);
+        return new Factor($this->insert($actor, AuditSubjectKind::Factor, ['name' => $name, 'multiplier' => $decimal]), $name, $decimal);
     }
 
     /**
@@ -146,10 +153,10 @@ final readonly class Catalog
      * @throws DuplicateName when another person has the name, ignoring case
      * @throws NotFound when there is no such person
      */
-    public function updatePerson(int $id, string $name): Person
+    public function updatePerson(Actor $actor, int $id, string $name): Person
     {
         $name = self::validPerson($name);
-        $this->update('persons', $id, ['name' => $name]);
+        $this->update($actor, AuditSubjectKind::Person, $id, ['name' => $name]);
 
         return new Person($id, $name);
     }
@@ -161,10 +168,10 @@ final readonly class Catalog
      * @throws DuplicateName when another drink has the name, ignoring case
      * @throws NotFound when there is no such drink
      */
-    public function updateDrink(int $id, string $name, int|float|null $points): Drink
+    public function updateDrink(Actor $actor, int $id, string $name, int|float|null $points): Drink
     {
         [$name, $decimal] = self::validDrink($name, $points);
-        $this->update('drinks', $id, ['name' => $name, 'points' => $decimal]);
+        $this->update($actor, AuditSubjectKind::Drink, $id, ['name' => $name, 'points' => $decimal]);
 
         return new Drink($id, $name, $decimal);
     }
@@ -176,10 +183,10 @@ final readonly class Catalog
      * @throws DuplicateName when another factor has the name, ignoring case
      * @throws NotFound when there is no such factor
      */
-    public function updateFactor(int $id, string $name, int|float|null $multiplier): Factor
+    public function updateFactor(Actor $actor, int $id, string $name, int|float|null $multiplier): Factor
     {
         [$name, $decimal] = self::validFactor($name, $multiplier);
-        $this->update('factors', $id, ['name' => $name, 'multiplier' => $decimal]);
+        $this->update($actor, AuditSubjectKind::Factor, $id, ['name' => $name, 'multiplier' => $decimal]);
 
         return new Factor($id, $name, $decimal);
     }
@@ -189,9 +196,9 @@ final readonly class Catalog
      *
      * @throws NotFound when there is no such person
      */
-    public function deletePerson(int $id): void
+    public function deletePerson(Actor $actor, int $id): void
     {
-        $this->delete('persons', $id);
+        $this->delete($actor, AuditSubjectKind::Person, $id);
     }
 
     /**
@@ -199,9 +206,9 @@ final readonly class Catalog
      *
      * @throws NotFound when there is no such drink
      */
-    public function deleteDrink(int $id): void
+    public function deleteDrink(Actor $actor, int $id): void
     {
-        $this->delete('drinks', $id);
+        $this->delete($actor, AuditSubjectKind::Drink, $id);
     }
 
     /**
@@ -209,9 +216,9 @@ final readonly class Catalog
      *
      * @throws NotFound when there is no such factor
      */
-    public function deleteFactor(int $id): void
+    public function deleteFactor(Actor $actor, int $id): void
     {
-        $this->delete('factors', $id);
+        $this->delete($actor, AuditSubjectKind::Factor, $id);
     }
 
     /**
@@ -295,25 +302,29 @@ final readonly class Catalog
     }
 
     /**
-     * @param array<string, string> $columns
+     * Inserts a row, records its creation and bumps the revision, all in one transaction.
+     *
+     * @param array<string, string> $columns the item's values, which are also its snapshot
      *
      * @return int the new row's id
      */
-    private function insert(string $table, array $columns): int
+    private function insert(Actor $actor, AuditSubjectKind $kind, array $columns): int
     {
         $now = Timestamp::of($this->clock->now());
         $names = [...array_keys($columns), 'created_at', 'updated_at'];
         $sql = sprintf(
             'INSERT INTO %s (%s) VALUES (%s)',
-            $table,
+            self::table($kind),
             implode(', ', $names),
             implode(', ', array_fill(0, count($names), '?')),
         );
         try {
-            return $this->revision->write(function () use ($sql, $columns, $now): int {
+            return $this->revision->write(function () use ($actor, $kind, $sql, $columns, $now): int {
                 $this->pdo->prepare($sql)->execute([...array_values($columns), $now, $now]);
+                $id = (int) $this->pdo->lastInsertId();
+                $this->audit->record($actor, AuditOperation::Create, $kind, (string) $id, null, $columns);
 
-                return (int) $this->pdo->lastInsertId();
+                return $id;
             });
         } catch (PDOException $failure) {
             throw self::duplicateOr($failure, $columns['name'] ?? '');
@@ -321,23 +332,26 @@ final readonly class Catalog
     }
 
     /**
-     * Changes a row's columns together with the revision bump.
+     * Changes a row's columns, records the change and bumps the revision, all in one transaction.
      *
-     * @param array<string, string> $columns
+     * @param array<string, string> $columns the item's new values, which are also its snapshot
      *
      * @throws NotFound when there is no such row
      * @throws DuplicateName when the new name is taken, ignoring case
      */
-    private function update(string $table, int $id, array $columns): void
+    private function update(Actor $actor, AuditSubjectKind $kind, int $id, array $columns): void
     {
         $now = Timestamp::of($this->clock->now());
+        $table = self::table($kind);
         $assignments = implode(', ', array_map(static fn(string $column): string => "{$column} = ?", array_keys($columns)));
         try {
-            $this->revision->write(function () use ($table, $id, $columns, $assignments, $now): void {
-                // Locked first, so an unchanged row (same values) is still told apart from a missing one.
-                $this->one("SELECT id FROM {$table} WHERE id = ? FOR UPDATE", $id);
+            $this->revision->write(function () use ($actor, $kind, $table, $id, $columns, $assignments, $now): void {
+                // Locked first, so the values before are the ones this change replaces, and an
+                // unchanged row (same values) is still told apart from a missing one.
+                $before = $this->snapshot($kind, $id);
                 $this->pdo->prepare("UPDATE {$table} SET {$assignments}, updated_at = ? WHERE id = ?")
                     ->execute([...array_values($columns), $now, $id]);
+                $this->audit->record($actor, AuditOperation::Update, $kind, (string) $id, $before, $columns);
             });
         } catch (PDOException $failure) {
             throw self::duplicateOr($failure, $columns['name'] ?? '');
@@ -345,19 +359,49 @@ final readonly class Catalog
     }
 
     /**
-     * Deletes a row together with the revision bump; foreign keys decide what happens to its entries.
+     * Records a row's deletion, deletes it and bumps the revision, all in one transaction;
+     * foreign keys decide what happens to its entries.
      *
      * @throws NotFound when there is no such row
      */
-    private function delete(string $table, int $id): void
+    private function delete(Actor $actor, AuditSubjectKind $kind, int $id): void
     {
-        $this->revision->write(function () use ($table, $id): void {
-            $statement = $this->pdo->prepare("DELETE FROM {$table} WHERE id = ?");
-            $statement->execute([$id]);
-            if ($statement->rowCount() === 0) {
-                throw new NotFound((string) $id);
-            }
+        $this->revision->write(function () use ($actor, $kind, $id): void {
+            $before = $this->snapshot($kind, $id);
+            $this->audit->record($actor, AuditOperation::Delete, $kind, (string) $id, $before, null);
+            $this->pdo->prepare('DELETE FROM ' . self::table($kind) . ' WHERE id = ?')->execute([$id]);
         });
+    }
+
+    /**
+     * Locks an item's row for the rest of the transaction and reads its values as the audit
+     * log keeps them: the columns its writes set, decimals as fixed-scale strings.
+     *
+     * @return array<string, string>
+     *
+     * @throws NotFound when there is no such row
+     */
+    private function snapshot(AuditSubjectKind $kind, int $id): array
+    {
+        $columns = match ($kind) {
+            AuditSubjectKind::Person => 'name',
+            AuditSubjectKind::Drink => 'name, points',
+            AuditSubjectKind::Factor => 'name, multiplier',
+            AuditSubjectKind::Entry => throw new LogicException('Entries are not catalog items'),
+        };
+        $row = $this->one("SELECT {$columns} FROM " . self::table($kind) . ' WHERE id = ? FOR UPDATE', $id);
+
+        return array_map(strval(...), $row);
+    }
+
+    private static function table(AuditSubjectKind $kind): string
+    {
+        return match ($kind) {
+            AuditSubjectKind::Person => 'persons',
+            AuditSubjectKind::Drink => 'drinks',
+            AuditSubjectKind::Factor => 'factors',
+            AuditSubjectKind::Entry => throw new LogicException('Entries are not catalog items'),
+        };
     }
 
     /**

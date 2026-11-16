@@ -36,6 +36,7 @@ final class App
         $accounts = new AccountActions($database);
         $catalog = new CatalogActions($database);
         $entries = new EntryActions($database);
+        $audit = new AuditActions($database);
 
         // Open routes: health and sign-in. Every other route requires a session.
         $app->get('/api/health', new HealthAction($database, $config->appVersion));
@@ -72,6 +73,7 @@ final class App
         $member($app->put($entry, $entries->put(...)));
         $member($app->delete($entry, $entries->delete(...)));
         $member($app->get('/api/scoreboard', new ScoreboardAction($database)));
+        $admin($app->get('/api/audit', $audit->list(...)));
 
         $app->addRoutingMiddleware();
         $app->add(new MigrationGate($database, $responses, $basePath . '/api/health'));
