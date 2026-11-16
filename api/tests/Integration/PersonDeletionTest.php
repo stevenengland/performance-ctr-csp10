@@ -187,7 +187,7 @@ final class PersonDeletionTest extends DatabaseTestCase
         $cause = $events[0]['id'];
         self::assertSame(
             [
-                ['person', (string) self::BEN, 'delete', ['name' => 'Ben'], null, null],
+                ['person', (string) self::BEN, 'delete', ['name' => 'Ben', 'photo' => null], null, null],
                 ['entry', $entry, 'delete', 'the entry', null, $cause],
                 [
                     'match',

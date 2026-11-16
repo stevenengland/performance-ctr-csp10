@@ -47,9 +47,9 @@ final class AuditLogTest extends DatabaseTestCase
         yield 'person' => [
             'persons',
             ['name' => ' Daniel '],
-            ['name' => 'Daniel'],
+            ['name' => 'Daniel', 'photo' => null],
             ['name' => 'Dani'],
-            ['name' => 'Dani'],
+            ['name' => 'Dani', 'photo' => null],
         ];
         yield 'factor' => [
             'factors',
@@ -233,7 +233,7 @@ final class AuditLogTest extends DatabaseTestCase
                 self::event(4, 'create', 'entry', self::ENTRY, $actor, null, self::entrySnapshot(2, ['name' => 'Happy Hour', 'multiplier' => 2])),
                 self::event(3, 'create', 'factor', '1', $actor, null, ['name' => 'Happy Hour', 'multiplier' => 2]),
                 self::event(2, 'create', 'drink', '1', $actor, null, ['name' => 'Bier', 'points' => 1.5]),
-                self::event(1, 'create', 'person', '1', $actor, null, ['name' => 'Daniel']),
+                self::event(1, 'create', 'person', '1', $actor, null, ['name' => 'Daniel', 'photo' => null]),
             ],
             $recorded,
         );
@@ -416,7 +416,7 @@ final class AuditLogTest extends DatabaseTestCase
     public static function cascadingDeletions(): iterable
     {
         yield 'drink' => ['drinks', 'drink', ['name' => 'Bier', 'points' => 1.5], 'Bier'];
-        yield 'person' => ['persons', 'person', ['name' => 'Daniel'], 'Daniel'];
+        yield 'person' => ['persons', 'person', ['name' => 'Daniel', 'photo' => null], 'Daniel'];
     }
 
     /**

@@ -24,6 +24,7 @@ final class PersonPhotoTest extends DatabaseTestCase
     private const MEMBER_PASSWORD = 'daniels-passwort';
     private const PHOTO = '/api/persons/1/photo';
     private const SUCCEEDED = 0;
+    private const NOT_FOUND = 3;
 
     private string $admin;
     private string $member;
@@ -216,6 +217,110 @@ final class PersonPhotoTest extends DatabaseTestCase
         self::assertSame([], $this->photoEvents());
     }
 
+    /**
+     * Every person event's snapshot is `{name, photo}`, read under the write's locks: a rename
+     * carries the unchanged version and a deletion the version it deleted.
+     */
+    public function testEveryPersonEventCarriesTheNameAndThePhoto(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+        $this->send('PATCH', '/api/persons/1', ['name' => 'Berta'], $this->member);
+        $this->send('DELETE', '/api/persons/1', session: $this->member);
+
+        self::assertSame(
+            [
+                ['create', self::ADMIN, null, ['name' => 'Anna', 'photo' => null]],
+                ['update', self::MEMBER, ['name' => 'Anna', 'photo' => null], ['name' => 'Anna', 'photo' => 'A']],
+                ['update', self::MEMBER, ['name' => 'Anna', 'photo' => 'A'], ['name' => 'Berta', 'photo' => 'A']],
+                ['delete', self::MEMBER, ['name' => 'Berta', 'photo' => 'A'], null],
+            ],
+            $this->personEvents(),
+        );
+    }
+
+    public function testDeletingAPersonDeletesTheirPhoto(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+
+        $response = $this->send('DELETE', '/api/persons/1', session: $this->member);
+
+        self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame([], $this->storedPhotos());
+    }
+
+    /**
+     * Each race in both orders: the writes take the person row, then its photo row, so they
+     * run in turn, without a deadlock, and each records what it found when it got the lock.
+     * The racing photo is `B`; an `A` was set before where the race needs one.
+     *
+     * @return iterable<string, array{bool, list<array{string, string}>, list<int>, list<array{string, array<string, mixed>|null, array<string, mixed>|null}>}>
+     */
+    public static function races(): iterable
+    {
+        $anna = static fn(?string $photo): array => ['name' => 'Anna', 'photo' => $photo];
+        $berta = static fn(?string $photo): array => ['name' => 'Berta', 'photo' => $photo];
+
+        yield 'set, then delete the person' => [
+            false,
+            [['set-photo', '1'], ['delete-person', '1']],
+            [self::SUCCEEDED, self::SUCCEEDED],
+            [['update', $anna(null), $anna('B')], ['delete', $anna('B'), null]],
+        ];
+        yield 'delete the person, then set' => [
+            false,
+            [['delete-person', '1'], ['set-photo', '1']],
+            [self::SUCCEEDED, self::NOT_FOUND],
+            [['delete', $anna(null), null]],
+        ];
+        yield 'remove, then delete the person' => [
+            true,
+            [['remove-photo', '1'], ['delete-person', '1']],
+            [self::SUCCEEDED, self::SUCCEEDED],
+            [['update', $anna('A'), $anna(null)], ['delete', $anna(null), null]],
+        ];
+        yield 'delete the person, then remove' => [
+            true,
+            [['delete-person', '1'], ['remove-photo', '1']],
+            [self::SUCCEEDED, self::NOT_FOUND],
+            [['delete', $anna('A'), null]],
+        ];
+        yield 'rename, then replace' => [
+            true,
+            [['rename-person', '1'], ['set-photo', '1']],
+            [self::SUCCEEDED, self::SUCCEEDED],
+            [['update', $anna('A'), $berta('A')], ['update', $berta('A'), $berta('B')]],
+        ];
+        yield 'replace, then rename' => [
+            true,
+            [['set-photo', '1'], ['rename-person', '1']],
+            [self::SUCCEEDED, self::SUCCEEDED],
+            [['update', $anna('A'), $anna('B')], ['update', $anna('B'), $berta('B')]],
+        ];
+    }
+
+    /**
+     * @param list<array{string, string}>                                                     $writes
+     * @param list<int>                                                                       $exitCodes
+     * @param list<array{string, array<string, mixed>|null, array<string, mixed>|null}> $events    by the racing writes, oldest first
+     */
+    #[DataProvider('races')]
+    public function testAPhotoWriteRacingAPersonWriteRunsInTurnAndRecordsWhatItFound(bool $withPhoto, array $writes, array $exitCodes, array $events): void
+    {
+        if ($withPhoto) {
+            $this->put('metadata.jpg', $this->member);
+        }
+        $deadlocks = $this->deadlocks();
+
+        self::assertSame($exitCodes, $this->interleave('persons', '1', $writes));
+
+        self::assertSame($deadlocks, $this->deadlocks(), 'no deadlock');
+        $stillThere = $this->rows('SELECT name FROM persons') !== [];
+        $photos = array_map(fn(array $row): string => $this->label($row['version']), $this->storedPhotos());
+        self::assertSame($stillThere ? ['B'] : [], $photos, 'no orphan photo');
+        $racing = array_values(array_filter($this->personEvents(), static fn(array $event): bool => $event[1] === 'race'));
+        self::assertSame($events, array_map(static fn(array $event): array => [$event[0], $event[2], $event[3]], $racing));
+    }
+
     private function put(string $fixture, string $session, string $path = self::PHOTO): ResponseInterface
     {
         return $this->send('PUT', $path, ['image' => base64_encode(self::fixture($fixture))], $session);
@@ -337,5 +442,13 @@ final class PersonPhotoTest extends DatabaseTestCase
         $rows = $this->rows('SELECT CAST(revision AS CHAR) AS revision FROM data_revision');
 
         return $rows === [] ? 0 : (int) $rows[0]['revision'];
+    }
+
+    private function deadlocks(): int
+    {
+        $status = $this->otherSession()->query("SHOW GLOBAL STATUS LIKE 'Innodb_deadlocks'");
+        self::assertNotFalse($status);
+
+        return (int) $status->fetchColumn(1);
     }
 }
