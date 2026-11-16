@@ -27,7 +27,10 @@ final readonly class Sessions
 
     /**
      * The attempt is reserved in the database before the password is checked, so parallel
-     * requests cannot all pass one read of the failure count (see `reserveAttempt`).
+     * requests cannot all pass one read of the failure count (see `reserveAttempt`). It stays
+     * pending while the password is checked and then becomes a recorded failure, or, on
+     * success, is removed together with the failures that had finished; failures still being
+     * checked by parallel requests are not forgotten.
      *
      * @throws TooManyAttempts after five failures for this user name and address in the window
      * @throws InvalidCredentials for an unknown user name or a wrong password alike
@@ -35,15 +38,16 @@ final readonly class Sessions
     public function signIn(string $userName, string $password, string $clientAddress): IssuedSession
     {
         $userName = mb_substr(trim($userName), 0, 255, 'UTF-8');
-        $this->reserveAttempt($userName, $clientAddress);
-        $credential = $this->accounts->verify($userName, $password);
-        if ($credential === null) {
-            // The reservation stays as the recorded failure.
-            throw new InvalidCredentials();
+        $attempt = $this->reserveAttempt($userName, $clientAddress);
+        try {
+            $credential = $this->accounts->verify($userName, $password) ?? throw new InvalidCredentials();
+            // A password reset or change in the meantime refuses it.
+            $session = $this->start($credential);
+        } catch (InvalidCredentials $failure) {
+            $this->recordFailure($attempt);
+            throw $failure;
         }
-        // A password reset or change in the meantime refuses it, and the reservation stays.
-        $session = $this->start($credential);
-        $this->forgetFailures($userName, $clientAddress);
+        $this->forgetFailures($attempt, $userName, $clientAddress);
 
         return $session;
     }
@@ -170,37 +174,56 @@ final readonly class Sessions
     }
 
     /**
-     * Records this attempt first and only then counts the attempts in the window, itself
-     * included. Each insert commits before its count, so of any set of parallel attempts
-     * the k-th to count sees at least k rows: no more than MAX_FAILURES attempts ever get
-     * past the count, however many arrive at once. A refused attempt removes its row
-     * again, so refusals do not extend the lock; a failed one keeps it as the failure.
-     * Attempts that left the window are dropped here, so the table stays small.
+     * Records this attempt, pending, first and only then counts the attempts in the window,
+     * itself and pending ones included. Each insert commits before its count, so of any set of
+     * parallel attempts the k-th to count sees at least k rows: no more than MAX_FAILURES
+     * attempts ever get past the count, however many arrive at once. A refused attempt removes
+     * its row again, so refusals do not extend the lock. Attempts that left the window are
+     * dropped here, pending ones too (a request that never finished), so the table stays small.
+     *
+     * @return int the attempt's id
      *
      * @throws TooManyAttempts
      */
-    private function reserveAttempt(string $userName, string $clientAddress): void
+    private function reserveAttempt(string $userName, string $clientAddress): int
     {
         $windowStart = Timestamp::of($this->windowStart());
         $this->pdo->prepare('DELETE FROM login_attempts WHERE attempted_at <= ?')->execute([$windowStart]);
-        $this->pdo->prepare('INSERT INTO login_attempts (user_name, client_address, attempted_at) VALUES (?, ?, ?)')
+        $this->pdo->prepare('INSERT INTO login_attempts (user_name, client_address, attempted_at, pending) VALUES (?, ?, ?, 1)')
             ->execute([$userName, $clientAddress, Timestamp::of($this->clock->now())]);
-        $reservation = (int) $this->pdo->lastInsertId();
+        $attempt = (int) $this->pdo->lastInsertId();
         $count = $this->pdo->prepare(
             'SELECT COUNT(*) FROM login_attempts WHERE user_name = ? AND client_address = ? AND attempted_at > ?',
         );
         $count->execute([$userName, $clientAddress, $windowStart]);
         if ((int) $count->fetchColumn() > self::MAX_FAILURES) {
-            $this->pdo->prepare('DELETE FROM login_attempts WHERE id = ?')->execute([$reservation]);
+            $this->pdo->prepare('DELETE FROM login_attempts WHERE id = ?')->execute([$attempt]);
 
             throw new TooManyAttempts();
         }
+
+        return $attempt;
     }
 
-    private function forgetFailures(string $userName, string $clientAddress): void
+    /** The attempt's password check failed: its row stays as a failure in the window. */
+    private function recordFailure(int $attempt): void
     {
-        $this->pdo->prepare('DELETE FROM login_attempts WHERE user_name = ? AND client_address = ?')
-            ->execute([$userName, $clientAddress]);
+        $this->pdo->prepare('UPDATE login_attempts SET pending = 0 WHERE id = ?')->execute([$attempt]);
+    }
+
+    /**
+     * Removes the successful attempt and the failures of this user name and address that had
+     * finished, by primary key, so the delete locks only those rows (a finished attempt never
+     * turns pending again). Attempts still pending belong to parallel requests: they stay,
+     * and count once they fail.
+     */
+    private function forgetFailures(int $attempt, string $userName, string $clientAddress): void
+    {
+        $finished = $this->pdo->prepare('SELECT id FROM login_attempts WHERE user_name = ? AND client_address = ? AND pending = 0');
+        $finished->execute([$userName, $clientAddress]);
+        $ids = [$attempt, ...array_map(intval(...), $finished->fetchAll(PDO::FETCH_COLUMN))];
+        $this->pdo->prepare('DELETE FROM login_attempts WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')')
+            ->execute($ids);
     }
 
     private function windowStart(): DateTimeImmutable
