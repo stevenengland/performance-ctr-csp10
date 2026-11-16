@@ -211,6 +211,59 @@ final class MatchesTest extends DatabaseTestCase
         }
     }
 
+    public function testAGameCountsItsMatchesOfEveryRun(): void
+    {
+        $this->put(self::ANNA_WINS);
+        $this->send('POST', '/api/games/1/restart', [], $this->session);
+        $this->put([...self::ANNA_WINS, 'outcome' => 'draw'], self::OTHER_MATCH);
+        $this->put([...self::ANNA_WINS, 'gameId' => 2], '1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c');
+
+        $game = $this->body($this->send('GET', '/api/games/1', session: $this->session));
+
+        self::assertSame(2, $game['matchCount']);
+        self::assertSame(0, $game['resultCount']);
+    }
+
+    /**
+     * A game's deletion takes its matches of every run with it. Before they go, each is
+     * recorded as deleted, caused by the game's deletion, with the names it had; a side
+     * already cleared by a person's deletion stays null.
+     */
+    public function testDeletingAGameRecordsTheDeletionOfEachOfItsMatchesOfEveryRun(): void
+    {
+        $this->put(self::ANNA_WINS);
+        $this->send('POST', '/api/games/1/restart', [], $this->session);
+        $this->put(['gameId' => 1, 'firstPersonId' => 3, 'secondPersonId' => 2, 'outcome' => 'draw'], self::OTHER_MATCH);
+        $this->put([...self::ANNA_WINS, 'gameId' => 2], '1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c');
+        $this->send('DELETE', '/api/persons/3', session: $this->session);
+
+        $deleted = $this->send('DELETE', '/api/games/1', session: $this->session);
+
+        self::assertSame(204, $deleted->getStatusCode(), (string) $deleted->getBody());
+        $events = $this->rows(
+            "SELECT e.subject_kind, e.subject_id, e.operation, e.before_json, c.subject_kind AS cause_kind, c.subject_id AS cause_id
+               FROM audit_events e LEFT JOIN audit_events c ON c.id = e.cause_id
+              WHERE e.operation = 'delete' AND e.subject_kind IN ('game', 'match') ORDER BY e.id",
+        );
+        self::assertSame(
+            [
+                ['game', '1', null, null],
+                ['match', self::OTHER_MATCH, ['game' => 'Schach', 'first' => null, 'second' => 'Ben', 'outcome' => 'draw'], ['game', '1']],
+                ['match', self::MATCH, ['game' => 'Schach', 'first' => 'Anna', 'second' => 'Ben', 'outcome' => 'first'], ['game', '1']],
+            ],
+            array_map(
+                static fn(array $event): array => [
+                    $event['subject_kind'],
+                    $event['subject_id'],
+                    $event['subject_kind'] === 'match' ? json_decode((string) $event['before_json'], true) : null,
+                    $event['cause_kind'] === null ? null : [$event['cause_kind'], $event['cause_id']],
+                ],
+                $events,
+            ),
+        );
+        self::assertSame([['id' => '1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c']], $this->rows('SELECT id FROM matches'), "another game's match stays");
+    }
+
     /**
      * The match events of the audit log, newest first.
      *

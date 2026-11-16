@@ -75,13 +75,10 @@ final class Database
         return $this->entries ??= new EntryLedger($this->pdo(), $this->clock, $this->revision(), $this->audit(), $this->idempotency());
     }
 
-    /**
-     * Games with their dependents: one composite, which Matches and Results join as they
-     * arrive. It has no members yet, so a game has no rows that go with it.
-     */
+    /** Games with their dependents: one composite of the modules whose rows go with a game (Matches; Results to come). */
     public function games(): Games
     {
-        return $this->games ??= new Games($this->pdo(), $this->clock, $this->revision(), $this->audit(), new CompositeGameDependents());
+        return $this->games ??= new Games($this->pdo(), $this->clock, $this->revision(), $this->audit(), new CompositeGameDependents($this->matches()));
     }
 
     public function matches(): Matches

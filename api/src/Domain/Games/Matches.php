@@ -14,6 +14,7 @@ use Performance\Domain\AuditSubjectKind;
 use Performance\Domain\Clock;
 use Performance\Domain\DatabaseError;
 use Performance\Domain\DataRevision;
+use Performance\Domain\GameDependents;
 use Performance\Domain\Idempotency;
 use Performance\Domain\NotFound;
 use Performance\Domain\RequestConflict;
@@ -22,7 +23,7 @@ use Performance\Domain\ValidationFailed;
 
 /**
  * The matches of duel games, end to end: record one idempotently on the client's UUID, undo
- * it, and rank a game's run. Every write names its actor and is recorded in the audit log in its own
+ * it, and rank a game's run. As a GameDependents member, a game's matches go with it. Every write names its actor and is recorded in the audit log in its own
  * transaction, together with the data revision bump; a replay, a conflict or a failure records
  * nothing.
  *
@@ -35,14 +36,19 @@ use Performance\Domain\ValidationFailed;
  *
  * @phpstan-type MatchSnapshot array{game: string, first: string|null, second: string|null, outcome: string}
  */
-final readonly class Matches
+final readonly class Matches implements GameDependents
 {
     /** The fingerprint tag of a match request: a UUID is unique across entries, matches and results. */
     private const KIND = 'match';
     private const PERSON_ERROR = 'Person nicht gefunden.';
-    /** A match with its game's and its persons' names, as the audit log keeps it; a cleared side is null. */
+    /**
+     * Matches with their game's and their persons' names, as the audit log keeps them (a cleared
+     * side is null), read through the index given (`%s`) and then their references, in exactly
+     * that order: a locking read locks every row it scans, so it must scan only the matches the
+     * transaction holds already.
+     */
     private const SNAPSHOT = 'SELECT STRAIGHT_JOIN m.id, g.name AS game, f.name AS first, s.name AS second, m.outcome
-        FROM matches m JOIN games g ON g.id = m.game_id
+        FROM matches m FORCE INDEX (%s) JOIN games g ON g.id = m.game_id
         LEFT JOIN persons f ON f.id = m.first_person_id LEFT JOIN persons s ON s.id = m.second_person_id';
 
     public function __construct(
@@ -174,6 +180,42 @@ final readonly class Matches
         );
     }
 
+    /** How many matches of every run belong to the game; read without locks, for the delete dialog. */
+    public function count(int $gameId): int
+    {
+        $statement = $this->pdo->prepare('SELECT COUNT(*) FROM matches WHERE game_id = ?');
+        $statement->execute([$gameId]);
+
+        return (int) $statement->fetchColumn();
+    }
+
+    /**
+     * Locks the game's matches of every run for update, then records each one's deletion,
+     * caused by the game's, with its names as they are now. The game row is locked already,
+     * so no match can be recorded for the game until its deletion ends.
+     */
+    public function recordRemoval(Actor $actor, int $gameId, int $cause): void
+    {
+        // The index is forced so the locks cover exactly the game's matches, whatever the
+        // optimizer would pick on a small table.
+        $locked = $this->pdo->prepare('SELECT id FROM matches FORCE INDEX (matches_game) WHERE game_id = ? FOR UPDATE');
+        $locked->execute([$gameId]);
+        if ($locked->fetchAll(PDO::FETCH_COLUMN) === []) {
+            return;
+        }
+        $statement = $this->pdo->prepare(sprintf(self::SNAPSHOT, 'matches_game') . ' WHERE m.game_id = ? ORDER BY m.id LOCK IN SHARE MODE');
+        $statement->execute([$gameId]);
+        /** @var list<array<string, scalar|null>> $rows */
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+        $this->audit->recordCaused(
+            $actor,
+            $cause,
+            AuditOperation::Delete,
+            AuditSubjectKind::Match,
+            array_map(static fn(array $row): array => [(string) $row['id'], self::snapshotOf($row), null], $rows),
+        );
+    }
+
     /**
      * The checks that need no database: two persons, and they differ; an outcome the API knows.
      *
@@ -228,7 +270,7 @@ final readonly class Matches
      */
     private function snapshot(string $id): array
     {
-        $statement = $this->pdo->prepare(self::SNAPSHOT . ' WHERE m.id = ? LOCK IN SHARE MODE');
+        $statement = $this->pdo->prepare(sprintf(self::SNAPSHOT, 'PRIMARY') . ' WHERE m.id = ? LOCK IN SHARE MODE');
         $statement->execute([$id]);
         /** @var array<string, scalar|null>|false $row */
         $row = $statement->fetch(PDO::FETCH_ASSOC);
