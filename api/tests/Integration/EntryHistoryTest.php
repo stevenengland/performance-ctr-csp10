@@ -30,7 +30,7 @@ final class EntryHistoryTest extends DatabaseTestCase
         $this->send('POST', '/api/factors', ['name' => 'Happy Hour', 'multiplier' => 2], $this->session);
     }
 
-    public function testListsAPersonsEntriesSinceFromNewestFirstWithDrinkQuantityFactorTimeAndAccount(): void
+    public function testListsAPersonsEntriesSinceFromNewestFirstWithDrinkQuantityFactorTimeAccountAndWhetherTheyWait(): void
     {
         $this->createAccount('anna', 'annas-startpasswort');
         $anna = $this->signIn('anna', 'annas-startpasswort');
@@ -41,6 +41,7 @@ final class EntryHistoryTest extends DatabaseTestCase
         $this->add(self::OTHER_PERSON, ['personId' => 2, 'drinkId' => 1, 'quantity' => 3]);
         $this->clock->advance('PT11M'); // 23:41 UTC
         $this->add(self::SECOND, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2, 'factorId' => 1], $anna);
+        $this->verifyDirectly('entries', self::FIRST);
 
         $response = $this->history('personId=1&from=' . self::FROM);
 
@@ -53,6 +54,7 @@ final class EntryHistoryTest extends DatabaseTestCase
                 'factor' => ['id' => 1, 'name' => 'Happy Hour', 'multiplier' => 2],
                 'createdAt' => '2026-11-14T23:41:00.000Z',
                 'accountName' => 'anna',
+                'pending' => true,
             ],
             [
                 'id' => self::FIRST,
@@ -61,6 +63,7 @@ final class EntryHistoryTest extends DatabaseTestCase
                 'factor' => null,
                 'createdAt' => '2026-11-14T23:30:00.000Z',
                 'accountName' => self::ADMIN,
+                'pending' => false,
             ],
         ]], $this->body($response));
     }

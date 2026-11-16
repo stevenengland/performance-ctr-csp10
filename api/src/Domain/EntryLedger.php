@@ -65,7 +65,8 @@ final readonly class EntryLedger
     }
 
     /**
-     * A person's entries since `from` (the start of the viewer's day), newest first.
+     * A person's entries since `from` (the start of the viewer's day), newest first, pending
+     * ones included and marked.
      *
      * @return list<HistoryEntry>
      *
@@ -78,7 +79,7 @@ final readonly class EntryLedger
         }
         $statement = $this->pdo->prepare(
             'SELECT e.id, e.drink_id, d.name AS drink_name, e.quantity, e.factor_id, f.name AS factor_name, f.multiplier,
-                    e.created_at, a.user_name AS account_name
+                    e.created_at, a.user_name AS account_name, e.pending
              FROM entries e JOIN drinks d ON d.id = e.drink_id
              LEFT JOIN factors f ON f.id = e.factor_id LEFT JOIN accounts a ON a.id = e.account_id
              WHERE e.person_id = ? AND e.created_at >= ?
@@ -104,6 +105,7 @@ final readonly class EntryLedger
             $row['factor_id'] === null ? null : new HistoryFactor((int) $row['factor_id'], (string) $row['factor_name'], (string) $row['multiplier']),
             new DateTimeImmutable((string) $row['created_at'], new DateTimeZone('UTC')),
             $row['account_name'] === null ? null : (string) $row['account_name'],
+            (int) $row['pending'] === 1,
         );
     }
 

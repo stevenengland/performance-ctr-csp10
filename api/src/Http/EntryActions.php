@@ -79,7 +79,7 @@ final readonly class EntryActions
     }
 
     /**
-     * @return array{id: string, drink: array{id: int, name: string}, quantity: int, factor: array{id: int, name: string, multiplier: int|float}|null, createdAt: string, accountName: string|null}
+     * @return array{id: string, drink: array{id: int, name: string}, quantity: int, factor: array{id: int, name: string, multiplier: int|float}|null, createdAt: string, accountName: string|null, pending: bool}
      */
     private static function historyEntry(HistoryEntry $entry): array
     {
@@ -90,6 +90,7 @@ final readonly class EntryActions
             'factor' => $entry->factor === null ? null : self::factor($entry->factor),
             'createdAt' => Instant::format($entry->createdAt),
             'accountName' => $entry->accountName,
+            'pending' => $entry->pending,
         ];
     }
 

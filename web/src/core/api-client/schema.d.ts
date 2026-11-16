@@ -766,6 +766,8 @@ export interface components {
       createdAt: string;
       /** @description User name of the account that logged it; null once that account was deleted */
       accountName: string | null;
+      /** @description Whether the entry still waits for verification by another account; a pending entry does not count */
+      pending: boolean;
     };
     Scoreboard: {
       /** @description Persons with at least one verified entry since `from`, ranked by score, ties by name; persons without entries are absent */

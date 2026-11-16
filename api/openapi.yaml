@@ -1550,7 +1550,7 @@ components:
     HistoryEntry:
       type: object
       additionalProperties: false
-      required: [id, drink, quantity, factor, createdAt, accountName]
+      required: [id, drink, quantity, factor, createdAt, accountName, pending]
       properties:
         id:
           type: string
@@ -1587,6 +1587,9 @@ components:
         accountName:
           type: [string, 'null']
           description: User name of the account that logged it; null once that account was deleted
+        pending:
+          type: boolean
+          description: Whether the entry still waits for verification by another account; a pending entry does not count
     Scoreboard:
       type: object
       additionalProperties: false
