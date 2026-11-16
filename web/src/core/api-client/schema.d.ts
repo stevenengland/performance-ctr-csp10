@@ -370,6 +370,53 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/games/{id}/standings': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /**
+     * The game's ranking in its current run, tagged with the game's kind
+     * @description Duel game: every person with a match in the current run, by points (win 1, draw ½, loss 0), then wins, then name. Rankings are computed from the stored outcome, so a deleted person's side counts for no one and never changes the other side's result. Points game: no rows until results can be recorded. The ETag is the data revision, read in the same snapshot as the ranking; every game and match write bumps it, so `If-None-Match` with the last ETag answers 304 without ranking while nothing changed.
+     */
+    get: operations['getStandings'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/matches/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match, also its retry key; unique across entries and matches. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Record a match of a duel game, idempotently on its id
+     * @description The match is recorded in the game's current run, with the account and the server time (UTC). A repeated request with the same id and content answers 200 with the original match and records nothing, even after the match was deleted or its game deleted; the same id with other content, or an id already used for an entry, answers 409 `request-conflict`. Ids are remembered for seven days. An unknown game is 404; the same person twice, an unknown person, an unknown outcome, `draw` while the game's `drawsAllowed` is off, or a points game is 422.
+     */
+    put: operations['recordMatch'];
+    post?: never;
+    /** Delete a match (undo); its id stays known, so a late retry cannot bring it back */
+    delete: operations['deleteMatch'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/audit': {
     parameters: {
       query?: never;
@@ -379,7 +426,7 @@ export interface paths {
     };
     /**
      * A page of audit events, newest first (admins only)
-     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink, a factor or a game (a restart is an update of its `run` and `startedAt`), and every entry counted or deleted, recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
+     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink, a factor or a game (a restart is an update of its `run` and `startedAt`), and every entry counted or deleted and every match recorded or deleted (a game's deletion records one for each of its matches, caused by it), recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry or match request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
      */
     get: operations['listAuditEvents'];
     put?: never;
@@ -601,6 +648,79 @@ export interface components {
       /** @description Points games; omitted, it stays */
       lowerWins?: boolean;
     };
+    /**
+     * @description How a match ended, from the first person's side
+     * @enum {string}
+     */
+    Outcome: 'first' | 'second' | 'draw';
+    NewMatch: {
+      gameId: number;
+      firstPersonId: number;
+      /** @description Another person than `firstPersonId` */
+      secondPersonId: number;
+      outcome: components['schemas']['Outcome'];
+    };
+    Match: {
+      id: string;
+      gameId: number;
+      firstPersonId: number;
+      secondPersonId: number;
+      outcome: components['schemas']['Outcome'];
+      /**
+       * Format: date-time
+       * @description Server time of the first request, UTC
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+    };
+    Standings:
+      | components['schemas']['DuelStandings']
+      | components['schemas']['PointsStandings'];
+    DuelStandings: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      kind: 'duel';
+      /**
+       * Format: date-time
+       * @description When the current run began, UTC
+       */
+      startedAt: string;
+      /** @description Ranked by points, then wins, then name; persons without a match in the run are absent */
+      rows: components['schemas']['DuelRow'][];
+    };
+    DuelRow: {
+      personId: number;
+      name: string;
+      /** @description Win 1, draw 0.5, loss 0 */
+      points: number;
+      wins: number;
+      draws: number;
+      losses: number;
+      played: number;
+    };
+    PointsStandings: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      kind: 'points';
+      /**
+       * Format: date-time
+       * @description When the current run began, UTC
+       */
+      startedAt: string;
+      lowerWins: boolean;
+      /** @description Ranked by the sum in the game's direction, then name; empty until results can be recorded */
+      rows: components['schemas']['PointsRow'][];
+    };
+    PointsRow: {
+      personId: number;
+      name: string;
+      sum: number;
+      results: number;
+    };
     AuditPage: {
       /** @description Newest first, by id */
       events: components['schemas']['AuditEvent'][];
@@ -619,7 +739,7 @@ export interface components {
       /** @enum {string} */
       operation: 'create' | 'update' | 'delete';
       /** @enum {string} */
-      subjectKind: 'entry' | 'person' | 'drink' | 'factor' | 'game';
+      subjectKind: 'entry' | 'person' | 'drink' | 'factor' | 'game' | 'match';
       /** @description The subject's id as text (an integer for persons, drinks, factors and games, the UUID for entries) */
       subjectId: string;
       /** @description The account that made the change, as it was then; kept after the account is renamed or deleted */
@@ -636,12 +756,12 @@ export interface components {
         /** @description The causing event's id */
         id: number;
         /** @enum {string} */
-        subjectKind: 'entry' | 'person' | 'drink' | 'factor' | 'game';
+        subjectKind: 'entry' | 'person' | 'drink' | 'factor' | 'game' | 'match';
         /** @description The causing event's subject name, as that event recorded it */
         name: string;
       };
     };
-    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null, a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
+    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null, a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome}` with the game's and both persons' names (a person deleted before is null). Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
     AuditSnapshot: {
       name?: string;
       points?: number;
@@ -655,6 +775,10 @@ export interface components {
       run?: number;
       /** Format: date-time */
       startedAt?: string;
+      game?: string;
+      first?: string | null;
+      second?: string | null;
+      outcome?: components['schemas']['Outcome'];
       factor?:
         | null
         | ({
@@ -705,6 +829,7 @@ export interface components {
         | 'urn:performance:problem:duplicate-name'
         | 'urn:performance:problem:last-admin'
         | 'urn:performance:problem:entry-conflict'
+        | 'urn:performance:problem:request-conflict'
         | 'urn:performance:problem:unsupported-media-type'
         | 'urn:performance:problem:validation'
         | 'urn:performance:problem:too-many-attempts'
@@ -747,6 +872,8 @@ export interface components {
   parameters: {
     /** @description The game's id; anything but a positive integer is 404 */
     GameId: number;
+    /** @description The client-generated UUID v4 (lower case) of a match, also its retry key; unique across entries and matches. Anything else is 404. */
+    ClientId: string;
   };
   requestBodies: never;
   headers: never;
@@ -1653,6 +1780,109 @@ export interface operations {
       401: components['responses']['Problem'];
       404: components['responses']['Problem'];
       415: components['responses']['Problem'];
+    };
+  };
+  getStandings: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The ETag of the ranking the client already shows */
+        'If-None-Match'?: string;
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The ranking */
+      200: {
+        headers: {
+          /** @description The data revision of this ranking */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Standings'];
+        };
+      };
+      /** @description Unchanged since the ranking named in `If-None-Match` */
+      304: {
+        headers: {
+          /** @description The same ETag */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  recordMatch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match, also its retry key; unique across entries and matches. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewMatch'];
+      };
+    };
+    responses: {
+      /** @description Already recorded by an earlier request with this id */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Match'];
+        };
+      };
+      /** @description Recorded */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Match'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  deleteMatch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match, also its retry key; unique across entries and matches. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
     };
   };
   listAuditEvents: {
