@@ -17,6 +17,7 @@ use Performance\Domain\Catalog\DuplicateName;
 use Performance\Domain\Clock;
 use Performance\Domain\DatabaseError;
 use Performance\Domain\DataRevision;
+use Performance\Domain\DeletionLock;
 use Performance\Domain\GameDependents;
 use Performance\Domain\NotFound;
 use Performance\Domain\Timestamp;
@@ -161,15 +162,20 @@ final readonly class Games
      * dependents record the removal of their rows as its consequences; only then is the game
      * deleted, and the foreign keys delete those rows. All in one transaction.
      *
+     * One deletion at a time (DeletionLock), shared with the catalog's: a game's and a person's
+     * deletion lock a match they share from opposite ends.
+     *
      * @throws NotFound when there is no such game
      */
     public function delete(Actor $actor, int $id): void
     {
-        $this->revision->write(function () use ($actor, $id): void {
-            $game = $this->find($id, ' FOR UPDATE');
-            $cause = (int) $this->audit->record($actor, AuditOperation::Delete, AuditSubjectKind::Game, (string) $id, $game->snapshot(), null);
-            $this->dependents->recordRemoval($actor, $id, $cause);
-            $this->pdo->prepare('DELETE FROM games WHERE id = ?')->execute([$id]);
+        DeletionLock::hold($this->pdo, function () use ($actor, $id): void {
+            $this->revision->write(function () use ($actor, $id): void {
+                $game = $this->find($id, ' FOR UPDATE');
+                $cause = (int) $this->audit->record($actor, AuditOperation::Delete, AuditSubjectKind::Game, (string) $id, $game->snapshot(), null);
+                $this->dependents->recordRemoval($actor, $id, $cause);
+                $this->pdo->prepare('DELETE FROM games WHERE id = ?')->execute([$id]);
+            });
         });
     }
 

@@ -50,7 +50,9 @@
    parent a deletion holds: an exclusive lock there deadlocks (D1). Two more constructs follow
    from it. Catalog deletions run one at a time under `GET_LOCK('performance.catalog-deletion.'
    + database name, 10)`, taken before the transaction locks any row: two deletions of rows that
-   share an entry otherwise lock each other's rows in opposite order. And `DataRevision::write`
+   share an entry otherwise lock each other's rows in opposite order. Game deletions (PRD #27)
+   take the same lock (`DeletionLock`, name unchanged so both releases exclude each other during
+   a rollout): a game's and a person's deletion share matches the same way. And `DataRevision::write`
    runs a whole write transaction again when it loses a deadlock (1213), up to three times: an
    entry undo locks the entry before its person, drink and factor, a deletion of one of them
    the other way round, and neither order can change without breaking the guarantees above.

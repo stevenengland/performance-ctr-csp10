@@ -13,12 +13,12 @@ use Performance\Domain\AuditOperation;
 use Performance\Domain\AuditSubjectKind;
 use Performance\Domain\Clock;
 use Performance\Domain\DatabaseError;
+use Performance\Domain\DeletionLock;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntrySnapshots;
 use Performance\Domain\NotFound;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
-use RuntimeException;
 
 /**
  * Persons, drinks and factors: names trimmed, 1–40 characters and unique regardless
@@ -31,8 +31,6 @@ final readonly class Catalog
     public const MAX_NAME_LENGTH = 40;
     public const MAX_POINTS = 9999.99;
     public const MAX_MULTIPLIER = 99.99;
-    /** How long a deletion waits for the one before it; one of 50 000 entries took 1.5 s (runbook, "Audit log"). */
-    private const DELETION_LOCK_SECONDS = 10;
 
     public function __construct(
         private PDO $pdo,
@@ -375,17 +373,16 @@ final readonly class Catalog
      * for its foreign key checks, so it either committed before the row was locked, and its
      * entry is read and recorded here, or it waits and then fails because the row is gone.
      *
-     * The deletion lock lets one deletion run at a time. Without it, two deletions of different
-     * rows that share an entry (its person and its drink, say) would each lock their row and
-     * then wait for the other's: one locks the entry, the other its own row, and each needs
-     * what the other holds to snapshot the entry. It is a named lock, taken before the
-     * transaction holds any row, so no row lock ever waits for it.
+     * The DeletionLock lets one deletion run at a time, game deletions included. Without it, two
+     * deletions of different rows that share an entry (its person and its drink, say) would
+     * each lock their row and then wait for the other's: one locks the entry, the other its own
+     * row, and each needs what the other holds to snapshot the entry.
      *
      * @throws NotFound when there is no such row
      */
     private function delete(Actor $actor, AuditSubjectKind $kind, int $id): void
     {
-        $this->oneDeletionAtATime(function () use ($actor, $kind, $id): void {
+        DeletionLock::hold($this->pdo, function () use ($actor, $kind, $id): void {
             $this->revision->write(function () use ($actor, $kind, $id): void {
                 $before = $this->snapshot($kind, $id);
                 $entryIds = EntrySnapshots::lockReferencing($this->pdo, $kind, $id);
@@ -415,31 +412,6 @@ final readonly class Catalog
     {
         foreach (EntrySnapshots::each($this->pdo, $entryIds) as $entryId => $entry) {
             yield [$entryId, $entry, $clearsFactor ? [...$entry, 'factor' => null] : null];
-        }
-    }
-
-    /**
-     * Runs a deletion while this session holds the deletion lock, and releases it afterwards,
-     * also when the deletion fails. The lock is server-wide, so its name carries the database's.
-     *
-     * @param callable(): void $deletion
-     *
-     * @throws RuntimeException when another deletion holds the lock for longer than DELETION_LOCK_SECONDS
-     */
-    private function oneDeletionAtATime(callable $deletion): void
-    {
-        $statement = $this->pdo->query('SELECT DATABASE()');
-        $database = $statement === false ? null : $statement->fetchColumn();
-        $lock = 'performance.catalog-deletion.' . substr(is_string($database) ? $database : '', 0, 32);
-        $acquire = $this->pdo->prepare('SELECT GET_LOCK(?, ?)');
-        $acquire->execute([$lock, self::DELETION_LOCK_SECONDS]);
-        if ((int) $acquire->fetchColumn() !== 1) {
-            throw new RuntimeException("Another deletion held {$lock} for longer than " . self::DELETION_LOCK_SECONDS . ' seconds');
-        }
-        try {
-            $deletion();
-        } finally {
-            $this->pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([$lock]);
         }
     }
 
