@@ -12,8 +12,8 @@ import { entrySnapshot, type FixtureEntry, type Fixtures } from './fixtures';
 
 /*
 The four-eyes rule of the fixture backend (PRD #61), like the API's
-Verification: verifying another account's pending entry, and the pending queue
-of the signed-in account.
+Verification: verifying or rejecting another account's pending entry, and the
+pending queue of the signed-in account.
 */
 
 /** Where the queue goes on after a page, as the API's cursor names it: the last row's instant, kind and id. */
@@ -140,6 +140,29 @@ export function verificationBackend(
           entrySnapshot(fixtures, entry),
         );
         return done;
+      }),
+    ],
+    [
+      'DELETE /api/entries/{id}/verification',
+      guarded((me, _body, { id }) => {
+        const index = fixtures.entries.findIndex(
+          (candidate) => candidate.id === id,
+        );
+        const entry = fixtures.entries[index];
+        if (!entry) return problem(PROBLEMS.notFound);
+        if (entry.accountId === me.account.id) {
+          return problem(PROBLEMS.ownRow);
+        }
+        if (!entry.pending) return problem(PROBLEMS.alreadyVerified);
+        record(
+          me,
+          'reject',
+          ['entry', id],
+          entrySnapshot(fixtures, entry),
+          null,
+        );
+        fixtures.entries.splice(index, 1);
+        return new Response(null, { status: 204 });
       }),
     ],
   ];

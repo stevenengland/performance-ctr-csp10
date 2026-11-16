@@ -5,6 +5,7 @@ import {
   getScoreboard,
   listPending,
   putEntry,
+  rejectEntry,
   signIn,
   verifyEntry,
   type PendingPage,
@@ -94,6 +95,49 @@ describe('the fixture backend’s four-eyes rule', () => {
     await expect(getScoreboard(todayFrom(), tagged.etag)).resolves.toBe(
       'unchanged',
     );
+  });
+
+  it('rejects another account’s entry: it is gone, leaves the queue, and the log says reject, not delete', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const events = (await newest(100)).length;
+
+    await rejectEntry(JULES_BEER);
+
+    expect(fixtures.entries.map(({ id }) => id)).not.toContain(JULES_BEER);
+    expect((await firstPage()).items.map(({ id }) => id)).toEqual([
+      JULES_APEROL,
+    ]);
+    const log = await newest(100);
+    expect(log).toHaveLength(events + 1);
+    expect(log[0] && told(log[0])).toMatchObject({
+      operation: 'reject',
+      subjectKind: 'entry',
+      subjectId: JULES_BEER,
+      userName: 'anna',
+      before: { person: 'Jule', drink: 'Bier', pending: true },
+      after: null,
+    });
+  });
+
+  it('refuses to reject the recorder’s own entry (403), a verified one (409) and a missing one (404), recording nothing', async () => {
+    installFixtureBackend(sampleEvening());
+    await verifyEntry(JULES_BEER);
+    const events = (await newest(100)).length;
+
+    await expect(rejectEntry(MARAS_WINE)).rejects.toMatchObject({
+      status: 403,
+      type: 'urn:performance:problem:own-row',
+    });
+    await expect(rejectEntry(JULES_BEER)).rejects.toMatchObject({
+      status: 409,
+      type: 'urn:performance:problem:already-verified',
+    });
+    await expect(
+      rejectEntry('00000000-0000-4000-8000-000000000999'),
+    ).rejects.toMatchObject({ status: 404 });
+
+    expect(await newest(100)).toHaveLength(events);
   });
 
   it('answers the first page on condition of an ETag of the revision and the account', async () => {
