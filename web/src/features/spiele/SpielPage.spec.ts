@@ -344,14 +344,17 @@ describe('keeping a game’s page current', () => {
 
   /** The API with one game whose ranking has the given ETag; `answer` decides each ranking request. */
   function serve(
-    subject: Game,
+    subject: Game | (() => Game),
     answer: (ifNoneMatch: string | undefined) => Response | Promise<Response>,
   ) {
     const asked: (string | undefined)[] = [];
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init: RequestInit) => {
-        if (url === '/api/games') return json({ games: [subject] });
+        if (url === '/api/games')
+          return json({
+            games: [typeof subject === 'function' ? subject() : subject],
+          });
         const ifNoneMatch = (init.headers as Record<string, string>)[
           'If-None-Match'
         ];
@@ -412,6 +415,33 @@ describe('keeping a game’s page current', () => {
     );
     expect(wrapper.get('.spiel__rule').text()).toBe('Niedrigste Summe gewinnt');
   });
+
+  it.each([
+    ['focus', () => window.dispatchEvent(new Event('focus'))],
+    [
+      'return to the page',
+      () => document.dispatchEvent(new Event('visibilitychange')),
+    ],
+  ])(
+    'shows a rename and a draw-setting change made on another device on %s',
+    async (_, resume) => {
+      let current = game(25, 'Schach', 'duel');
+      serve(
+        () => current,
+        () => json(noRows(current)),
+      );
+      wrapper = await spiel(25);
+      expect(wrapper.get('h1').text()).toBe('Schach');
+      expect(wrapper.get('.spiel__rule').text()).toBe('Remis möglich');
+
+      current = { ...current, name: 'Blitzschach', drawsAllowed: false };
+      resume();
+      await flushPromises();
+
+      expect(wrapper.get('h1').text()).toBe('Blitzschach');
+      expect(wrapper.get('.spiel__rule').text()).toBe('Kein Remis');
+    },
+  );
 
   it('keeps the last ranking with “Stand: hh:mm” in the top bar when a refresh fails, and retries after 5 s', async () => {
     let online = true;

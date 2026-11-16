@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { mdiHistory, mdiRestart } from '@mdi/js';
-import { computed, onMounted, ref, watch, type DeepReadonly } from 'vue';
+import {
+  computed,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+  type DeepReadonly,
+} from 'vue';
 import { useRouter } from 'vue-router';
 import AppFab from '../../components/AppFab.vue';
 import ConfirmDialog from '../../components/ConfirmDialog.vue';
@@ -34,8 +41,10 @@ A game's page (§7o): its name and context line in the top bar, the rule that
 decides its ranking, and the ranking since the last (re)start, shaped like the
 Rangliste and kept current like it: polled while the page is open, at once on
 focus and after the device's own writes; while its latest refresh failed, the top
-bar shows when the ranking was last confirmed (§6.6). The start and rule shown come
-with each ranking read, so a restart or rule edit elsewhere shows with it. The FAB opens the recording flow: `Partie eintragen` on a duel (§7p), `Ergebnis eintragen` on a points game (§7q);
+bar shows when the ranking was last confirmed (§6.6). The start and a points
+game's direction come with each ranking read, so a restart or rule edit elsewhere
+shows with it; the name and a duel's draw setting come from the games, read again
+on focus and on return to the page. The FAB opens the recording flow: `Partie eintragen` on a duel (§7p), `Ergebnis eintragen` on a points game (§7q);
 `Verlauf` under the ranking opens the game's Verlauf (§7r); `Neu starten` beside it
 starts the game's next run after a confirmation. A game deleted meanwhile, found
 on open or by the ranking's poll, leads back to Spiele.
@@ -102,6 +111,8 @@ watch(
 );
 
 onMounted(async () => {
+  window.addEventListener('focus', onFocus);
+  document.addEventListener('visibilitychange', onVisibilityChange);
   try {
     await loadGames();
     if (!game.value) leaveGone(router);
@@ -109,6 +120,31 @@ onMounted(async () => {
     showProblem(failure);
   }
 });
+onUnmounted(() => {
+  window.removeEventListener('focus', onFocus);
+  document.removeEventListener('visibilitychange', onVisibilityChange);
+});
+
+/**
+Reads the games again when the page comes back, as the ranking is: a rename or
+draw setting changed elsewhere shows then. A failed read keeps the game shown.
+*/
+async function reread() {
+  try {
+    await loadGames();
+    if (!game.value) leaveGone(router);
+  } catch {
+    // The ranking's own refresh reports trouble (stale, maintenance).
+  }
+}
+
+function onFocus() {
+  void reread();
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') void reread();
+}
 </script>
 
 <template>

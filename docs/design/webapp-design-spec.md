@@ -771,7 +771,11 @@ submit on Enter.
   `Stand: HH:mm` in the top bar and retries with backoff up to 60 s.
   The ranking carries the run's start and a points game's direction: the context line's
   `seit …` and the rule line follow each ranking read, so a restart or rule edit on another
-  device shows with the ranking it changed.
+  device shows with the ranking it changed. A run's start only moves forward: a ranking read
+  before the start the page already knows counts as the new run, still empty. The game's name
+  and a duel's draw setting come from the games list (`GET /api/games`), read again on focus
+  and on becoming visible, so a rename or draw-setting change elsewhere shows then; a failed
+  read keeps the game shown.
 - Below the ranking (or the empty state) a row of text buttons (`row-title`, normal case):
   `Verlauf` (`mdiHistory`) opens the game's Verlauf (§7r); `Neu starten` (`mdiRestart`) opens
   the confirmation dialog (§6.9) `Schach neu starten?` – `Die Rangliste beginnt wieder bei null.
