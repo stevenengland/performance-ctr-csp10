@@ -123,9 +123,11 @@ export const messages = {
     /** An entry: `2× Bier für Daniel`. */
     entry: (quantityOf: string, person: string) =>
       `${quantityOf} für ${person}`,
-    /** A row's supporting line: `Happy Hour ×2 · 15.11., 21:00 · anna`. */
-    details: (factor: string, day: string, time: string, account: string) =>
-      `${factor} · ${day}, ${time} · ${account}`,
+    /** A row's supporting line: `Happy Hour ×2 · 15.11., 21:00 · anna`, `Schach · 15.11., 21:00 · anna`. */
+    details: (what: string, day: string, time: string, account: string) =>
+      `${what} · ${day}, ${time} · ${account}`,
+    /** A match's game when it belongs to an earlier run: `Schach · vor dem Neustart`. */
+    earlierRun: (game: string) => `${game} · vor dem Neustart`,
     verify: 'Bestätigen',
     /** The button's accessible name: `2× Bier für Daniel bestätigen`. */
     verifyLabel: (what: string) => `${what} bestätigen`,

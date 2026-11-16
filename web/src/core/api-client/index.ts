@@ -526,6 +526,23 @@ export function rejectEntry(id: string): Promise<void> {
   });
 }
 
+/** Lets another account's pending match count on both sides; the API takes an empty JSON object as its body. */
+export function verifyMatch(id: string): Promise<void> {
+  return request<undefined>('/api/matches/{id}/verification', {
+    method: 'PUT',
+    params: { id },
+    body: {},
+  });
+}
+
+/** Removes another account's pending match, so that it never counts. */
+export function rejectMatch(id: string): Promise<void> {
+  return request<undefined>('/api/matches/{id}/verification', {
+    method: 'DELETE',
+    params: { id },
+  });
+}
+
 /** The first page of the pending queue with the ETag that names it, to ask on condition of next time. */
 export interface PendingAnswer {
   page: PendingPage;

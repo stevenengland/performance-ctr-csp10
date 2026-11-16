@@ -4,7 +4,9 @@ import {
   ApiProblem,
   listPending,
   rejectEntry,
+  rejectMatch,
   verifyEntry,
+  verifyMatch,
   type PendingItem,
 } from '../../core/api-client';
 import { messages } from '../../core/messages';
@@ -27,22 +29,22 @@ const SKELETON_ROWS = 3;
 
 type Decision = 'verify' | 'reject';
 
-/** How each decision is sent, which answers mean "already handled", and what no answer says. */
+/** How each decision is sent for each kind of row, which answers mean "already handled", and what no answer says. */
 const DECISIONS: Record<
   Decision,
   {
-    send: (id: string) => Promise<void>;
+    send: Record<PendingItem['kind'], (id: string) => Promise<void>>;
     handled: readonly number[];
     unanswered: string;
   }
 > = {
   verify: {
-    send: verifyEntry,
+    send: { entry: verifyEntry, match: verifyMatch },
     handled: [404],
     unanswered: messages.offen.notVerified,
   },
   reject: {
-    send: rejectEntry,
+    send: { entry: rejectEntry, match: rejectMatch },
     handled: [404, 409],
     unanswered: messages.offen.notRejected,
   },
@@ -95,7 +97,7 @@ async function loadOlder() {
 async function decided(row: PendingRow, decision: Decision): Promise<boolean> {
   const { send, handled: alreadyHandled, unanswered } = DECISIONS[decision];
   try {
-    await send(row.id);
+    await send[row.kind](row.id);
     return true;
   } catch (failure) {
     if (!(failure instanceof ApiProblem)) {

@@ -38,6 +38,20 @@ function entry(n: number, person = 'Daniel'): PendingItem {
   };
 }
 
+function match(n: number): PendingItem {
+  return {
+    kind: 'match',
+    id: `00000000-0000-4000-9000-${String(n).padStart(12, '0')}`,
+    createdAt: '2026-11-15T20:00:00.000Z',
+    accountName: 'anna',
+    game: { id: 1, name: 'Schach' },
+    earlierRun: false,
+    first: { id: 1, name: 'Anna' },
+    second: { id: 2, name: 'Ben' },
+    outcome: 'first',
+  };
+}
+
 type Reply = () => Response | Promise<Response>;
 
 /**
@@ -51,6 +65,8 @@ function api(
 ) {
   const verified: string[] = [];
   const rejected: string[] = [];
+  /** Each decision's method and path, in order. */
+  const sent: string[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init: RequestInit) => {
@@ -66,9 +82,12 @@ function api(
           count: queue.length,
         });
       }
-      const id = /\/api\/entries\/([^/]+)\/verification$/.exec(pathname)?.[1];
+      const id = /\/api\/(?:entries|matches)\/([^/]+)\/verification$/.exec(
+        pathname,
+      )?.[1];
       const decided = { PUT: verified, DELETE: rejected }[init.method ?? ''];
       if (!decided || !id) throw new Error(`unexpected ${url}`);
+      sent.push(`${init.method ?? ''} ${pathname}`);
       const reply = replies.shift();
       if (reply) return reply();
       decided.push(id);
@@ -79,10 +98,18 @@ function api(
       return new Response(null, { status: 204 });
     }),
   );
-  return { verified, rejected };
+  return { verified, rejected, sent };
 }
 
 const snackbar = useSnackbar();
+
+function buttonsNamed(name: string): HTMLButtonElement[] {
+  return [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      `button[aria-label="${name}"]`,
+    ),
+  ];
+}
 
 describe('Offen', () => {
   let wrapper: VueWrapper | undefined;
@@ -117,6 +144,26 @@ describe('Offen', () => {
     expect(
       buttonIn(document, '2× Bier für Daniel ablehnen').textContent,
     ).toContain('Ablehnen');
+  });
+
+  it('verifies and rejects a match at the match verification', async () => {
+    const { sent } = api([match(2), match(1)]);
+    wrapper = await mountPage('/offen', OffenPage);
+    expect(rows(wrapper)).toEqual([
+      expect.stringContaining('Anna – Ben · Anna gewinnt'),
+      expect.stringContaining('Anna – Ben · Anna gewinnt'),
+    ]);
+
+    const [reject] = buttonsNamed('Anna – Ben · Anna gewinnt ablehnen');
+    if (reject) await click(reject);
+    const [verify] = buttonsNamed('Anna – Ben · Anna gewinnt bestätigen');
+    if (verify) await click(verify);
+
+    expect(sent).toEqual([
+      `DELETE /api/matches/${match(2).id}/verification`,
+      `PUT /api/matches/${match(1).id}/verification`,
+    ]);
+    expect(rows(wrapper)).toEqual([]);
   });
 
   it('says so when there is nothing to verify', async () => {
