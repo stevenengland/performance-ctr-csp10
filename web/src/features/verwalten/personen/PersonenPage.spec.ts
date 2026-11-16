@@ -67,15 +67,13 @@ function stubPhotoBrowser() {
     fillRect: vi.fn(),
     drawImage: vi.fn(),
   } as unknown as CanvasRenderingContext2D);
-  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(
-    (done) => {
-      done(
-        new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], {
-          type: 'image/jpeg',
-        }),
-      );
-    },
-  );
+  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((done) => {
+    done(
+      new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], {
+        type: 'image/jpeg',
+      }),
+    );
+  });
   HTMLCanvasElement.prototype.setPointerCapture = vi.fn();
   return decoded;
 }
@@ -553,13 +551,15 @@ describe('Verwalten → Personen', () => {
       });
     const title = () => dialog().querySelector('h2')?.textContent;
 
+    /** Opens Person anlegen on a list with Daniel, names Jule and frames a photo. */
     async function createJule(options = {}) {
       const calls = api([{ id: 2, name: 'Daniel', photoUrl: null }], options);
-      wrapper = await page();
+      const shown = await page();
+      wrapper = shown;
       await click(buttonIn(document, 'Person anlegen'));
       await type('Name', 'Jule');
       await choose();
-      return calls;
+      return { calls, shown };
     }
 
     beforeEach(() => {
@@ -599,7 +599,8 @@ describe('Verwalten → Personen', () => {
           );
         },
       );
-      calls = await createJule();
+      const { calls: sent, shown } = await createJule();
+      calls = sent;
 
       await click(buttonIn(dialog(), 'Speichern'));
 
@@ -609,14 +610,14 @@ describe('Verwalten → Personen', () => {
         { method: 'PUT', url: '/api/persons/9/photo', body: { image: JPEG } },
       ]);
       expect(document.querySelector('.v-overlay--active')).toBeNull();
-      expect(rows(wrapper)).toEqual(['Daniel', 'Jule']);
-      expect(wrapper?.get('.list__main img').attributes('src')).toBe(
+      expect(rows(shown)).toEqual(['Daniel', 'Jule']);
+      expect(shown.get('.list__main img').attributes('src')).toBe(
         '/api/persons/9/photo?v=1',
       );
     });
 
     it('stays on the created person when the upload fails, and Speichern again sends only the upload', async () => {
-      const calls = await createJule({
+      const { calls, shown } = await createJule({
         replies: [undefined, maintenance],
       });
 
@@ -626,7 +627,7 @@ describe('Verwalten → Personen', () => {
       expect(alert()).toBe('Person gespeichert, Foto nicht.');
       expect(title()).toBe('Person bearbeiten');
       expect(crop()).not.toBeNull();
-      expect(rows(wrapper)).toEqual(['Daniel', 'Jule']);
+      expect(rows(shown)).toEqual(['Daniel', 'Jule']);
       calls.length = 0;
 
       await click(buttonIn(dialog(), 'Speichern'));
@@ -635,18 +636,20 @@ describe('Verwalten → Personen', () => {
         { method: 'PUT', url: '/api/persons/9/photo', body: { image: JPEG } },
       ]);
       expect(document.querySelector('.v-overlay--active')).toBeNull();
-      expect(wrapper?.get('.list__main img').attributes('src')).toBe(
+      expect(shown.get('.list__main img').attributes('src')).toBe(
         '/api/persons/9/photo?v=1',
       );
     });
 
     it('keeps the created person’s id and counts the save when only the reload of the list fails', async () => {
-      const calls = await createJule({ lists: [undefined, maintenance] });
+      const { calls, shown } = await createJule({
+        lists: [undefined, maintenance],
+      });
 
       await click(buttonIn(dialog(), 'Speichern'));
 
       expect(document.querySelector('.v-overlay--active')).toBeNull();
-      expect(rows(wrapper)).toEqual(['Daniel', 'Jule']);
+      expect(rows(shown)).toEqual(['Daniel', 'Jule']);
       expect(useSnackbar().value?.text).toBe('Wartung läuft.');
       calls.length = 0;
 
@@ -660,7 +663,7 @@ describe('Verwalten → Personen', () => {
     });
 
     it('sends nothing and says so under the photo when the photo cannot be encoded', async () => {
-      const calls = await createJule();
+      const { calls } = await createJule();
       vi.mocked(HTMLCanvasElement.prototype.toBlob).mockImplementation(
         (done) => {
           done(null);
@@ -677,7 +680,7 @@ describe('Verwalten → Personen', () => {
     });
 
     it('closes on Abbrechen after a partial save and keeps the created person', async () => {
-      const calls = await createJule({
+      const { calls, shown } = await createJule({
         replies: [undefined, maintenance],
       });
       await click(buttonIn(dialog(), 'Speichern'));
@@ -687,7 +690,7 @@ describe('Verwalten → Personen', () => {
 
       expect(document.querySelector('.v-overlay--active')).toBeNull();
       expect(writes(calls)).toEqual([]);
-      expect(rows(wrapper)).toEqual(['Daniel', 'Jule']);
+      expect(rows(shown)).toEqual(['Daniel', 'Jule']);
 
       await click(buttonIn(document, 'Person anlegen'));
 

@@ -392,7 +392,10 @@ describe('saving a person in the dialog', () => {
       api.failing.add('GET /api/persons');
       const saving = personSave(undefined);
 
-      const outcome = await saving.save({ name: 'Jule', photo: framed().change });
+      const outcome = await saving.save({
+        name: 'Jule',
+        photo: framed().change,
+      });
 
       expect(outcome).toBe('saved');
       expect(usePersons().value?.map(({ name }) => name)).toEqual([
@@ -408,7 +411,10 @@ describe('saving a person in the dialog', () => {
       api.failing.add('GET /api/persons');
       const saving = personSave(undefined);
 
-      const outcome = await saving.save({ name: 'Jule', photo: { kind: 'keep' } });
+      const outcome = await saving.save({
+        name: 'Jule',
+        photo: { kind: 'keep' },
+      });
       await flushPromises();
 
       expect(outcome).toBe('saved');
@@ -420,7 +426,10 @@ describe('saving a person in the dialog', () => {
     it('keeps the list in alphabetical order', async () => {
       await loadedList();
 
-      await personSave(undefined).save({ name: 'Ben', photo: { kind: 'keep' } });
+      await personSave(undefined).save({
+        name: 'Ben',
+        photo: { kind: 'keep' },
+      });
 
       expect(usePersons().value?.map(({ name }) => name)).toEqual([
         'Anna',
