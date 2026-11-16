@@ -13,7 +13,8 @@ use Performance\Domain\ValidationFailed;
  * ICC, JFIF, Adobe …) is dropped, so no stored photo carries metadata, whichever client
  * uploaded it.
  *
- * The walk proves structure, not that every scan decodes: scan data is copied as it is.
+ * Every segment's length is at least 2, and each scan header is checked before its scan
+ * data. The walk proves structure, not that every scan decodes: scan data is copied as it is.
  */
 final class CleanJpeg
 {
@@ -59,7 +60,7 @@ final class CleanJpeg
         }
 
         $cleaned = self::SOI;
-        $hasFrame = false;
+        $frameComponents = 0;
         $hasScan = false;
         $at = strlen(self::SOI);
         while (($marker = self::markerAt($jpeg, $at)) !== self::MARKER_EOI) {
@@ -68,13 +69,14 @@ final class CleanJpeg
                 return null;
             }
 
+            $body = substr($jpeg, $at + 4, $end - $at - 4);
             if (in_array($marker, self::FRAMES, true)) {
-                if ($hasFrame || !self::isPhotoFrame(substr($jpeg, $at + 4, $end - $at - 4))) {
+                if ($frameComponents > 0 || !self::isPhotoFrame($body)) {
                     return null;
                 }
-                $hasFrame = true;
+                $frameComponents = ord($body[5]);
             } elseif ($marker === self::MARKER_SOS) {
-                $end = $hasFrame ? self::scanEnd($jpeg, $end) : null;
+                $end = self::isScanHeader($body, $frameComponents) ? self::scanEnd($jpeg, $end) : null;
                 if ($end === null) {
                     return null;
                 }
@@ -107,8 +109,7 @@ final class CleanJpeg
 
     /**
      * Where the segment starting at `$at` ends by its length field, or null when it is
-     * truncated. A length below 2 needs no check: the next marker would then be read from
-     * the length bytes, which cannot start with FF.
+     * truncated or its length is below 2, the length field's own bytes.
      */
     private static function segmentEnd(string $jpeg, int $at): ?int
     {
@@ -116,9 +117,10 @@ final class CleanJpeg
             return null;
         }
 
-        $end = $at + 2 + ((ord($jpeg[$at + 2]) << 8) | ord($jpeg[$at + 3]));
+        $length = (ord($jpeg[$at + 2]) << 8) | ord($jpeg[$at + 3]);
+        $end = $at + 2 + $length;
 
-        return $end <= strlen($jpeg) ? $end : null;
+        return $length >= 2 && $end <= strlen($jpeg) ? $end : null;
     }
 
     /**
@@ -153,6 +155,24 @@ final class CleanJpeg
             && $width === self::SIDE
             && in_array($components, [1, 3], true)
             && strlen($header) === 6 + 3 * $components;
+    }
+
+    /**
+     * A scan header body after a frame of `$frameComponents` (0 before any frame): the
+     * component count Ns, from 1 to 4 and at most the frame's, then 2 bytes per component
+     * and 3 bytes of spectral selection and approximation, so the length is 6 + 2 · Ns.
+     */
+    private static function isScanHeader(string $header, int $frameComponents): bool
+    {
+        if ($header === '') {
+            return false;
+        }
+
+        $components = ord($header[0]);
+
+        return $components >= 1
+            && $components <= min(4, $frameComponents)
+            && strlen($header) === 4 + 2 * $components;
     }
 
     private static function isMetadata(int $marker): bool

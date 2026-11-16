@@ -42,8 +42,9 @@
    signed-in client can call the API directly, so `CleanJpeg` walks the marker segments and
    rewrites the file keeping only SOI, DQT, DHT, DRI, one SOF0/SOF1/SOF2, SOS with its scan data,
    and EOI. Every APPn (EXIF, XMP, ICC, JFIF, Adobe …) and COM segment is dropped; any other
-   marker, a truncated segment, a missing EOI, trailing bytes, a frame that is not 256 × 256 or a
-   component count other than 1 or 3 is 422 on `image`. The stored bytes, and the version hashed
+   marker, a truncated segment or one whose length is below 2, a missing EOI, trailing bytes, a
+   frame that is not 256 × 256 or a component count other than 1 or 3, and a scan header whose
+   length is not 6 + 2 · Ns for 1 to 4 components, at most the frame's, is 422 on `image`. The stored bytes, and the version hashed
    from them, are the rewritten file, so no stored photo carries metadata, whichever client
    uploaded it. The walk proves structure, not that every scan decodes; any member can replace a
    photo that looks broken. `getimagesizefromstring` is not used as validation.

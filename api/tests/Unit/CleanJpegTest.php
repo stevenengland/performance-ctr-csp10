@@ -89,6 +89,18 @@ final class CleanJpegTest extends TestCase
         yield 'a second frame' => [substr($clean, 0, $scan) . $frame . substr($clean, $scan)];
         yield 'a scan before the frame' => [substr($clean, 0, 2) . substr($clean, $scan)];
         yield 'no scan' => [substr($clean, 0, $scan) . "\xFF\xD9"];
+        yield 'an empty scan header right after the frame' => ["\xFF\xD8" . $frame . "\xFF\xDA\x00\x00\xFF\xD9"];
+        foreach ([0, 1, 2, 3, 4] as $length) {
+            yield "a scan header of length {$length}" => [substr($clean, 0, $scan + 2) . pack('n', $length) . substr($clean, $scan + 4)];
+        }
+        yield 'a scan of no components' => [substr($clean, 0, $scan) . "\xFF\xDA\x00\x06\x00\x00\x3F\x00" . substr($clean, $scan + 14)];
+        yield 'a scan whose length does not fit its component count' => [substr($clean, 0, $scan + 4) . "\x02" . substr($clean, $scan + 5)];
+        $gray = self::fixture('grayscale.jpg');
+        $grayScan = (int) strpos($gray, self::START_OF_SCAN);
+        $grayComponent = substr($gray, $grayScan + 5, 2);
+        yield 'a scan of more components than the frame' => [
+            substr($gray, 0, $grayScan) . "\xFF\xDA\x00\x0A\x02" . $grayComponent . $grayComponent . substr($gray, $grayScan + 7),
+        ];
         yield 'another marker (DNL)' => [substr($clean, 0, -2) . "\xFF\xDC\x00\x04\x01\x00\xFF\xD9"];
         yield '256 × 192' => [self::fixture('not-square.jpg')];
         yield 'four components (CMYK)' => [self::fixture('cmyk.jpg')];
