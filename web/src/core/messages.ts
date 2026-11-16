@@ -185,7 +185,7 @@ export const messages = {
     edit: 'Person bearbeiten',
     name: 'Name',
     empty: 'Noch keine Personen.',
-    /** The photo block of `Person bearbeiten` (§7i). */
+    /** The photo block of `Person anlegen` / `Person bearbeiten` (§7i). */
     choosePhoto: 'Foto wählen',
     changePhoto: 'Foto ändern',
     otherPhoto: 'Anderes Foto',

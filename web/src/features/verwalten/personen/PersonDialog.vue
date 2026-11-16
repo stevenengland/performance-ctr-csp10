@@ -1,29 +1,29 @@
 <script setup lang="ts">
 import { mdiCameraOutline, mdiDeleteOutline, mdiUndo } from '@mdi/js';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import AppDialog from '../../../components/AppDialog.vue';
 import AppTextField from '../../../components/AppTextField.vue';
 import PersonAvatar from '../../../components/PersonAvatar.vue';
 import { ApiProblem, type Person } from '../../../core/api-client';
-import { createPerson } from '../../../core/catalog';
 import { useCreateForm } from '../../../core/create-form';
 import { messages } from '../../../core/messages';
 import { PhotoUnreadable } from '../../../core/person-photo';
-import { personSave, type PersonSave, type PhotoChange } from './person-save';
+import { personSave, type PhotoChange } from './person-save';
 import PhotoCrop from './PhotoCrop.vue';
 import { usePhotoDraft } from './photo-draft';
 
 /**
-`Person anlegen` / `Person bearbeiten` (§7i): a name; field errors and a taken
-name inline. Editing shows the person's avatar at 112 px above the name. `Foto
-wählen` / `Foto ändern` opens the platform's picker; the chosen photo is framed in
-`PhotoCrop` (`Anderes Foto` picks again) and only `Speichern` uploads it, through
-`person-save`. `Foto entfernen` drops a chosen photo or shows the initials until
-`Foto behalten` brings the photo back. A file that cannot be opened, and a photo
-the server refuses, show under the photo and keep what was there; the photo
-controls are frozen while saving. When the name committed and the photo did
-not, the dialog stays on the person and says so; `Speichern` again sends only
-the photo.
+`Person anlegen` / `Person bearbeiten` (§7i): the person's avatar at 112 px
+(initials of the typed name until there is a photo) above a name; field errors
+and a taken name inline. `Foto wählen` / `Foto ändern` opens the platform's
+picker; the chosen photo is framed in `PhotoCrop` (`Anderes Foto` picks again)
+and only `Speichern` uploads it, through `person-save`. `Foto entfernen` drops a
+chosen photo or shows the initials until `Foto behalten` brings the photo back.
+A file that cannot be opened, and a photo the server refuses, show under the
+photo and keep what was there; the photo controls are frozen while saving. When
+the name committed and the photo did not, the dialog stays on the person (a new
+one is then edited) and says so; `Speichern` again sends only the photo, and
+`Abbrechen` keeps what committed.
 */
 const open = defineModel<boolean>({ required: true });
 const props = defineProps<{ person?: Readonly<Person> }>();
@@ -35,12 +35,14 @@ const photoError = ref<string>();
 const fileInput = ref<HTMLInputElement>();
 const draft = usePhotoDraft();
 const { picture, framing, encoded } = draft;
-/** This dialog session's saves of the edited person. */
-let saving: PersonSave | undefined;
+/** This dialog session's saves: of the edited person, or of a new one. */
+let saving = personSave(undefined);
+/** The person as last acknowledged in this session; none before a new one is created. */
+const current = shallowRef<Readonly<Person>>();
 const { errors, busy, submit } = useCreateForm('name');
 
 const photoUrl = computed(() =>
-  removing.value ? null : (props.person?.photoUrl ?? null),
+  removing.value ? null : (current.value?.photoUrl ?? null),
 );
 const pickLabel = computed(() => {
   if (picture.value) return messages.personen.otherPhoto;
@@ -60,7 +62,8 @@ watch(open, (isOpen) => {
   removing.value = false;
   photoError.value = undefined;
   errors.value = {};
-  saving = props.person && personSave(props.person);
+  saving = personSave(props.person);
+  current.value = props.person;
 });
 
 async function chosen() {
@@ -78,7 +81,7 @@ async function chosen() {
 
 function removePhoto() {
   draft.discard();
-  removing.value = props.person?.photoUrl != null;
+  removing.value = current.value?.photoUrl != null;
 }
 
 /** The message under the photo for a failure of the photo alone; anything else is the form's. */
@@ -92,17 +95,13 @@ function photoFailure(failure: unknown): string | undefined {
 }
 
 async function save() {
-  if (!saving) {
-    if (await submit(() => createPerson(name.value))) open.value = false;
-    return;
-  }
-  const edit = saving;
+  const session = saving;
   let message: string | undefined;
   photoError.value = undefined;
   draft.cancelPicks();
   const done = await submit(async () => {
     try {
-      const outcome = await edit.save({
+      const outcome = await session.save({
         name: name.value,
         photo: photoChange.value,
       });
@@ -112,6 +111,9 @@ async function save() {
     } catch (failure) {
       message = photoFailure(failure);
       if (message === undefined) throw failure;
+    } finally {
+      // Unless the dialog was closed and opened again meanwhile.
+      if (session === saving) current.value = session.person;
     }
   });
   if (!done) return;
@@ -123,10 +125,10 @@ async function save() {
 <template>
   <AppDialog
     v-model="open"
-    :title="person ? messages.personen.edit : messages.personen.create"
+    :title="current ? messages.personen.edit : messages.personen.create"
     @submit="save"
   >
-    <div v-if="person" class="person-photo">
+    <div class="person-photo">
       <PhotoCrop
         v-if="picture"
         v-model="framing"

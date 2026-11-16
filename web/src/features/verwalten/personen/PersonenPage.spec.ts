@@ -28,6 +28,69 @@ const api = (
   });
 const page = () => mountPage('/verwalten/personen', PersonenPage);
 
+/** What the stubbed canvas encodes: SOI and EOI. */
+const JPEG = '/9j/2Q==';
+const writes = (calls: Call[]) =>
+  calls.filter(({ method }) => method !== 'GET');
+const crop = () =>
+  dialog().querySelector('canvas[aria-label="Ausschnitt des Fotos"]');
+const dialogAvatar = () => dialog().querySelector('.person-avatar');
+const alert = () =>
+  dialog().querySelector('[role="alert"]')?.textContent.trim();
+const fileInput = () => {
+  const input = dialog().querySelector('input[type="file"]');
+  if (!(input instanceof HTMLInputElement)) throw new Error('no picker');
+  return input;
+};
+
+/**
+jsdom decodes and draws nothing: every file but a `.heic` decodes to a
+400 × 300 picture (scaled as asked), and a canvas encodes a tiny JPEG.
+*/
+function stubPhotoBrowser() {
+  const decoded: { close: () => void }[] = [];
+  vi.stubGlobal(
+    'createImageBitmap',
+    vi.fn((file: File, options: ImageBitmapOptions = {}) => {
+      if (file.name.endsWith('.heic')) {
+        return Promise.reject(new DOMException('no', 'InvalidStateError'));
+      }
+      const width = options.resizeWidth ?? 400;
+      const picture = { width, height: (width * 3) / 4, close: vi.fn() };
+      decoded.push(picture);
+      return Promise.resolve(picture);
+    }),
+  );
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    fillStyle: '',
+    imageSmoothingQuality: 'low',
+    fillRect: vi.fn(),
+    drawImage: vi.fn(),
+  } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(
+    (done) => {
+      done(
+        new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], {
+          type: 'image/jpeg',
+        }),
+      );
+    },
+  );
+  HTMLCanvasElement.prototype.setPointerCapture = vi.fn();
+  return decoded;
+}
+
+/** Picks a file in the platform's picker. */
+async function choose(name = 'photo.jpg') {
+  const input = fileInput();
+  Object.defineProperty(input, 'files', {
+    value: [new File(['photo'], name)],
+    configurable: true,
+  });
+  input.dispatchEvent(new Event('change'));
+  await flushPromises();
+}
+
 describe('Verwalten → Personen', () => {
   let wrapper: VueWrapper | undefined;
 
@@ -146,9 +209,6 @@ describe('Verwalten → Personen', () => {
 
   describe('the photo in Person bearbeiten', () => {
     const photoUrl = '/api/persons/2/photo?v=abc';
-    const writes = (calls: Call[]) =>
-      calls.filter(({ method }) => method !== 'GET');
-    const dialogAvatar = () => dialog().querySelector('.person-avatar');
     const listAvatar = (wrapper: VueWrapper) =>
       wrapper.get('.list__main .person-avatar');
 
@@ -309,70 +369,7 @@ describe('Verwalten → Personen', () => {
 
   describe('a new photo in Person bearbeiten', () => {
     const photoUrl = '/api/persons/2/photo?v=abc';
-    /** What the stubbed canvas encodes: SOI and EOI. */
-    const JPEG = '/9j/2Q==';
-    const writes = (calls: Call[]) =>
-      calls.filter(({ method }) => method !== 'GET');
-    const crop = () =>
-      dialog().querySelector('canvas[aria-label="Ausschnitt des Fotos"]');
-    const dialogAvatar = () => dialog().querySelector('.person-avatar');
-    const alert = () =>
-      dialog().querySelector('[role="alert"]')?.textContent.trim();
-    const fileInput = () => {
-      const input = dialog().querySelector('input[type="file"]');
-      if (!(input instanceof HTMLInputElement)) throw new Error('no picker');
-      return input;
-    };
     let pictures: { close: () => void }[];
-
-    /**
-    jsdom decodes and draws nothing: every file but a `.heic` decodes to a
-    400 × 300 picture (scaled as asked), and a canvas encodes a tiny JPEG.
-    */
-    function stubPhotoBrowser() {
-      const decoded: { close: () => void }[] = [];
-      vi.stubGlobal(
-        'createImageBitmap',
-        vi.fn((file: File, options: ImageBitmapOptions = {}) => {
-          if (file.name.endsWith('.heic')) {
-            return Promise.reject(new DOMException('no', 'InvalidStateError'));
-          }
-          const width = options.resizeWidth ?? 400;
-          const picture = { width, height: (width * 3) / 4, close: vi.fn() };
-          decoded.push(picture);
-          return Promise.resolve(picture);
-        }),
-      );
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-        fillStyle: '',
-        imageSmoothingQuality: 'low',
-        fillRect: vi.fn(),
-        drawImage: vi.fn(),
-      } as unknown as CanvasRenderingContext2D);
-      vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(
-        (done) => {
-          done(
-            new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], {
-              type: 'image/jpeg',
-            }),
-          );
-        },
-      );
-      HTMLCanvasElement.prototype.setPointerCapture = vi.fn();
-      return decoded;
-    }
-
-    /** Picks a file in the platform's picker. */
-    async function choose(name = 'photo.jpg') {
-      const input = fileInput();
-      Object.defineProperty(input, 'files', {
-        value: [new File(['photo'], name)],
-        configurable: true,
-      });
-      input.dispatchEvent(new Event('change'));
-      await flushPromises();
-    }
-
     async function editDaniel(photo: string | null, options = {}) {
       const calls = api([{ id: 2, name: 'Daniel', photoUrl: photo }], options);
       wrapper = await page();
@@ -545,6 +542,158 @@ describe('Verwalten → Personen', () => {
       expect(crop()).toBeNull();
       expect(() => buttonIn(dialog(), 'Foto behalten')).toThrow();
       expect(buttonIn(dialog(), 'Foto wählen')).toBeTruthy();
+    });
+  });
+
+  describe('a photo in Person anlegen', () => {
+    const maintenance = () =>
+      problem(503, {
+        type: 'urn:performance:problem:maintenance',
+        title: 'Wartung läuft.',
+      });
+    const title = () => dialog().querySelector('h2')?.textContent;
+
+    async function createJule(options = {}) {
+      const calls = api([{ id: 2, name: 'Daniel', photoUrl: null }], options);
+      wrapper = await page();
+      await click(buttonIn(document, 'Person anlegen'));
+      await type('Name', 'Jule');
+      await choose();
+      return calls;
+    }
+
+    beforeEach(() => {
+      stubPhotoBrowser();
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('shows the initials of the typed name at 112 px and offers Foto wählen', async () => {
+      api([]);
+      wrapper = await page();
+
+      await click(buttonIn(document, 'Person anlegen'));
+      await type('Name', 'Jule Berg');
+
+      expect(dialogAvatar()?.getAttribute('style')).toContain('width: 112px');
+      expect(
+        dialogAvatar()
+          ?.querySelector('[data-initials]')
+          ?.getAttribute('data-initials'),
+      ).toBe('JB');
+      expect(buttonIn(dialog(), 'Foto wählen')).toBeTruthy();
+      expect(() => buttonIn(dialog(), 'Foto entfernen')).toThrow();
+    });
+
+    it('encodes the framed photo before any request, then creates the person, then uploads the photo; the list shows it', async () => {
+      const sentBeforeEncoding: number[] = [];
+      let calls: Call[] = [];
+      vi.mocked(HTMLCanvasElement.prototype.toBlob).mockImplementation(
+        (done) => {
+          sentBeforeEncoding.push(writes(calls).length);
+          done(
+            new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], {
+              type: 'image/jpeg',
+            }),
+          );
+        },
+      );
+      calls = await createJule();
+
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(sentBeforeEncoding).toEqual([0]);
+      expect(writes(calls)).toEqual([
+        { method: 'POST', url: '/api/persons', body: { name: 'Jule' } },
+        { method: 'PUT', url: '/api/persons/9/photo', body: { image: JPEG } },
+      ]);
+      expect(document.querySelector('.v-overlay--active')).toBeNull();
+      expect(rows(wrapper)).toEqual(['Daniel', 'Jule']);
+      expect(wrapper?.get('.list__main img').attributes('src')).toBe(
+        '/api/persons/9/photo?v=1',
+      );
+    });
+
+    it('stays on the created person when the upload fails, and Speichern again sends only the upload', async () => {
+      const calls = await createJule({
+        replies: [undefined, maintenance],
+      });
+
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(document.querySelector('.v-overlay--active')).not.toBeNull();
+      expect(alert()).toBe('Person gespeichert, Foto nicht.');
+      expect(title()).toBe('Person bearbeiten');
+      expect(crop()).not.toBeNull();
+      expect(rows(wrapper)).toEqual(['Daniel', 'Jule']);
+      calls.length = 0;
+
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(writes(calls)).toEqual([
+        { method: 'PUT', url: '/api/persons/9/photo', body: { image: JPEG } },
+      ]);
+      expect(document.querySelector('.v-overlay--active')).toBeNull();
+      expect(wrapper?.get('.list__main img').attributes('src')).toBe(
+        '/api/persons/9/photo?v=1',
+      );
+    });
+
+    it('keeps the created person’s id and counts the save when only the reload of the list fails', async () => {
+      const calls = await createJule({ lists: [undefined, maintenance] });
+
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(document.querySelector('.v-overlay--active')).toBeNull();
+      expect(rows(wrapper)).toEqual(['Daniel', 'Jule']);
+      expect(useSnackbar().value?.text).toBe('Wartung läuft.');
+      calls.length = 0;
+
+      await click(buttonIn(document, 'Jule bearbeiten'));
+      await type('Name', 'Julia');
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(writes(calls)).toEqual([
+        { method: 'PATCH', url: '/api/persons/9', body: { name: 'Julia' } },
+      ]);
+    });
+
+    it('sends nothing and says so under the photo when the photo cannot be encoded', async () => {
+      const calls = await createJule();
+      vi.mocked(HTMLCanvasElement.prototype.toBlob).mockImplementation(
+        (done) => {
+          done(null);
+        },
+      );
+
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(writes(calls)).toEqual([]);
+      expect(alert()).toBe('Dieses Foto lässt sich nicht öffnen.');
+      expect(title()).toBe('Person anlegen');
+      expect(crop()).not.toBeNull();
+      expect(useSnackbar().value).toBeUndefined();
+    });
+
+    it('closes on Abbrechen after a partial save and keeps the created person', async () => {
+      const calls = await createJule({
+        replies: [undefined, maintenance],
+      });
+      await click(buttonIn(dialog(), 'Speichern'));
+      calls.length = 0;
+
+      await click(buttonIn(dialog(), 'Abbrechen'));
+
+      expect(document.querySelector('.v-overlay--active')).toBeNull();
+      expect(writes(calls)).toEqual([]);
+      expect(rows(wrapper)).toEqual(['Daniel', 'Jule']);
+
+      await click(buttonIn(document, 'Person anlegen'));
+
+      expect(title()).toBe('Person anlegen');
+      expect(field('Name').value).toBe('');
+      expect(crop()).toBeNull();
     });
   });
 
