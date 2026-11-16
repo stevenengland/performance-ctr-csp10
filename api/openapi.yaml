@@ -740,7 +740,10 @@ paths:
         Persons with entries since `from`, ranked by score (ties by name). score =
         Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink
         counters likewise. The multiplier is the factor's current one, 1 without a
-        factor. The ETag names the data revision, which every write of entries,
+        factor. Only verified entries count: a recorded entry waits for verification
+        by another account, and until then it counts in `recordedCount` and
+        `pendingCount` only. A person whose entries since `from` all wait is listed in
+        `unranked`. The ETag names the data revision, which every write of entries,
         persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the
         last ETag answers 304 without aggregating while the revision is unchanged.
         Each row names the person's photo by `photoUrl`; a photo write that changes it
@@ -1587,17 +1590,26 @@ components:
     Scoreboard:
       type: object
       additionalProperties: false
-      required: [rows]
+      required: [rows, unranked]
       properties:
         rows:
           type: array
-          description: Ranked by score, ties by name; persons without entries are absent
+          description: >-
+            Persons with at least one verified entry since `from`, ranked by score, ties by
+            name; persons without entries are absent
           items:
             $ref: '#/components/schemas/ScoreRow'
+        unranked:
+          type: array
+          description: >-
+            Persons whose entries since `from` all wait for verification, by name: they have
+            no rank and never lead
+          items:
+            $ref: '#/components/schemas/UnrankedRow'
     ScoreRow:
       type: object
       additionalProperties: false
-      required: [personId, name, photoUrl, score, count, drinks]
+      required: [personId, name, photoUrl, score, count, pendingCount, drinks]
       properties:
         personId:
           type: integer
@@ -1607,17 +1619,43 @@ components:
           $ref: '#/components/schemas/PhotoUrl'
         score:
           type: number
+          description: Verified entries only
         count:
           type: number
+          description: Verified entries only
+        pendingCount:
+          type: integer
+          minimum: 0
+          description: The number of the person's entries since `from` that wait for verification (rows, not quantities)
         drinks:
           type: array
-          description: By drink name; only drinks with entries
+          description: By drink name; only drinks with entries, pending ones included
+          items:
+            $ref: '#/components/schemas/DrinkCount'
+    UnrankedRow:
+      type: object
+      additionalProperties: false
+      required: [personId, name, photoUrl, pendingCount, drinks]
+      properties:
+        personId:
+          type: integer
+        name:
+          type: string
+        photoUrl:
+          $ref: '#/components/schemas/PhotoUrl'
+        pendingCount:
+          type: integer
+          minimum: 1
+          description: The number of the person's entries since `from`, all waiting for verification
+        drinks:
+          type: array
+          description: By drink name; each `count` is 0
           items:
             $ref: '#/components/schemas/DrinkCount'
     DrinkCount:
       type: object
       additionalProperties: false
-      required: [drinkId, name, count]
+      required: [drinkId, name, count, recordedCount]
       properties:
         drinkId:
           type: integer
@@ -1625,6 +1663,12 @@ components:
           type: string
         count:
           type: number
+          description: Σ quantity × multiplier over the verified entries, which rank
+        recordedCount:
+          type: number
+          description: >-
+            Σ quantity × multiplier over every recorded entry, pending ones included: what
+            the recording flow shows
     GameKind:
       type: string
       enum: [duel, points]

@@ -363,7 +363,7 @@ export interface paths {
     };
     /**
      * Standings since `from`, the start of the viewer's day
-     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. The ETag names the data revision, which every write of entries, persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
+     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. Only verified entries count: a recorded entry waits for verification by another account, and until then it counts in `recordedCount` and `pendingCount` only. A person whose entries since `from` all wait is listed in `unranked`. The ETag names the data revision, which every write of entries, persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
      */
     get: operations['getScoreboard'];
     put?: never;
@@ -768,22 +768,40 @@ export interface components {
       accountName: string | null;
     };
     Scoreboard: {
-      /** @description Ranked by score, ties by name; persons without entries are absent */
+      /** @description Persons with at least one verified entry since `from`, ranked by score, ties by name; persons without entries are absent */
       rows: components['schemas']['ScoreRow'][];
+      /** @description Persons whose entries since `from` all wait for verification, by name: they have no rank and never lead */
+      unranked: components['schemas']['UnrankedRow'][];
     };
     ScoreRow: {
       personId: number;
       name: string;
       photoUrl: components['schemas']['PhotoUrl'];
+      /** @description Verified entries only */
       score: number;
+      /** @description Verified entries only */
       count: number;
-      /** @description By drink name; only drinks with entries */
+      /** @description The number of the person's entries since `from` that wait for verification (rows, not quantities) */
+      pendingCount: number;
+      /** @description By drink name; only drinks with entries, pending ones included */
+      drinks: components['schemas']['DrinkCount'][];
+    };
+    UnrankedRow: {
+      personId: number;
+      name: string;
+      photoUrl: components['schemas']['PhotoUrl'];
+      /** @description The number of the person's entries since `from`, all waiting for verification */
+      pendingCount: number;
+      /** @description By drink name; each `count` is 0 */
       drinks: components['schemas']['DrinkCount'][];
     };
     DrinkCount: {
       drinkId: number;
       name: string;
+      /** @description Σ quantity × multiplier over the verified entries, which rank */
       count: number;
+      /** @description Σ quantity × multiplier over every recorded entry, pending ones included: what the recording flow shows */
+      recordedCount: number;
     };
     /**
      * @description `duel`: two persons and an outcome. `points`: one person and a whole number.
