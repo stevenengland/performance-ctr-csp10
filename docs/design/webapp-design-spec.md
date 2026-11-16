@@ -585,6 +585,32 @@ without a photo, so rows line up either way. Each surface sets its size (Persone
   hairlines; primary text in `row-title`.
 - Create/edit dialog: `Name`; drinks also `Punkte` (decimal); factors also `Multiplikator`
   (decimal, shown with `×` prefix). Buttons `Abbrechen` and `Speichern`.
+- **Photo control** (`Person bearbeiten`): above the name, the person's avatar at 112 dp (§6.12)
+  and the text buttons `Foto wählen` (no photo) / `Foto ändern` (a photo) / `Anderes Foto` (one
+  is being framed), `Foto entfernen`, and `Foto behalten` while a removal is pending. Choosing
+  opens the platform's own picker for images (`<input type="file" accept="image/*">`, no
+  `capture`), so phones usually offer the camera and the gallery. The chosen picture is decoded
+  upright (EXIF orientation applied) into a working image of at most 2048 px on its longer side
+  and framed in `PhotoCrop` in place of the avatar: a 232 dp square canvas (corner 14 dp,
+  `surface-container-high`) under a round mask that dims everything outside the circle with the
+  scrim at 50 % and outlines it in white — what is inside the circle becomes the avatar. One
+  pointer drags, two pinch, the wheel and the `Zoom` slider (magnifier icons, `primary`) zoom
+  from 1 (the picture just covers the frame) to 4; the frame is never uncovered. Under the
+  canvas, `Ziehen zum Verschieben · zoomen mit zwei Fingern oder dem Regler` (`support`,
+  `on-surface-variant`). The canvas is focusable (`Ausschnitt des Fotos`), described by that
+  hint and `Pfeiltasten verschieben, Plus und Minus zoomen.`; the arrow keys move it, `+`/`-`
+  zoom, and the slider's value says the zoom (`×1,5`). The canvas is the preview, so the CSP
+  needs no `blob:` or `data:` images.
+- Only `Speichern` sends the photo, after the name: it is encoded first (256 × 256 JPEG at
+  quality 0.85, lowered to 0.75 / 0.6 / 0.45 until it is at most 64 KB) and then uploaded
+  (`PUT …/photo`); `Abbrechen` discards it. The latest pick wins (a picture still loading when
+  another is chosen, or when the dialog closes, is dropped). While saving, the photo buttons
+  and the framing are frozen; once encoded the framing stays as it was saved (`Anderes Foto`
+  frames anew). Under the buttons, in `error`: `Dieses Foto lässt sich nicht öffnen.` for a file
+  the browser cannot decode (HEIC on most desktops) or encode, the server's message for a
+  refused photo (`Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).`, `Foto zu groß.`) —
+  each keeps the photo that was there — and `Person gespeichert, Foto nicht.` when the name
+  saved and the photo did not (the dialog stays; `Speichern` again sends only the photo).
 - Delete: confirmation dialog with the entry count (§6.9); for a person also the results that
   go and the matches that stay with `gelöschte Person`.
 - Validation errors inline (§6.11); duplicate name → `Name ist bereits vergeben.`; points
@@ -1013,7 +1039,9 @@ the shareable page a UI change is reviewed on before it reaches the host.
   preview never ages out of "today"; Anna, Daniel and Mara have illustrated sample photos — no
   real people — bundled as hashed assets in place of the API's versioned photo URL, the others
   show their initials), keeps writes in memory for the session (adds, undo,
-  deletes, CRUD), and answers anything else with 503. Its games are `Rommé` (points, lowest
+  deletes, CRUD; an uploaded photo is kept as a `data:` URL in place of the versioned URL —
+  the artifact host allows `data:` images, the production CSP never sees them — and checked
+  only for base64 that starts like a JPEG), and answers anything else with 503. Its games are `Rommé` (points, lowest
   sum wins, started today), `Schach` (duel with draws, two months) and `Tischtennis` (duel
   without draws, three weeks) — on Spiele `Punktespiel · seit heute, 00:00`, `Duell · seit …`; they
   are served by the API's rules (name, kind and setting
