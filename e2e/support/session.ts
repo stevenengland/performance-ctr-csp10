@@ -55,12 +55,12 @@ export const VERIFIER = {
 };
 
 /** The rows the four-eyes rule applies to, by their route. */
-export type VerifiableRows = 'entries' | 'matches';
+export type VerifiableRows = 'entries' | 'matches' | 'results';
 
 /**
 Signs a request context of its own in as the verifier, creating that account
 first when it is missing, and returns how it verifies a row: an entry by
-default, or a match; the row then counts.
+default, or a match or result; the row then counts.
 */
 export async function verifierOn(
   request: APIRequestContext,

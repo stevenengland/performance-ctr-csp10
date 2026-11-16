@@ -121,8 +121,9 @@ test('a match recorded in one browser waits on another browser’s game page and
   }
 });
 
-test('a result typed on the number pad is saved and ranked on the game’s page', async ({
+test('a result typed on the number pad is saved, waits on the game’s page and is ranked once verified', async ({
   page,
+  request,
 }) => {
   const daniel = uniqueName('Daniel');
   await created(page.request, '/api/persons', { name: daniel });
@@ -139,11 +140,28 @@ test('a result typed on the number pad is saved and ranked on the game’s page'
   await page.getByRole('button', { name: 'Vorzeichen wechseln' }).click();
   await page.getByRole('button', { name: 'Speichern' }).click();
 
-  await expect(page.getByText(`${daniel} · −20 Punkte`)).toBeVisible();
   await expect(
-    page.getByRole('button', { name: `${daniel}, −20 Punkte` }),
+    page.getByText(`${daniel} · −20 Punkte · wartet auf Bestätigung`),
+  ).toBeVisible();
+  // It waits: the tile keeps the verified standing, the game lists Daniel without a rank.
+  await expect(
+    page.getByRole('button', { name: `${daniel}, noch nichts` }),
   ).toBeVisible();
   await page.goto(`/spiele/${String(gameId)}`);
+  await expect(
+    page
+      .getByRole('list', { name: 'Noch nicht gewertet' })
+      .getByRole('listitem', { name: `${daniel}, +1 offen` }),
+  ).toBeVisible();
+  const history = await page.request.get(
+    `/api/games/${String(gameId)}/results`,
+  );
+  const [result] = ((await history.json()) as { items: { id: string }[] })
+    .items;
+  const verify = await verifierOn(request);
+  await verify(result?.id ?? '', 'results');
+
+  await page.reload();
   await expect(
     page.getByRole('listitem', {
       name: `Platz 1, ${daniel}, −20 Punkte, 1 Ergebnis`,

@@ -11,8 +11,8 @@ import {
 
 /*
 The four-eyes rule end to end with two accounts (PRD #61): the bootstrap admin
-records a drink or a match, which waits; the verifier confirms it in `Offen`,
-and it counts, or rejects it there, and it is gone.
+records a drink, a match or a result, which waits; the verifier confirms it in
+`Offen`, and it counts, or rejects it there, and it is gone.
 */
 
 /** The Rangliste's polling interval. */
@@ -237,5 +237,88 @@ test('a match waits as offen for both players until another account confirms it 
   );
   await expect(
     page.getByRole('listitem', { name: new RegExp(`^Platz 2, ${ben},`) }),
+  ).toBeVisible();
+});
+
+test('a result waits as offen and unranked, even as a zero in a lowest-wins game, until another account confirms it in Offen', async ({
+  page,
+  browser,
+}) => {
+  await signIn(page);
+  const anna = uniqueName('Anna');
+  const ben = uniqueName('Ben');
+  const annaId = await created(page.request, '/api/persons', { name: anna });
+  const benId = await created(page.request, '/api/persons', { name: ben });
+  const game = uniqueName('Golf');
+  const gameId = await created(page.request, '/api/games', {
+    name: game,
+    kind: 'points',
+    lowerWins: true,
+  });
+  const record = async (personId: number, points: number) => {
+    const id = randomUUID();
+    const recorded = await page.request.put(`/api/results/${id}`, {
+      data: { gameId, personId, points },
+    });
+    expect(recorded.status()).toBe(201);
+    return id;
+  };
+  const annas = await record(annaId, 4);
+  await record(benId, 0);
+
+  const other = await browser.newContext({
+    baseURL: test.info().project.use.baseURL,
+    viewport: test.info().project.use.viewport,
+    locale: 'de-DE',
+    extraHTTPHeaders: test.info().project.use.extraHTTPHeaders,
+  });
+  try {
+    const verify = await verifierOn(other.request);
+    await verify(annas, 'results');
+
+    // Ben's 0 waits: offen in the Verlauf, and he is listed without a rank, so Anna's 4 leads.
+    await page.goto(`/spiele/${String(gameId)}/verlauf`);
+    const rows = page
+      .getByRole('list', { name: 'Verlauf' })
+      .getByRole('listitem');
+    await expect(rows).toHaveText([
+      new RegExp(`^${ben} · 0 Punkte\\s*.*offen$`),
+      new RegExp(`^${anna} · 4 Punkte`),
+    ]);
+    await expect(rows.nth(1)).not.toContainText('offen');
+    await page.goto(`/spiele/${String(gameId)}`);
+    await expect(
+      page.getByRole('listitem', { name: new RegExp(`^Platz 1, ${anna},`) }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole('list', { name: 'Noch nicht gewertet' })
+        .getByRole('listitem', { name: `${ben}, +1 offen` }),
+    ).toBeVisible();
+
+    const verifier = await other.newPage();
+    await verifier.goto('/offen');
+    const row = verifier
+      .getByRole('listitem')
+      .filter({ hasText: `${ben} · 0 Punkte` });
+    await expect(row).toContainText(`${game} · `);
+
+    await row
+      .getByRole('button', { name: `${ben} · 0 Punkte bestätigen` })
+      .click();
+
+    await expect(row).toHaveCount(0);
+  } finally {
+    await other.close();
+  }
+
+  // Ben counts within one refresh, and his 0 now leads the lowest-wins ladder.
+  await expect(
+    page.getByRole('listitem', { name: new RegExp(`^Platz 1, ${ben},`) }),
+  ).toHaveAccessibleName(`Platz 1, ${ben}, 0 Punkte, 1 Ergebnis`, {
+    timeout: POLL_MS + 2_000,
+  });
+  await expect(
+    page.getByRole('listitem', { name: new RegExp(`^Platz 2, ${anna},`) }),
   ).toBeVisible();
 });
