@@ -91,8 +91,9 @@
 
 - The deploy proof needs a built artifact (`node scripts/build-artifact.ts`; CI downloads the
   build job's) and a database.
-- Until #2 is closed, `host-probe.yml` also reads deploy secrets; `_deploy.yml` is the only
-  other workflow that does.
+- `_deploy.yml` is the only workflow that reads deploy secrets. The throwaway `host-probe.yml`
+  of #2 was deleted after the first production deploy (2026-11-16); its script stays under
+  `scripts/host-probe/` for a re-run from a temporary workflow.
 - The open host verifications (reading above the web root, `GET_LOCK`, rewrites, atomic
   rename, `%{HTTPS}`) were assumed when this was written; round 2 of #2 confirmed them
   ([ADR 0004](0004-host-runtime.md), runbook "Host verifications").

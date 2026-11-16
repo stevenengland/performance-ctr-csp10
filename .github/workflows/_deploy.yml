@@ -1,6 +1,5 @@
 name: Deploy
-# Reusable, and the only workflow that reads the deploy secrets (the throwaway
-# host-probe.yml of slice 1/1 is the one exception until #2 deletes it).
+# Reusable, and the only workflow that reads the deploy secrets.
 # ci.yml calls it for every green push to main, rollback.yml for a retained
 # release from its GitHub Release. Its job runs no npm: `node deploy/cli.ts`
 # starts on Node 24 type stripping, and sshpass comes from apt.

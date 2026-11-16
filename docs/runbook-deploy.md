@@ -57,14 +57,17 @@ Probed on #2 (round 2) and holding:
   which the certificate also covers) and never loops.
 - **TLS:** Sectigo DV certificate for the apex and `www`, valid until 2027-05-14; Strato renews it.
 
+Settled by probe run 43785718565 and the first production deploy (release
+`release-20261116-0205`):
+
+- **`SCRIPT_NAME` under the host's FastCGI** is the rewritten script (`/api/index.php`), as
+  `api/public/index.php` expects for Slim's base path.
+- **Rewrite flags.** The host's PHP handler answers Apache's own 404 to a request rewritten with
+  `[END]`; `[L]` behind a `REDIRECT_STATUS` guard reaches PHP. The renderer uses that form.
+- **`SFTP_KNOWN_HOSTS`** is set; its fingerprints match the ones recorded on #2.
+
 Still open:
 
-- **`SCRIPT_NAME` under the host's FastCGI.** `api/public/index.php` takes Slim's base path from
-  it (`/api/index.php` → base `/`). The probe's rewrite passed the route as a query parameter, so
-  it did not show what PHP sees after a path rewrite; the probe now reports `SCRIPT_NAME` and
-  the `REQUEST_URI` path of the rewritten request. The next probe run (it is needed for the
-  host-key lines anyway) settles it. If they differ from the expectation, health answers 404 and
-  the first deploy fails at its health check.
 - **Config file mode.** `config/runtime.php` holds the database password and is uploaded `0644`
   (uploads keep the local mode). Whether PHP runs as the SFTP user is not probed yet: if it
   does, tighten the file to `0600` (an sftp `chmod` on the `.part` before the rename); if not,
@@ -118,8 +121,9 @@ account (a taken user name leaves everything as it is), and once any admin exist
 changing these secrets has no effect: manage accounts in the app (Verwalten → Konten).
 
 A missing or invalid name fails the deploy before it touches the host, naming the variable and
-never printing a value. **Exception until #2 closes:** the throwaway `host-probe.yml` also reads
-the SFTP and database secrets; #2 deletes it once its findings are recorded.
+never printing a value. The throwaway `host-probe.yml` of #2, which also read the SFTP and
+database secrets, is deleted; the probe script stays under `scripts/host-probe/` and needs a
+temporary workflow for a re-run.
 
 ## What a push to `main` does
 

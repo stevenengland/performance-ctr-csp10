@@ -80,5 +80,6 @@
 - PHPUnit runs locally on whatever PHP and MariaDB the machine has; CI is the reference run on
   PHP 8.5.12 and MariaDB 11.8.
 - `ci.yml` holds the MariaDB digest outside Dependabot's reach; it is copied by hand.
-- Still open (runbook): `SCRIPT_NAME` under FastCGI, the runtime config's file mode, and the
-  `SFTP_KNOWN_HOSTS` lines from the next probe run.
+- Still open (runbook): the runtime config's file mode. `SCRIPT_NAME` under FastCGI and the
+  `SFTP_KNOWN_HOSTS` lines were settled by probe run 43785718565; that run also showed that
+  the host answers 404 after an `[END]` rewrite, so the rendered rules use `[L]`.
