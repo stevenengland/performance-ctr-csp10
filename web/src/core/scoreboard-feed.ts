@@ -78,12 +78,20 @@ export function scoreOf(
   return board?.rows.find((row) => row.personId === personId)?.score ?? 0;
 }
 
-/** A person's counter for one drink today; 0 without entries. */
+/**
+A person's counter for one drink today as the recording flow shows it: every
+recorded entry, those that wait for verification included, whether the person
+has a place or not; 0 without entries.
+*/
 export function counterOf(
   board: DeepReadonly<Scoreboard> | undefined,
   personId: number,
   drinkId: number,
 ): number {
-  const row = board?.rows.find((candidate) => candidate.personId === personId);
-  return row?.drinks.find((drink) => drink.drinkId === drinkId)?.count ?? 0;
+  const row = [...(board?.rows ?? []), ...(board?.unranked ?? [])].find(
+    (candidate) => candidate.personId === personId,
+  );
+  return (
+    row?.drinks.find((drink) => drink.drinkId === drinkId)?.recordedCount ?? 0
+  );
 }
