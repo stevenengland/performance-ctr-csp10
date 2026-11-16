@@ -255,7 +255,7 @@ final class MatchesTest extends DatabaseTestCase
                 static fn(array $event): array => [
                     $event['subject_kind'],
                     $event['subject_id'],
-                    $event['subject_kind'] === 'match' ? json_decode((string) $event['before_json'], true) : null,
+                    is_string($event['before_json']) && $event['subject_kind'] === 'match' ? json_decode($event['before_json'], true) : null,
                     $event['cause_kind'] === null ? null : [$event['cause_kind'], $event['cause_id']],
                 ],
                 $events,

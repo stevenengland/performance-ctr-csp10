@@ -7,6 +7,7 @@ namespace Performance\Tests\Integration;
 use Performance\Domain\Actor;
 use Performance\Domain\AuditLog;
 use Performance\Domain\DataRevision;
+use Performance\Domain\Games\DuelRow;
 use Performance\Domain\Games\Matches;
 use Performance\Domain\Idempotency;
 use Performance\Domain\Snapshot;
@@ -177,7 +178,7 @@ final class StandingsTest extends DatabaseTestCase
             return [$read, $matches->standings(1, 1)];
         });
 
-        self::assertSame(['Anna', 'Ben'], array_map(static fn($row): string => $row->name, $rows), 'the ranking belongs to the revision that was read');
+        self::assertSame(['Anna', 'Ben'], array_map(static fn(DuelRow $row): string => $row->name, $rows), 'the ranking belongs to the revision that was read');
         self::assertCount(4, $matches->standings(1, 1), 'a read after the snapshot sees the write');
         self::assertSame($read + 1, $revision->current());
     }

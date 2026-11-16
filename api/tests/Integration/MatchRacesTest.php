@@ -82,7 +82,7 @@ final class MatchRacesTest extends DatabaseTestCase
 
         self::assertSame('done', $deletion);
         self::assertContains($record, ['created', 'not-found']);
-        self::assertSame([], $this->rows('SELECT id FROM matches UNION ALL SELECT CAST(id AS CHAR) FROM games'));
+        self::assertSame([], [...$this->rows('SELECT id FROM matches'), ...$this->rows('SELECT id FROM games')]);
         self::assertSame(
             $record === 'created' ? [['operation' => 'create', 'cause_kind' => null], ['operation' => 'delete', 'cause_kind' => 'game']] : [],
             $this->rows(
@@ -138,11 +138,12 @@ final class MatchRacesTest extends DatabaseTestCase
 
         self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
         self::assertSame($deadlocks, $this->deadlocks(), 'no deadlock');
-        self::assertSame([], $this->rows('SELECT id FROM matches UNION ALL SELECT CAST(id AS CHAR) FROM games'));
+        self::assertSame([], [...$this->rows('SELECT id FROM matches'), ...$this->rows('SELECT id FROM games')]);
         self::assertSame([['name' => 'Anna']], $this->rows('SELECT name FROM persons'));
         $removed = $this->rows("SELECT before_json FROM audit_events WHERE subject_kind = 'match' AND operation = 'delete'");
         self::assertCount(1, $removed);
-        $snapshot = json_decode((string) $removed[0]['before_json'], true);
+        self::assertIsString($removed[0]['before_json']);
+        $snapshot = json_decode($removed[0]['before_json'], true);
         self::assertIsArray($snapshot);
         self::assertSame($first === 'game' ? 'Ben' : null, $snapshot['second'], 'the names as the game deletion found them');
     }
