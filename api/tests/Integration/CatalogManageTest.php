@@ -162,7 +162,7 @@ final class CatalogManageTest extends DatabaseTestCase
         self::assertSame([['id' => 2, 'name' => 'Wein', 'points' => 2]], $this->body($this->send('GET', '/api/drinks', session: $this->session))['drinks']);
         self::assertSame([['drink_id' => '2']], $this->rows('SELECT CAST(drink_id AS CHAR) AS drink_id FROM entries'));
         self::assertSame(
-            [['personId' => 1, 'name' => 'Daniel', 'score' => 2, 'count' => 1, 'drinks' => [['drinkId' => 2, 'name' => 'Wein', 'count' => 1]]]],
+            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 2, 'count' => 1, 'drinks' => [['drinkId' => 2, 'name' => 'Wein', 'count' => 1]]]],
             $this->standings(),
         );
     }

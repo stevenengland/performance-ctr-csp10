@@ -696,7 +696,7 @@ final class PersonPhotoTest extends DatabaseTestCase
     {
         $drink = $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $this->admin);
         self::assertSame(201, $drink->getStatusCode(), (string) $drink->getBody());
-        foreach ($personIds as $index => $personId) {
+        foreach (array_values($personIds) as $index => $personId) {
             $id = sprintf('00000000-0000-4000-8000-%012d', $index + 1);
             $entry = $this->send('PUT', "/api/entries/{$id}", ['personId' => $personId, 'drinkId' => 1, 'quantity' => 1], $this->member);
             self::assertSame(201, $entry->getStatusCode(), (string) $entry->getBody());
