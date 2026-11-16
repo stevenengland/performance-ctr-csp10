@@ -19,12 +19,13 @@ return new class implements Migration {
     }
 
     /**
-     * Whether the attempt's password check is still running. Additive (expand only): the
-     * default 0 is a finished failure, which is what a row of an older release always meant,
-     * so that release keeps working on this schema, and MariaDB adds the column in place.
+     * Whether the attempt's password check is still running. Additive (expand only, ADR 0006):
+     * the default 0 is a finished failure, which is what a row of an older release always
+     * meant, so that release keeps working on this schema. INSTANT changes only metadata and
+     * fails instead of copying the table, so the migration never blocks sign-ins for long.
      */
     public function apply(PDO $pdo): void
     {
-        $pdo->exec('ALTER TABLE login_attempts ADD COLUMN pending TINYINT(1) NOT NULL DEFAULT 0 AFTER attempted_at');
+        $pdo->exec('ALTER TABLE login_attempts ADD COLUMN pending TINYINT(1) NOT NULL DEFAULT 0 AFTER attempted_at, ALGORITHM=INSTANT');
     }
 };
