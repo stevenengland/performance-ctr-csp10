@@ -63,7 +63,9 @@ test('a PNG is chosen, framed from the keyboard and saved as a 256 × 256 JPEG t
     dialog.getByRole('button', { name: 'Foto wählen' }),
     PICTURES.halves,
   );
-  const crop = dialog.getByRole('application', { name: 'Ausschnitt des Fotos' });
+  const crop = dialog.getByRole('application', {
+    name: 'Ausschnitt des Fotos',
+  });
   await expect(crop).toBeVisible();
   await expect(crop).toHaveAccessibleDescription(
     'Ziehen zum Verschieben · zoomen mit zwei Fingern oder dem Regler Pfeiltasten verschieben, Plus und Minus zoomen.',
@@ -125,6 +127,24 @@ test('a PNG is chosen, framed from the keyboard and saved as a 256 × 256 JPEG t
       [0.9, 0.5],
     ]),
   ).toEqual(['red', 'blue']);
+
+  // Through the server: the stored version is cached for a year, any other
+  // version is a 404 that is not stored.
+  const src = await photo.evaluate((img: HTMLImageElement) => img.src);
+  const served = await page.request.get(src);
+  expect(served.status()).toBe(200);
+  expect(served.headers()['content-type']).toBe('image/jpeg');
+  expect(served.headers()['cache-control']).toBe(
+    'private, max-age=31536000, immutable',
+  );
+  const otherVersion = src.endsWith('0'.repeat(64))
+    ? '1'.repeat(64)
+    : '0'.repeat(64);
+  const other = await page.request.get(
+    src.replace(/v=[0-9a-f]{64}$/, `v=${otherVersion}`),
+  );
+  expect(other.status()).toBe(404);
+  expect(other.headers()['cache-control']).toBe('no-store');
 });
 
 test('a JPEG with EXIF orientation is framed upright', async ({ page }) => {
@@ -135,7 +155,9 @@ test('a JPEG with EXIF orientation is framed upright', async ({ page }) => {
     .setInputFiles(PICTURES.exifRotated);
 
   // Upright the stored left half (red) is on top.
-  const crop = dialog.getByRole('application', { name: 'Ausschnitt des Fotos' });
+  const crop = dialog.getByRole('application', {
+    name: 'Ausschnitt des Fotos',
+  });
   await expect(crop).toBeVisible();
   expect(
     await coloursAt(crop, [
