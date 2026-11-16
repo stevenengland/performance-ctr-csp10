@@ -65,7 +65,7 @@ final class Database
 
     public function accounts(): Accounts
     {
-        return $this->accounts ??= new Accounts($this->pdo(), $this->clock);
+        return $this->accounts ??= new Accounts($this->pdo(), $this->clock, $this->revision());
     }
 
     public function sessions(): Sessions

@@ -128,7 +128,8 @@ abstract class DatabaseTestCase extends TestCase
     /**
      * One request through the application's request handler, as a browser would send it.
      *
-     * @param array<string, mixed>|null $json sent as `application/json`
+     * @param array<string, mixed>|null $json    sent as `application/json`
+     * @param array<string, string>     $headers further request headers, such as `If-None-Match`
      */
     protected function send(
         string $method,
@@ -137,8 +138,12 @@ abstract class DatabaseTestCase extends TestCase
         ?string $session = null,
         ?RequestHandlerInterface $app = null,
         string $clientAddress = '192.0.2.10',
+        array $headers = [],
     ): ResponseInterface {
         $request = $this->request($method, $path, ['REMOTE_ADDR' => $clientAddress]);
+        foreach ($headers as $name => $value) {
+            $request = $request->withHeader($name, $value);
+        }
         if ($json !== null) {
             $request->getBody()->write(json_encode($json, JSON_THROW_ON_ERROR));
             $request = $request->withHeader('Content-Type', 'application/json');

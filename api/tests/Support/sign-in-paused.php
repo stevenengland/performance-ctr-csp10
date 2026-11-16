@@ -11,6 +11,7 @@ declare(strict_types=1);
  */
 
 use Performance\Domain\Accounts;
+use Performance\Domain\DataRevision;
 use Performance\Domain\InvalidCredentials;
 use Performance\Domain\Sessions;
 use Performance\Domain\SystemClock;
@@ -32,7 +33,7 @@ $pdo = Database::open(new Config(
 ));
 $pdo->exec("SET time_zone = '+00:00'");
 $clock = new SystemClock();
-$sessions = new Sessions($pdo, new Accounts($pdo, $clock), $clock);
+$sessions = new Sessions($pdo, new Accounts($pdo, $clock, new DataRevision($pdo)), $clock);
 try {
     $sessions->signIn($userName, $password, '192.0.2.77');
 } catch (InvalidCredentials) {

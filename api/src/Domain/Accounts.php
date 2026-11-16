@@ -20,6 +20,7 @@ final readonly class Accounts
     public function __construct(
         private PDO $pdo,
         private Clock $clock,
+        private DataRevision $revision,
     ) {}
 
     /**
@@ -225,17 +226,19 @@ final readonly class Accounts
 
     /**
      * Deletes the account. Its sessions go with it and its entries stay with their
-     * "logged by" reference cleared (both by foreign key).
+     * "logged by" and "verified by" references cleared (both by foreign key). That changes the
+     * recorder names the pending queue sends, so the deletion bumps the data revision in its
+     * transaction; a deadlock with a verification of one of its entries runs it again.
      *
      * @throws NotFound for an unknown account
      * @throws LastAdmin when it is the last admin
      */
     public function delete(int $id): void
     {
-        $this->changeLocked($id, function (Account $account, int $admins): void {
+        $this->revision->write(fn() => $this->lockAndChange($id, function (Account $account, int $admins): void {
             self::keepAnAdmin($account, $admins);
             $this->pdo->prepare('DELETE FROM accounts WHERE id = ?')->execute([$account->id]);
-        });
+        }));
     }
 
     /**
@@ -269,26 +272,7 @@ final readonly class Accounts
     {
         $this->pdo->beginTransaction();
         try {
-            $statement = $this->pdo->prepare(
-                'SELECT id, user_name, is_admin FROM accounts WHERE is_admin = 1 OR id = ? ORDER BY id FOR UPDATE',
-            );
-            $statement->execute([$id]);
-            $account = null;
-            $admins = 0;
-            foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                if (!is_array($row)) {
-                    continue;
-                }
-                $locked = Account::fromRow($row);
-                $admins += (int) $locked->isAdmin;
-                if ($locked->id === $id) {
-                    $account = $locked;
-                }
-            }
-            if ($account === null) {
-                throw new NotFound("No account {$id}");
-            }
-            $result = $change($account, $admins);
+            $result = $this->lockAndChange($id, $change);
             $this->pdo->commit();
 
             return $result;
@@ -296,6 +280,40 @@ final readonly class Accounts
             $this->pdo->rollBack();
             throw $failure;
         }
+    }
+
+    /**
+     * Locks the account and every admin, then runs the change, inside the caller's transaction.
+     *
+     * @template T
+     *
+     * @param callable(Account, int): T $change gets the account and the number of admins
+     *
+     * @return T
+     */
+    private function lockAndChange(int $id, callable $change): mixed
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT id, user_name, is_admin FROM accounts WHERE is_admin = 1 OR id = ? ORDER BY id FOR UPDATE',
+        );
+        $statement->execute([$id]);
+        $account = null;
+        $admins = 0;
+        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $locked = Account::fromRow($row);
+            $admins += (int) $locked->isAdmin;
+            if ($locked->id === $id) {
+                $account = $locked;
+            }
+        }
+        if ($account === null) {
+            throw new NotFound("No account {$id}");
+        }
+
+        return $change($account, $admins);
     }
 
     /** @throws LastAdmin when the account is the only admin left */

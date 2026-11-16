@@ -9,6 +9,7 @@ declare(strict_types=1);
  */
 
 use Performance\Domain\Accounts;
+use Performance\Domain\DataRevision;
 use Performance\Domain\BootstrapAdmin;
 use Performance\Domain\SystemClock;
 use Performance\Http\Config;
@@ -27,6 +28,6 @@ $pdo = Database::open(new Config(
     'race',
     [],
 ));
-$accounts = new Accounts($pdo, new SystemClock());
+$accounts = new Accounts($pdo, new SystemClock(), new DataRevision($pdo));
 time_sleep_until((float) $startAt);
 $accounts->ensureBootstrapAdmin(new BootstrapAdmin($userName, $passwordHash));

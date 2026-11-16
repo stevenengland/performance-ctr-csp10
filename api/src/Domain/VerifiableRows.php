@@ -30,4 +30,16 @@ interface VerifiableRows
      * @return array<string, mixed>
      */
     public function markVerified(string $id, int $accountId, DateTimeImmutable $at): array;
+
+    /**
+     * Up to `$limit` of the owner's pending rows the account may verify (recorded by another
+     * account or by one deleted since), after `$bound` when one is given, newest first and
+     * then by id.
+     *
+     * @return list<PendingItem>
+     */
+    public function pending(int $accountId, ?PendingBound $bound, int $limit): array;
+
+    /** How many of the owner's pending rows the account may verify. */
+    public function countPending(int $accountId): int;
 }

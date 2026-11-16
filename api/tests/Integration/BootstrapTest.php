@@ -6,6 +6,7 @@ namespace Performance\Tests\Integration;
 
 use PDO;
 use Performance\Domain\Accounts;
+use Performance\Domain\DataRevision;
 use Performance\Domain\SystemClock;
 use Performance\Tests\Support\DatabaseTestCase;
 
@@ -88,6 +89,6 @@ final class BootstrapTest extends DatabaseTestCase
         $pdo = $this->otherSession();
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
-        return new Accounts($pdo, new SystemClock());
+        return new Accounts($pdo, new SystemClock(), new DataRevision($pdo));
     }
 }
