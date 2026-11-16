@@ -94,7 +94,11 @@ final class CleanJpeg
         return $hasScan && $endsHere ? $cleaned . self::EOI : null;
     }
 
-    /** The marker of the segment starting at `$at`, or null when no marker starts there. */
+    /**
+     * The marker of the segment starting at `$at`, or null when no marker starts there.
+     * FF fill bytes before a marker, which JPEG allows and encoders do not write, read as
+     * marker FF and so are rejected.
+     */
     private static function markerAt(string $jpeg, int $at): ?int
     {
         return $at + 1 < strlen($jpeg) && $jpeg[$at] === "\xFF" ? ord($jpeg[$at + 1]) : null;
