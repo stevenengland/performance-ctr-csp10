@@ -371,23 +371,32 @@ describe('the fixture backend’s games', () => {
 
     await deleteGame(tischtennis);
 
-    const events = (await newest(4)).map(told).reverse();
+    const events = (await newest(5)).map(told).reverse();
     expect(events[0]).toMatchObject({
       operation: 'delete',
       subjectKind: 'game',
       cause: null,
     });
     expect(events.slice(1)).toEqual(
-      [
-        ['00000000-0000-4000-a000-000000000010', 'Mara', 'Jule', 'first'],
-        ['00000000-0000-4000-a000-000000000011', 'Jule', 'Tom', 'first'],
-        ['00000000-0000-4000-a000-000000000012', 'Mara', 'Tom', 'second'],
-      ].map(([id, first, second, outcome]) => ({
+      (
+        [
+          ['00000000-0000-4000-a000-000000000010', 'Mara', 'Jule', 'first'],
+          ['00000000-0000-4000-a000-000000000011', 'Jule', 'Tom', 'first'],
+          ['00000000-0000-4000-a000-000000000012', 'Mara', 'Tom', 'second'],
+          ['00000000-0000-4000-a000-000000000013', 'Jule', 'Tom', 'second'],
+        ] as const
+      ).map(([id, first, second, outcome]) => ({
         operation: 'delete',
         subjectKind: 'match',
         subjectId: id,
         userName: 'anna',
-        before: { game: 'Tischtennis', first, second, outcome },
+        before: {
+          game: 'Tischtennis',
+          first,
+          second,
+          outcome,
+          pending: id.endsWith('13'),
+        },
         after: null,
         cause: { subjectKind: 'game', name: 'Tischtennis' },
       })),
@@ -519,11 +528,12 @@ describe('the fixture backend’s games', () => {
     await expect(conflict.json()).resolves.toMatchObject({
       type: 'urn:performance:problem:request-conflict',
     });
+    // The new match waits, so it counts for neither player yet.
     expect(await ranking(schach)).toEqual([
       'Anna 4 3-2-0/5',
       'Ben 3.5 3-1-1/5',
-      'Daniel 1.5 1-1-2/4',
-      'Tom 1 0-2-3/5',
+      'Tom 1 0-2-2/4',
+      'Daniel 0.5 0-1-2/3',
     ]);
     await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 10 });
     const [recorded] = (await newest(1)).map(told);
@@ -538,6 +548,7 @@ describe('the fixture backend’s games', () => {
         first: 'Daniel',
         second: 'Tom',
         outcome: 'first',
+        pending: true,
       },
       cause: null,
     });

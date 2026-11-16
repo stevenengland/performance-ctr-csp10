@@ -42,6 +42,8 @@ export interface FixtureMatch {
   outcome: Outcome;
   accountId: number | null;
   createdAt: string;
+  /** Whether it waits for verification by another account (PRD #61). */
+  pending: boolean;
 }
 
 /** A points-game result as the database keeps it, in its game's run. */
@@ -153,7 +155,10 @@ const GAMES: [string, Game['kind'], boolean, boolean, number][] = [
 ];
 /**
 Schach and Tischtennis: game, first, second (`null`: a person deleted since),
-outcome, days ago and the recording account (`null`: deleted since).
+outcome, days ago, the recording account (`null`: deleted since) and whether the
+match still waits for verification. Last night's Tischtennis match, which `mara`
+recorded, waits: Jule and Tom each get `+1 offen` beside their verified matches,
+and it is in Offen as a row of an earlier day.
 */
 const MATCHES: [
   string,
@@ -162,6 +167,7 @@ const MATCHES: [
   Outcome,
   number,
   string | null,
+  boolean?,
 ][] = [
   ['Schach', 'Anna', 'Ben', 'first', 58, 'anna'],
   ['Schach', null, 'Ben', 'second', 51, 'ben'],
@@ -175,6 +181,7 @@ const MATCHES: [
   ['Tischtennis', 'Mara', 'Jule', 'first', 19, 'mara'],
   ['Tischtennis', 'Jule', 'Tom', 'first', 12, 'mara'],
   ['Tischtennis', 'Mara', 'Tom', 'second', 5, 'daniel'],
+  ['Tischtennis', 'Jule', 'Tom', 'second', 1, 'mara', true],
 ];
 /** Tonight's Rommé, two rounds so far: person, penalty points (going out first gives −20) and account. */
 const RESULTS: [string, number, string][] = [
@@ -214,7 +221,10 @@ function sampleGames(
     accounts.find(({ account }) => account.userName === userName)?.account.id ??
     null;
   const matches = MATCHES.map(
-    ([game, first, second, outcome, daysAgo, account], index) => ({
+    (
+      [game, first, second, outcome, daysAgo, account, pending = false],
+      index,
+    ) => ({
       id: `00000000-0000-4000-a000-${String(index + 1).padStart(12, '0')}`,
       gameId: gameOf(game),
       run: 1,
@@ -223,6 +233,7 @@ function sampleGames(
       outcome,
       accountId: accountOf(account),
       createdAt: new Date(midnight - daysAgo * DAY + 21 * HOUR).toISOString(),
+      pending,
     }),
   );
   const span = now.getTime() - midnight;
