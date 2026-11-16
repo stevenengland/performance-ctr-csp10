@@ -22,9 +22,9 @@ final readonly class Scoreboard
     ) {}
 
     /**
-     * Runs reads of the revision and the standings in one read-only REPEATABLE READ
-     * transaction, so they all see the same committed data: the per-drink counters add
-     * up to each person's count, and the standings belong to the revision read.
+     * Runs reads of the revision and the standings in one Snapshot, so they all see the same
+     * committed data: the per-drink counters add up to each person's count, and the standings
+     * belong to the revision read.
      *
      * @template T
      *
@@ -34,13 +34,7 @@ final readonly class Scoreboard
      */
     public function snapshot(callable $read): mixed
     {
-        $this->pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-        $this->pdo->exec('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY');
-        try {
-            return $read();
-        } finally {
-            $this->pdo->exec('COMMIT');
-        }
+        return (new Snapshot($this->pdo))->read($read);
     }
 
     /** Changes whenever the standings may have changed, without aggregating. */

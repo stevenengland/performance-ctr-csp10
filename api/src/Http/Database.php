@@ -18,6 +18,7 @@ use Performance\Domain\Idempotency;
 use Performance\Domain\Migrator;
 use Performance\Domain\Scoreboard;
 use Performance\Domain\Sessions;
+use Performance\Domain\Snapshot;
 
 /**
  * Opens the request's database session, and the domain modules that work on it,
@@ -98,7 +99,13 @@ final class Database
         return $this->audit ??= new AuditLog($this->pdo(), $this->clock);
     }
 
-    private function revision(): DataRevision
+    /** One consistent view of the committed data for several reads, e.g. a ranking with its revision. */
+    public function snapshot(): Snapshot
+    {
+        return new Snapshot($this->pdo());
+    }
+
+    public function revision(): DataRevision
     {
         return $this->revision ??= new DataRevision($this->pdo());
     }

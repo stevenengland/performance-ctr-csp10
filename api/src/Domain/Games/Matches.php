@@ -21,8 +21,8 @@ use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
 
 /**
- * The matches of duel games, end to end: record one idempotently on the client's UUID and
- * undo it. Every write names its actor and is recorded in the audit log in its own
+ * The matches of duel games, end to end: record one idempotently on the client's UUID, undo
+ * it, and rank a game's run. Every write names its actor and is recorded in the audit log in its own
  * transaction, together with the data revision bump; a replay, a conflict or a failure records
  * nothing.
  *
@@ -127,6 +127,51 @@ final readonly class Matches
             $this->audit->record($actor, AuditOperation::Delete, AuditSubjectKind::Match, $id, $this->snapshot($id), null);
             $this->pdo->prepare('DELETE FROM matches WHERE id = ?')->execute([$id]);
         });
+    }
+
+    /**
+     * A duel game's ranking in one run: every person with a match in it, by points (win 1,
+     * draw ½, loss 0), then wins, then name, then id. It is computed from each match's stored
+     * outcome, so a side that was cleared (a deleted person) counts for no one and never
+     * changes the other side's result.
+     *
+     * @return list<DuelRow>
+     */
+    public function standings(int $gameId, int $run): array
+    {
+        $statement = $this->pdo->prepare(
+            "SELECT p.id, p.name,
+                    SUM(CASE r.result WHEN 'win' THEN 1 WHEN 'draw' THEN 0.5 ELSE 0 END) AS points,
+                    SUM(r.result = 'win') AS wins, SUM(r.result = 'draw') AS draws, SUM(r.result = 'loss') AS losses,
+                    COUNT(*) AS played
+             FROM (
+                 SELECT first_person_id AS person_id,
+                        CASE outcome WHEN 'first' THEN 'win' WHEN 'second' THEN 'loss' ELSE 'draw' END AS result
+                 FROM matches WHERE game_id = ? AND run = ? AND first_person_id IS NOT NULL
+                 UNION ALL
+                 SELECT second_person_id,
+                        CASE outcome WHEN 'second' THEN 'win' WHEN 'first' THEN 'loss' ELSE 'draw' END
+                 FROM matches WHERE game_id = ? AND run = ? AND second_person_id IS NOT NULL
+             ) r JOIN persons p ON p.id = r.person_id
+             GROUP BY p.id, p.name
+             ORDER BY points DESC, wins DESC, p.name, p.id",
+        );
+        $statement->execute([$gameId, $run, $gameId, $run]);
+        /** @var list<array<string, scalar|null>> $rows */
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        return array_map(
+            static fn(array $row): DuelRow => new DuelRow(
+                (int) $row['id'],
+                (string) $row['name'],
+                (string) $row['points'],
+                (int) $row['wins'],
+                (int) $row['draws'],
+                (int) $row['losses'],
+                (int) $row['played'],
+            ),
+            $rows,
+        );
     }
 
     /**
