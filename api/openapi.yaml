@@ -1093,7 +1093,10 @@ components:
             - type: 'null'
             - $ref: '#/components/schemas/AuditSnapshot'
         cause:
-          description: The event whose change caused this one; null for a direct change
+          description: >-
+            The event whose change caused this one, null for a direct change. An entry removed
+            or changed by the deletion of its person, drink or factor names that deletion here,
+            so it can be shown when the deletion's own event is on another page.
           oneOf:
             - type: 'null'
             - type: object
@@ -1102,11 +1105,13 @@ components:
               properties:
                 id:
                   type: integer
+                  description: The causing event's id
                 subjectKind:
                   type: string
                   enum: [entry, person, drink, factor]
                 name:
                   type: string
+                  description: The causing event's subject name, as that event recorded it
     AuditSnapshot:
       type: object
       description: >-

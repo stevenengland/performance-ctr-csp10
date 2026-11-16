@@ -16,6 +16,7 @@ final readonly class AuditEvent
     /**
      * @param array<string, mixed>|null $before the values before the change; null for a create
      * @param array<string, mixed>|null $after  the values after the change; null for a delete
+     * @param AuditCause|null           $cause  the event whose change caused this one; null for a direct change
      */
     public function __construct(
         public int $id,
@@ -26,5 +27,6 @@ final readonly class AuditEvent
         public Actor $actor,
         public ?array $before,
         public ?array $after,
+        public ?AuditCause $cause,
     ) {}
 }

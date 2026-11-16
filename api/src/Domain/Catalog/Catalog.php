@@ -14,6 +14,7 @@ use Performance\Domain\AuditSubjectKind;
 use Performance\Domain\Clock;
 use Performance\Domain\DatabaseError;
 use Performance\Domain\DataRevision;
+use Performance\Domain\EntrySnapshots;
 use Performance\Domain\NotFound;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
@@ -359,8 +360,15 @@ final readonly class Catalog
     }
 
     /**
-     * Records a row's deletion, deletes it and bumps the revision, all in one transaction;
-     * foreign keys decide what happens to its entries.
+     * Deletes a row and records the deletion and what it does to the row's entries, then bumps
+     * the revision, all in one transaction. The foreign keys still do the work on the entries:
+     * a person's or a drink's are deleted with it, a factor's lose it. Each affected entry gets
+     * its own event, caused by the deletion's.
+     *
+     * Lock order: the row first, then its entries in id order, both for update; then record;
+     * then delete. An entry insert takes a shared lock on its person, drink and factor for its
+     * foreign key checks, so it either committed before the row was locked, and its entry is
+     * read and recorded here, or it waits and then fails because the row is gone.
      *
      * @throws NotFound when there is no such row
      */
@@ -368,7 +376,20 @@ final readonly class Catalog
     {
         $this->revision->write(function () use ($actor, $kind, $id): void {
             $before = $this->snapshot($kind, $id);
-            $this->audit->record($actor, AuditOperation::Delete, $kind, (string) $id, $before, null);
+            // A factor's entries stay and lose it; a person's or a drink's go with it.
+            $clearsFactor = $kind === AuditSubjectKind::Factor;
+            $entries = [];
+            foreach (EntrySnapshots::lockReferencing($this->pdo, $kind, $id) as [$entryId, $entry]) {
+                $entries[] = [$entryId, $entry, $clearsFactor ? [...$entry, 'factor' => null] : null];
+            }
+            $this->audit->recordDeletion(
+                $actor,
+                $kind,
+                (string) $id,
+                $before,
+                $clearsFactor ? AuditOperation::Update : AuditOperation::Delete,
+                $entries,
+            );
             $this->pdo->prepare('DELETE FROM ' . self::table($kind) . ' WHERE id = ?')->execute([$id]);
         });
     }

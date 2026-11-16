@@ -505,11 +505,13 @@ export interface components {
       before: null | components['schemas']['AuditSnapshot'];
       /** @description The subject's values after the change; null for a delete */
       after: null | components['schemas']['AuditSnapshot'];
-      /** @description The event whose change caused this one; null for a direct change */
+      /** @description The event whose change caused this one, null for a direct change. An entry removed or changed by the deletion of its person, drink or factor names that deletion here, so it can be shown when the deletion's own event is on another page. */
       cause: null | {
+        /** @description The causing event's id */
         id: number;
         /** @enum {string} */
         subjectKind: 'entry' | 'person' | 'drink' | 'factor';
+        /** @description The causing event's subject name, as that event recorded it */
         name: string;
       };
     };

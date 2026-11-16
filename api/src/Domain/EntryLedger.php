@@ -6,7 +6,6 @@ namespace Performance\Domain;
 
 use DateTimeImmutable;
 use DateTimeZone;
-use LogicException;
 use PDO;
 use PDOException;
 
@@ -73,7 +72,7 @@ final readonly class EntryLedger
             if ($locked->fetchColumn() === false) {
                 throw new NotFound($id);
             }
-            $this->audit->record($actor, AuditOperation::Delete, AuditSubjectKind::Entry, $id, $this->snapshot($id), null);
+            $this->audit->record($actor, AuditOperation::Delete, AuditSubjectKind::Entry, $id, EntrySnapshots::of($this->pdo, $id), null);
             $this->pdo->prepare('DELETE FROM entries WHERE id = ?')->execute([$id]);
         });
     }
@@ -138,7 +137,7 @@ final readonly class EntryLedger
                     $actor->accountId,
                     Timestamp::of($entry->createdAt),
                 ]);
-                $this->audit->record($actor, AuditOperation::Create, AuditSubjectKind::Entry, $entry->id, null, $this->snapshot($entry->id));
+                $this->audit->record($actor, AuditOperation::Create, AuditSubjectKind::Entry, $entry->id, null, EntrySnapshots::of($this->pdo, $entry->id));
             });
 
             return new AddedEntry($entry, true);
@@ -158,36 +157,6 @@ final readonly class EntryLedger
             }
             throw $failure;
         }
-    }
-
-    /**
-     * An entry as the audit log keeps it, its references resolved as they are now: the person's
-     * name, the drink's name and points, the quantity, and the factor's name and multiplier or null.
-     *
-     * @return array{person: string, drink: string, points: string, quantity: int, factor: array{name: string, multiplier: string}|null}
-     */
-    private function snapshot(string $id): array
-    {
-        $statement = $this->pdo->prepare(
-            'SELECT p.name AS person, d.name AS drink, d.points, e.quantity, f.name AS factor, f.multiplier
-             FROM entries e JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
-             LEFT JOIN factors f ON f.id = e.factor_id
-             WHERE e.id = ?',
-        );
-        $statement->execute([$id]);
-        /** @var array<string, scalar|null>|false $row */
-        $row = $statement->fetch(PDO::FETCH_ASSOC);
-        if ($row === false) {
-            throw new LogicException("Entry {$id} is not there to be recorded");
-        }
-
-        return [
-            'person' => (string) $row['person'],
-            'drink' => (string) $row['drink'],
-            'points' => (string) $row['points'],
-            'quantity' => (int) $row['quantity'],
-            'factor' => $row['factor'] === null ? null : ['name' => (string) $row['factor'], 'multiplier' => (string) $row['multiplier']],
-        ];
     }
 
     /** The original outcome of a known id, or a conflict for different content. */

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Performance\Tests\Integration;
 
+use Performance\Domain\AuditLog;
 use Performance\Tests\Support\DatabaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Psr\Http\Message\ResponseInterface;
 
 /**
  * The audit log, through HTTP only: a change is made through its real route and read back
@@ -18,6 +20,9 @@ final class AuditLogTest extends DatabaseTestCase
     private const NOW = '2026-11-14T20:00:00.000Z';
     private const ENTRY = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
     private const OTHER_ENTRY = '0b9d8c7a-6e5f-4a3b-9c2d-1e0f9a8b7c6d';
+    private const THIRD_ENTRY = 'c3a1e2b4-5d6f-4a7b-8c9d-0e1f2a3b4c5d';
+    private const RACE_ROUNDS = 3;
+    private const RACE_ADDERS = 4;
 
     private string $admin;
 
@@ -279,6 +284,169 @@ final class AuditLogTest extends DatabaseTestCase
         self::assertSame($recorded, $this->events());
     }
 
+    /**
+     * @return iterable<string, array{string, string, array<string, mixed>, string}>
+     */
+    public static function cascadingDeletions(): iterable
+    {
+        yield 'drink' => ['drinks', 'drink', ['name' => 'Bier', 'points' => 1.5], 'Bier'];
+        yield 'person' => ['persons', 'person', ['name' => 'Daniel'], 'Daniel'];
+    }
+
+    /**
+     * @param array<string, mixed> $snapshot the deleted item's snapshot
+     */
+    #[DataProvider('cascadingDeletions')]
+    public function testDeletingADrinkOrAPersonRecordsOneDeleteEventPerRemovedEntryCausedByTheDeletion(
+        string $collection,
+        string $kind,
+        array $snapshot,
+        string $name,
+    ): void {
+        $this->entryCatalog();
+        $this->send('POST', '/api/persons', ['name' => 'Anna'], $this->admin);
+        $this->send('POST', '/api/drinks', ['name' => 'Wein', 'points' => 2], $this->admin);
+        $this->putEntry(self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2, 'factorId' => 1], $this->admin);
+        $this->putEntry(self::OTHER_ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 1], $this->admin);
+        $this->putEntry(self::THIRD_ENTRY, ['personId' => 2, 'drinkId' => 2, 'quantity' => 1], $this->admin);
+        $member = $this->member();
+
+        $response = $this->send('DELETE', "/api/{$collection}/1", session: $member);
+
+        self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+        $actor = ['accountId' => 2, 'userName' => self::MEMBER];
+        $cause = ['id' => 9, 'subjectKind' => $kind, 'name' => $name];
+        self::assertSame(
+            [
+                self::event(11, 'delete', 'entry', self::ENTRY, $actor, self::entrySnapshot(2, ['name' => 'Happy Hour', 'multiplier' => 2]), null, $cause),
+                self::event(10, 'delete', 'entry', self::OTHER_ENTRY, $actor, self::entrySnapshot(1, null), null, $cause),
+                self::event(9, 'delete', $kind, '1', $actor, $snapshot, null),
+            ],
+            array_slice($this->events(), 0, 3),
+        );
+        self::assertSame([['id' => self::THIRD_ENTRY]], $this->rows('SELECT id FROM entries'));
+    }
+
+    public function testDeletingAFactorRecordsOneUpdateEventPerEntryThatLosesItCausedByTheDeletion(): void
+    {
+        $this->entryCatalog();
+        $this->putEntry(self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2, 'factorId' => 1], $this->admin);
+        $this->putEntry(self::OTHER_ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 1, 'factorId' => 1], $this->admin);
+        $this->putEntry(self::THIRD_ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 3], $this->admin);
+        $member = $this->member();
+
+        $response = $this->send('DELETE', '/api/factors/1', session: $member);
+
+        self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+        $actor = ['accountId' => 2, 'userName' => self::MEMBER];
+        $happyHour = ['name' => 'Happy Hour', 'multiplier' => 2];
+        $cause = ['id' => 7, 'subjectKind' => 'factor', 'name' => 'Happy Hour'];
+        self::assertSame(
+            [
+                self::event(9, 'update', 'entry', self::ENTRY, $actor, self::entrySnapshot(2, $happyHour), self::entrySnapshot(2, null), $cause),
+                self::event(8, 'update', 'entry', self::OTHER_ENTRY, $actor, self::entrySnapshot(1, $happyHour), self::entrySnapshot(1, null), $cause),
+                self::event(7, 'delete', 'factor', '1', $actor, $happyHour, null),
+            ],
+            array_slice($this->events(), 0, 3),
+        );
+        self::assertSame(
+            [['after_json' => '{"person":"Daniel","drink":"Bier","points":"1.50","quantity":2,"factor":null}', 'cause_id' => 7]],
+            $this->rows('SELECT after_json, cause_id FROM audit_events WHERE id = 9'),
+        );
+        self::assertSame([['factor_id' => null], ['factor_id' => null], ['factor_id' => null]], $this->rows('SELECT factor_id FROM entries'));
+    }
+
+    public function testAConsequentialEventOnAPageWithoutItsCauseStillNamesTheCause(): void
+    {
+        $this->entryCatalog();
+        $this->seedEntries(AuditLog::PAGE_SIZE + 1);
+
+        $this->send('DELETE', '/api/drinks/1', session: $this->admin);
+
+        $events = $this->events();
+        self::assertCount(AuditLog::PAGE_SIZE, $events);
+        self::assertSame(['entry'], array_values(array_unique(array_column($events, 'subjectKind'))));
+        self::assertSame(
+            array_fill(0, AuditLog::PAGE_SIZE, ['id' => 4, 'subjectKind' => 'drink', 'name' => 'Bier']),
+            array_column($events, 'cause'),
+        );
+    }
+
+    public function testADeletionAffecting1000EntriesSucceedsAndRecords1000ConsequentialEvents(): void
+    {
+        $this->entryCatalog();
+        $this->seedEntries(1000);
+
+        $response = $this->send('DELETE', '/api/persons/1', session: $this->admin);
+
+        self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(
+            [['events' => 1000, 'entries' => 1000]],
+            $this->rows(
+                "SELECT COUNT(*) AS events, COUNT(DISTINCT subject_id) AS entries FROM audit_events
+                  WHERE cause_id = 4 AND operation = 'delete' AND subject_kind = 'entry'",
+            ),
+        );
+        self::assertSame([], $this->rows('SELECT id FROM entries'));
+    }
+
+    /**
+     * @return iterable<string, array{'person'|'drink'|'factor'}>
+     */
+    public static function racedDeletions(): iterable
+    {
+        yield 'person' => ['person'];
+        yield 'drink' => ['drink'];
+        yield 'factor' => ['factor'];
+    }
+
+    /**
+     * Entry adds and a deletion of the person, drink or factor they reference start at the same
+     * instant, in separate processes, round after round. Whatever the interleaving, every entry
+     * that was added has exactly one event caused by the deletion, and none still references it.
+     *
+     * @param 'person'|'drink'|'factor' $kind
+     */
+    #[DataProvider('racedDeletions')]
+    public function testADeletionRacingEntryAddsRecordsEveryEntryItRemovedOrChangedExactlyOnce(string $kind): void
+    {
+        for ($round = 1; $round <= self::RACE_ROUNDS; ++$round) {
+            $parents = [
+                'person' => $this->createdId($this->send('POST', '/api/persons', ['name' => "Person {$round}"], $this->admin)),
+                'drink' => $this->createdId($this->send('POST', '/api/drinks', ['name' => "Getränk {$round}", 'points' => 1], $this->admin)),
+                'factor' => $this->createdId($this->send('POST', '/api/factors', ['name' => "Faktor {$round}", 'multiplier' => 2], $this->admin)),
+            ];
+            $lastBefore = $this->lastEventId();
+            $entry = ['personId' => $parents['person'], 'drinkId' => $parents['drink'], 'quantity' => 1, 'factorId' => $parents['factor']];
+            $this->putEntry(self::uuid(), $entry, $this->admin);
+            $this->putEntry(self::uuid(), $entry, $this->admin);
+
+            $this->raceDeletion($kind, $parents, 0.02 * $round);
+
+            $message = "{$kind} deletion, round {$round}";
+            $created = array_column($this->rows(
+                "SELECT subject_id FROM audit_events WHERE id > {$lastBefore} AND subject_kind = 'entry' AND operation = 'create' ORDER BY subject_id",
+            ), 'subject_id');
+            $deletion = $this->rows(
+                "SELECT id FROM audit_events WHERE subject_kind = '{$kind}' AND subject_id = '{$parents[$kind]}' AND operation = 'delete'",
+            );
+            self::assertCount(1, $deletion, $message);
+            $deletionId = $deletion[0]['id'];
+            self::assertIsInt($deletionId);
+            $consequences = $this->rows("SELECT subject_id, operation FROM audit_events WHERE cause_id = {$deletionId} ORDER BY subject_id");
+            $surviving = array_column($this->rows(
+                "SELECT id FROM entries WHERE person_id = {$parents['person']} OR drink_id = {$parents['drink']} ORDER BY id",
+            ), 'id');
+            $withFactor = $this->rows("SELECT id FROM entries WHERE factor_id = {$parents['factor']}");
+            $expected = $kind === 'factor' ? 'update' : 'delete';
+
+            self::assertSame(array_map(static fn(mixed $id): array => ['subject_id' => $id, 'operation' => $expected], $created), $consequences, $message);
+            self::assertSame($kind === 'factor' ? $created : [], $surviving, $message);
+            self::assertSame([], $withFactor, $message);
+            $this->otherSession()->exec('DELETE FROM entries');
+        }
+    }
+
     /** A person, a drink worth 1.5 points and a factor of 2, created by the admin. */
     private function entryCatalog(): void
     {
@@ -308,6 +476,74 @@ final class AuditLogTest extends DatabaseTestCase
         return ['person' => 'Daniel', 'drink' => 'Bier', 'points' => 1.5, 'quantity' => $quantity, 'factor' => $factor];
     }
 
+    /**
+     * Starts the entry adders and the deletion in separate processes: the adders at one instant,
+     * the deletion `$delay` seconds later, so it lands among the adds.
+     *
+     * @param array{person: int, drink: int, factor: int} $parents
+     */
+    private function raceDeletion(string $kind, array $parents, float $delay): void
+    {
+        $script = __DIR__ . '/../Support/deletion-race.php';
+        $startAt = microtime(true) + 1.0;
+        $ids = [(string) $parents['person'], (string) $parents['drink'], (string) $parents['factor'], '1'];
+        $runs = array_fill(0, self::RACE_ADDERS, [(string) $startAt, 'add', ...$ids]);
+        $runs[] = [(string) ($startAt + $delay), "delete-{$kind}", ...$ids];
+        $processes = [];
+        foreach ($runs as $arguments) {
+            $process = proc_open([PHP_BINARY, $script, ...$arguments], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+            self::assertIsResource($process);
+            $processes[] = [$process, $pipes, $arguments[1]];
+        }
+        foreach ($processes as [$process, $pipes, $role]) {
+            $output = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            self::assertSame(0, proc_close($process), "{$role}: {$output}");
+        }
+    }
+
+    /**
+     * Inserts entries of Daniel's Bier straight into the table, as many as a test needs.
+     */
+    private function seedEntries(int $count): void
+    {
+        $rows = [];
+        for ($i = 1; $i <= $count; ++$i) {
+            $rows[] = sprintf("('00000000-0000-4000-8000-%012d', 1, 1, 1, NULL, 1, '2026-11-14 19:00:00.000')", $i);
+        }
+        $this->otherSession()->exec(
+            'INSERT INTO entries (id, person_id, drink_id, quantity, factor_id, account_id, created_at) VALUES ' . implode(', ', $rows),
+        );
+    }
+
+    private function createdId(ResponseInterface $response): int
+    {
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        $id = $this->body($response)['id'];
+        self::assertIsInt($id);
+
+        return $id;
+    }
+
+    /** A random lower-case UUID v4, as a client makes an entry id. */
+    private static function uuid(): string
+    {
+        $bytes = random_bytes(16);
+        $bytes[6] = chr(ord($bytes[6]) & 0x0F | 0x40);
+        $bytes[8] = chr(ord($bytes[8]) & 0x3F | 0x80);
+
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
+    }
+
+    private function lastEventId(): int
+    {
+        $id = $this->rows('SELECT MAX(id) AS id FROM audit_events')[0]['id'] ?? 0;
+        self::assertIsInt($id);
+
+        return $id;
+    }
+
     /** Signs in a second account, which is not an admin, and returns its session. */
     private function member(): string
     {
@@ -334,11 +570,20 @@ final class AuditLogTest extends DatabaseTestCase
      * @param array{accountId: int, userName: string} $actor
      * @param array<string, mixed>|null               $before
      * @param array<string, mixed>|null               $after
+     * @param array<string, mixed>|null               $cause
      *
      * @return array<string, mixed>
      */
-    private static function event(int $id, string $operation, string $kind, string $subjectId, array $actor, ?array $before, ?array $after): array
-    {
+    private static function event(
+        int $id,
+        string $operation,
+        string $kind,
+        string $subjectId,
+        array $actor,
+        ?array $before,
+        ?array $after,
+        ?array $cause = null,
+    ): array {
         return [
             'id' => $id,
             'occurredAt' => self::NOW,
@@ -348,7 +593,7 @@ final class AuditLogTest extends DatabaseTestCase
             'actor' => $actor,
             'before' => $before,
             'after' => $after,
-            'cause' => null,
+            'cause' => $cause,
         ];
     }
 }

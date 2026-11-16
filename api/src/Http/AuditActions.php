@@ -38,8 +38,11 @@ final readonly class AuditActions
             'actor' => ['accountId' => $event->actor->accountId, 'userName' => $event->actor->userName],
             'before' => self::snapshot($event->before),
             'after' => self::snapshot($event->after),
-            // No write records a consequence of another yet, so no event has a cause.
-            'cause' => null,
+            'cause' => $event->cause === null ? null : [
+                'id' => $event->cause->id,
+                'subjectKind' => $event->cause->subjectKind->value,
+                'name' => $event->cause->name,
+            ],
         ];
     }
 
