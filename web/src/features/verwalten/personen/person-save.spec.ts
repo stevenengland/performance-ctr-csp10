@@ -8,6 +8,7 @@ import { personSave, type PhotoChange } from './person-save';
 
 const PHOTO = '/api/persons/2/photo?v=abc';
 const NEW_PHOTO = '/api/persons/2/photo?v=def';
+const CREATED_PHOTO = '/api/persons/3/photo?v=fed';
 const daniel: Person = { id: 2, name: 'Daniel', photoUrl: PHOTO };
 const anna: Person = { id: 1, name: 'Anna', photoUrl: null };
 
@@ -26,8 +27,8 @@ function failure(title: string) {
 }
 
 /**
-A fake API over Anna and Daniel: renames, photo uploads (kept in `images`) and
-removals change what the list answers; a request named in `failing` (`'DELETE /api/persons/2/photo'`) answers 500.
+A fake API over Anna and Daniel: creating (Jule, id 3), renames, photo uploads
+(kept in `images`) and removals change what the list answers; a request named in `failing` (`'DELETE /api/persons/2/photo'`) answers 500.
 */
 function server() {
   const persons = [anna, { ...daniel }];
@@ -41,6 +42,26 @@ function server() {
       calls.push(call);
       if (failing.has(call)) return failure(`${call} failed`);
       if (call === 'GET /api/persons') return json({ persons });
+      if (call === 'POST /api/persons') {
+        const created: Person = {
+          id: 3,
+          name: (JSON.parse(String(init.body)) as Person).name.trim(),
+          photoUrl: null,
+        };
+        persons.push(created);
+        return json(created, 201);
+      }
+      if (call === 'PUT /api/persons/3/photo') {
+        const created = persons[2] as Person;
+        images.push((JSON.parse(String(init.body)) as { image: string }).image);
+        created.photoUrl = CREATED_PHOTO;
+        return json(created);
+      }
+      if (call === 'PATCH /api/persons/3') {
+        const created = persons[2] as Person;
+        created.name = (JSON.parse(String(init.body)) as Person).name;
+        return json(created);
+      }
       const person = persons[1] as Person;
       if (call === 'PATCH /api/persons/2') {
         person.name = (JSON.parse(String(init.body)) as Person).name;
@@ -67,6 +88,14 @@ async function loadedList() {
   await loadPersons();
   api.calls.length = 0;
   return api;
+}
+
+/** A framed photo whose encoding answers `image`, or fails with `failure`. */
+function framed(image = 'AAAA', failure?: Error) {
+  const encode = vi.fn(() =>
+    failure ? Promise.reject(failure) : Promise.resolve(image),
+  );
+  return { encode, change: { kind: 'new', encode } as PhotoChange };
 }
 
 describe('saving a person in the dialog', () => {
@@ -220,14 +249,6 @@ describe('saving a person in the dialog', () => {
   });
 
   describe('a new photo', () => {
-    /** A framed photo whose encoding answers `image`, or fails with `failure`. */
-    function framed(image = 'AAAA', failure?: Error) {
-      const encode = vi.fn(() =>
-        failure ? Promise.reject(failure) : Promise.resolve(image),
-      );
-      return { encode, change: { kind: 'new', encode } as PhotoChange };
-    }
-
     it('encodes the photo before anything is sent, then renames, then puts the photo', async () => {
       const api = await loadedList();
       const photo = framed('/9j/AA==');
@@ -327,6 +348,154 @@ describe('saving a person in the dialog', () => {
       await expect(
         personSave(daniel).save({ name: 'Daniel', photo: framed().change }),
       ).rejects.toMatchObject({ status: 500 });
+    });
+  });
+
+  describe('a new person', () => {
+    const jule: Person = { id: 3, name: 'Jule', photoUrl: null };
+
+    it('encodes the photo before anything is sent, then creates the person, then puts the photo', async () => {
+      const api = await loadedList();
+      const photo = framed('/9j/AA==');
+      let sentBeforeEncoding: string[] | undefined;
+      photo.encode.mockImplementation(() => {
+        sentBeforeEncoding = [...api.calls];
+        return Promise.resolve('/9j/AA==');
+      });
+      const saving = personSave(undefined);
+
+      const outcome = await saving.save({ name: 'Jule', photo: photo.change });
+
+      expect(outcome).toBe('saved');
+      expect(sentBeforeEncoding).toEqual([]);
+      expect(api.calls).toEqual([
+        'POST /api/persons',
+        'PUT /api/persons/3/photo',
+        'GET /api/persons',
+      ]);
+      expect(api.images).toEqual(['/9j/AA==']);
+      expect(saving.person).toEqual({ ...jule, photoUrl: CREATED_PHOTO });
+    });
+
+    it('creates a person without a photo with the POST alone', async () => {
+      const api = await loadedList();
+      const saving = personSave(undefined);
+
+      await saving.save({ name: 'Jule', photo: { kind: 'keep' } });
+
+      expect(api.calls).toEqual(['POST /api/persons', 'GET /api/persons']);
+      expect(saving.person).toEqual(jule);
+    });
+
+    it('puts the created person in the list at once, before the reload answers', async () => {
+      const api = await loadedList();
+      api.failing.add('GET /api/persons');
+      const saving = personSave(undefined);
+
+      const outcome = await saving.save({ name: 'Jule', photo: framed().change });
+
+      expect(outcome).toBe('saved');
+      expect(usePersons().value?.map(({ name }) => name)).toEqual([
+        'Anna',
+        'Daniel',
+        'Jule',
+      ]);
+      expect(usePersons().value?.[2]).toEqual(saving.person);
+    });
+
+    it('keeps the created person and counts the save when only the reload fails', async () => {
+      const api = await loadedList();
+      api.failing.add('GET /api/persons');
+      const saving = personSave(undefined);
+
+      const outcome = await saving.save({ name: 'Jule', photo: { kind: 'keep' } });
+      await flushPromises();
+
+      expect(outcome).toBe('saved');
+      expect(saving.person).toEqual(jule);
+      expect(usePersons().value).toContainEqual(jule);
+      expect(useSnackbar().value?.text).toBe('GET /api/persons failed');
+    });
+
+    it('keeps the list in alphabetical order', async () => {
+      await loadedList();
+
+      await personSave(undefined).save({ name: 'Ben', photo: { kind: 'keep' } });
+
+      expect(usePersons().value?.map(({ name }) => name)).toEqual([
+        'Anna',
+        'Ben',
+        'Daniel',
+      ]);
+    });
+
+    it('says the photo is not saved when the person was created and the upload failed, and retries only the upload', async () => {
+      const api = await loadedList();
+      api.failing.add('PUT /api/persons/3/photo');
+      const saving = personSave(undefined);
+      const draft = { name: 'Jule', photo: framed('/9j/AA==').change };
+
+      await expect(saving.save(draft)).resolves.toBe('photoNotSaved');
+      expect(saving.person).toEqual(jule);
+      expect(usePersons().value).toContainEqual(jule);
+      api.failing.clear();
+      api.calls.length = 0;
+      api.images.length = 0;
+
+      await expect(saving.save(draft)).resolves.toBe('saved');
+      expect(api.calls).toEqual([
+        'PUT /api/persons/3/photo',
+        'GET /api/persons',
+      ]);
+      expect(api.images).toEqual(['/9j/AA==']);
+    });
+
+    it('renames the created person, never creating it twice, when the name changed before the retry', async () => {
+      const api = await loadedList();
+      api.failing.add('PUT /api/persons/3/photo');
+      const saving = personSave(undefined);
+      const photo = framed().change;
+      await saving.save({ name: 'Jule', photo });
+      api.failing.clear();
+      api.calls.length = 0;
+
+      await saving.save({ name: 'Julia', photo });
+
+      expect(api.calls.slice(0, 2)).toEqual([
+        'PATCH /api/persons/3',
+        'PUT /api/persons/3/photo',
+      ]);
+    });
+
+    it('sends nothing when the photo cannot be encoded', async () => {
+      const api = await loadedList();
+      const unreadable = new PhotoUnreadable();
+      const saving = personSave(undefined);
+
+      await expect(
+        saving.save({ name: 'Jule', photo: framed('', unreadable).change }),
+      ).rejects.toBe(unreadable);
+      expect(api.calls).toEqual([]);
+      expect(saving.person).toBeUndefined();
+    });
+
+    it('sends no photo when creating fails, and creates on the next try', async () => {
+      const api = await loadedList();
+      api.failing.add('POST /api/persons');
+      const saving = personSave(undefined);
+      const draft = { name: 'Jule', photo: framed().change };
+
+      await expect(saving.save(draft)).rejects.toMatchObject({ status: 500 });
+      expect(api.calls).toEqual(['POST /api/persons']);
+      expect(saving.person).toBeUndefined();
+      api.failing.clear();
+      api.calls.length = 0;
+
+      await expect(saving.save(draft)).resolves.toBe('saved');
+      expect(api.calls.slice(0, 2)).toEqual([
+        'POST /api/persons',
+        'PUT /api/persons/3/photo',
+      ]);
     });
   });
 });

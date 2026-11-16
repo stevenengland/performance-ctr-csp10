@@ -18,9 +18,18 @@ export async function loadDrinks(): Promise<void> {
   drinks.value = await api.listDrinks();
 }
 
-export async function createPerson(name: string): Promise<void> {
-  await api.createPerson(name);
-  await loadPersons();
+/**
+Creates a person and resolves to the server's answer as soon as it is
+acknowledged, which then joins the list in alphabetical order; reloading the
+list is up to the caller (`loadPersons`), so a failed reload never loses the
+created person.
+*/
+export async function createPerson(name: string): Promise<Person> {
+  const person = await api.createPerson(name);
+  persons.value = persons.value
+    ?.concat(person)
+    .sort((a, b) => a.name.localeCompare(b.name, 'de') || a.id - b.id);
+  return person;
 }
 
 export async function createDrink(
