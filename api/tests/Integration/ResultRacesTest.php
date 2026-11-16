@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Performance\Tests\Integration;
 
 use Performance\Tests\Support\DatabaseTestCase;
+use Performance\Tests\Support\InterleavedWrites;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Results written by requests that run at the same moment, each in its own process on the real
@@ -12,7 +14,11 @@ use Performance\Tests\Support\DatabaseTestCase;
  */
 final class ResultRacesTest extends DatabaseTestCase
 {
+    use InterleavedWrites;
+
     private const RESULT = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
+    private const SUCCEEDED = 0;
+    private const NOT_FOUND = 3;
 
     protected function setUp(): void
     {
@@ -122,6 +128,41 @@ final class ResultRacesTest extends DatabaseTestCase
             $this->causedResultEvents(),
         );
         self::assertCount($record === 'created' ? 1 : 0, $this->rows('SELECT id FROM idempotency_keys'));
+    }
+
+    /**
+     * @return iterable<string, array{'delete-game'|'delete-person', 'game'|'person'}>
+     */
+    public static function deletionsOfTheResult(): iterable
+    {
+        yield 'its game' => ['delete-game', 'game'];
+        yield 'its person' => ['delete-person', 'person'];
+    }
+
+    /**
+     * An undo racing its game's or its person's deletion: the undo locks the result before the
+     * game and the person, the deletion its game or person before the result. When they
+     * deadlock, the loser runs again; either way the result's removal is recorded exactly once,
+     * by whichever ran first.
+     *
+     * @param 'delete-game'|'delete-person' $deletion
+     * @param 'game'|'person'               $causeKind
+     */
+    #[DataProvider('deletionsOfTheResult')]
+    public function testAnUndoRacingItsGamesOrPersonsDeletionEndsAsIfTheyRanInTurn(string $deletion, string $causeKind): void
+    {
+        $response = $this->send('PUT', '/api/results/' . self::RESULT, ['gameId' => 1, 'personId' => 1, 'points' => -20], $this->signIn());
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+
+        [$undo, $deleted] = $this->interleave('results', self::RESULT, [['undo-result', self::RESULT], [$deletion, '1']]);
+
+        self::assertSame(self::SUCCEEDED, $deleted);
+        self::assertContains($undo, [self::SUCCEEDED, self::NOT_FOUND]);
+        self::assertSame(
+            [['operation' => 'delete', 'cause_kind' => $undo === self::SUCCEEDED ? null : $causeKind]],
+            array_values(array_filter($this->causedResultEvents(), static fn(array $event): bool => $event['operation'] === 'delete')),
+        );
+        self::assertSame([], $this->rows('SELECT id FROM results'));
     }
 
     /**

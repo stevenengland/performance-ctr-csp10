@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Performance\Tests\Integration;
 
 use Performance\Tests\Support\DatabaseTestCase;
+use Performance\Tests\Support\InterleavedWrites;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -13,6 +14,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 final class MatchRacesTest extends DatabaseTestCase
 {
+    use InterleavedWrites;
+
     private const MATCH = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
     private const SUCCEEDED = 0;
     private const NOT_FOUND = 3;
@@ -167,7 +170,7 @@ final class MatchRacesTest extends DatabaseTestCase
         $this->record();
         $deadlocks = $this->deadlocks();
 
-        $exitCodes = $this->interleave([$first, $second]);
+        $exitCodes = $this->interleaveOnTheMatch([$first, $second]);
 
         self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
         self::assertSame($deadlocks, $this->deadlocks(), 'no deadlock');
@@ -190,7 +193,7 @@ final class MatchRacesTest extends DatabaseTestCase
     {
         $this->record();
 
-        [$undo, $deletion] = $this->interleave(['undo', 'game']);
+        [$undo, $deletion] = $this->interleaveOnTheMatch(['undo', 'game']);
 
         self::assertSame(self::SUCCEEDED, $deletion);
         self::assertContains($undo, [self::SUCCEEDED, self::NOT_FOUND]);
@@ -202,6 +205,48 @@ final class MatchRacesTest extends DatabaseTestCase
             ),
         );
         self::assertSame([], $this->rows('SELECT id FROM matches'));
+    }
+
+    /**
+     * @return iterable<string, array{list<'person'|'undo'>}>
+     */
+    public static function undoAndPersonDeletion(): iterable
+    {
+        yield 'undo, then person' => [['undo', 'person']];
+        yield 'person, then undo' => [['person', 'undo']];
+    }
+
+    /**
+     * An undo racing the deletion of one of the match's persons: the undo locks the match before
+     * the person, the deletion the person before the match. When they deadlock, the loser runs
+     * again; either way both succeed and end as if they ran in turn. The match is gone, removed
+     * once by the undo, and its side is cleared by an update caused by the deletion only if the
+     * deletion ran first; the undo's event then names the side as cleared.
+     *
+     * @param list<'person'|'undo'> $writes
+     */
+    #[DataProvider('undoAndPersonDeletion')]
+    public function testAnUndoRacingAPersonsDeletionEndsAsIfTheyRanInTurn(array $writes): void
+    {
+        $this->record();
+
+        $exitCodes = $this->interleaveOnTheMatch($writes);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame([], $this->rows('SELECT id FROM matches'));
+        self::assertSame([['name' => 'Anna']], $this->rows('SELECT name FROM persons'));
+        $events = $this->rows(
+            "SELECT e.operation, c.subject_kind AS cause_kind, e.before_json FROM audit_events e LEFT JOIN audit_events c ON c.id = e.cause_id
+              WHERE e.subject_kind = 'match' AND e.operation <> 'create' ORDER BY e.id",
+        );
+        $kinds = array_map(static fn(array $event): array => [$event['operation'], $event['cause_kind']], $events);
+        self::assertContains($kinds, [[['delete', null]], [['update', 'person'], ['delete', null]]]);
+        $undone = end($events);
+        self::assertIsArray($undone);
+        self::assertIsString($undone['before_json']);
+        $snapshot = json_decode($undone['before_json'], true);
+        self::assertIsArray($snapshot);
+        self::assertSame(count($events) === 1 ? 'Ben' : null, $snapshot['second'], 'the undo records the match as it found it');
     }
 
     private function record(): void
@@ -244,85 +289,19 @@ final class MatchRacesTest extends DatabaseTestCase
     }
 
     /**
-     * Holds the match under a shared lock, starts the first write and waits until it waits,
-     * then the second and waits until it waits too, then lets go of the match. The order is
-     * the same on every run; nothing depends on timing.
+     * Runs the writes on the recorded match in the order given (InterleavedWrites).
      *
-     * @param array{'game'|'person'|'undo', 'game'|'person'|'undo'} $writes
+     * @param list<'game'|'person'|'undo'> $writes
      *
-     * @return array{int, int} the exit codes of both
+     * @return list<int> the exit codes, in the order given
      */
-    private function interleave(array $writes): array
+    private function interleaveOnTheMatch(array $writes): array
     {
-        $holder = $this->otherSession();
-        $holder->beginTransaction();
-        $holder->prepare('SELECT id FROM matches WHERE id = ? LOCK IN SHARE MODE')->execute([self::MATCH]);
-        $first = $this->start($writes[0]);
-        $this->waitUntilStatementsWait(1);
-        $second = $this->start($writes[1]);
-        $this->waitUntilStatementsWait(2);
-        $holder->commit();
-
-        return [$this->exitCode(...$first), $this->exitCode(...$second)];
-    }
-
-    /**
-     * @param 'game'|'person'|'undo' $write
-     *
-     * @return array{resource, array<int, resource>}
-     */
-    private function start(string $write): array
-    {
-        [$role, $id] = match ($write) {
+        return $this->interleave('matches', self::MATCH, array_map(static fn(string $write): array => match ($write) {
             'game' => ['delete-game', '1'],
             'person' => ['delete-person', '2'],
             'undo' => ['undo-match', self::MATCH],
-        };
-        $process = proc_open(
-            [PHP_BINARY, __DIR__ . '/../Support/concurrent-write.php', $role, $id, '1'],
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-        );
-        self::assertIsResource($process);
-
-        return [$process, $pipes];
-    }
-
-    /**
-     * Waits until `$count` statements on the test database have been running for a while: here,
-     * where every statement is quick, those wait for a lock (a row's or the deletion lock).
-     */
-    private function waitUntilStatementsWait(int $count): void
-    {
-        $observer = $this->otherSession();
-        $deadline = microtime(true) + 10.0;
-        while (microtime(true) < $deadline) {
-            $waiting = $observer->query(
-                "SELECT COUNT(*) FROM information_schema.PROCESSLIST
-                  WHERE DB = DATABASE() AND ID <> CONNECTION_ID() AND COMMAND IN ('Query', 'Execute') AND TIME_MS >= 300",
-            );
-            self::assertNotFalse($waiting);
-            if ((int) $waiting->fetchColumn() >= $count) {
-                return;
-            }
-            usleep(100_000);
-        }
-        self::fail("{$count} writes never waited at the same time");
-    }
-
-    /**
-     * @param resource             $process
-     * @param array<int, resource> $pipes
-     */
-    private function exitCode($process, array $pipes): int
-    {
-        $output = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exitCode = proc_close($process);
-        self::assertContains($exitCode, [self::SUCCEEDED, self::NOT_FOUND], (string) $output);
-
-        return $exitCode;
+        }, $writes));
     }
 
     /** How many deadlocks the server has resolved since it started. */
