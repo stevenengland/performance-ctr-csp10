@@ -4,6 +4,7 @@ import type {
   Drink,
   Entry,
   Factor,
+  Game,
   Health,
   Person,
 } from '../src/core/api-client';
@@ -20,6 +21,11 @@ export interface FixtureEntry extends Entry {
   accountId: number | null;
 }
 
+/** A game with the run its ranking is in, which the API keeps to itself. */
+export interface FixtureGame extends Game {
+  run: number;
+}
+
 /** Canned answers of the fixture preview; typed against the generated API types. */
 export interface Fixtures {
   health: Health;
@@ -30,6 +36,7 @@ export interface Fixtures {
   drinks: Drink[];
   factors: Factor[];
   entries: FixtureEntry[];
+  games: FixtureGame[];
   /** Fingerprints of every entry id ever put, so a replay never recreates an undone entry. */
   entryRequests: Map<string, string>;
   /** The audit log, oldest first, as the API answers its events. */
@@ -86,6 +93,30 @@ const FACTORS: [string, number][] = [
 ];
 /** An account that was deleted since: its entries stay without it, its events still name it. */
 const FORMER_ACCOUNT = { accountId: 5, userName: 'jonas' };
+
+/**
+Games beside the drinks: name, kind, `drawsAllowed`, `lowerWins` and the days
+since their run started — a chess ladder over two months, table tennis without
+draws over three weeks, and tonight's Rommé, where the lowest sum wins.
+*/
+const GAMES: [string, Game['kind'], boolean, boolean, number][] = [
+  ['Rommé', 'points', true, true, 0],
+  ['Schach', 'duel', true, false, 62],
+  ['Tischtennis', 'duel', false, false, 21],
+];
+
+function sampleGames(now: Date): FixtureGame[] {
+  const midnight = startOfToday(now).getTime();
+  return GAMES.map(([name, kind, drawsAllowed, lowerWins, daysAgo], index) => ({
+    id: index + 1,
+    name,
+    kind,
+    drawsAllowed,
+    lowerWins,
+    run: 1,
+    startedAt: new Date(midnight - daysAgo * DAY).toISOString(),
+  }));
+}
 
 /**
 Tonight so far: person, drink, quantity, factor and the logging account — in the
@@ -424,6 +455,7 @@ export function sampleEvening(now: Date = new Date()): Fixtures {
     drinks,
     factors,
     entries,
+    games: sampleGames(now),
     entryRequests: new Map(),
     audit,
   };

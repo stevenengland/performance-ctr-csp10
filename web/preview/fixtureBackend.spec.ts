@@ -8,17 +8,22 @@ import {
   createDrink,
   createFactor,
   createPerson,
+  createGame,
   deleteDrink,
+  deleteGame,
   deleteEntry,
   deleteFactor,
   deletePerson,
   getDrink,
   getFactor,
+  getGame,
   getPerson,
   updateDrink,
   updatePerson,
   listFactors,
+  listGames,
   updateFactor,
+  updateGame,
   getHealth,
   getScoreboard,
   listDrinks,
@@ -29,6 +34,7 @@ import {
   listAccounts,
   listAuditEvents,
   type AuditEvent,
+  type Game,
   signIn,
   signOut,
 } from '../src/core/api-client';
@@ -842,5 +848,243 @@ describe('the fixture backend’s audit log', () => {
         cause: null,
       },
     ]);
+  });
+});
+
+describe('the fixture backend’s games', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  /** Restarts a game as the API takes it, with an empty JSON body. */
+  async function restart(id: number): Promise<Game> {
+    const response = await fetch(`/api/games/${String(id)}/restart`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    return (await response.json()) as Game;
+  }
+
+  it('serves sample games alphabetically, a duel game with and one without draws and a points game', async () => {
+    installFixtureBackend(sampleEvening());
+
+    const games = await listGames();
+
+    expect(
+      games.map(({ name, kind, drawsAllowed, lowerWins }) => [
+        name,
+        kind,
+        drawsAllowed,
+        lowerWins,
+      ]),
+    ).toEqual([
+      ['Rommé', 'points', true, true],
+      ['Schach', 'duel', true, false],
+      ['Tischtennis', 'duel', false, false],
+    ]);
+    for (const { startedAt } of games) {
+      expect(new Date(startedAt).getTime()).toBeLessThan(Date.now());
+    }
+  });
+
+  it('creates games with the API’s validation and defaults, taking only the kind’s own setting', async () => {
+    installFixtureBackend(sampleEvening());
+
+    await expect(
+      createGame({ name: ' ', kind: 'quiz' as Game['kind'] }),
+    ).rejects.toMatchObject({
+      status: 422,
+      errors: { name: '1 bis 40 Zeichen.', kind: 'Duell oder Punktespiel.' },
+    });
+    await expect(
+      createGame({
+        name: 'Go',
+        kind: 'duel',
+        drawsAllowed: 'ja' as unknown as boolean,
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      errors: { drawsAllowed: 'Ja oder nein.' },
+    });
+    await expect(
+      createGame({ name: 'schach', kind: 'duel' }),
+    ).rejects.toMatchObject({
+      status: 409,
+      type: 'urn:performance:problem:duplicate-name',
+      title: 'Name ist bereits vergeben.',
+    });
+
+    const go = await createGame({
+      name: ' Go ',
+      kind: 'duel',
+      lowerWins: true,
+    });
+    const kniffel = await createGame({
+      name: 'Kniffel',
+      kind: 'points',
+      drawsAllowed: false,
+    });
+
+    expect(go).toMatchObject({
+      name: 'Go',
+      kind: 'duel',
+      drawsAllowed: true,
+      lowerWins: false,
+    });
+    expect(kniffel).toMatchObject({ drawsAllowed: true, lowerWins: false });
+    expect((await listGames()).map(({ name }) => name)).toEqual([
+      'Go',
+      'Kniffel',
+      'Rommé',
+      'Schach',
+      'Tischtennis',
+    ]);
+  });
+
+  it('reads a game with its match and result counts, and edits its name and setting but never its kind', async () => {
+    installFixtureBackend(sampleEvening());
+    const schach = (await listGames()).find(({ name }) => name === 'Schach');
+    if (!schach) throw new Error('no Schach');
+
+    await expect(getGame(schach.id)).resolves.toEqual({
+      ...schach,
+      matchCount: 0,
+      resultCount: 0,
+    });
+    await expect(
+      updateGame(schach.id, { name: 'Schach', kind: 'points' }),
+    ).rejects.toMatchObject({
+      status: 422,
+      errors: { kind: 'Die Art eines Spiels ist fest.' },
+    });
+    await expect(
+      updateGame(schach.id, { name: 'Rommé' }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(updateGame(999, { name: 'Go' })).rejects.toMatchObject({
+      status: 404,
+    });
+
+    const edited = await updateGame(schach.id, {
+      name: 'Blitzschach',
+      kind: 'duel',
+      drawsAllowed: false,
+      lowerWins: true,
+    });
+
+    expect(edited).toEqual({
+      ...schach,
+      name: 'Blitzschach',
+      drawsAllowed: false,
+    });
+  });
+
+  it('restarts a game from now and deletes games', async () => {
+    installFixtureBackend(sampleEvening());
+    const [romme] = await listGames();
+    if (!romme) throw new Error('no game');
+
+    const restarted = await restart(romme.id);
+    await deleteGame(romme.id);
+
+    expect(restarted).toMatchObject({ id: romme.id, name: 'Rommé' });
+    expect(new Date(restarted.startedAt).getTime()).toBeGreaterThan(
+      new Date(romme.startedAt).getTime(),
+    );
+    expect((await listGames()).map(({ name }) => name)).toEqual([
+      'Schach',
+      'Tischtennis',
+    ]);
+    await expect(getGame(romme.id)).rejects.toMatchObject({ status: 404 });
+    await expect(deleteGame(romme.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('records the viewer’s game writes in the audit log, a restart as an update of run and start', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const seeded = fixtures.audit.length;
+
+    const go = await createGame({ name: 'Go', kind: 'duel' });
+    await updateGame(go.id, { name: 'Go', drawsAllowed: true });
+    await updateGame(go.id, { name: 'Go', drawsAllowed: false });
+    const restarted = await restart(go.id);
+    await deleteGame(go.id);
+
+    expect((await newest(4)).map(told).reverse()).toEqual([
+      {
+        operation: 'create',
+        subjectKind: 'game',
+        subjectId: String(go.id),
+        userName: 'anna',
+        before: null,
+        after: {
+          name: 'Go',
+          kind: 'duel',
+          drawsAllowed: true,
+          run: 1,
+          startedAt: go.startedAt,
+        },
+        cause: null,
+      },
+      {
+        operation: 'update',
+        subjectKind: 'game',
+        subjectId: String(go.id),
+        userName: 'anna',
+        before: {
+          name: 'Go',
+          kind: 'duel',
+          drawsAllowed: true,
+          run: 1,
+          startedAt: go.startedAt,
+        },
+        after: {
+          name: 'Go',
+          kind: 'duel',
+          drawsAllowed: false,
+          run: 1,
+          startedAt: go.startedAt,
+        },
+        cause: null,
+      },
+      {
+        operation: 'update',
+        subjectKind: 'game',
+        subjectId: String(go.id),
+        userName: 'anna',
+        before: {
+          name: 'Go',
+          kind: 'duel',
+          drawsAllowed: false,
+          run: 1,
+          startedAt: go.startedAt,
+        },
+        after: {
+          name: 'Go',
+          kind: 'duel',
+          drawsAllowed: false,
+          run: 2,
+          startedAt: restarted.startedAt,
+        },
+        cause: null,
+      },
+      {
+        operation: 'delete',
+        subjectKind: 'game',
+        subjectId: String(go.id),
+        userName: 'anna',
+        before: {
+          name: 'Go',
+          kind: 'duel',
+          drawsAllowed: false,
+          run: 2,
+          startedAt: restarted.startedAt,
+        },
+        after: null,
+        cause: null,
+      },
+    ]);
+    expect(fixtures.audit).toHaveLength(seeded + 4);
   });
 });

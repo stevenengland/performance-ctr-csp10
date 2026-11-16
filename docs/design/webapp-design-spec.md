@@ -223,6 +223,7 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
 /verlauf/:personId                          a person's entries today
 /verwalten                                  hub                     [nav: Verwalten]
 /verwalten/personen | getraenke | faktoren  master data
+/verwalten/spiele                           games: create, edit, delete (?anlegen opens create)
 /verwalten/konten                           accounts (admins only)
 /verwalten/protokoll                        audit log, all days (admins only)
 /konto                                      own account (top app bar)
@@ -373,6 +374,7 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 | Person | `Daniel löschen?` | `Daniel und 23 Einträge werden gelöscht.` (one: `Daniel und 1 Eintrag werden gelöscht.`; none: `Daniel wird gelöscht.`) |
 | Drink | `Bier löschen?` | `Bier und 12 Einträge werden gelöscht.` (one and none as for a person) |
 | Factor | `Happy Hour löschen?` | `5 Einträge zählen danach ×1.` (one: `1 Eintrag zählt danach ×1.`; none: `Happy Hour wird gelöscht.`) |
+| Game | `Schach löschen?` | `Schach und 9 Partien werden gelöscht.` (a points game: `Rommé und 8 Ergebnisse werden gelöscht.`; one: `1 Partie` / `1 Ergebnis`; none: `Schach wird gelöscht.`) — every run's, not only the current ranking's |
 | Entry | `Eintrag löschen?` | `2× Bier · Happy Hour ×2 um 23:41` (no factor: `1× Margarita um 22:58`) |
 | Account | `Konto anna löschen?` | `Einträge von anna bleiben erhalten.` |
 
@@ -511,13 +513,13 @@ submit on Enter.
 
 ### 7h. Verwalten `/verwalten`
 
-- List: `Personen`, `Getränke`, `Faktoren`, and `Konten` (admins only), each with its count as
-  supporting text in `support`: `6 Personen` / `1 Person`, `6 Getränke` / `1 Getränk`,
-  `2 Faktoren` / `1 Faktor`, `4 Konten` / `1 Konto`. A row that opens a screen ends in
-  `mdiChevronRight`.
+- List: `Personen`, `Getränke`, `Faktoren`, `Spiele` (§7m), and `Konten` (admins only), each
+  with its count as supporting text in `support`: `6 Personen` / `1 Person`, `6 Getränke` /
+  `1 Getränk`, `2 Faktoren` / `1 Faktor`, `3 Spiele` / `1 Spiel`, `4 Konten` / `1 Konto`. A
+  row that opens a screen ends in `mdiChevronRight`.
 - The counts are the lengths of the lists (`GET /api/persons`, `/api/drinks`, `/api/factors`,
-  and `/api/accounts` for admins only), read when the hub opens; a count shows once its list
-  has loaded, and a row without one still opens its screen.
+  `/api/games`, and `/api/accounts` for admins only), read when the hub opens; a count shows
+  once its list has loaded, and a row without one still opens its screen.
 - Last, for admins only: `Protokoll` (§7l) with the fixed supporting line
   `Wer hat was geändert` instead of a count — the hub does not read the log.
 
@@ -636,6 +638,37 @@ submit on Enter.
   gelöscht werden.` — the log is application-level append-only history; the screen has no
   other action.
 
+### 7m. Spiele `/verwalten/spiele`
+
+- Games are the user-created scoreboards beside the drinks; every signed-in account manages
+  them, like other master data. Title `Spiele` with a back button; the navigation keeps
+  `Verwalten` active. Built like §7i: alphabetical list, rows on `outline-variant` hairlines,
+  trailing edit and delete icon buttons named after the game (`Schach bearbeiten`,
+  `Schach löschen`), extended FAB `Spiel anlegen`, skeleton rows while loading, empty
+  `Noch keine Spiele.`
+- Each row: the name (`row-title`) and, in `support`, the kind and its setting:
+  `Duell · Remis möglich`, `Duell · kein Remis`, `Punktespiel · Höchste Summe gewinnt`,
+  `Punktespiel · Niedrigste Summe gewinnt`.
+- Create/edit dialog `Spiel anlegen` / `Spiel bearbeiten`: `Name`; then `Art` (`caption`,
+  `on-surface-variant`) over two tiles side by side (§6.4 tile, minimum height 88 dp): `Duell`
+  with `Zwei Personen, eine gewinnt – oder Remis` and `Punktespiel` with
+  `Eine Person, eine Punktzahl` (`row-title` over `support`); the chosen one is pressed
+  (`primary-container`, `aria-pressed`). A new game starts as `Duell`. Under the tiles the
+  kind's setting: for a duel the switch `Remis möglich` (on by default), for a points game the
+  radio group `Höchste Summe gewinnt` (default) / `Niedrigste Summe gewinnt`. Buttons
+  `Abbrechen` and `Speichern`.
+- The kind is chosen once: editing starts with the game's values, the other kind's tile is
+  disabled, and under the tiles stands `Die Art bleibt nach dem Anlegen fest.` (`support`).
+  Saving sends the name and the kind's own setting.
+- Validation errors inline (§6.11), from the server: a name outside 1–40 characters →
+  `1 bis 40 Zeichen.`; a taken name (ignoring case) → `Name ist bereits vergeben.` under
+  `Name`, as in §7i.
+- Delete: `GET /api/games/{id}` reads how many matches or results of every run go with the
+  game, then the confirmation dialog (§6.9); afterwards the snackbar `Schach gelöscht`. A
+  failed read shows the problem title and reloads the list.
+- `/verwalten/spiele?anlegen` opens the screen with `Spiel anlegen` already open (the target
+  of the Spiele destination's empty state).
+
 ## 8. Key flows
 
 1. **Log two beers in happy hour:** Zählen → Daniel → Bier → 2 → Happy Hour ×2 → back on
@@ -698,7 +731,8 @@ submit on Enter.
 | Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window |
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt` and `accountName` (or `null`); 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count; `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
-| Verwalten | `GET /api/{persons,drinks,factors}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
+| Verwalten | `GET /api/{persons,drinks,factors,games}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
+| Verwalten → Spiele | `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/{id}` | Game: `id`, `name`, `kind` (`duel` \| `points`), `drawsAllowed`, `lowerWins`, `startedAt`. `POST` takes `name`, `kind` and the kind's setting; `PATCH` takes `name` and the setting (the kind is fixed); `GET …/{id}` adds `matchCount` and `resultCount` (every run) |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
 | Protokoll | `GET /api/audit?before=` | Admins only (401/403). Answer `{events, next}`, newest first; `next` is the `before` of `Ältere laden`, null on the last page. Each event: `occurredAt`, `operation`, `subjectKind`, `actor.userName`, snapshots `before`/`after` (names and values as they were), `cause` (`{id, subjectKind, name}` or null). No polling |
 | Update / reload floor | `GET /api/health` | `minClientVersion` |
@@ -721,11 +755,15 @@ the shareable page a UI change is reviewed on before it reaches the host.
   accounts `anna`, `ben`, `daniel`, `mara` sign in with `beispiel-passwort`), serves a sample evening
   (marked as sample data: persons, drinks, factors and entries timed relative to now, so the
   preview never ages out of "today"), keeps writes in memory for the session (adds, undo,
-  deletes, CRUD), and answers anything else with 503.
+  deletes, CRUD), and answers anything else with 503. Its games are `Rommé` (points, lowest
+  sum wins, started today), `Schach` (duel with draws, two months) and `Tischtennis` (duel
+  without draws, three weeks); they are served by the API's rules (name, kind and setting
+  validation, the kind fixed, restart starting the next run from now).
 - **Audit log in the preview.** Protokoll starts with a seeded log that reaches back over
   several days, holds a cascade (the deletion of `Sekt` with the entries it removed) and names
   an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are
-  then recorded in memory by the API's rules: one event per change with the signed-in account,
+  then recorded in memory by the API's rules (game writes included, a restart as a change of
+  `run` and `startedAt`): one event per change with the signed-in account,
   the entries a deletion removes or changes as consequential events with their cause, and
   nothing for a save that changes nothing, a write that fails, a replayed or conflicting entry
   request, or an account change.

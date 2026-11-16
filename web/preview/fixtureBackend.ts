@@ -1,6 +1,7 @@
 import type {
   AuditEvent,
   Entry,
+  Game,
   HistoryEntry,
   ScoreRow,
   Scoreboard,
@@ -11,6 +12,7 @@ import {
   entrySnapshot,
   type FixtureAccount,
   type FixtureEntry,
+  type FixtureGame,
   type Fixtures,
 } from './fixtures';
 
@@ -289,17 +291,18 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/persons/<n>`, `/api/accounts/<n>`, … */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/persons/<n>`, `/api/games/<n>/restart`, … */
 function routeOf(path: string): { route: string; id: string } {
   const entry = /^\/api\/entries\/([^/]+)$/.exec(path)?.[1];
   if (entry && ENTRY_ID.test(entry)) {
     return { route: '/api/entries/{id}', id: entry };
   }
-  const item = /^\/api\/(persons|drinks|factors|accounts)\/([1-9]\d*)$/.exec(
-    path,
-  );
+  const item =
+    /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart)?$/.exec(
+      path,
+    );
   if (item?.[1] && item[2]) {
-    return { route: `/api/${item[1]}/{id}`, id: item[2] };
+    return { route: `/api/${item[1]}/{id}${item[3] ?? ''}`, id: item[2] };
   }
   return { route: path, id: '' };
 }
@@ -479,6 +482,117 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     ];
   }
 
+  /**
+  The games, like the API's Games: list, create, read (with its match and result
+  counts; the preview has neither yet), edit, restart and delete, each write
+  recorded in the audit log.
+  */
+  function gameRoutes(): [string, Handler][] {
+    const find = (id: string) =>
+      fixtures.games.find((game) => game.id === Number(id));
+    return [
+      [
+        'GET /api/games',
+        guarded(() =>
+          json({ games: [...fixtures.games].sort(byName).map(gameOf) }),
+        ),
+      ],
+      [
+        'POST /api/games',
+        guarded((me, body) => {
+          const invalid = settingErrors(body);
+          if (invalid) return validation(invalid);
+          const name = text(body, 'name').trim();
+          const errors: Record<string, string> = {};
+          const invalidName = nameError(name);
+          if (invalidName) errors.name = invalidName;
+          const { kind } = body;
+          if (kind !== 'duel' && kind !== 'points') {
+            errors.kind = 'Duell oder Punktespiel.';
+          }
+          if (Object.keys(errors).length > 0) return validation(errors);
+          if (taken(name)) return problem(PROBLEMS.duplicateName);
+          const game: FixtureGame = {
+            id: nextId(fixtures.games),
+            name,
+            kind: kind as Game['kind'],
+            drawsAllowed: true,
+            lowerWins: false,
+            run: 1,
+            startedAt: new Date().toISOString(),
+          };
+          applySetting(game, body);
+          fixtures.games.push(game);
+          record(
+            me,
+            'create',
+            ['game', String(game.id)],
+            null,
+            gameValues(game),
+          );
+          return json(gameOf(game), 201);
+        }),
+      ],
+      [
+        'GET /api/games/{id}',
+        guarded((_me, _body, { id }) => {
+          const game = find(id);
+          if (!game) return problem(PROBLEMS.notFound);
+          return json({ ...gameOf(game), matchCount: 0, resultCount: 0 });
+        }),
+      ],
+      [
+        'PATCH /api/games/{id}',
+        guarded((me, body, { id }) => {
+          const invalid = settingErrors(body);
+          if (invalid) return validation(invalid);
+          const name = text(body, 'name').trim();
+          const invalidName = nameError(name);
+          if (invalidName) return validation({ name: invalidName });
+          const game = find(id);
+          if (!game) return problem(PROBLEMS.notFound);
+          if (body.kind != null && body.kind !== game.kind) {
+            return validation({ kind: 'Die Art eines Spiels ist fest.' });
+          }
+          if (taken(name, game)) return problem(PROBLEMS.duplicateName);
+          const before = gameValues(game);
+          game.name = name;
+          applySetting(game, body);
+          record(me, 'update', ['game', id], before, gameValues(game));
+          return json(gameOf(game));
+        }),
+      ],
+      [
+        'POST /api/games/{id}/restart',
+        guarded((me, _body, { id }) => {
+          const game = find(id);
+          if (!game) return problem(PROBLEMS.notFound);
+          const before = gameValues(game);
+          game.run += 1;
+          game.startedAt = new Date().toISOString();
+          record(me, 'update', ['game', id], before, gameValues(game));
+          return json(gameOf(game));
+        }),
+      ],
+      [
+        'DELETE /api/games/{id}',
+        guarded((me, _body, { id }) => {
+          const game = find(id);
+          if (!game) return problem(PROBLEMS.notFound);
+          fixtures.games.splice(fixtures.games.indexOf(game), 1);
+          record(me, 'delete', ['game', id], gameValues(game), null);
+          return new Response(null, { status: 204 });
+        }),
+      ],
+    ];
+  }
+
+  /** Whether another game than `game` has the name, ignoring case. */
+  const taken = (name: string, game?: FixtureGame) =>
+    fixtures.games.some(
+      (other) => other !== game && sameName(other.name, name),
+    );
+
   return new Map<string, Handler>([
     ['GET /api/health', () => json(fixtures.health)],
     [
@@ -634,6 +748,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         },
       },
     ),
+    ...gameRoutes(),
     [
       'GET /api/entries',
       guarded((_me, _body, { query }) => {
@@ -750,6 +865,40 @@ function saveNamed<T extends Named>(
   );
   if (!list.includes(item)) list.push(item);
   return json(item, status);
+}
+
+/** A game as the API answers it, without its run. */
+function gameOf(game: FixtureGame): Game {
+  const { id, name, kind, drawsAllowed, lowerWins, startedAt } = game;
+  return { id, name, kind, drawsAllowed, lowerWins, startedAt };
+}
+
+/** A game as the audit log records it: its kind's own setting, its run and its start. */
+function gameValues(game: FixtureGame): AuditSnapshot {
+  const { name, kind, drawsAllowed, lowerWins, run, startedAt } = game;
+  const setting = kind === 'duel' ? { drawsAllowed } : { lowerWins };
+  return { name, kind, ...setting, run, startedAt };
+}
+
+/** A setting that is sent must be a boolean, as the API reads it before anything else. */
+function settingErrors(body: Body): Record<string, string> | undefined {
+  for (const field of ['drawsAllowed', 'lowerWins']) {
+    const value = body[field];
+    if (value != null && typeof value !== 'boolean') {
+      return { [field]: 'Ja oder nein.' };
+    }
+  }
+  return undefined;
+}
+
+/** Takes the game's own kind's setting from the body where sent; the other kind's is ignored. */
+function applySetting(game: FixtureGame, body: Body): void {
+  if (game.kind === 'duel' && typeof body.drawsAllowed === 'boolean') {
+    game.drawsAllowed = body.drawsAllowed;
+  }
+  if (game.kind === 'points' && typeof body.lowerWins === 'boolean') {
+    game.lowerWins = body.lowerWins;
+  }
 }
 
 /** Adds an entry idempotently on its id, like the API's EntryLedger, recording the account. */
