@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import PersonAvatar from '../../components/PersonAvatar.vue';
 import { verlaufPath } from '../verlauf/history';
-import type { Standing } from './standings';
+import type { Standing, UnrankedStanding } from './standings';
 
 /**
 Rank 2 and below on the Rangliste (§7f): the rank, the avatar, the name with the per-drink
-counters beneath, and the score with the total count beneath on the right. The row
-opens the person's Verlauf.
+counters beneath, and the score with the total count beneath on the right, then
+`+2 offen` while entries wait for verification. A person whose entries all wait has
+the same row without rank and score, with only `+2 offen` on the right. The row opens
+the person's Verlauf.
 */
-defineProps<{ standing: Standing }>();
+defineProps<{ standing: Standing | UnrankedStanding }>();
 </script>
 
 <template>
@@ -16,10 +18,12 @@ defineProps<{ standing: Standing }>();
     <RouterLink
       :to="verlaufPath(standing.personId)"
       class="rank"
-      data-test="rank"
+      :data-test="'rank' in standing ? 'rank' : 'unranked'"
       :aria-label="standing.label"
     >
-      <span class="type-title rank__position">{{ standing.rank }}</span>
+      <span class="type-title rank__position">{{
+        'rank' in standing ? standing.rank : ''
+      }}</span>
       <PersonAvatar
         :name="standing.name"
         :photo-url="standing.photoUrl"
@@ -30,8 +34,15 @@ defineProps<{ standing: Standing }>();
         <span class="type-support rank__drinks">{{ standing.drinks }}</span>
       </span>
       <span class="rank__total">
-        <span class="type-numeral">{{ standing.score }}</span>
-        <span class="type-caption rank__count">{{ standing.countText }}</span>
+        <template v-if="'rank' in standing">
+          <span class="type-numeral">{{ standing.score }}</span>
+          <span class="type-caption rank__count">{{
+            standing.countText
+          }}</span>
+        </template>
+        <span v-if="standing.pending" class="assist-chip type-caption">{{
+          standing.pending
+        }}</span>
       </span>
     </RouterLink>
   </li>
@@ -84,6 +95,7 @@ defineProps<{ standing: Standing }>();
 
 .rank__total {
   align-items: flex-end;
+  gap: 2px;
 }
 
 .rank__count {

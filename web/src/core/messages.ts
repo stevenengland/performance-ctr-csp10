@@ -82,6 +82,8 @@ export const messages = {
   },
   rangliste: {
     noDrinks: 'Heute noch keine Getränke.',
+    /** The group of persons whose entries of today all wait for verification (§7f). */
+    unranked: 'Noch nicht gewertet',
     count: 'Zählen',
     /** A total count: `9 Getränke`, `1 Getränk`. */
     drinks: (formatted: string, count: number) =>
