@@ -19,8 +19,12 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
-globalThis.ResizeObserver ??= vi.fn(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-})) as unknown as typeof ResizeObserver;
+/*
+A class, not an arrow `vi.fn`: Vuetify calls `new ResizeObserver(…)` (a busy
+`v-btn` measures its progress indicator), and an arrow function is no constructor.
+*/
+globalThis.ResizeObserver ??= class {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+};
