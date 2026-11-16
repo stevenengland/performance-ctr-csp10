@@ -67,11 +67,12 @@ final readonly class AuditLog
     /**
      * Records the deletion of a person, drink or factor, then what it does to each of its
      * entries: one event per entry, in the order given, each linked to the deletion as its
-     * cause. The entries' events are stored in batches, not one statement each.
+     * cause. The entries' events are stored in batches as they come, not one statement each
+     * and not all at once, so `$entries` may be read lazily, chunk by chunk.
      *
-     * @param array<string, mixed>                                                 $before         the deleted row's values
-     * @param AuditOperation                                                       $entryOperation delete for entries removed with the row, update for entries it changes
-     * @param list<array{string, array<string, mixed>, array<string, mixed>|null}> $entries        each affected entry's id and its values before and after
+     * @param array<string, mixed>                                                     $before         the deleted row's values
+     * @param AuditOperation                                                           $entryOperation delete for entries removed with the row, update for entries it changes
+     * @param iterable<array{string, array<string, mixed>, array<string, mixed>|null}> $entries        each affected entry's id and its values before and after
      *
      * @return int the deletion's event id
      *
@@ -83,16 +84,20 @@ final readonly class AuditLog
         string $subjectId,
         array $before,
         AuditOperation $entryOperation,
-        array $entries,
+        iterable $entries,
     ): int {
         $cause = (int) $this->record($actor, AuditOperation::Delete, $subjectKind, $subjectId, $before, null);
-        $changes = [];
+        $batch = [];
         foreach ($entries as [$entryId, $entryBefore, $entryAfter]) {
             if (self::changes($entryOperation, $entryBefore, $entryAfter)) {
-                $changes[] = [$entryOperation, AuditSubjectKind::Entry, $entryId, $entryBefore, $entryAfter];
+                $batch[] = [$entryOperation, AuditSubjectKind::Entry, $entryId, $entryBefore, $entryAfter];
+            }
+            if (count($batch) === self::BATCH_SIZE) {
+                $this->insert($actor, $cause, $batch);
+                $batch = [];
             }
         }
-        foreach (array_chunk($changes, self::BATCH_SIZE) as $batch) {
+        if ($batch !== []) {
             $this->insert($actor, $cause, $batch);
         }
 

@@ -499,21 +499,23 @@ final class AuditLogTest extends DatabaseTestCase
         self::assertSame([5, 4, 3, 2, 1], array_column($this->page('?before=' . $this->page()['next'])['events'], 'id'), 'the cause sits on the next page');
     }
 
-    public function testADeletionAffecting1000EntriesSucceedsAndRecords1000ConsequentialEvents(): void
+    /**
+     * More entries than the deletion reads at a time (2 000) and stores per statement (500):
+     * every one is recorded once, in id order, whichever chunk and batch it falls into.
+     */
+    public function testADeletionAffecting2500EntriesSucceedsAndRecordsEachOnceInIdOrder(): void
     {
         $this->entryCatalog();
-        $this->seedEntries(1000);
+        $this->seedEntries(2500);
 
         $response = $this->send('DELETE', '/api/persons/1', session: $this->admin);
 
         self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
-        $removed = self::subjectIds(array_filter(
-            $this->allEvents(),
-            static fn(array $event): bool => $event['operation'] === 'delete' && $event['subjectKind'] === 'entry'
-                && $event['cause'] === ['id' => 4, 'subjectKind' => 'person', 'name' => 'Daniel'],
-        ));
-        self::assertCount(1000, $removed);
-        self::assertCount(1000, array_unique($removed));
+        $removed = array_column($this->rows(
+            "SELECT subject_id FROM audit_events WHERE subject_kind = 'entry' AND operation = 'delete' AND cause_id = 4 ORDER BY id",
+        ), 'subject_id');
+        $ids = array_map(static fn(int $i): string => sprintf('00000000-0000-4000-8000-%012d', $i), range(1, 2500));
+        self::assertSame($ids, $removed);
         self::assertSame([], $this->rows('SELECT id FROM entries'));
     }
 

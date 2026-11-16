@@ -386,23 +386,34 @@ final readonly class Catalog
         $this->oneDeletionAtATime(function () use ($actor, $kind, $id): void {
             $this->revision->write(function () use ($actor, $kind, $id): void {
                 $before = $this->snapshot($kind, $id);
+                $entryIds = EntrySnapshots::lockReferencing($this->pdo, $kind, $id);
                 // A factor's entries stay and lose it; a person's or a drink's go with it.
                 $clearsFactor = $kind === AuditSubjectKind::Factor;
-                $entries = [];
-                foreach (EntrySnapshots::lockReferencing($this->pdo, $kind, $id) as [$entryId, $entry]) {
-                    $entries[] = [$entryId, $entry, $clearsFactor ? [...$entry, 'factor' => null] : null];
-                }
                 $this->audit->recordDeletion(
                     $actor,
                     $kind,
                     (string) $id,
                     $before,
                     $clearsFactor ? AuditOperation::Update : AuditOperation::Delete,
-                    $entries,
+                    $this->entryChanges($entryIds, $clearsFactor),
                 );
                 $this->pdo->prepare('DELETE FROM ' . self::table($kind) . ' WHERE id = ?')->execute([$id]);
             });
         });
+    }
+
+    /**
+     * What a deletion does to each of its entries, read as the audit log stores it, chunk by chunk.
+     *
+     * @param list<string> $entryIds locked by this transaction
+     *
+     * @return iterable<array{string, array<string, mixed>, array<string, mixed>|null}> each entry's id and its values before and after
+     */
+    private function entryChanges(array $entryIds, bool $clearsFactor): iterable
+    {
+        foreach (EntrySnapshots::each($this->pdo, $entryIds) as $entryId => $entry) {
+            yield [$entryId, $entry, $clearsFactor ? [...$entry, 'factor' => null] : null];
+        }
     }
 
     /**
