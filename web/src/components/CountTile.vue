@@ -8,6 +8,8 @@ the top and, at the bottom, the supporting text left and the numeral right. A dr
 tile shows name and numeral at the top, supporting text and tally at the bottom. A
 factor tile is raspberry, with name and multiplier at the top and supporting text
 at the bottom; a plain tile (`Kein Faktor`) has only name and supporting text.
+The `leading` slot sits left of the name (a person's avatar on Zählen); the tile
+knows nothing about what goes there.
 */
 const props = defineProps<{
   variant: 'person' | 'drink' | 'factor' | 'plain';
@@ -24,6 +26,7 @@ const props = defineProps<{
   disabled?: boolean;
 }>();
 const emit = defineEmits<{ click: [] }>();
+defineSlots<{ leading?(): unknown }>();
 
 /** Names that do not fit shrink one step (28 → 24 → 20) before they ellipsize (§3.2). */
 const nameSize = computed(() => {
@@ -46,7 +49,8 @@ const nameSize = computed(() => {
     :disabled="disabled"
     @click="emit('click')"
   >
-    <span class="count-tile__row">
+    <span class="count-tile__row count-tile__row--top">
+      <slot name="leading" />
       <span class="type-tile-name count-tile__name" :class="nameSize">{{
         name
       }}</span>
@@ -76,6 +80,15 @@ const nameSize = computed(() => {
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
+}
+
+.count-tile__row--top {
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.count-tile__row--top > .type-numeral {
+  margin-left: auto;
 }
 
 .count-tile__name {
