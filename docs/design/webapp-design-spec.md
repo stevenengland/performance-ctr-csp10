@@ -226,6 +226,9 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
 /verlauf/:personId                          a person's entries today
 /spiele                                     the games               [nav: Spiele]
 /spiele/:gameId                             a game: its rule and its ranking since the start
+/spiele/:gameId/partie                      duel step 1 — Wer spielt?
+/spiele/:gameId/partie/:firstId             duel step 2 — Gegen wen?
+/spiele/:gameId/partie/:firstId/:secondId   duel step 3 — Ergebnis (choice saves)
 /verwalten                                  hub                     [nav: Verwalten]
 /verwalten/personen | getraenke | faktoren  master data
 /verwalten/spiele                           games: create, edit, delete (?anlegen opens create)
@@ -239,10 +242,11 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
   Verwalten (`mdiCogOutline`). Konto is reached from the top app bar's account icon. The bar
   splits its width into four equal columns.
 - `/` redirects to `/zaehlen`. Unknown routes redirect to `/zaehlen`.
-- The add flow's steps are routes, so the system back gesture steps back one level.
+- The add flow's and the duel flow's steps are routes, so the system back gesture and the back
+  arrow step back one level.
 - A route parameter that no longer exists (person deleted on another phone) returns to step 1
-  with the snackbar "Nicht mehr vorhanden"; a game that no longer exists returns to `/spiele`
-  the same way.
+  with the snackbar "Nicht mehr vorhanden"; a game or player that no longer exists returns to
+  `/spiele` the same way.
 - Not signed in: every route except `/anmelden` redirects there
   (`/anmelden?weiter=<requested route>`) and returns to the requested route after sign-in; a
   signed-in user who opens `/anmelden` goes straight on. A 401 on any later request (signed out
@@ -271,7 +275,8 @@ Flat bar on `surface`: title in `title` style (the screen's name or, in the add 
 person), an optional context line under it in `label` (`Bier`, `2× Bier`, `Heute`), a back
 button on every screen below a navigation destination, and the account icon on the right
 (opens `/konto`). In the add flow a four-segment step indicator sits directly under the bar
-(4 dp high, filled segments in `primary`; three segments when no factors exist). On add-flow
+(4 dp high, filled segments in `primary`; three segments when no factors exist); the duel flow
+(§7p) always has three. On add-flow
 steps 2–4 the bar also shows, right-aligned before the account icon, the chosen person's
 total score for today — all drinks, factors applied — as a numeral (`title`) over the caption
 `Punkte heute` (from the scoreboard feed; `0` when there are no entries). On the
@@ -293,8 +298,9 @@ an older one.
 | Trigger | Text | Action |
 |---|---|---|
 | Entry saved | `2× Bier · Happy Hour ×2 · Daniel` (factor part omitted for "Kein Faktor") | `Rückgängig` |
-| Entry undone | `Rückgängig gemacht` | — |
-| Save failed (network) | `Nicht gespeichert – keine Verbindung` | `Erneut versuchen` (same UUID, this attempt only; returns to the names only while the step is still shown) |
+| Match saved (§7p) | `Anna – Ben · Anna gewinnt`, `Ben – Carla · Remis` | `Rückgängig` |
+| Entry or match undone | `Rückgängig gemacht` | — |
+| Save failed (network) | `Nicht gespeichert – keine Verbindung` | `Erneut versuchen` (same UUID, this attempt only; returns to the names — or to `Wer spielt?` — only while the step is still shown) |
 | Undo failed (network) | `Nicht rückgängig gemacht – keine Verbindung` | `Erneut versuchen` |
 | Route item gone (§4) | `Nicht mehr vorhanden` | — |
 | Problem response | the problem's `title` | — |
@@ -379,7 +385,7 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 
 | Delete | Title | Body |
 |---|---|---|
-| Person | `Daniel löschen?` | `Daniel und 23 Einträge werden gelöscht.` (one: `Daniel und 1 Eintrag werden gelöscht.`; none: `Daniel wird gelöscht.`) |
+| Person | `Daniel löschen?` | `Daniel und 23 Einträge werden gelöscht.` (one: `Daniel und 1 Eintrag werden gelöscht.`; none: `Daniel wird gelöscht.`), then the matches that stay, every game's and run's: `4 Partien bleiben mit „gelöschte Person“.` (one: `1 Partie bleibt …`; none: nothing) |
 | Drink | `Bier löschen?` | `Bier und 12 Einträge werden gelöscht.` (one and none as for a person) |
 | Factor | `Happy Hour löschen?` | `5 Einträge zählen danach ×1.` (one: `1 Eintrag zählt danach ×1.`; none: `Happy Hour wird gelöscht.`) |
 | Game | `Schach löschen?` | `Schach und 9 Partien werden gelöscht.` (a points game: `Rommé und 8 Ergebnisse werden gelöscht.`; one: `1 Partie` / `1 Ergebnis`; none: `Schach wird gelöscht.`) — every run's, not only the current ranking's |
@@ -541,7 +547,8 @@ submit on Enter.
   hairlines; primary text in `row-title`.
 - Create/edit dialog: `Name`; drinks also `Punkte` (decimal); factors also `Multiplikator`
   (decimal, shown with `×` prefix). Buttons `Abbrechen` and `Speichern`.
-- Delete: confirmation dialog with the entry count (§6.9).
+- Delete: confirmation dialog with the entry count (§6.9); for a person also the matches that
+  stay with `gelöschte Person`.
 - Validation errors inline (§6.11); duplicate name → `Name ist bereits vergeben.`; points
   outside 0–9 999,99 (or no number) → `Zahl von 0 bis 9.999,99.`; a multiplier outside
   0 (exclusive) – 99,99 (or no number) → `Zahl über 0 bis 99,99.`, from the server.
@@ -702,6 +709,8 @@ submit on Enter.
 - Belongs to the Spiele destination (highlighted in the navigation) with a back button. Title:
   the game's name (`Spiele` until the games have loaded); context line: as on its tile,
   `Duell · seit 15.09.`.
+- On a duel the extended FAB `Partie eintragen` (as in §7i) opens the duel flow (§7p); the
+  page keeps 88 dp free below the ranking so the FAB covers no place.
 - At the top, in `label`, `on-surface-variant`, the rule that decides the ranking:
   `Remis möglich` or `Kein Remis` for a duel, `Höchste Summe gewinnt` or
   `Niedrigste Summe gewinnt` for a points game.
@@ -733,6 +742,31 @@ submit on Enter.
 - A game that no longer exists (deleted on another phone): back to Spiele with
   `Nicht mehr vorhanden` (§9).
 
+### 7p. Partie eintragen `/spiele/:gameId/partie[/:firstId[/:secondId]]`
+
+- The duel flow, one decision per screen like the add flow (§1): three routes under the game,
+  belonging to the Spiele destination with a back button, and a three-segment step indicator
+  (§6.1). Title: the game's name.
+- **Step 1 — `Wer spielt?`** (context line `Partie eintragen`): one person tile (§6.4) per
+  person, alphabetically, in the tile grid. Instead of today's score each tile shows the
+  person's standing in this game since the start: the points (`numeral`, `3,5`) with
+  `5 Partien` in `support`, or just `noch nichts`; accessible name `Anna, 3,5 Punkte` /
+  `Carla, noch nichts`. The standing comes from the game's ranking (§7o).
+- **Step 2 — `Gegen wen?`** (context line `Anna – …`): the same tiles without the first person.
+- **Step 3 — `Wie ging es aus?`** (context line `Anna – Ben`): one column of tiles, a phone's
+  width as in §7e: `Anna gewinnt` (`1 Punkt für den Sieg`), `Remis` (`je ½ Punkt`, a raspberry
+  factor tile, only while the game allows draws) and `Ben gewinnt` (`1 Punkt für den Sieg`).
+- Tapping an outcome saves (`PUT /api/matches/{uuid}`): the tapped tile turns amber and the
+  others dim; then the app returns to `Wer spielt?` for the next match, the two walked steps
+  leave the history, the snackbar shows `Anna – Ben · Anna gewinnt` with `Rückgängig` (§6.3) and
+  the ranking is read again. `Rückgängig` deletes the match (`DELETE /api/matches/{uuid}`, 404
+  counts as undone) and reads the ranking again.
+- Save failure, a late answer and offline behave as on the factor step (§7e): stay on the step
+  with `Erneut versuchen` (same UUID), never move the user once they left the step, and the
+  outcome tiles are disabled under the offline banner.
+- A game that no longer exists or is no duel, or a player who no longer exists: back to
+  Spiele with `Nicht mehr vorhanden` (§4).
+
 ## 8. Key flows
 
 1. **Log two beers in happy hour:** Zählen → Daniel → Bier → 2 → Happy Hour ×2 → back on
@@ -748,6 +782,9 @@ submit on Enter.
    refresh.
 7. **First run:** sign in with the bootstrap admin → Verwalten → Konten → `Konto anlegen` for a
    friend.
+8. **Record a match:** Spiele → Schach → `Partie eintragen` → Anna → Ben → `Anna gewinnt` → back
+   on `Wer spielt?`, snackbar `Anna – Ben · Anna gewinnt` with `Rückgängig`, Anna's tile one
+   point up.
 
 ## 9. States and edge cases (every data view defines these)
 
@@ -794,10 +831,12 @@ submit on Enter.
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
 | Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window |
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt` and `accountName` (or `null`); 404 → person gone; after a delete the scoreboard feed refreshes |
-| Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count; `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
+| Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count (a person also `matchCount`); `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Verwalten | `GET /api/{persons,drinks,factors,games}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
 | Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. Standings of the current run, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played}`, a points game's `{personId, name, sum, results}` with `lowerWins` |
 | Verwalten → Spiele | `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/{id}` | Game: `id`, `name`, `kind` (`duel` \| `points`), `drawsAllowed`, `lowerWins`, `startedAt`. `POST` takes `name`, `kind` and the kind's setting; `PATCH` takes `name` and the setting (the kind is fixed); `GET …/{id}` adds `matchCount` and `resultCount` (every run) |
+| Partie eintragen | `GET /api/games`, `GET /api/persons`, `GET /api/games/{id}/standings`, `PUT /api/matches/{uuid}` | Body `{gameId, firstPersonId, secondPersonId, outcome}` with `outcome` `first` \| `second` \| `draw`; 201 new, 200 replay; the same UUID with other content is 409 `request-conflict` |
+| Snackbar `Rückgängig` (match) | `DELETE /api/matches/{uuid}` | 404 counts as undone; the ranking is read again |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
 | Protokoll | `GET /api/audit?before=` | Admins only (401/403). Answer `{events, next}`, newest first; `next` is the `before` of `Ältere laden`, null on the last page. Each event: `occurredAt`, `operation`, `subjectKind`, `actor.userName`, snapshots `before`/`after` (names and values as they were), `cause` (`{id, subjectKind, name}` or null). No polling |
 | Update / reload floor | `GET /api/health` | `minClientVersion` |
@@ -827,17 +866,19 @@ the shareable page a UI change is reviewed on before it reaches the host.
   validation, the kind fixed, restart starting the next run from now). Schach holds nine
   sample matches (one with a person deleted since) and Tischtennis three, on evenings before
   today; Rommé holds tonight's eight results. Both rankings are computed like the API's
-  (current run only); deleting a game takes its matches and results along, deleting a person
-  keeps their matches with that side cleared and removes their results.
+  (current run only); matches are recorded and undone by the API's rules (idempotent on the
+  UUID, which is unique across entries and matches; a duel only; `Remis` only where allowed;
+  two different persons); deleting a game takes its matches and results along, deleting a
+  person keeps their matches with that side cleared and removes their results.
 - **Audit log in the preview.** Protokoll starts with a seeded log that reaches back over
   several days, holds a cascade (the deletion of `Sekt` with the entries it removed) and names
   an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are
-  then recorded in memory by the API's rules (game writes included, a restart as a change of
+  then recorded in memory by the API's rules (game and match writes included, a restart as a change of
   `run` and `startedAt`, a game's or person's deletion with one caused event per match it
   deletes or clears): one event per change with the signed-in account,
   the entries a deletion removes or changes as consequential events with their cause, and
   nothing for a save that changes nothing, a write that fails, a replayed or conflicting entry
-  request, or an account change.
+  or match request, or an account change.
 - **No service worker.** The preview build does not register the service worker; the update
   prompt and reload floor can be triggered from a small preview-only menu. The menu's summary
   `Vorschau · Beispieldaten` (the sample-data marker) is a thin strip above the app that pushes

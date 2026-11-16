@@ -12,6 +12,7 @@ import {
   deleteDrink,
   deleteGame,
   deleteEntry,
+  deleteMatch,
   deleteFactor,
   deletePerson,
   getDrink,
@@ -31,6 +32,7 @@ import {
   listEntries,
   listPersons,
   putEntry,
+  putMatch,
   getSession,
   listAccounts,
   listAuditEvents,
@@ -1261,5 +1263,119 @@ describe('the fixture backend’s games', () => {
     expect(updates.every(({ subjectKind }) => subjectKind === 'match')).toBe(
       true,
     );
+  });
+
+  it('records matches idempotently with the API’s validation, audits them and never brings an undone one back', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const schach = await gameId('Schach');
+    const persons = await listPersons();
+    const idOf = (name: string) =>
+      persons.find((person) => person.name === name)?.id ?? 0;
+    const id = '1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d';
+    const match = {
+      gameId: schach,
+      firstPersonId: idOf('Daniel'),
+      secondPersonId: idOf('Tom'),
+      outcome: 'first' as const,
+    };
+    const put = (key: string, body: object) =>
+      fetch(`/api/matches/${key}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    expect((await put(id, match)).status).toBe(201);
+    expect((await put(id, match)).status).toBe(200);
+    const conflict = await put(id, { ...match, outcome: 'draw' });
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toMatchObject({
+      type: 'urn:performance:problem:request-conflict',
+    });
+    expect(await ranking(schach)).toEqual([
+      'Anna 4 3-2-0/5',
+      'Ben 3.5 3-1-1/5',
+      'Daniel 1.5 1-1-2/4',
+      'Tom 1 0-2-3/5',
+    ]);
+    await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 10 });
+    const [recorded] = (await newest(1)).map(told);
+    expect(recorded).toEqual({
+      operation: 'create',
+      subjectKind: 'match',
+      subjectId: id,
+      userName: 'anna',
+      before: null,
+      after: {
+        game: 'Schach',
+        first: 'Daniel',
+        second: 'Tom',
+        outcome: 'first',
+      },
+      cause: null,
+    });
+
+    await deleteMatch(id);
+    expect((await put(id, match)).status).toBe(200);
+    await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 9 });
+    const [undone] = (await newest(1)).map(told);
+    expect(undone).toMatchObject({
+      operation: 'delete',
+      subjectId: id,
+      before: recorded?.after,
+      after: null,
+    });
+    await expect(deleteMatch(id)).rejects.toMatchObject({ status: 404 });
+    // A UUID is unique across entries and matches.
+    await expect(
+      putEntry(id, { personId: idOf('Tom'), drinkId: 1, quantity: 1 }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('refuses a match with the API’s validation', async () => {
+    installFixtureBackend(sampleEvening());
+    const [anna, ben] = await listPersons();
+    const match = {
+      gameId: await gameId('Schach'),
+      firstPersonId: anna?.id ?? 0,
+      secondPersonId: ben?.id ?? 0,
+      outcome: 'first' as const,
+    };
+    let next = 0;
+    const record = (body: object) => {
+      next += 1;
+      return putMatch(
+        `1b2c3d4e-5f60-4a7b-8c9d-${String(next).padStart(12, '0')}`,
+        { ...match, ...body },
+      );
+    };
+
+    await expect(record({ gameId: 999 })).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(
+      record({ gameId: await gameId('Rommé') }),
+    ).rejects.toMatchObject({ status: 422, errors: { gameId: 'Kein Duell.' } });
+    await expect(
+      record({ gameId: await gameId('Tischtennis'), outcome: 'draw' }),
+    ).rejects.toMatchObject({
+      status: 422,
+      errors: { outcome: 'Remis ist in diesem Spiel nicht möglich.' },
+    });
+    await expect(
+      record({ secondPersonId: anna?.id ?? 0 }),
+    ).rejects.toMatchObject({
+      status: 422,
+      errors: { secondPersonId: 'Zwei verschiedene Personen.' },
+    });
+    await expect(record({ firstPersonId: 999 })).rejects.toMatchObject({
+      status: 422,
+      errors: { firstPersonId: 'Person nicht gefunden.' },
+    });
+    await expect(record({ outcome: 'won' })).rejects.toMatchObject({
+      status: 422,
+      errors: { outcome: 'Sieg des Ersten, des Zweiten oder Remis.' },
+    });
   });
 });

@@ -2,6 +2,7 @@ import type {
   AuditEvent,
   Entry,
   Game,
+  Match,
   HistoryEntry,
   ScoreRow,
   Scoreboard,
@@ -82,6 +83,11 @@ const PROBLEMS = {
     title: 'Eintrag wurde schon mit anderem Inhalt gespeichert.',
     status: 409,
   },
+  requestConflict: {
+    type: 'urn:performance:problem:request-conflict',
+    title: 'Wurde schon mit anderem Inhalt gespeichert.',
+    status: 409,
+  },
   lastAdmin: {
     type: 'urn:performance:problem:last-admin',
     title: 'Der letzte Admin kann nicht entfernt werden.',
@@ -105,6 +111,7 @@ const AUDIT_PAGE_SIZE = 20;
 const MAX_AUDIT_PAGE_SIZE = 100;
 /** A positive integer id in a query, as the API's routes accept it. */
 const QUERY_ID = /^[1-9]\d{0,9}$/;
+const PERSON_NOT_FOUND = 'Person nicht gefunden.';
 const ENTRY_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -378,11 +385,11 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/persons/<n>`, `/api/games/<n>/standings`, … */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/matches/<uuid>`, `/api/persons/<n>`, `/api/games/<n>/standings`, … */
 function routeOf(path: string): { route: string; id: string } {
-  const entry = /^\/api\/entries\/([^/]+)$/.exec(path)?.[1];
-  if (entry && ENTRY_ID.test(entry)) {
-    return { route: '/api/entries/{id}', id: entry };
+  const record = /^\/api\/(entries|matches)\/([^/]+)$/.exec(path);
+  if (record?.[1] && record[2] && ENTRY_ID.test(record[2])) {
+    return { route: `/api/${record[1]}/{id}`, id: record[2] };
   }
   const item =
     /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart|\/standings)?$/.exec(
@@ -995,6 +1002,28 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       }),
     ],
     [
+      'PUT /api/matches/{id}',
+      guarded((me, body, { id }) => {
+        const response = putMatch(fixtures, id, body, me.account.id);
+        const match = fixtures.matches.find((candidate) => candidate.id === id);
+        // Only a new match is a change: a replay answers 200 and records nothing.
+        if (response.status === 201 && match) {
+          record(me, 'create', ['match', id], null, matchSnapshot(match));
+        }
+        return response;
+      }),
+    ],
+    [
+      'DELETE /api/matches/{id}',
+      guarded((me, _body, { id }) => {
+        const match = fixtures.matches.find((candidate) => candidate.id === id);
+        if (!match) return problem(PROBLEMS.notFound);
+        record(me, 'delete', ['match', id], matchSnapshot(match), null);
+        fixtures.matches.splice(fixtures.matches.indexOf(match), 1);
+        return new Response(null, { status: 204 });
+      }),
+    ],
+    [
       'GET /api/audit',
       guarded(
         (_me, _body, { query }) => auditPage(fixtures.audit, query),
@@ -1148,6 +1177,76 @@ function putEntry(
   fixtures.entryRequests.set(id, fingerprint);
   fixtures.entries.push(entry);
   return json(entryOf(entry), 201);
+}
+
+/** The checks that need no data: two different persons and an outcome the API knows. */
+function matchShapeErrors(body: Body): Record<string, string> | undefined {
+  const firstPersonId = integer(body, 'firstPersonId');
+  const secondPersonId = integer(body, 'secondPersonId');
+  const errors: Record<string, string> = {};
+  if (firstPersonId === undefined) errors.firstPersonId = PERSON_NOT_FOUND;
+  if (secondPersonId === undefined) errors.secondPersonId = PERSON_NOT_FOUND;
+  else if (secondPersonId === firstPersonId) {
+    errors.secondPersonId = 'Zwei verschiedene Personen.';
+  }
+  if (!['first', 'second', 'draw'].includes(text(body, 'outcome'))) {
+    errors.outcome = 'Sieg des Ersten, des Zweiten oder Remis.';
+  }
+  return Object.keys(errors).length > 0 ? errors : undefined;
+}
+
+/**
+Records a match idempotently on its id, like the API's Matches: a replay answers
+200 even after the match or its game was deleted; then the game must be a duel
+that allows the outcome, and both persons must exist.
+*/
+function putMatch(
+  fixtures: Fixtures,
+  id: string,
+  body: Body,
+  accountId: number,
+): Response {
+  const invalid = matchShapeErrors(body);
+  if (invalid) return validation(invalid);
+  const values = {
+    gameId: integer(body, 'gameId') ?? 0,
+    firstPersonId: integer(body, 'firstPersonId') ?? 0,
+    secondPersonId: integer(body, 'secondPersonId') ?? 0,
+    outcome: text(body, 'outcome') as Match['outcome'],
+  };
+  const fingerprint = JSON.stringify(['match', ...Object.values(values)]);
+  const known = fixtures.entryRequests.get(id);
+  if (known !== undefined) {
+    if (known !== fingerprint) return problem(PROBLEMS.requestConflict);
+    // The original match, as sent; its time only while it still exists.
+    const match = fixtures.matches.find((candidate) => candidate.id === id);
+    return json({ id, ...values, createdAt: match?.createdAt ?? '' });
+  }
+  const game = fixtures.games.find(
+    ({ id: gameId }) => gameId === values.gameId,
+  );
+  if (!game) return problem(PROBLEMS.notFound);
+  if (game.kind !== 'duel') return validation({ gameId: 'Kein Duell.' });
+  if (values.outcome === 'draw' && !game.drawsAllowed) {
+    return validation({ outcome: 'Remis ist in diesem Spiel nicht möglich.' });
+  }
+  const errors: Record<string, string> = {};
+  for (const field of ['firstPersonId', 'secondPersonId'] as const) {
+    if (!fixtures.persons.some((person) => person.id === values[field])) {
+      errors[field] = PERSON_NOT_FOUND;
+    }
+  }
+  if (Object.keys(errors).length > 0) return validation(errors);
+  const match: FixtureMatch = {
+    id,
+    ...values,
+    run: game.run,
+    accountId,
+    createdAt: new Date().toISOString(),
+  };
+  fixtures.entryRequests.set(id, fingerprint);
+  fixtures.matches.push(match);
+  return json({ id, ...values, createdAt: match.createdAt }, 201);
 }
 
 async function bodyOf(

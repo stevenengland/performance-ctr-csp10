@@ -65,6 +65,8 @@ test('the preview marker covers no control of any screen', async ({ page }) => {
     ['rangliste', 'Rangliste'],
     ['verwalten/personen', 'Personen'],
     ['spiele', 'Spiele'],
+    ['spiele/2', 'Schach'],
+    ['spiele/2/partie/1/3', 'Schach'],
     ['verwalten/konten', 'Konten'],
     ['verlauf/3', 'Daniel'],
   ] as const) {
@@ -267,6 +269,38 @@ test('the fixture preview lists its sample games with their leaders under Spiele
     /^3\s*Tom\s*4 Partien · 0 S · 2 R · 2 N\s*1$/,
     /^4\s*Daniel\s*3 Partien · 0 S · 1 R · 2 N\s*0,5$/,
   ]);
+});
+
+test('the fixture preview records a Schach match in three taps and undoes it', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/2');
+  await page.getByRole('button', { name: 'Partie eintragen' }).click();
+
+  await expect(
+    page.getByRole('heading', { name: 'Wer spielt?' }),
+  ).toBeVisible();
+  await expect(page.getByRole('banner')).toContainText('Partie eintragen');
+  await page.getByRole('button', { name: 'Daniel, 0,5 Punkte' }).click();
+  await expect(page.getByRole('heading', { name: 'Gegen wen?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Tom, 1 Punkt' }).click();
+  await expect(
+    page.getByRole('progressbar', { name: 'Schritt 3 von 3' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remis' })).toBeVisible();
+  await page.getByRole('button', { name: 'Daniel gewinnt' }).click();
+
+  await expect(page.getByText('Daniel – Tom · Daniel gewinnt')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Wer spielt?' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Daniel, 1,5 Punkte' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Rückgängig' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Daniel, 0,5 Punkte' }),
+  ).toBeVisible();
 });
 
 /** Opens an account's menu on Konten once any other menu has closed. */
