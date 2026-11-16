@@ -19,6 +19,8 @@ type SubjectKind = keyof typeof messages.protokoll.kind;
 /** A subject's values as an event recorded them; a key that is missing is unknown. */
 export interface AuditSnapshotView {
   name?: string;
+  /** A person's photo version, null without a photo; never shown. */
+  photo?: string | null;
   points?: number;
   multiplier?: number;
   person?: string;
@@ -216,7 +218,19 @@ function clearedSides(before: Snapshot, after: Snapshot): string[] {
     );
 }
 
-/** An update's changed values as before → after; `Neu gestartet` first for a game's restart. */
+/**
+A person's `Foto gesetzt`, `Foto geändert` or `Foto entfernt`, named by whether
+there was a photo before and after, never by its version. Nothing when the
+photo stayed or a side does not record it (an event from before photos).
+*/
+function photoChange(before: Snapshot, after: Snapshot): string[] {
+  if (!('photo' in before) || !('photo' in after)) return [];
+  if (before.photo === after.photo) return [];
+  if (before.photo === null) return [text.photoSet];
+  return [after.photo === null ? text.photoRemoved : text.photoChanged];
+}
+
+/** An update's changed values as before → after; `Neu gestartet` first for a game's restart, a person's photo change last. */
 function updates(
   kind: SubjectKind,
   before: Snapshot,
@@ -234,6 +248,7 @@ function updates(
     ...fields(kind, after)
       .filter(([label, value]) => was.has(label) && was.get(label) !== value)
       .map(([label, value]) => text.change(label, was.get(label) ?? '', value)),
+    ...(kind === 'person' ? photoChange(before, after) : []),
   ];
 }
 

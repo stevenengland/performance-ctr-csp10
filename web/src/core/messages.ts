@@ -171,6 +171,10 @@ export const messages = {
     change: (label: string, before: string, after: string) =>
       `${label}: ${before} → ${after}`,
     name: 'Name',
+    /** A person's photo change; the version it recorded is never shown. */
+    photoSet: 'Foto gesetzt',
+    photoChanged: 'Foto geändert',
+    photoRemoved: 'Foto entfernt',
     points: 'Punkte',
     multiplier: 'Multiplikator',
     factor: 'Faktor',
