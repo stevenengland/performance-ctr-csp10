@@ -79,3 +79,18 @@ is the only way past a schema change.
   end-to-end tests that drive the previous release's built web client against the new API in the
   e2e stack. Both need the host or the Docker-based e2e stack, which are not available to the
   session that wrote this.
+- **A new value in a response's enum** is growth when older clients only show it less well, and
+  a break (raise the floor) when they would act on it wrongly. PRD #27 adds `game`, `match` and
+  `result` to the audit event's `subjectKind`. Until it reloads, the previous web client's
+  Protokoll (admins only, read-only) shows those events as `undefined Schach`, with an empty
+  title or with entry-shaped fragments; every open client is offered `Neu laden` after the
+  deploy (design spec §6.7). That is accepted as a transient, cosmetic effect, and
+  `MIN_CLIENT_VERSION` stays. Protokoll now names an event of a kind it does not know by its
+  name only, so the next new kind degrades cleanly.
+- **Pending contract step from PRD #27:** retry keys moved from `entry_requests` to
+  `idempotency_keys` by expansion; `Idempotency` still reads and purges `entry_requests` for
+  the previous release's keys. Not before seven days after that release is live, a later
+  release drops `entry_requests`, removes `Idempotency::PREVIOUS_TABLE` with its fallback read
+  and purge, and updates `RolloutCompatibilityTest`. Both go together: dropping the table while
+  the fallback still reads it makes every entry, match and result write fail. Runbook,
+  "Breaking API changes", lists it until it is done.

@@ -187,6 +187,14 @@ A change that older installed apps cannot use raises `MIN_CLIENT_VERSION` in
 `scripts/artifact.test.ts` fail otherwise, because the freshly deployed client would be below
 its own API's floor and ask to reload forever.
 
+**Pending contract steps** (ADR 0006, decision 1), each due in a later release:
+
+- `entry_requests` (since PRD #27, `idempotency_keys` holds the retry keys): not before seven
+  days after the PRD #27 release is live, drop the table and remove
+  `Idempotency::PREVIOUS_TABLE` with its fallback read and purge in the same release, and
+  update `RolloutCompatibilityTest`. Dropping only the table makes every entry, match and
+  result write fail.
+
 ## When a deploy fails
 
 - **Before the API pointer switched** (upload, config, settings): nothing changed for users.

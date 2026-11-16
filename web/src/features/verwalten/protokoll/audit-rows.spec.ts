@@ -151,6 +151,16 @@ describe('the Protokoll rows', () => {
     }
   });
 
+  it('names an event of a subject kind it does not know by its name only', () => {
+    expect(
+      only({
+        subjectKind: 'tournament' as AuditEventView['subjectKind'],
+        operation: 'create',
+        after: { name: 'Sommer' },
+      }).title,
+    ).toBe('Sommer');
+  });
+
   it('names a match Partie with both persons, and shows its game and outcome', () => {
     const recorded = only({
       subjectKind: 'match',

@@ -154,10 +154,15 @@ function subjectName(kind: SubjectKind, snapshot: Snapshot): string {
   return snapshot.name ?? '';
 }
 
-/** `Getränk Bier`, or only the kind when the name is unknown. */
+/**
+`Getränk Bier`, or only the kind when the name is unknown. A kind this client
+does not know yet (a newer API's) is left out rather than shown as `undefined`.
+*/
 function title(kind: SubjectKind, snapshot: Snapshot): string {
   const name = subjectName(kind, snapshot);
-  return name === '' ? text.kind[kind] : text.subject(text.kind[kind], name);
+  const label = (text.kind as Partial<Record<string, string>>)[kind];
+  if (label === undefined) return name;
+  return name === '' ? label : text.subject(label, name);
 }
 
 /** A result's known values: its game, then its points as a game shows them (`−20 Punkte`). */
