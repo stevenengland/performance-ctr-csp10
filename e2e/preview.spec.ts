@@ -619,6 +619,16 @@ test('the fixture preview removes a person’s photo in Person bearbeiten', asyn
     'data-initials',
     'A',
   );
+
+  // Protokoll names the change, never the photo's version.
+  await page.goto('/index.html#/verwalten/protokoll');
+  const newest = page
+    .getByRole('list', { name: 'Heute' })
+    .getByRole('listitem')
+    .first();
+  await expect(newest).toContainText('Person Anna');
+  await expect(newest).toContainText('Foto entfernt');
+  await expect(newest).not.toContainText(/data:|\.jpg/);
 });
 
 test('the fixture preview sets and replaces a person’s photo in Person bearbeiten', async ({

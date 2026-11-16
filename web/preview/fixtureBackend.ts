@@ -2,6 +2,7 @@ import type {
   AuditEvent,
   Entry,
   HistoryEntry,
+  Person,
   ScoreRow,
   Scoreboard,
 } from '../src/core/api-client';
@@ -50,6 +51,16 @@ const BASE64_JPEG =
   /^\/9j\/(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MAX_PHOTO_CHARACTERS = 87_384;
 const INVALID_PHOTO = 'Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).';
+
+/**
+A person as the audit log records them, like the API's `{name, photo}`. The
+preview has no photo versions, so its photo URL stands in for the version;
+Protokoll never shows it.
+*/
+const personValues = ({ name, photoUrl }: Person): AuditSnapshot => ({
+  name,
+  photo: photoUrl,
+});
 
 /** A number up to `max` with at most two decimals. */
 function isDecimal(value: unknown, max: number): value is number {
@@ -518,7 +529,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       () => fixtures.persons,
       (id) => ({ id, name: '', photoUrl: null }),
       {
-        values: ({ name }) => ({ name }),
+        values: personValues,
         uses: (entry, person) => entry.personId === person.id,
         // Like the foreign key: the person's entries go with them.
         remove: (person) =>
@@ -533,7 +544,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       // Any member, any person. The preview keeps the upload as a data: URL in
       // place of the API's versioned URL (the artifact host allows data: images).
       'PUT /api/persons/{id}/photo',
-      guarded((_me, body, { id }) => {
+      guarded((me, body, { id }) => {
         const person = fixtures.persons.find((item) => item.id === Number(id));
         if (!person) return problem(PROBLEMS.notFound);
         const { image } = body;
@@ -544,17 +555,21 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         ) {
           return validation({ image: INVALID_PHOTO });
         }
+        const before = personValues(person);
         person.photoUrl = `data:image/jpeg;base64,${image}`;
+        record(me, 'update', ['person', id], before, personValues(person));
         return json(person);
       }),
     ],
     [
       // Any member, any person; without a photo nothing changes, like the API.
       'DELETE /api/persons/{id}/photo',
-      guarded((_me, _body, { id }) => {
+      guarded((me, _body, { id }) => {
         const person = fixtures.persons.find((item) => item.id === Number(id));
         if (!person) return problem(PROBLEMS.notFound);
+        const before = personValues(person);
         person.photoUrl = null;
+        record(me, 'update', ['person', id], before, personValues(person));
         return new Response(null, { status: 204 });
       }),
     ],

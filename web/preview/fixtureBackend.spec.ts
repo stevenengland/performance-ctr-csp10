@@ -34,6 +34,7 @@ import {
   signOut,
 } from '../src/core/api-client';
 import { todayFrom } from '../src/core/day-window';
+import { auditDays } from '../src/features/verwalten/protokoll/audit-rows';
 import { installFixtureBackend } from './fixtureBackend';
 import { newest, told } from './fixtureTesting';
 import { SAMPLE_PASSWORD, sampleEvening } from './fixtures';
@@ -681,6 +682,69 @@ describe('the fixture backend’s audit log', () => {
     // Tonight's entries were counted, so the log has them.
     const entryIds = new Set(events.map(({ subjectId }) => subjectId));
     expect(fixtures.entries.every(({ id }) => entryIds.has(id))).toBe(true);
+    // A photo change, as Protokoll shows it.
+    const rows = auditDays(events).flatMap(({ rows }) => rows);
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        title: 'Person Anna',
+        changes: 'Foto gesetzt',
+      }),
+    );
+  });
+
+  it('records a person’s photo being set, changed and removed, and nothing when it stays', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const seeded = fixtures.audit.length;
+    const first = '/9j/2Q==';
+    const second = '/9j/2Z==';
+
+    await putPersonPhoto(2, first);
+    await putPersonPhoto(2, first);
+    await putPersonPhoto(2, second);
+    await updatePerson(2, 'Benno');
+    await deletePersonPhoto(2);
+    await deletePersonPhoto(2);
+
+    const photo = (image: string) => `data:image/jpeg;base64,${image}`;
+    const update = (
+      before: { name: string; photo: string | null },
+      after: { name: string; photo: string | null },
+    ) => ({
+      operation: 'update',
+      subjectKind: 'person',
+      subjectId: '2',
+      userName: 'anna',
+      before,
+      after,
+      cause: null,
+    });
+    expect((await newest(4)).map(told).reverse()).toEqual([
+      update(
+        { name: 'Ben', photo: null },
+        { name: 'Ben', photo: photo(first) },
+      ),
+      update(
+        { name: 'Ben', photo: photo(first) },
+        { name: 'Ben', photo: photo(second) },
+      ),
+      update(
+        { name: 'Ben', photo: photo(second) },
+        { name: 'Benno', photo: photo(second) },
+      ),
+      update(
+        { name: 'Benno', photo: photo(second) },
+        { name: 'Benno', photo: null },
+      ),
+    ]);
+    expect(fixtures.audit).toHaveLength(seeded + 4);
+    const rows = auditDays(await newest(4)).flatMap(({ rows }) => rows);
+    expect(rows.map(({ changes }) => changes)).toEqual([
+      'Foto entfernt',
+      'Name: Ben → Benno',
+      'Foto geändert',
+      'Foto gesetzt',
+    ]);
   });
 
   it('answers only admins, and invalid paging with the API’s validation', async () => {
@@ -749,7 +813,7 @@ describe('the fixture backend’s audit log', () => {
         subjectId: String(person.id),
         userName: 'anna',
         before: null,
-        after: { name: 'Lea' },
+        after: { name: 'Lea', photo: null },
         cause: null,
       },
       {
@@ -757,8 +821,8 @@ describe('the fixture backend’s audit log', () => {
         subjectKind: 'person',
         subjectId: String(person.id),
         userName: 'anna',
-        before: { name: 'Lea' },
-        after: { name: 'Lena' },
+        before: { name: 'Lea', photo: null },
+        after: { name: 'Lena', photo: null },
         cause: null,
       },
       {
@@ -775,7 +839,7 @@ describe('the fixture backend’s audit log', () => {
         subjectKind: 'person',
         subjectId: String(person.id),
         userName: 'anna',
-        before: { name: 'Lena' },
+        before: { name: 'Lena', photo: null },
         after: null,
         cause: null,
       },

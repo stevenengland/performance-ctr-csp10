@@ -383,6 +383,15 @@ const EARLIER: {
   },
   {
     daysAgo: 2,
+    at: [19, 2],
+    by: 'anna',
+    operation: 'update',
+    subject: ['person', '1'],
+    before: { name: 'Anna', photo: null },
+    after: { name: 'Anna', photo: sunset },
+  },
+  {
+    daysAgo: 2,
     at: [20, 14],
     by: 'ben',
     operation: 'create',
