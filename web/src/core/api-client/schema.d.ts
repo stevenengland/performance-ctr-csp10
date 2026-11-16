@@ -393,7 +393,7 @@ export interface paths {
     };
     /**
      * A page of the rows the signed-in account may verify, and how many there are
-     * @description Every pending row the account may verify: recorded by another account, or by one deleted since. All days, newest first by recording instant, then by kind, then by id, 20 per page. `next` is the `cursor` of the next page (null on the last one); a page goes on after the last row of the one before, so rows verified, rejected or deleted meanwhile never make later rows unreachable. `count` is the number of all eligible rows, whatever the page: the badge of `Offen`. The first page answers conditionally: its ETag names the data revision and the account, since every account has its own queue, and `If-None-Match` with it answers 304 while both are unchanged. The revision, the items and the count are read in one snapshot. A `cursor` that names no position is 422.
+     * @description Every pending row the account may verify, entries and matches: recorded by another account, or by one deleted since. All days and game runs, newest first by recording instant, then by kind, then by id, 20 per page. `next` is the `cursor` of the next page (null on the last one); a page goes on after the last row of the one before, so rows verified, rejected or deleted meanwhile never make later rows unreachable. `count` is the number of all eligible rows, whatever the page: the badge of `Offen`. The first page answers conditionally: its ETag names the data revision and the account, since every account has its own queue, and `If-None-Match` with it answers 304 while both are unchanged. The revision, the items and the count are read in one snapshot. A `cursor` that names no position is 422.
      */
     get: operations['listPending'];
     put?: never;
@@ -602,12 +602,42 @@ export interface paths {
     get?: never;
     /**
      * Record a match of a duel game, idempotently on its id
-     * @description The match is recorded in the game's current run, with the account and the server time (UTC). A repeated request with the same id and content answers 200 with the original match and records nothing, even after the match was deleted or its game deleted; the same id with other content, or an id already used for an entry, answers 409 `request-conflict`. Ids are remembered for seven days. An unknown game is 404; the same person twice, an unknown person, an unknown outcome, `draw` while the game's `drawsAllowed` is off, or a points game is 422.
+     * @description The match is recorded in the game's current run, with the account and the server time (UTC). It waits for verification by another account and counts for neither player until then (PRD #61); the response is the same either way. A repeated request with the same id and content answers 200 with the original match and records nothing, even after the match was deleted or its game deleted; the same id with other content, or an id already used for an entry, answers 409 `request-conflict`. Ids are remembered for seven days. An unknown game is 404; the same person twice, an unknown person, an unknown outcome, `draw` while the game's `drawsAllowed` is off, or a points game is 422.
      */
     put: operations['recordMatch'];
     post?: never;
     /** Delete a match (undo); its id stays known, so a late retry cannot bring it back */
     delete: operations['deleteMatch'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/matches/{id}/verification': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The match's UUID; anything that is not a lower-case UUID v4 is 404 */
+        id: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Verify a pending match, so that it counts on both sides (four-eyes rule)
+     * @description The same rule and answers as `PUT /api/entries/{id}/verification`. A match is verified as a whole: it counts for both players at once, and a side cleared by a person's deletion stays cleared. Verifying a match of an earlier run leaves the current standings unchanged.
+     */
+    put: operations['verifyMatch'];
+    post?: never;
+    /**
+     * Reject a pending match, so that it never counts (four-eyes rule)
+     * @description The same rule and answers as `DELETE /api/entries/{id}/verification`: removes the match with one `reject` event, 403 `own-row` for the recording account (which undoes it through `DELETE /api/matches/{id}` instead), 409 `already-verified` for a match that counts already, 404 for one that no longer exists.
+     */
+    delete: operations['rejectMatch'];
     options?: never;
     head?: never;
     patch?: never;
@@ -831,7 +861,9 @@ export interface components {
       count: number;
     };
     /** @description A row the account may verify, tagged with its kind */
-    PendingItem: components['schemas']['PendingEntry'];
+    PendingItem:
+      | components['schemas']['PendingEntry']
+      | components['schemas']['PendingMatch'];
     PendingEntry: {
       /**
        * @description discriminator enum property added by openapi-typescript
@@ -862,6 +894,33 @@ export interface components {
         name: string;
         multiplier: number;
       };
+    };
+    PendingMatch: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      kind: 'match';
+      id: string;
+      /**
+       * Format: date-time
+       * @description Server time of the recording, UTC
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+      /** @description User name of the account that recorded it; null once that account was deleted */
+      accountName: string | null;
+      game: {
+        id: number;
+        name: string;
+      };
+      /** @description The match belongs to an earlier run of its game (recorded before a restart); verifying it leaves the current standings unchanged */
+      earlierRun: boolean;
+      /** @description Null once that person was deleted (`gelöschte Person`) */
+      first: components['schemas']['PersonRef'] | null;
+      /** @description Null once that person was deleted (`gelöschte Person`) */
+      second: components['schemas']['PersonRef'] | null;
+      outcome: components['schemas']['Outcome'];
     };
     Scoreboard: {
       /** @description Persons with at least one verified entry since `from`, ranked by score, ties by name; persons without entries are absent */
@@ -1013,6 +1072,8 @@ export interface components {
       createdAt: string;
       /** @description The account that recorded the match; null once it was deleted */
       accountName: string | null;
+      /** @description The match waits for verification (`offen`) and counts for neither player */
+      pending: boolean;
     };
     MatchPage: {
       /** @description Newest first */
@@ -1052,8 +1113,16 @@ export interface components {
        * @description When the current run began, UTC
        */
       startedAt: string;
-      /** @description Ranked by points, then wins, then name; persons without a match in the run are absent */
+      /** @description Persons with at least one verified match in the run, ranked by points, then wins, then name; only verified matches count. Persons without a match in the run are absent */
       rows: components['schemas']['DuelRow'][];
+      /** @description Persons whose matches in the run all wait for verification, by name: they have no rank and never lead */
+      unranked: components['schemas']['UnrankedPlayer'][];
+    };
+    UnrankedPlayer: {
+      personId: number;
+      name: string;
+      /** @description The person's pending rows in the run (`+n offen`) */
+      pendingCount: number;
     };
     DuelRow: {
       personId: number;
@@ -1063,7 +1132,10 @@ export interface components {
       wins: number;
       draws: number;
       losses: number;
+      /** @description Verified matches; `wins`, `draws` and `losses` count verified ones too */
       played: number;
+      /** @description The person's matches in the run that wait for verification (`+n offen`); a pending match counts once for each player that still exists */
+      pendingCount: number;
     };
     PointsStandings: {
       /**
@@ -1133,7 +1205,7 @@ export interface components {
         name: string;
       };
     };
-    /** @description The subject's values as they were, with referenced names resolved then: a person `{name, photo}` with the photo's version or null (events recorded before photos existed have only `name`), a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, the factor `{name, multiplier}` or null, and `pending` (whether it waited for verification; events recorded before the four-eyes rule have none), a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome}` with the game's and both persons' names (a person deleted before is null), a result `{game, person, points}` with the game's and the person's names. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
+    /** @description The subject's values as they were, with referenced names resolved then: a person `{name, photo}` with the photo's version or null (events recorded before photos existed have only `name`), a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, the factor `{name, multiplier}` or null, and `pending` (whether it waited for verification; events recorded before the four-eyes rule have none), a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome, pending}` with the game's and both persons' names (a person deleted before is null) and whether it waited for verification (events recorded before the four-eyes rule have none), a result `{game, person, points}` with the game's and the person's names. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
     AuditSnapshot: {
       name?: string;
       /** @description A person's photo version (lowercase hex SHA-256), null without a photo */
@@ -2638,6 +2710,66 @@ export interface operations {
       };
       401: components['responses']['Problem'];
       404: components['responses']['Problem'];
+    };
+  };
+  verifyMatch: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The match's UUID; anything that is not a lower-case UUID v4 is 404 */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': Record<string, never>;
+      };
+    };
+    responses: {
+      /** @description The match counts */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      403: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+    };
+  };
+  rejectMatch: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The match's UUID; anything that is not a lower-case UUID v4 is 404 */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The match is removed */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      403: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
     };
   };
   recordResult: {

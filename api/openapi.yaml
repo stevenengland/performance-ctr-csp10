@@ -804,8 +804,8 @@ paths:
       operationId: listPending
       summary: A page of the rows the signed-in account may verify, and how many there are
       description: >-
-        Every pending row the account may verify: recorded by another account, or by one
-        deleted since. All days, newest first by recording instant, then by kind, then by id,
+        Every pending row the account may verify, entries and matches: recorded by another
+        account, or by one deleted since. All days and game runs, newest first by recording instant, then by kind, then by id,
         20 per page. `next` is the `cursor` of the next page (null on the last one); a page
         goes on after the last row of the one before, so rows verified, rejected or deleted
         meanwhile never make later rows unreachable. `count` is the number of all eligible
@@ -1160,7 +1160,8 @@ paths:
       summary: Record a match of a duel game, idempotently on its id
       description: >-
         The match is recorded in the game's current run, with the account and the server time
-        (UTC). A repeated request with the same id and content answers 200 with the original
+        (UTC). It waits for verification by another account and counts for neither player
+        until then (PRD #61); the response is the same either way. A repeated request with the same id and content answers 200 with the original
         match and records nothing, even after the match was deleted or its game deleted; the
         same id with other content, or an id already used for an entry, answers 409
         `request-conflict`. Ids are remembered for seven days. An unknown game is 404; the
@@ -1204,6 +1205,61 @@ paths:
         '401':
           $ref: '#/components/responses/Problem'
         '404':
+          $ref: '#/components/responses/Problem'
+  /api/matches/{id}/verification:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - name: id
+        in: path
+        required: true
+        description: The match's UUID; anything that is not a lower-case UUID v4 is 404
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    put:
+      operationId: verifyMatch
+      summary: Verify a pending match, so that it counts on both sides (four-eyes rule)
+      description: >-
+        The same rule and answers as `PUT /api/entries/{id}/verification`. A match is
+        verified as a whole: it counts for both players at once, and a side cleared by a
+        person's deletion stays cleared. Verifying a match of an earlier run leaves the
+        current standings unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '204':
+          description: The match counts
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: rejectMatch
+      summary: Reject a pending match, so that it never counts (four-eyes rule)
+      description: >-
+        The same rule and answers as `DELETE /api/entries/{id}/verification`: removes the
+        match with one `reject` event, 403 `own-row` for the recording account (which undoes
+        it through `DELETE /api/matches/{id}` instead), 409 `already-verified` for a match
+        that counts already, 404 for one that no longer exists.
+      responses:
+        '204':
+          description: The match is removed
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
           $ref: '#/components/responses/Problem'
   /api/results/{id}:
     parameters:
@@ -1735,10 +1791,12 @@ components:
       description: A row the account may verify, tagged with its kind
       oneOf:
         - $ref: '#/components/schemas/PendingEntry'
+        - $ref: '#/components/schemas/PendingMatch'
       discriminator:
         propertyName: kind
         mapping:
           entry: '#/components/schemas/PendingEntry'
+          match: '#/components/schemas/PendingMatch'
     PendingEntry:
       type: object
       additionalProperties: false
@@ -1792,6 +1850,50 @@ components:
                 multiplier:
                   type: number
           description: The factor with its current multiplier; null for none or a deleted factor
+    PendingMatch:
+      type: object
+      additionalProperties: false
+      required: [kind, id, createdAt, accountName, game, earlierRun, first, second, outcome]
+      properties:
+        kind:
+          type: string
+          const: match
+        id:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the recording, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: User name of the account that recorded it; null once that account was deleted
+        game:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        earlierRun:
+          type: boolean
+          description: >-
+            The match belongs to an earlier run of its game (recorded before a restart);
+            verifying it leaves the current standings unchanged
+        first:
+          description: Null once that person was deleted (`gelöschte Person`)
+          oneOf:
+            - $ref: '#/components/schemas/PersonRef'
+            - type: 'null'
+        second:
+          description: Null once that person was deleted (`gelöschte Person`)
+          oneOf:
+            - $ref: '#/components/schemas/PersonRef'
+            - type: 'null'
+        outcome:
+          $ref: '#/components/schemas/Outcome'
     Scoreboard:
       type: object
       additionalProperties: false
@@ -2057,7 +2159,7 @@ components:
     MatchItem:
       type: object
       additionalProperties: false
-      required: [id, first, second, outcome, createdAt, accountName]
+      required: [id, first, second, outcome, createdAt, accountName, pending]
       properties:
         id:
           type: string
@@ -2080,6 +2182,9 @@ components:
         accountName:
           type: [string, 'null']
           description: The account that recorded the match; null once it was deleted
+        pending:
+          type: boolean
+          description: The match waits for verification (`offen`) and counts for neither player
     MatchPage:
       type: object
       additionalProperties: false
@@ -2140,7 +2245,7 @@ components:
     DuelStandings:
       type: object
       additionalProperties: false
-      required: [kind, startedAt, rows]
+      required: [kind, startedAt, rows, unranked]
       properties:
         kind:
           type: string
@@ -2151,13 +2256,36 @@ components:
           description: When the current run began, UTC
         rows:
           type: array
-          description: Ranked by points, then wins, then name; persons without a match in the run are absent
+          description: >-
+            Persons with at least one verified match in the run, ranked by points, then wins,
+            then name; only verified matches count. Persons without a match in the run are
+            absent
           items:
             $ref: '#/components/schemas/DuelRow'
+        unranked:
+          type: array
+          description: >-
+            Persons whose matches in the run all wait for verification, by name: they have no
+            rank and never lead
+          items:
+            $ref: '#/components/schemas/UnrankedPlayer'
+    UnrankedPlayer:
+      type: object
+      additionalProperties: false
+      required: [personId, name, pendingCount]
+      properties:
+        personId:
+          type: integer
+        name:
+          type: string
+        pendingCount:
+          type: integer
+          minimum: 1
+          description: The person's pending rows in the run (`+n offen`)
     DuelRow:
       type: object
       additionalProperties: false
-      required: [personId, name, points, wins, draws, losses, played]
+      required: [personId, name, points, wins, draws, losses, played, pendingCount]
       properties:
         personId:
           type: integer
@@ -2174,6 +2302,13 @@ components:
           type: integer
         played:
           type: integer
+          description: Verified matches; `wins`, `draws` and `losses` count verified ones too
+        pendingCount:
+          type: integer
+          minimum: 0
+          description: >-
+            The person's matches in the run that wait for verification (`+n offen`); a pending
+            match counts once for each player that still exists
     PointsStandings:
       type: object
       additionalProperties: false
@@ -2314,8 +2449,9 @@ components:
         waited for verification; events recorded before the four-eyes rule have none), a game
         `{name, kind, drawsAllowed, run, startedAt}` for a duel game and
         `{name, kind, lowerWins, run, startedAt}` for a points game, a match
-        `{game, first, second, outcome}` with the game's and both persons' names (a person
-        deleted before is null), a result `{game, person, points}` with the game's and the
+        `{game, first, second, outcome, pending}` with the game's and both persons' names (a
+        person deleted before is null) and whether it waited for verification (events
+        recorded before the four-eyes rule have none), a result `{game, person, points}` with the game's and the
         person's names. Keys are only ever
         added, never renamed, removed or given a new meaning; a reader treats a key it does
         not know, or a missing one, as unknown.
