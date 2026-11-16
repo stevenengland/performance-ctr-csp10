@@ -146,15 +146,15 @@ describe('a game in words', () => {
       unranked: [{ personId: 2, name: 'Ben', pendingCount: 1 }],
     };
 
-    expect(
-      currentRun(game('points', { startedAt: restarted }), older),
-    ).toEqual({
-      kind: 'points',
-      startedAt: restarted,
-      lowerWins: false,
-      rows: [],
-      unranked: [],
-    });
+    expect(currentRun(game('points', { startedAt: restarted }), older)).toEqual(
+      {
+        kind: 'points',
+        startedAt: restarted,
+        lowerWins: false,
+        rows: [],
+        unranked: [],
+      },
+    );
   });
 
   it('keeps the setting line of Verwalten → Spiele', () => {

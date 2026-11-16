@@ -6,6 +6,7 @@ const BERLIN = 'Europe/Berlin';
 
 type PendingEntry = Extract<PendingItem, { kind: 'entry' }>;
 type PendingMatch = Extract<PendingItem, { kind: 'match' }>;
+type PendingResult = Extract<PendingItem, { kind: 'result' }>;
 
 const entry = (change: Partial<PendingEntry> = {}): PendingEntry => ({
   kind: 'entry',
@@ -29,6 +30,18 @@ const match = (change: Partial<PendingMatch> = {}): PendingMatch => ({
   first: { id: 1, name: 'Anna' },
   second: { id: 2, name: 'Ben' },
   outcome: 'first',
+  ...change,
+});
+
+const result = (change: Partial<PendingResult> = {}): PendingResult => ({
+  kind: 'result',
+  id: '1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c',
+  createdAt: '2026-11-15T20:00:00.000Z',
+  accountName: 'anna',
+  game: { id: 2, name: 'Rommé' },
+  earlierRun: false,
+  person: { id: 3, name: 'Daniel' },
+  points: -20,
   ...change,
 });
 
@@ -79,6 +92,31 @@ describe('the Offen rows', () => {
     expect([row?.title, row?.details]).toEqual([
       'gelöschte Person – Ben · Remis',
       'Schach · vor dem Neustart · 15.11., 21:00 · anna',
+    ]);
+  });
+
+  it('name a result by its person and points, with its game, day, time and recorder', () => {
+    expect(pendingRows([result()], BERLIN)).toEqual([
+      {
+        id: '1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c',
+        kind: 'result',
+        title: 'Daniel · −20 Punkte',
+        details: 'Rommé · 15.11., 21:00 · anna',
+        verifyLabel: 'Daniel · −20 Punkte bestätigen',
+        rejectLabel: 'Daniel · −20 Punkte ablehnen',
+      },
+    ]);
+  });
+
+  it('mark a result of an earlier run', () => {
+    const [row] = pendingRows(
+      [result({ earlierRun: true, points: 1 })],
+      BERLIN,
+    );
+
+    expect([row?.title, row?.details]).toEqual([
+      'Daniel · 1 Punkt',
+      'Rommé · vor dem Neustart · 15.11., 21:00 · anna',
     ]);
   });
 });

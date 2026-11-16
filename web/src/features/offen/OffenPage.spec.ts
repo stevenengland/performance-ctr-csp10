@@ -52,6 +52,19 @@ function match(n: number): PendingItem {
   };
 }
 
+function result(n: number): PendingItem {
+  return {
+    kind: 'result',
+    id: `00000000-0000-4000-a000-${String(n).padStart(12, '0')}`,
+    createdAt: '2026-11-15T20:00:00.000Z',
+    accountName: 'anna',
+    game: { id: 2, name: 'Rommé' },
+    earlierRun: false,
+    person: { id: 3, name: 'Daniel' },
+    points: -20,
+  };
+}
+
 type Reply = () => Response | Promise<Response>;
 
 /**
@@ -82,9 +95,10 @@ function api(
           count: queue.length,
         });
       }
-      const id = /\/api\/(?:entries|matches)\/([^/]+)\/verification$/.exec(
-        pathname,
-      )?.[1];
+      const id =
+        /\/api\/(?:entries|matches|results)\/([^/]+)\/verification$/.exec(
+          pathname,
+        )?.[1];
       const decided = { PUT: verified, DELETE: rejected }[init.method ?? ''];
       if (!decided || !id) throw new Error(`unexpected ${url}`);
       sent.push(`${init.method ?? ''} ${pathname}`);
@@ -162,6 +176,26 @@ describe('Offen', () => {
     expect(sent).toEqual([
       `DELETE /api/matches/${match(2).id}/verification`,
       `PUT /api/matches/${match(1).id}/verification`,
+    ]);
+    expect(rows(wrapper)).toEqual([]);
+  });
+
+  it('verifies and rejects a result at the result verification', async () => {
+    const { sent } = api([result(2), result(1)]);
+    wrapper = await mountPage('/offen', OffenPage);
+    expect(rows(wrapper)).toEqual([
+      expect.stringContaining('Daniel · −20 Punkte'),
+      expect.stringContaining('Daniel · −20 Punkte'),
+    ]);
+
+    const [reject] = buttonsNamed('Daniel · −20 Punkte ablehnen');
+    if (reject) await click(reject);
+    const [verify] = buttonsNamed('Daniel · −20 Punkte bestätigen');
+    if (verify) await click(verify);
+
+    expect(sent).toEqual([
+      `DELETE /api/results/${result(2).id}/verification`,
+      `PUT /api/results/${result(1).id}/verification`,
     ]);
     expect(rows(wrapper)).toEqual([]);
   });

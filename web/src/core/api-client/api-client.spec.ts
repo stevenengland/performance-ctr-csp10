@@ -20,6 +20,8 @@ import {
   rejectEntry,
   verifyMatch,
   rejectMatch,
+  verifyResult,
+  rejectResult,
   getScoreboard,
   getStandings,
   getPerson,
@@ -752,6 +754,25 @@ describe('the API client', () => {
       ],
       [
         '/api/matches/0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b/verification',
+        expect.objectContaining({ method: 'DELETE' }),
+      ],
+    ]);
+  });
+
+  it('verifies and rejects a pending result at its verification', async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+
+    await verifyResult('1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c');
+    await rejectResult('1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c');
+
+    expect(fetch.mock.calls).toEqual([
+      [
+        '/api/results/1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c/verification',
+        expect.objectContaining({ method: 'PUT', body: '{}' }),
+      ],
+      [
+        '/api/results/1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c/verification',
         expect.objectContaining({ method: 'DELETE' }),
       ],
     ]);

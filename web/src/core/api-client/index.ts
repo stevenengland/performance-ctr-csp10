@@ -543,6 +543,23 @@ export function rejectMatch(id: string): Promise<void> {
   });
 }
 
+/** Lets another account's pending result count. */
+export function verifyResult(id: string): Promise<void> {
+  return request<undefined>('/api/results/{id}/verification', {
+    method: 'PUT',
+    params: { id },
+    body: {},
+  });
+}
+
+/** Removes another account's pending result, so that it never counts. */
+export function rejectResult(id: string): Promise<void> {
+  return request<undefined>('/api/results/{id}/verification', {
+    method: 'DELETE',
+    params: { id },
+  });
+}
+
 /** The first page of the pending queue with the ETag that names it, to ask on condition of next time. */
 export interface PendingAnswer {
   page: PendingPage;

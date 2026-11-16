@@ -5,8 +5,10 @@ import {
   listPending,
   rejectEntry,
   rejectMatch,
+  rejectResult,
   verifyEntry,
   verifyMatch,
+  verifyResult,
   type PendingItem,
 } from '../../core/api-client';
 import { messages } from '../../core/messages';
@@ -39,12 +41,12 @@ const DECISIONS: Record<
   }
 > = {
   verify: {
-    send: { entry: verifyEntry, match: verifyMatch },
+    send: { entry: verifyEntry, match: verifyMatch, result: verifyResult },
     handled: [404],
     unanswered: messages.offen.notVerified,
   },
   reject: {
-    send: { entry: rejectEntry, match: rejectMatch },
+    send: { entry: rejectEntry, match: rejectMatch, result: rejectResult },
     handled: [404, 409],
     unanswered: messages.offen.notRejected,
   },

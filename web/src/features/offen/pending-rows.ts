@@ -2,20 +2,21 @@ import type { DeepReadonly } from 'vue';
 import type { PendingItem } from '../../core/api-client';
 import { formatDay, formatMultiplier, formatTime } from '../../core/format';
 import { messages } from '../../core/messages';
-import { outcomeText } from '../spiele/game-view';
+import { outcomeText, resultText } from '../spiele/game-view';
 
 type PendingEntry = Extract<PendingItem, { kind: 'entry' }>;
 type PendingMatch = Extract<PendingItem, { kind: 'match' }>;
+type PendingResult = Extract<PendingItem, { kind: 'result' }>;
 
 /** One row on Offen, formatted for display (§7s). */
 export interface PendingRow {
   id: string;
   kind: PendingItem['kind'];
-  /** `2× Bier für Daniel`, or `Anna – Ben · Anna gewinnt`. */
+  /** `2× Bier für Daniel`, `Anna – Ben · Anna gewinnt`, or `Daniel · −20 Punkte`. */
   title: string;
   /**
   `Happy Hour ×2 · 15.11., 21:00 · anna`, or `Schach · 15.11., 21:00 · anna` with
-  `Schach · vor dem Neustart · …` for a match of an earlier run; `Kein Faktor`,
+  `Schach · vor dem Neustart · …` for a match or result of an earlier run; `Kein Faktor`,
   `gelöschte Person`, `gelöschtes Konto` where they apply.
   */
   details: string;
@@ -30,7 +31,14 @@ function about(item: DeepReadonly<PendingItem>): {
   title: string;
   what: string;
 } {
-  return item.kind === 'entry' ? entryAbout(item) : matchAbout(item);
+  switch (item.kind) {
+    case 'entry':
+      return entryAbout(item);
+    case 'match':
+      return matchAbout(item);
+    case 'result':
+      return resultAbout(item);
+  }
 }
 
 function entryAbout(item: DeepReadonly<PendingEntry>) {
@@ -53,10 +61,22 @@ function matchAbout(item: DeepReadonly<PendingMatch>) {
       messages.spiele.pairing(first, second),
       outcomeText(item.outcome, first, second),
     ),
-    what: item.earlierRun
-      ? messages.offen.earlierRun(item.game.name)
-      : item.game.name,
+    what: gameOf(item),
   };
+}
+
+function resultAbout(item: DeepReadonly<PendingResult>) {
+  return {
+    title: resultText(item.person.name, item.points),
+    what: gameOf(item),
+  };
+}
+
+/** A game row's game, marked when the row belongs to an earlier run: `Schach · vor dem Neustart`. */
+function gameOf(item: DeepReadonly<PendingMatch | PendingResult>): string {
+  return item.earlierRun
+    ? messages.offen.earlierRun(item.game.name)
+    : item.game.name;
 }
 
 /** The queue's items in its order, as Offen shows them; times in the browser's time zone unless one is given. */

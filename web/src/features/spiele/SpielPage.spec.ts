@@ -277,7 +277,13 @@ describe('a game’s page', () => {
         startedAt: STARTED,
         lowerWins: true,
         rows: [
-          { personId: 3, name: 'Daniel', sum: -11, results: 2, pendingCount: 0 },
+          {
+            personId: 3,
+            name: 'Daniel',
+            sum: -11,
+            results: 2,
+            pendingCount: 0,
+          },
           { personId: 2, name: 'Ben', sum: 39, results: 2, pendingCount: 0 },
         ],
         unranked: [],
@@ -304,7 +310,13 @@ describe('a game’s page', () => {
         startedAt: STARTED,
         lowerWins: true,
         rows: [
-          { personId: 3, name: 'Daniel', sum: -11, results: 2, pendingCount: 1 },
+          {
+            personId: 3,
+            name: 'Daniel',
+            sum: -11,
+            results: 2,
+            pendingCount: 1,
+          },
           { personId: 2, name: 'Ben', sum: 39, results: 2, pendingCount: 0 },
         ],
         unranked: [{ personId: 4, name: 'Jule', pendingCount: 1 }],
