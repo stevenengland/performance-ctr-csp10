@@ -127,6 +127,58 @@ describe('the points of a result', () => {
     expect(results[0]?.body).toEqual({ gameId: 2, personId: 2, points: -1 });
   });
 
+  it.each([
+    [
+      'a pad key',
+      (wrapper: VueWrapper) => button(wrapper, 'Vorzeichen wechseln').element,
+    ],
+    [
+      'a link elsewhere on the screen',
+      () =>
+        document.body.appendChild(
+          Object.assign(document.createElement('a'), { href: '/spiele' }),
+        ),
+    ],
+  ])(
+    'leaves Enter on a focused control to that control, and saves nothing: %s',
+    async (_case, control) => {
+      const { results } = gameApi();
+      wrapper = (await openFlow('/spiele/2/ergebnis/2', '/spiele/2')).wrapper;
+      press('2');
+      const focused = control(wrapper);
+
+      const enter = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+      });
+      focused.dispatchEvent(enter);
+      await flushPromises();
+
+      expect(enter.defaultPrevented).toBe(false);
+      expect(results).toEqual([]);
+      focused.dispatchEvent(
+        new KeyboardEvent('keydown', { key: '0', bubbles: true }),
+      );
+      await flushPromises();
+      expect(shown(wrapper)).toBe('20');
+    },
+  );
+
+  it('leaves every key to a focused text field', async () => {
+    const { results } = gameApi();
+    wrapper = (await openFlow('/spiele/2/ergebnis/2', '/spiele/2')).wrapper;
+    const field = document.body.appendChild(document.createElement('input'));
+
+    for (const key of ['7', '-', 'Backspace', 'Enter']) {
+      field.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    }
+    await flushPromises();
+
+    expect(shown(wrapper)).toBe('0');
+    expect(results).toEqual([]);
+  });
+
   it('says that a person without a result has none yet', async () => {
     gameApi();
     wrapper = (await openFlow('/spiele/2/ergebnis/1', '/spiele/2')).wrapper;

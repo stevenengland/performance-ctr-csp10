@@ -99,8 +99,26 @@ async function save() {
   saving.value = false;
 }
 
-/** A keyboard works too: digits, `-` for the sign, Backspace and Enter. */
+const TEXT_FIELD =
+  'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
+const CONTROL = 'button, a[href], [role="button"], [role="link"], summary';
+
+/**
+Whether the focused element handles the key itself: a text field every key, any
+other control Enter, which activates it (a pad key, a link, a snackbar action).
+*/
+function focusedHandles(event: KeyboardEvent): boolean {
+  const target = event.target;
+  if (!(target instanceof Element)) return false;
+  return (
+    target.closest(TEXT_FIELD) !== null ||
+    (event.key === 'Enter' && target.closest(CONTROL) !== null)
+  );
+}
+
+/** A keyboard works too: digits, `-` for the sign, Backspace and Enter — unless the focused control takes the key. */
 function onKey(event: KeyboardEvent) {
+  if (focusedHandles(event)) return;
   if (/^\d$/.test(event.key)) type(Number(event.key));
   else if (event.key === '-') toggleSign();
   else if (event.key === 'Backspace') erase();

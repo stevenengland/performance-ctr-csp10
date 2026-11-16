@@ -824,7 +824,9 @@ submit on Enter.
     `Ziffer 1`, `Vorzeichen wechseln`, `Letzte Ziffer löschen`. At most four digits
     (−9 999 to 9 999); a leading `0` is replaced by the next digit; erasing with no digit left
     clears the sign.
-  - A keyboard works too: digits, `-` for the sign, Backspace and Enter (`Speichern`).
+  - A keyboard works too: digits, `-` for the sign, Backspace and Enter (`Speichern`) —
+    unless a control has focus: Enter on a focused button or link activates that control (e.g.
+    `±` changes the sign), and a focused text field keeps every key.
   - Full-width filled `Speichern` (`primary`, as the dialogs' buttons) below the pad, disabled
     until a digit is typed and while offline (§6.5).
 - `Speichern` saves (`PUT /api/results/{uuid}`, the button shows its spinner); then the app
