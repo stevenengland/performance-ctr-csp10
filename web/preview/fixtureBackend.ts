@@ -1,11 +1,23 @@
 import type {
+  DuelRow,
   Entry,
+  Game,
   HistoryEntry,
+  MatchItem,
+  PointsRow,
+  ResultItem,
   ScoreRow,
   Scoreboard,
+  Standings,
 } from '../src/core/api-client';
 import type { components } from '../src/core/api-client/schema';
-import type { FixtureAccount, FixtureEntry, Fixtures } from './fixtures';
+import type {
+  FixtureAccount,
+  FixtureEntry,
+  FixtureMatch,
+  FixtureResult,
+  Fixtures,
+} from './fixtures';
 
 type Problem = components['schemas']['Problem'];
 type Body = Record<string, unknown>;
@@ -68,6 +80,11 @@ const PROBLEMS = {
   entryConflict: {
     type: 'urn:performance:problem:entry-conflict',
     title: 'Eintrag wurde schon mit anderem Inhalt gespeichert.',
+    status: 409,
+  },
+  requestConflict: {
+    type: 'urn:performance:problem:request-conflict',
+    title: 'Wurde schon mit anderem Inhalt gespeichert.',
     status: 409,
   },
   lastAdmin: {
@@ -260,6 +277,17 @@ function routeOf(path: string): { route: string; id: string } {
   if (entry && ENTRY_ID.test(entry)) {
     return { route: '/api/entries/{id}', id: entry };
   }
+  const record = /^\/api\/(matches|results)\/([^/]+)$/.exec(path);
+  if (record?.[1] && record[2] && ENTRY_ID.test(record[2])) {
+    return { route: `/api/${record[1]}/{id}`, id: record[2] };
+  }
+  const game =
+    /^\/api\/games\/([1-9]\d*)(\/(restart|standings|matches|results))?$/.exec(
+      path,
+    );
+  if (game?.[1]) {
+    return { route: `/api/games/{id}${game[2] ?? ''}`, id: game[1] };
+  }
   const item = /^\/api\/(persons|drinks|factors|accounts)\/([1-9]\d*)$/.exec(
     path,
   );
@@ -321,6 +349,8 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       field?: Field<T>;
       uses: (entry: Entry, item: T) => boolean;
       remove: (item: T) => void;
+      /** More counts for the delete dialog (a person's matches and results). */
+      counts?: (item: T) => Record<string, number>;
     },
   ): [string, Handler][] {
     const path = `/api/${collection}`;
@@ -344,7 +374,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
           const entryCount = fixtures.entries.filter((entry) =>
             rules.uses(entry, item),
           ).length;
-          return json({ ...item, entryCount });
+          return json({ ...item, entryCount, ...rules.counts?.(item) });
         }),
       ],
       [
@@ -472,8 +502,12 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         fixtures.accounts.splice(fixtures.accounts.indexOf(target), 1);
         signOutEverywhere(target);
         // Like the foreign key: the account's entries stay, without it.
-        for (const entry of fixtures.entries) {
-          if (entry.accountId === target.account.id) entry.accountId = null;
+        for (const row of [
+          ...fixtures.entries,
+          ...fixtures.matches,
+          ...fixtures.results,
+        ]) {
+          if (row.accountId === target.account.id) row.accountId = null;
         }
         return new Response(null, { status: 204 });
       }, true),
@@ -484,11 +518,28 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       (id) => ({ id, name: '' }),
       {
         uses: (entry, person) => entry.personId === person.id,
-        // Like the foreign key: the person's entries go with them.
-        remove: (person) =>
-          (fixtures.entries = fixtures.entries.filter(
+        counts: (person) => ({
+          matchCount: fixtures.matches.filter((match) =>
+            playedIn(match, person.id),
+          ).length,
+          resultCount: fixtures.results.filter(
+            (result) => result.personId === person.id,
+          ).length,
+        }),
+        // Like the foreign keys: the person's entries and results go with them;
+        // their matches stay, with their side cleared (`gelöschte Person`).
+        remove: (person) => {
+          fixtures.entries = fixtures.entries.filter(
             (entry) => entry.personId !== person.id,
-          )),
+          );
+          fixtures.results = fixtures.results.filter(
+            (result) => result.personId !== person.id,
+          );
+          for (const match of fixtures.matches) {
+            if (match.firstPersonId === person.id) match.firstPersonId = null;
+            if (match.secondPersonId === person.id) match.secondPersonId = null;
+          }
+        },
       },
     ),
     ...catalogRoutes(
@@ -553,6 +604,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         return new Response(null, { status: 204 });
       }),
     ],
+    ...gameRoutes(fixtures, guarded, revision),
     [
       'GET /api/scoreboard',
       guarded((_me, _body, { query, headers }) => {
@@ -710,4 +762,421 @@ export function installFixtureBackend(fixtures: Fixtures): void {
     if (method !== 'GET' && response.ok) revision += 1;
     return response;
   };
+}
+
+// ---- Games (draft: PRD "More scoreboards for the same persons") ----
+
+const MIN_GAME_POINTS = -9999;
+const MAX_GAME_POINTS = 9999;
+const PAGE_LIMIT = 20;
+
+function playedIn(match: FixtureMatch, personId: number): boolean {
+  return match.firstPersonId === personId || match.secondPersonId === personId;
+}
+
+const newestFirst = (
+  a: { createdAt: string; id: string },
+  b: { createdAt: string; id: string },
+) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
+
+/** A game's ranking since its `startedAt`, like the API's Matches and Results modules. */
+function standingsOf(fixtures: Fixtures, game: Game): Standings {
+  const nameOf = (id: number) =>
+    fixtures.persons.find((person) => person.id === id)?.name ?? '';
+  const since = (row: { gameId: number; createdAt: string }) =>
+    row.gameId === game.id && row.createdAt >= game.startedAt;
+  if (game.kind === 'duel') {
+    const rows = new Map<number, DuelRow>();
+    const count = (
+      personId: number | null,
+      result: 'win' | 'draw' | 'loss',
+    ) => {
+      if (personId === null) return;
+      const row = rows.get(personId) ?? {
+        personId,
+        name: nameOf(personId),
+        points: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        played: 0,
+      };
+      row.played += 1;
+      if (result === 'win') row.wins += 1;
+      else if (result === 'draw') row.draws += 1;
+      else row.losses += 1;
+      row.points = row.wins + row.draws / 2;
+      rows.set(personId, row);
+    };
+    for (const match of fixtures.matches.filter(since)) {
+      const { firstPersonId: first, secondPersonId: second, outcome } = match;
+      if (outcome === 'draw') {
+        count(first, 'draw');
+        count(second, 'draw');
+      } else {
+        count(first, outcome === 'first' ? 'win' : 'loss');
+        count(second, outcome === 'second' ? 'win' : 'loss');
+      }
+    }
+    return {
+      kind: 'duel',
+      startedAt: game.startedAt,
+      rows: [...rows.values()].sort(
+        (a, b) => b.points - a.points || b.wins - a.wins || byName(a, b),
+      ),
+    };
+  }
+  const rows = new Map<number, PointsRow>();
+  for (const result of fixtures.results.filter(since)) {
+    const row = rows.get(result.personId) ?? {
+      personId: result.personId,
+      name: nameOf(result.personId),
+      sum: 0,
+      results: 0,
+    };
+    row.sum += result.points;
+    row.results += 1;
+    rows.set(result.personId, row);
+  }
+  const direction = game.lowerWins ? 1 : -1;
+  return {
+    kind: 'points',
+    startedAt: game.startedAt,
+    lowerWins: game.lowerWins,
+    rows: [...rows.values()].sort(
+      (a, b) => direction * (a.sum - b.sum) || byName(a, b),
+    ),
+  };
+}
+
+/** One page, newest first, after the opaque cursor `before` (`<createdAt>|<id>` here). */
+function page<T extends { createdAt: string; id: string }, U>(
+  rows: T[],
+  query: URLSearchParams,
+  map: (row: T) => U,
+): Response {
+  const before = query.get('before');
+  const limitText = query.get('limit');
+  const limit = limitText === null ? PAGE_LIMIT : Number(limitText);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return validation({ limit: '1 bis 100.' });
+  }
+  const sorted = [...rows].sort(newestFirst);
+  const start =
+    before === null
+      ? 0
+      : sorted.findIndex((row) => `${row.createdAt}|${row.id}` < before);
+  const slice = start === -1 ? [] : sorted.slice(start, start + limit);
+  const last = slice.at(-1);
+  const more = start !== -1 && start + limit < sorted.length;
+  return json({
+    items: slice.map(map),
+    next: more && last ? `${last.createdAt}|${last.id}` : null,
+  });
+}
+
+function gameRoutes(
+  fixtures: Fixtures,
+  guarded: (
+    handle: (me: FixtureAccount, body: Body, request: Request) => Response,
+  ) => Handler,
+  revision: () => number,
+): [string, Handler][] {
+  const gameOf = (id: string | number) =>
+    fixtures.games.find((game) => game.id === Number(id));
+  const personRef = (id: number | null) => {
+    const person = fixtures.persons.find((candidate) => candidate.id === id);
+    return person ? { id: person.id, name: person.name } : null;
+  };
+  const accountName = (id: number | null) =>
+    fixtures.accounts.find(({ account }) => account.id === id)?.account
+      .userName ?? null;
+  const known = (id: number | undefined) =>
+    fixtures.persons.some((person) => person.id === id);
+
+  function saveGame(game: Game, body: Body, status: 200 | 201): Response {
+    const name = text(body, 'name').trim();
+    const errors: Record<string, string> = {};
+    const invalidName = nameError(name);
+    if (invalidName) errors.name = invalidName;
+    if (status === 201 && body.kind !== 'duel' && body.kind !== 'points') {
+      errors.kind = 'Duell oder Punktespiel.';
+    }
+    if (status === 200 && body.kind !== undefined && body.kind !== game.kind) {
+      errors.kind = 'Die Art eines Spiels ist fest.';
+    }
+    if (Object.keys(errors).length > 0) return validation(errors);
+    const taken = fixtures.games.some(
+      (other) => other.id !== game.id && sameName(other.name, name),
+    );
+    if (taken) return problem(PROBLEMS.duplicateName);
+    game.name = name;
+    if (status === 201) game.kind = body.kind as Game['kind'];
+    if (typeof body.drawsAllowed === 'boolean') {
+      game.drawsAllowed = body.drawsAllowed;
+    }
+    if (typeof body.lowerWins === 'boolean') game.lowerWins = body.lowerWins;
+    if (!fixtures.games.includes(game)) fixtures.games.push(game);
+    return json(game, status);
+  }
+
+  /** Replays a known client id like the API's idempotency store; undefined for a new one. */
+  function replay(
+    id: string,
+    fingerprint: string,
+    row: object | undefined,
+    gone: object,
+  ): Response | undefined {
+    const seen = fixtures.entryRequests.get(id);
+    if (seen === undefined) return undefined;
+    if (seen !== fingerprint) return problem(PROBLEMS.requestConflict);
+    return json(row ?? gone);
+  }
+
+  const matchOf = (match: FixtureMatch) => {
+    const { id, gameId, firstPersonId, secondPersonId, outcome, createdAt } =
+      match;
+    return { id, gameId, firstPersonId, secondPersonId, outcome, createdAt };
+  };
+  const resultOf = (result: FixtureResult) => {
+    const { id, gameId, personId, points, createdAt } = result;
+    return { id, gameId, personId, points, createdAt };
+  };
+
+  return [
+    [
+      'GET /api/games',
+      guarded(() => json({ games: [...fixtures.games].sort(byName) })),
+    ],
+    [
+      'POST /api/games',
+      guarded((_me, body) =>
+        saveGame(
+          {
+            id: Math.max(0, ...fixtures.games.map(({ id }) => id)) + 1,
+            name: '',
+            kind: 'duel',
+            drawsAllowed: true,
+            lowerWins: false,
+            startedAt: new Date().toISOString(),
+          },
+          body,
+          201,
+        ),
+      ),
+    ],
+    [
+      'GET /api/games/{id}',
+      guarded((_me, _body, { id }) => {
+        const game = gameOf(id);
+        if (!game) return problem(PROBLEMS.notFound);
+        return json({
+          ...game,
+          matchCount: fixtures.matches.filter((m) => m.gameId === game.id)
+            .length,
+          resultCount: fixtures.results.filter((r) => r.gameId === game.id)
+            .length,
+        });
+      }),
+    ],
+    [
+      'PATCH /api/games/{id}',
+      guarded((_me, body, { id }) => {
+        const game = gameOf(id);
+        if (!game) return problem(PROBLEMS.notFound);
+        return saveGame(game, body, 200);
+      }),
+    ],
+    [
+      'DELETE /api/games/{id}',
+      guarded((_me, _body, { id }) => {
+        const game = gameOf(id);
+        if (!game) return problem(PROBLEMS.notFound);
+        fixtures.games.splice(fixtures.games.indexOf(game), 1);
+        // Like the foreign keys: the game's matches and results go with it.
+        fixtures.matches = fixtures.matches.filter((m) => m.gameId !== game.id);
+        fixtures.results = fixtures.results.filter((r) => r.gameId !== game.id);
+        return new Response(null, { status: 204 });
+      }),
+    ],
+    [
+      'POST /api/games/{id}/restart',
+      guarded((_me, _body, { id }) => {
+        const game = gameOf(id);
+        if (!game) return problem(PROBLEMS.notFound);
+        game.startedAt = new Date().toISOString();
+        return json(game);
+      }),
+    ],
+    [
+      'GET /api/games/{id}/standings',
+      guarded((_me, _body, { id, headers }) => {
+        const game = gameOf(id);
+        if (!game) return problem(PROBLEMS.notFound);
+        // The server owns the window, so the revision alone names the ranking.
+        const etag = `"${String(revision())}"`;
+        if (headers.get('If-None-Match') === etag) {
+          return new Response(null, { status: 304, headers: { ETag: etag } });
+        }
+        const response = json(standingsOf(fixtures, game));
+        response.headers.set('ETag', etag);
+        return response;
+      }),
+    ],
+    [
+      'GET /api/games/{id}/matches',
+      guarded((_me, _body, { id, query }) => {
+        const game = gameOf(id);
+        if (!game || game.kind !== 'duel') return problem(PROBLEMS.notFound);
+        const rows = fixtures.matches.filter(
+          (m) => m.gameId === game.id && m.createdAt >= game.startedAt,
+        );
+        return page(rows, query, (match): MatchItem => ({
+          id: match.id,
+          first: personRef(match.firstPersonId),
+          second: personRef(match.secondPersonId),
+          outcome: match.outcome,
+          createdAt: match.createdAt,
+          accountName: accountName(match.accountId),
+        }));
+      }),
+    ],
+    [
+      'GET /api/games/{id}/results',
+      guarded((_me, _body, { id, query }) => {
+        const game = gameOf(id);
+        if (!game || game.kind !== 'points') return problem(PROBLEMS.notFound);
+        const rows = fixtures.results.filter(
+          (r) => r.gameId === game.id && r.createdAt >= game.startedAt,
+        );
+        return page(rows, query, (result): ResultItem => ({
+          id: result.id,
+          person: personRef(result.personId) ?? { id: 0, name: '' },
+          points: result.points,
+          createdAt: result.createdAt,
+          accountName: accountName(result.accountId),
+        }));
+      }),
+    ],
+    [
+      'PUT /api/matches/{id}',
+      guarded((me, body, { id }) => {
+        const gameId = integer(body, 'gameId');
+        const first = integer(body, 'firstPersonId');
+        const second = integer(body, 'secondPersonId');
+        const outcome = body.outcome;
+        const fingerprint = JSON.stringify([
+          'match',
+          gameId,
+          first,
+          second,
+          outcome,
+        ]);
+        const replayed = replay(
+          id,
+          fingerprint,
+          fixtures.matches.find((m) => m.id === id),
+          {
+            id,
+            gameId,
+            firstPersonId: first,
+            secondPersonId: second,
+            outcome,
+            createdAt: '',
+          },
+        );
+        if (replayed) return replayed;
+        const game = gameOf(gameId ?? 0);
+        const errors: Record<string, string> = {};
+        if (!game) errors.gameId = 'Spiel nicht gefunden.';
+        else if (game.kind !== 'duel') errors.gameId = 'Kein Duell.';
+        if (!known(first)) errors.firstPersonId = 'Person nicht gefunden.';
+        if (!known(second)) errors.secondPersonId = 'Person nicht gefunden.';
+        else if (first === second) {
+          errors.secondPersonId = 'Zwei verschiedene Personen.';
+        }
+        if (outcome !== 'first' && outcome !== 'second' && outcome !== 'draw') {
+          errors.outcome = 'Sieg, Remis oder Niederlage.';
+        } else if (outcome === 'draw' && game && !game.drawsAllowed) {
+          errors.outcome = 'In diesem Spiel gibt es kein Remis.';
+        }
+        if (Object.keys(errors).length > 0) return validation(errors);
+        const match: FixtureMatch = {
+          id,
+          gameId: gameId ?? 0,
+          firstPersonId: first ?? null,
+          secondPersonId: second ?? null,
+          outcome: outcome as FixtureMatch['outcome'],
+          accountId: me.account.id,
+          createdAt: new Date().toISOString(),
+        };
+        fixtures.entryRequests.set(id, fingerprint);
+        fixtures.matches.push(match);
+        return json(matchOf(match), 201);
+      }),
+    ],
+    [
+      'DELETE /api/matches/{id}',
+      guarded((_me, _body, { id }) => {
+        const index = fixtures.matches.findIndex((m) => m.id === id);
+        if (index === -1) return problem(PROBLEMS.notFound);
+        fixtures.matches.splice(index, 1);
+        return new Response(null, { status: 204 });
+      }),
+    ],
+    [
+      'PUT /api/results/{id}',
+      guarded((me, body, { id }) => {
+        const gameId = integer(body, 'gameId');
+        const personId = integer(body, 'personId');
+        const points = integer(body, 'points');
+        const fingerprint = JSON.stringify([
+          'result',
+          gameId,
+          personId,
+          points,
+        ]);
+        const replayed = replay(
+          id,
+          fingerprint,
+          fixtures.results.find((r) => r.id === id),
+          { id, gameId, personId, points, createdAt: '' },
+        );
+        if (replayed) return replayed;
+        const game = gameOf(gameId ?? 0);
+        const errors: Record<string, string> = {};
+        if (!game) errors.gameId = 'Spiel nicht gefunden.';
+        else if (game.kind !== 'points') errors.gameId = 'Kein Punktespiel.';
+        if (!known(personId)) errors.personId = 'Person nicht gefunden.';
+        if (
+          points === undefined ||
+          points < MIN_GAME_POINTS ||
+          points > MAX_GAME_POINTS
+        ) {
+          errors.points = 'Ganze Zahl von −9.999 bis 9.999.';
+        }
+        if (Object.keys(errors).length > 0) return validation(errors);
+        const result: FixtureResult = {
+          id,
+          gameId: gameId ?? 0,
+          personId: personId ?? 0,
+          points: points ?? 0,
+          accountId: me.account.id,
+          createdAt: new Date().toISOString(),
+        };
+        fixtures.entryRequests.set(id, fingerprint);
+        fixtures.results.push(result);
+        return json(resultOf(result), 201);
+      }),
+    ],
+    [
+      'DELETE /api/results/{id}',
+      guarded((_me, _body, { id }) => {
+        const index = fixtures.results.findIndex((r) => r.id === id);
+        if (index === -1) return problem(PROBLEMS.notFound);
+        fixtures.results.splice(index, 1);
+        return new Response(null, { status: 204 });
+      }),
+    ],
+  ];
 }

@@ -5,6 +5,7 @@ export const messages = {
     label: 'Hauptnavigation',
     zaehlen: 'Zählen',
     rangliste: 'Rangliste',
+    spiele: 'Spiele',
     verwalten: 'Verwalten',
   },
   topBar: {
@@ -99,6 +100,9 @@ export const messages = {
     drinks: 'Getränke',
     factors: 'Faktoren',
     accounts: 'Konten',
+    games: 'Spiele',
+    gameCount: (formatted: string, count: number) =>
+      `${formatted} ${count === 1 ? 'Spiel' : 'Spiele'}`,
     /** The counts on the hub (§7h); `formatted` is the count in `de-DE`. */
     personCount: (formatted: string, count: number) =>
       `${formatted} ${count === 1 ? 'Person' : 'Personen'}`,
@@ -149,11 +153,142 @@ export const messages = {
         entries === 1 ? '1 Eintrag' : `${String(entries)} Einträge`;
       return `${name} und ${counted} werden gelöscht.`;
     },
+    /**
+    A deleted person's entries and points-game results go with them; their matches
+    stay, with their side shown as `gelöschte Person`.
+    */
+    personBody: (
+      name: string,
+      entries: number,
+      results: number,
+      matches: number,
+    ) => {
+      const gone = [
+        entries === 0
+          ? undefined
+          : entries === 1
+            ? '1 Eintrag'
+            : `${String(entries)} Einträge`,
+        results === 0
+          ? undefined
+          : results === 1
+            ? '1 Ergebnis'
+            : `${String(results)} Ergebnisse`,
+      ].filter((part) => part !== undefined);
+      const first =
+        gone.length === 0
+          ? `${name} wird gelöscht.`
+          : `${name}${gone.length === 1 ? ' und' : ','} ${gone.join(' und ')} werden gelöscht.`;
+      if (matches === 0) return first;
+      const kept =
+        matches === 1
+          ? '1 Partie bleibt'
+          : `${String(matches)} Partien bleiben`;
+      return `${first} ${kept} mit „gelöschte Person“.`;
+    },
     /** A deleted factor's entries stay and count ×1. */
     factorBody: (name: string, entries: number) => {
       if (entries === 0) return `${name} wird gelöscht.`;
       if (entries === 1) return '1 Eintrag zählt danach ×1.';
       return `${String(entries)} Einträge zählen danach ×1.`;
+    },
+  },
+  spiele: {
+    title: 'Spiele',
+    empty: 'Noch keine Spiele.',
+    create: 'Spiel anlegen',
+    edit: 'Spiel bearbeiten',
+    name: 'Name',
+    kind: 'Art',
+    kindFixed: 'Die Art bleibt nach dem Anlegen fest.',
+    duel: 'Duell',
+    points: 'Punktespiel',
+    duelHint: 'Zwei Personen, eine gewinnt – oder Remis',
+    pointsHint: 'Eine Person, eine Punktzahl',
+    drawsAllowed: 'Remis möglich',
+    higherWins: 'Höchste Summe gewinnt',
+    lowerWins: 'Niedrigste Summe gewinnt',
+    noDraws: 'kein Remis',
+    noDrawsRule: 'Kein Remis',
+    /** `seit 15.09.`, or `seit heute, 19:30` for a game (re)started today. */
+    since: (date: string) => `seit ${date}`,
+    sinceToday: (time: string) => `seit heute, ${time}`,
+    /** The game's context line: `Duell · seit 15.09.`. */
+    context: (kind: string, since: string) => `${kind} · ${since}`,
+    /** The setting of a game in the manage list: `Duell · Remis möglich`. */
+    setting: (kind: string, setting: string) => `${kind} · ${setting}`,
+    leader: (name: string, value: string) => `1. ${name} · ${value}`,
+    noResults: 'noch keine Ergebnisse',
+    /** Duel points: `7,5 Punkte`, `1 Punkt`. */
+    duelPoints: (formatted: string, value: number) =>
+      `${formatted} ${value === 1 ? 'Punkt' : 'Punkte'}`,
+    /** A duel tile's short line: `5 Partien`. */
+    played: (count: number) =>
+      `${String(count)} ${count === 1 ? 'Partie' : 'Partien'}`,
+    /** A duel row's record: `5 Partien · 3 S · 1 R · 1 N`. */
+    record: (played: number, wins: number, draws: number, losses: number) =>
+      `${String(played)} ${played === 1 ? 'Partie' : 'Partien'} · ${String(wins)} S · ${String(draws)} R · ${String(losses)} N`,
+    /** A points row's count: `3 Ergebnisse`. */
+    resultCount: (count: number) =>
+      `${String(count)} ${count === 1 ? 'Ergebnis' : 'Ergebnisse'}`,
+    sumPoints: (formatted: string, value: number) =>
+      `${formatted} ${Math.abs(value) === 1 ? 'Punkt' : 'Punkte'}`,
+    /** Accessible name of a place: `Platz 1, Anna, 3,5 Punkte, 5 Partien …`. */
+    place: (rank: number, name: string, value: string, details: string) =>
+      `Platz ${String(rank)}, ${name}, ${value}, ${details}`,
+    noneYetDuel: 'Seit dem Start noch keine Partien.',
+    noneYetPoints: 'Seit dem Start noch keine Ergebnisse.',
+    recordMatch: 'Partie eintragen',
+    recordResult: 'Ergebnis eintragen',
+    history: 'Verlauf',
+    restart: 'Neu starten',
+    restartTitle: (name: string) => `${name} neu starten?`,
+    restartBody:
+      'Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.',
+    restarted: (name: string) => `${name} neu gestartet`,
+    firstQuestion: 'Wer spielt?',
+    secondQuestion: 'Gegen wen?',
+    outcomeQuestion: 'Wie ging es aus?',
+    personQuestion: 'Für wen?',
+    pointsQuestion: 'Wie viele Punkte?',
+    wins: (name: string) => `${name} gewinnt`,
+    draw: 'Remis',
+    winSupport: '1 Punkt für den Sieg',
+    drawSupport: 'je ½ Punkt',
+    /** The pairing: `Anna – Ben`; `gelöschte Person` for a deleted side. */
+    pairing: (first: string, second: string) => `${first} – ${second}`,
+    deletedPerson: 'gelöschte Person',
+    /** The saved snackbar: `Anna – Ben · Anna gewinnt`, `Daniel · −20 Punkte`. */
+    savedMatch: (pairing: string, outcome: string) => `${pairing} · ${outcome}`,
+    savedResult: (person: string, points: string) => `${person} · ${points}`,
+    soFar: (points: string) => `bisher ${points}`,
+    sign: 'Vorzeichen wechseln',
+    erase: 'Letzte Ziffer löschen',
+    digit: (digit: number) => `Ziffer ${String(digit)}`,
+    save: 'Speichern',
+    /** Verlauf rows. */
+    details: (date: string, time: string, account: string) =>
+      `${date}, ${time} · ${account}`,
+    removeMatchTitle: 'Partie löschen?',
+    removeResultTitle: 'Ergebnis löschen?',
+    removeBody: (what: string, date: string, time: string) =>
+      `${what} am ${date} um ${time}`,
+    remove: (what: string) => `${what} löschen`,
+    removedMatch: 'Partie gelöscht',
+    removedResult: 'Ergebnis gelöscht',
+    more: 'Ältere laden',
+    /** A deleted game's matches or results go with it. */
+    removeGameBody: (name: string, kind: 'duel' | 'points', count: number) => {
+      if (count === 0) return `${name} wird gelöscht.`;
+      const counted =
+        kind === 'duel'
+          ? count === 1
+            ? '1 Partie'
+            : `${String(count)} Partien`
+          : count === 1
+            ? '1 Ergebnis'
+            : `${String(count)} Ergebnisse`;
+      return `${name} und ${counted} werden gelöscht.`;
     },
   },
   anmelden: {

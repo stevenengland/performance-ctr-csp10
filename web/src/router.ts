@@ -9,7 +9,7 @@ import { messages } from './core/messages';
 import AnmeldenPage from './features/anmelden/AnmeldenPage.vue';
 import { resolveSession, returnPath, SIGN_IN_PATH } from './core/session';
 
-export type Destination = 'zaehlen' | 'rangliste' | 'verwalten';
+export type Destination = 'zaehlen' | 'rangliste' | 'spiele' | 'verwalten';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -23,6 +23,8 @@ declare module 'vue-router' {
     child?: boolean;
     /** Step of the add flow, for the step indicator. */
     step?: number;
+    /** Steps of a flow with a fixed number of them (games); the add flow's depend on the factors. */
+    steps?: number;
     /** Open without a session, outside the shell (no top bar, no navigation). */
     public?: boolean;
     /** Only for admins. */
@@ -101,6 +103,87 @@ export const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/spiele',
+    component: () => import('./features/spiele/SpielePage.vue'),
+    meta: { title: messages.navigation.spiele, destination: 'spiele' },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)',
+    component: () => import('./features/spiele/SpielPage.vue'),
+    props: true,
+    meta: { title: messages.spiele.title, destination: 'spiele', child: true },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)/verlauf',
+    component: () => import('./features/spiele/SpielVerlaufPage.vue'),
+    props: true,
+    meta: {
+      title: messages.spiele.history,
+      destination: 'spiele',
+      child: true,
+    },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)/partie',
+    component: () => import('./features/spiele/PlayerStep.vue'),
+    props: true,
+    meta: {
+      title: messages.spiele.title,
+      destination: 'spiele',
+      child: true,
+      step: 1,
+      steps: 3,
+    },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)/partie/:firstId(\\d+)',
+    component: () => import('./features/spiele/PlayerStep.vue'),
+    props: true,
+    meta: {
+      title: messages.spiele.title,
+      destination: 'spiele',
+      child: true,
+      step: 2,
+      steps: 3,
+    },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)/partie/:firstId(\\d+)/:secondId(\\d+)',
+    component: () => import('./features/spiele/OutcomeStep.vue'),
+    props: true,
+    meta: {
+      title: messages.spiele.title,
+      destination: 'spiele',
+      child: true,
+      step: 3,
+      steps: 3,
+    },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)/ergebnis',
+    component: () => import('./features/spiele/PlayerStep.vue'),
+    props: true,
+    meta: {
+      title: messages.spiele.title,
+      destination: 'spiele',
+      child: true,
+      step: 1,
+      steps: 2,
+    },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)/ergebnis/:personId(\\d+)',
+    component: () => import('./features/spiele/PointsStep.vue'),
+    props: true,
+    meta: {
+      title: messages.spiele.title,
+      destination: 'spiele',
+      child: true,
+      step: 2,
+      steps: 2,
+    },
+  },
+  {
     path: '/verwalten',
     component: () => import('./features/verwalten/VerwaltenPage.vue'),
     meta: { title: messages.navigation.verwalten, destination: 'verwalten' },
@@ -128,6 +211,16 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('./features/verwalten/faktoren/FaktorenPage.vue'),
     meta: {
       title: messages.faktoren.title,
+      destination: 'verwalten',
+      child: true,
+    },
+  },
+  {
+    path: '/verwalten/spiele',
+    component: () =>
+      import('./features/verwalten/spiele/SpieleVerwaltenPage.vue'),
+    meta: {
+      title: messages.spiele.title,
       destination: 'verwalten',
       child: true,
     },

@@ -27,6 +27,16 @@ function server(account: Account, counts: Record<string, number>) {
           multiplier: 2,
         })),
       }),
+    '/api/games': () =>
+      json({
+        games: named(counts.games ?? 0).map((g) => ({
+          ...g,
+          kind: 'duel',
+          drawsAllowed: true,
+          lowerWins: false,
+          startedAt: '2026-11-01T00:00:00.000Z',
+        })),
+      }),
     '/api/accounts': () =>
       account.isAdmin
         ? json({
@@ -70,10 +80,10 @@ describe('Verwalten', () => {
     vi.unstubAllGlobals();
   });
 
-  it('lists Personen, Getränke, Faktoren and, for admins, Konten with their counts', async () => {
+  it('lists Personen, Getränke, Faktoren, Spiele and, for admins, Konten with their counts', async () => {
     server(
       { id: 1, userName: 'anna', isAdmin: true },
-      { persons: 6, drinks: 1, factors: 2, accounts: 4 },
+      { persons: 6, drinks: 1, factors: 2, games: 3, accounts: 4 },
     );
 
     wrapper = await page();
@@ -82,6 +92,7 @@ describe('Verwalten', () => {
       'Personen6 Personen',
       'Getränke1 Getränk',
       'Faktoren2 Faktoren',
+      'Spiele3 Spiele',
       'Konten4 Konten',
     ]);
   });
@@ -89,7 +100,7 @@ describe('Verwalten', () => {
   it('names one of each in the singular', async () => {
     server(
       { id: 1, userName: 'anna', isAdmin: true },
-      { persons: 1, drinks: 1, factors: 1, accounts: 1 },
+      { persons: 1, drinks: 1, factors: 1, games: 1, accounts: 1 },
     );
 
     wrapper = await page();
@@ -98,6 +109,7 @@ describe('Verwalten', () => {
       'Personen1 Person',
       'Getränke1 Getränk',
       'Faktoren1 Faktor',
+      'Spiele1 Spiel',
       'Konten1 Konto',
     ]);
   });
@@ -114,6 +126,7 @@ describe('Verwalten', () => {
       'Personen0 Personen',
       'Getränke3 Getränke',
       'Faktoren0 Faktoren',
+      'Spiele0 Spiele',
     ]);
     expect(asked).not.toContain('/api/accounts');
   });

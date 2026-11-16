@@ -8,7 +8,9 @@ import { useTopBarContent } from '../core/top-bar';
 
 const factors = useFactors();
 /** Steps of the add flow; the factor step (4) is skipped while no factors exist (§6.1). */
-const steps = computed(() => (factors.value?.length ? 4 : 3));
+const steps = computed(
+  () => route.meta.steps ?? (factors.value?.length ? 4 : 3),
+);
 
 const route = useRoute();
 const router = useRouter();

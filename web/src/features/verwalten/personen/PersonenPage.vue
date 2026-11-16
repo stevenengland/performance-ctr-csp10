@@ -58,9 +58,11 @@ onMounted(() => {
       v-model="confirming"
       :title="messages.remove.title(removing?.name ?? '')"
       :body="
-        messages.remove.cascadeBody(
+        messages.remove.personBody(
           removing?.name ?? '',
           removing?.entryCount ?? 0,
+          removing?.resultCount ?? 0,
+          removing?.matchCount ?? 0,
         )
       "
       :action="messages.remove.confirm"

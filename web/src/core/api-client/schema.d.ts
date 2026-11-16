@@ -298,6 +298,185 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/games': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every game, alphabetical (ignoring case) */
+    get: operations['listGames'];
+    put?: never;
+    /** Create a game of a kind; its ranking counts from now */
+    post: operations['createGame'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /** A game with the number of its stored matches or results (for the delete dialog) */
+    get: operations['getGame'];
+    put?: never;
+    post?: never;
+    /** Delete a game and all of its matches or results */
+    delete: operations['deleteGame'];
+    options?: never;
+    head?: never;
+    /** Rename a game or change its kind's setting; the kind itself is fixed (422) */
+    patch: operations['updateGame'];
+    trace?: never;
+  };
+  '/api/games/{id}/restart': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Start the game's ranking anew from now; older results stay stored but are no longer shown */
+    post: operations['restartGame'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}/standings': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /**
+     * The game's ranking since its `startedAt`
+     * @description Duel: points (win 1, draw ½, loss 0), then wins, then name. Points game: the sum in the game's direction, then name. Only persons with results since `startedAt`; a deleted person's side of a match counts for no one. The ETag names the data revision; `If-None-Match` with it answers 304.
+     */
+    get: operations['getStandings'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}/matches': {
+    parameters: {
+      query?: {
+        /** @description The `next` of the previous page; absent for the newest page */
+        before?: components['parameters']['Before'];
+        limit?: components['parameters']['Limit'];
+      };
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /** A duel game's matches since `startedAt`, newest first, a page at a time */
+    get: operations['listMatches'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}/results': {
+    parameters: {
+      query?: {
+        /** @description The `next` of the previous page; absent for the newest page */
+        before?: components['parameters']['Before'];
+        limit?: components['parameters']['Limit'];
+      };
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /** A points game's results since `startedAt`, newest first, a page at a time */
+    get: operations['listResults'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/matches/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case), also the retry key */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Record a duel match, idempotently on its id
+     * @description The same id and content answers 200 with the original match and records nothing, even after it was deleted; the same id with other content answers 409 `request-conflict`. 422 for the same person twice, a draw while the game allows none, a game of another kind, or an unknown person.
+     */
+    put: operations['recordMatch'];
+    post?: never;
+    /** Delete a match (undo); its id stays known */
+    delete: operations['deleteMatch'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/results/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case), also the retry key */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Record one person's points in a points game, idempotently on its id
+     * @description Replays and conflicts as for matches. 422 for points outside −9 999 to 9 999, a game of another kind, or an unknown person.
+     */
+    put: operations['recordResult'];
+    post?: never;
+    /** Delete a result (undo); its id stays known */
+    delete: operations['deleteResult'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -343,6 +522,10 @@ export interface components {
       name: components['schemas']['Name'];
       /** @description Entries of every day that are the person's */
       entryCount: number;
+      /** @description Matches the person played; they stay, with the person's side shown as `gelöschte Person` */
+      matchCount: number;
+      /** @description Points-game results of the person; they go with the person */
+      resultCount: number;
     };
     PersonList: {
       persons: components['schemas']['Person'][];
@@ -457,6 +640,156 @@ export interface components {
       name: string;
       count: number;
     };
+    /**
+     * @description `duel`: two persons and an outcome. `points`: one person and a whole number.
+     * @enum {string}
+     */
+    GameKind: 'duel' | 'points';
+    Game: {
+      id: number;
+      name: components['schemas']['Name'];
+      kind: components['schemas']['GameKind'];
+      /** @description Duel games only; whether `draw` can be recorded */
+      drawsAllowed: boolean;
+      /** @description Points games only; whether the lowest sum ranks first */
+      lowerWins: boolean;
+      /**
+       * Format: date-time
+       * @description Creation or last restart (UTC); the ranking and the Verlauf count from here
+       */
+      startedAt: string;
+    };
+    GameDetail: components['schemas']['Game'] & {
+      /** @description Every stored match of the game, also before the last restart */
+      matchCount: number;
+      /** @description Every stored result of the game, also before the last restart */
+      resultCount: number;
+    };
+    GameList: {
+      games: components['schemas']['Game'][];
+    };
+    NewGame: {
+      name: components['schemas']['Name'];
+      kind: components['schemas']['GameKind'];
+      /** @description Duel games; default true */
+      drawsAllowed?: boolean;
+      /** @description Points games; default false */
+      lowerWins?: boolean;
+    };
+    GameChange: {
+      name: components['schemas']['Name'];
+      drawsAllowed?: boolean;
+      lowerWins?: boolean;
+    };
+    /** @enum {string} */
+    Outcome: 'first' | 'second' | 'draw';
+    GamePoints: number;
+    Standings:
+      | components['schemas']['DuelStandings']
+      | components['schemas']['PointsStandings'];
+    DuelStandings: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      kind: 'duel';
+      /** Format: date-time */
+      startedAt: string;
+      /** @description Ranked by points, then wins, then name */
+      rows: components['schemas']['DuelRow'][];
+    };
+    DuelRow: {
+      personId: number;
+      name: string;
+      /** @description Win 1, draw 0.5, loss 0 */
+      points: number;
+      wins: number;
+      draws: number;
+      losses: number;
+      played: number;
+    };
+    PointsStandings: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      kind: 'points';
+      /** Format: date-time */
+      startedAt: string;
+      lowerWins: boolean;
+      /** @description Ranked by the sum in the game's direction, then name */
+      rows: components['schemas']['PointsRow'][];
+    };
+    PointsRow: {
+      personId: number;
+      name: string;
+      sum: number;
+      results: number;
+    };
+    PersonRef: {
+      id: number;
+      name: string;
+    };
+    NewMatch: {
+      gameId: number;
+      firstPersonId: number;
+      secondPersonId: number;
+      outcome: components['schemas']['Outcome'];
+    };
+    Match: {
+      id: string;
+      gameId: number;
+      /** @description Null once that person was deleted */
+      firstPersonId: number | null;
+      /** @description Null once that person was deleted */
+      secondPersonId: number | null;
+      outcome: components['schemas']['Outcome'];
+      /** Format: date-time */
+      createdAt: string;
+    };
+    MatchItem: {
+      id: string;
+      /** @description Null once that person was deleted (`gelöschte Person`) */
+      first: null | components['schemas']['PersonRef'];
+      /** @description Null once that person was deleted (`gelöschte Person`) */
+      second: null | components['schemas']['PersonRef'];
+      outcome: components['schemas']['Outcome'];
+      /** Format: date-time */
+      createdAt: string;
+      accountName: string | null;
+    };
+    MatchPage: {
+      /** @description Newest first */
+      items: components['schemas']['MatchItem'][];
+      /** @description The `before` of the next older page; null on the last page */
+      next: string | null;
+    };
+    NewResult: {
+      gameId: number;
+      personId: number;
+      points: components['schemas']['GamePoints'];
+    };
+    Result: {
+      id: string;
+      gameId: number;
+      personId: number;
+      points: components['schemas']['GamePoints'];
+      /** Format: date-time */
+      createdAt: string;
+    };
+    ResultItem: {
+      id: string;
+      person: components['schemas']['PersonRef'];
+      points: components['schemas']['GamePoints'];
+      /** Format: date-time */
+      createdAt: string;
+      accountName: string | null;
+    };
+    ResultPage: {
+      /** @description Newest first */
+      items: components['schemas']['ResultItem'][];
+      next: string | null;
+    };
     Health: {
       /**
        * @description Version of the release that answered, `MAJOR.MINOR.PATCH` with optional build metadata
@@ -496,6 +829,7 @@ export interface components {
         | 'urn:performance:problem:duplicate-name'
         | 'urn:performance:problem:last-admin'
         | 'urn:performance:problem:entry-conflict'
+        | 'urn:performance:problem:request-conflict'
         | 'urn:performance:problem:unsupported-media-type'
         | 'urn:performance:problem:validation'
         | 'urn:performance:problem:too-many-attempts'
@@ -535,7 +869,15 @@ export interface components {
       };
     };
   };
-  parameters: never;
+  parameters: {
+    /** @description The game's id; anything but a positive integer is 404 */
+    GameId: number;
+    /** @description The client-generated UUID v4 (lower case), also the retry key */
+    ClientId: string;
+    /** @description The `next` of the previous page; absent for the newest page */
+    Before: string;
+    Limit: number;
+  };
   requestBodies: never;
   headers: never;
   pathItems: never;
@@ -1282,6 +1624,384 @@ export interface operations {
       };
       401: components['responses']['Problem'];
       422: components['responses']['Problem'];
+    };
+  };
+  listGames: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The games */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['GameList'];
+        };
+      };
+      401: components['responses']['Problem'];
+    };
+  };
+  createGame: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewGame'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Game'];
+        };
+      };
+      401: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  getGame: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The game */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['GameDetail'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  deleteGame: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  updateGame: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['GameChange'];
+      };
+    };
+    responses: {
+      /** @description Changed; the ranking follows the new setting at once */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Game'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  restartGame: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Restarted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Game'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  getStandings: {
+    parameters: {
+      query?: never;
+      header?: {
+        'If-None-Match'?: string;
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The ranking */
+      200: {
+        headers: {
+          /** @description The data revision of this ranking */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Standings'];
+        };
+      };
+      /** @description Unchanged since the ranking named in `If-None-Match` */
+      304: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  listMatches: {
+    parameters: {
+      query?: {
+        /** @description The `next` of the previous page; absent for the newest page */
+        before?: components['parameters']['Before'];
+        limit?: components['parameters']['Limit'];
+      };
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of matches */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MatchPage'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  listResults: {
+    parameters: {
+      query?: {
+        /** @description The `next` of the previous page; absent for the newest page */
+        before?: components['parameters']['Before'];
+        limit?: components['parameters']['Limit'];
+      };
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of results */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ResultPage'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  recordMatch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case), also the retry key */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewMatch'];
+      };
+    };
+    responses: {
+      /** @description Already recorded by an earlier request with this id */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Match'];
+        };
+      };
+      /** @description Recorded */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Match'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  deleteMatch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case), also the retry key */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  recordResult: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case), also the retry key */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewResult'];
+      };
+    };
+    responses: {
+      /** @description Already recorded by an earlier request with this id */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Result'];
+        };
+      };
+      /** @description Recorded */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Result'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  deleteResult: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case), also the retry key */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
     };
   };
 }

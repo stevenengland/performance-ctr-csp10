@@ -14,6 +14,25 @@ export type NewEntry = components['schemas']['NewEntry'];
 export type HistoryEntry = components['schemas']['HistoryEntry'];
 export type Scoreboard = components['schemas']['Scoreboard'];
 export type ScoreRow = components['schemas']['ScoreRow'];
+export type GameKind = components['schemas']['GameKind'];
+export type Game = components['schemas']['Game'];
+export type GameDetail = components['schemas']['GameDetail'];
+export type NewGame = components['schemas']['NewGame'];
+export type GameChange = components['schemas']['GameChange'];
+export type Outcome = components['schemas']['Outcome'];
+export type Standings = components['schemas']['Standings'];
+export type DuelStandings = components['schemas']['DuelStandings'];
+export type PointsStandings = components['schemas']['PointsStandings'];
+export type DuelRow = components['schemas']['DuelRow'];
+export type PointsRow = components['schemas']['PointsRow'];
+export type NewMatch = components['schemas']['NewMatch'];
+export type Match = components['schemas']['Match'];
+export type MatchItem = components['schemas']['MatchItem'];
+export type MatchPage = components['schemas']['MatchPage'];
+export type NewResult = components['schemas']['NewResult'];
+export type Result = components['schemas']['Result'];
+export type ResultItem = components['schemas']['ResultItem'];
+export type ResultPage = components['schemas']['ResultPage'];
 export type ApiPath = keyof paths;
 /** Field errors of a 422 problem, keyed by the API field name. */
 export type FieldErrors = Readonly<Record<string, string>>;
@@ -359,4 +378,120 @@ export async function getScoreboard(
     board: (await response.json()) as Scoreboard,
     etag: response.headers.get('ETag') ?? undefined,
   };
+}
+
+export async function listGames(): Promise<Game[]> {
+  return (await request<{ games: Game[] }>('/api/games')).games;
+}
+
+export function createGame(game: NewGame): Promise<Game> {
+  return request<Game>('/api/games', { method: 'POST', body: game });
+}
+
+/** A game with the number of its stored matches or results, for the delete dialog. */
+export function getGame(id: number): Promise<GameDetail> {
+  return request<GameDetail>('/api/games/{id}', {
+    params: { id: String(id) },
+  });
+}
+
+/** Renames the game or changes its kind's setting; the kind itself is fixed. */
+export function updateGame(id: number, change: GameChange): Promise<Game> {
+  return request<Game>('/api/games/{id}', {
+    method: 'PATCH',
+    params: { id: String(id) },
+    body: change,
+  });
+}
+
+/** Deletes the game and all of its matches or results. */
+export function deleteGame(id: number): Promise<void> {
+  return request<undefined>('/api/games/{id}', {
+    method: 'DELETE',
+    params: { id: String(id) },
+  });
+}
+
+/** Starts the game's ranking anew from now. */
+export function restartGame(id: number): Promise<Game> {
+  return request<Game>('/api/games/{id}/restart', {
+    method: 'POST',
+    params: { id: String(id) },
+  });
+}
+
+/** A game's ranking with the ETag that names it. */
+export interface StandingsAnswer {
+  standings: Standings;
+  etag: string | undefined;
+}
+
+/** A game's ranking since its last restart; with the ETag already shown, `unchanged` means it still holds. */
+export async function getStandings(
+  gameId: number,
+  etag?: string,
+): Promise<StandingsAnswer | 'unchanged'> {
+  const response = await send('/api/games/{id}/standings', {
+    params: { id: String(gameId) },
+    ifNoneMatch: etag,
+  });
+  if (response.status === NOT_MODIFIED) return 'unchanged';
+  return {
+    standings: (await response.json()) as Standings,
+    etag: response.headers.get('ETag') ?? undefined,
+  };
+}
+
+/** A page of a duel game's matches since its last restart, newest first. */
+export function listMatches(
+  gameId: number,
+  before?: string,
+): Promise<MatchPage> {
+  return request<MatchPage>('/api/games/{id}/matches', {
+    params: { id: String(gameId) },
+    query: before === undefined ? undefined : { before },
+  });
+}
+
+/** A page of a points game's results since its last restart, newest first. */
+export function listResults(
+  gameId: number,
+  before?: string,
+): Promise<ResultPage> {
+  return request<ResultPage>('/api/games/{id}/results', {
+    params: { id: String(gameId) },
+    query: before === undefined ? undefined : { before },
+  });
+}
+
+/** Records a match under its client id: repeating it with the same id never records a second one. */
+export function putMatch(id: string, match: NewMatch): Promise<Match> {
+  return request<Match>('/api/matches/{id}', {
+    method: 'PUT',
+    params: { id },
+    body: match,
+  });
+}
+
+export function deleteMatch(id: string): Promise<void> {
+  return request<undefined>('/api/matches/{id}', {
+    method: 'DELETE',
+    params: { id },
+  });
+}
+
+/** Records a person's points under its client id, idempotently like a match. */
+export function putResult(id: string, result: NewResult): Promise<Result> {
+  return request<Result>('/api/results/{id}', {
+    method: 'PUT',
+    params: { id },
+    body: result,
+  });
+}
+
+export function deleteResult(id: string): Promise<void> {
+  return request<undefined>('/api/results/{id}', {
+    method: 'DELETE',
+    params: { id },
+  });
 }
