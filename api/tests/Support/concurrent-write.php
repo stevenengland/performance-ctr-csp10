@@ -8,7 +8,8 @@ declare(strict_types=1);
  * Role `delete-person`, `delete-drink`, `delete-factor` or `delete-game` deletes that row;
  * `undo-entry`, `undo-match` and `undo-result` delete that entry, match or result;
  * `rename-person` renames that person to `Berta`, `set-photo` sets their photo to
- * photos/progressive.jpg and `remove-photo` removes it. Exits 0 when the write succeeded and 3 when its row was not found
+ * photos/progressive.jpg and `remove-photo` removes it; `verify-entry` verifies that entry as
+ * the account and `delete-account` deletes that account. Exits 0 when the write succeeded and 3 when its row was not found
  * (gone already); any other failure ends the process with its message and a non-zero code.
  * Connects with the DB_* environment of the test run.
  */
@@ -20,6 +21,7 @@ use Performance\Domain\EntryLedger;
 use Performance\Domain\Idempotency;
 use Performance\Domain\NotFound;
 use Performance\Domain\SystemClock;
+use Performance\Domain\VerifiableKind;
 use Performance\Http\Config;
 use Performance\Http\Database;
 
@@ -75,6 +77,12 @@ try {
             break;
         case 'remove-photo':
             (new Database($config, $clock))->personPhotos()->remove($actor, (int) $id);
+            break;
+        case 'verify-entry':
+            (new Database($config, $clock))->verification()->verify($actor, VerifiableKind::Entry, $id);
+            break;
+        case 'delete-account':
+            (new Database($config, $clock))->accounts()->delete((int) $id);
             break;
         case 'undo-entry':
             (new EntryLedger($pdo, $clock, $revision, $audit, new Idempotency($pdo, $revision)))->delete($actor, $id);
