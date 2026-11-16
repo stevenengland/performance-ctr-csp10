@@ -5,7 +5,7 @@ import {
   type Page,
 } from './support/playwright.ts';
 import { withoutFactors } from './support/factors.ts';
-import { signIn, uniqueName } from './support/session.ts';
+import { signIn, uniqueName, verifierOn } from './support/session.ts';
 
 /** A person and a drink with names no earlier run used (the stack's database outlives a run). */
 async function personAndDrink(request: APIRequestContext, points = 1) {
@@ -82,8 +82,9 @@ test('persons and drinks are created under Verwalten with inline errors and a de
   ).toContainText('0,5 Punkte');
 });
 
-test('without factors Daniel → Bier → + twice → Speichern saves 2 beers and returns to the name list', async ({
+test('without factors Daniel → Bier → + twice → Speichern saves 2 beers and returns to the name list; they score once verified', async ({
   page,
+  request,
 }) => {
   const { person, drink } = await personAndDrink(page.request);
   await openQuantity(page, person, drink);
@@ -109,6 +110,12 @@ test('without factors Daniel → Bier → + twice → Speichern saves 2 beers an
   // It waits for verification: no points yet, but the drink's counter shows it.
   await expect(tile(page, person)).toHaveAccessibleName(
     `${person}, noch nichts`,
+  );
+  const verify = await verifierOn(request);
+  await verify(new URL((await saved).url()).pathname.split('/').pop() ?? '');
+  await page.reload();
+  await expect(tile(page, person)).toHaveAccessibleName(
+    `${person}, 2 Punkte heute`,
   );
   await tile(page, person).click();
   await expect(tile(page, drink)).toHaveAccessibleName(

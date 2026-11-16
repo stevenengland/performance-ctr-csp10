@@ -5,7 +5,7 @@ import {
   type APIRequestContext,
   type Page,
 } from './support/playwright.ts';
-import { ADMIN, signIn, uniqueName } from './support/session.ts';
+import { ADMIN, signIn, uniqueName, verifierOn } from './support/session.ts';
 
 /*
 Persons, drinks and factors are shared by everyone on the stack, and both window
@@ -77,7 +77,9 @@ test.afterEach(async ({ page }) => {
 
 test('the Rangliste opens a person’s Verlauf: today’s entries newest first with drink, factor, local time, account and the offen marker', async ({
   page,
+  request,
 }) => {
+  const verify = await verifierOn(request);
   const person = await create(page.request, '/api/persons', {
     name: uniqueName('Daniel'),
   });
@@ -93,11 +95,13 @@ test('the Rangliste opens a person’s Verlauf: today’s entries newest first w
     name: uniqueName('Happy Hour'),
     multiplier: 2,
   });
-  await add(page.request, {
-    personId: person.id,
-    drinkId: margarita.id,
-    quantity: 1,
-  });
+  await verify(
+    await add(page.request, {
+      personId: person.id,
+      drinkId: margarita.id,
+      quantity: 1,
+    }),
+  );
   await add(page.request, {
     personId: person.id,
     drinkId: bier.id,
@@ -113,10 +117,10 @@ test('the Rangliste opens a person’s Verlauf: today’s entries newest first w
     (await history.json()) as { entries: { createdAt: string }[] }
   ).entries;
 
-  // The entries wait for verification: the person is listed without a rank.
+  // The Margarita is verified, so the person has a place; the beers still wait.
   await page.goto('/rangliste');
   await page
-    .getByRole('link', { name: new RegExp(`^${person.name},`) })
+    .getByRole('link', { name: new RegExp(`^Platz \\d+, ${person.name},`) })
     .click();
 
   await expect(page).toHaveURL(new RegExp(`/verlauf/${String(person.id)}$`));
@@ -124,13 +128,15 @@ test('the Rangliste opens a person’s Verlauf: today’s entries newest first w
   await expect(page.getByText('Heute', { exact: true })).toBeVisible();
   await expect(entries(page, person.name)).toHaveText([
     `2× ${bier.name}${factor.name} ×2 · ${await localTime(page, newest?.createdAt ?? '')} · ${ADMIN.userName}offen`,
-    `1× ${margarita.name}Kein Faktor · ${await localTime(page, oldest?.createdAt ?? '')} · ${ADMIN.userName}offen`,
+    `1× ${margarita.name}Kein Faktor · ${await localTime(page, oldest?.createdAt ?? '')} · ${ADMIN.userName}`,
   ]);
 });
 
 test('deleting an entry after the dialog removes it from Verlauf and the Rangliste, and a late replay does not bring it back', async ({
   page,
+  request,
 }) => {
+  const verify = await verifierOn(request);
   const person = await create(page.request, '/api/persons', {
     name: uniqueName('Daniel'),
   });
@@ -139,8 +145,9 @@ test('deleting an entry after the dialog removes it from Verlauf and the Ranglis
     points: 1.5,
   });
   const twoBeers = { personId: person.id, drinkId: bier.id, quantity: 2 };
-  await add(page.request, { ...twoBeers, quantity: 1 });
+  await verify(await add(page.request, { ...twoBeers, quantity: 1 }));
   const replayed = await add(page.request, twoBeers);
+  await verify(replayed);
   await page.goto(`/verlauf/${String(person.id)}`);
   await expect(entries(page, person.name)).toHaveCount(2);
 
@@ -168,8 +175,12 @@ test('deleting an entry after the dialog removes it from Verlauf and the Ranglis
   ]);
   await page.goto('/rangliste');
   await expect(
-    page.getByRole('link', { name: new RegExp(`^${person.name},`) }),
-  ).toHaveAccessibleName(`${person.name}, ${bier.name} 1, +1 offen`);
+    page.getByRole('link', {
+      name: new RegExp(`^Platz \\d+, ${person.name},`),
+    }),
+  ).toHaveAccessibleName(
+    new RegExp(`^Platz \\d+, ${person.name}, 1,5 Punkte, 1 Getränk$`),
+  );
 });
 
 test('Verwalten → Personen opens a Verlauf, which says when there are no entries today', async ({

@@ -8,7 +8,12 @@ import {
 } from './support/playwright.ts';
 import { withoutFactors } from './support/factors.ts';
 import { coloursAt } from './support/photo.ts';
-import { signIn, signInVia, uniqueName } from './support/session.ts';
+import {
+  signIn,
+  signInVia,
+  uniqueName,
+  verifierOn,
+} from './support/session.ts';
 
 /** The feed's polling interval while the Rangliste is visible. */
 const POLL_MS = 10_000;
@@ -23,16 +28,19 @@ async function created(
   return ((await response.json()) as { id: number }).id;
 }
 
+/** Records an entry, which waits for verification, and returns its id. */
 async function addEntry(
   request: APIRequestContext,
   personId: number,
   drinkId: number,
   quantity: number,
-) {
-  const response = await request.put(`/api/entries/${randomUUID()}`, {
+): Promise<string> {
+  const id = randomUUID();
+  const response = await request.put(`/api/entries/${id}`, {
     data: { personId, drinkId, quantity },
   });
   expect(response.status()).toBe(201);
+  return id;
 }
 
 /**
@@ -97,6 +105,55 @@ test.beforeEach(async ({ page }) => {
   await signIn(page);
 });
 
+test('the Rangliste ranks today’s persons by score with their counters, German-style, once another account verified their entries', async ({
+  page,
+  request,
+}) => {
+  const verify = await verifierOn(request);
+  const anna = uniqueName('Anna');
+  const ben = uniqueName('Ben');
+  const bier = uniqueName('Bier');
+  const radler = uniqueName('Radler');
+  const annaId = await created(page.request, '/api/persons', { name: anna });
+  const benId = await created(page.request, '/api/persons', { name: ben });
+  const bierId = await created(page.request, '/api/drinks', {
+    name: bier,
+    points: 1,
+  });
+  const radlerId = await created(page.request, '/api/drinks', {
+    name: radler,
+    points: 0.5,
+  });
+  for (const entry of [
+    await addEntry(page.request, annaId, bierId, 2),
+    await addEntry(page.request, benId, bierId, 1),
+    await addEntry(page.request, benId, radlerId, 3),
+  ]) {
+    await verify(entry);
+  }
+
+  await page.goto('/rangliste');
+
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Rangliste');
+  await expect(page.getByText('Heute', { exact: true })).toBeVisible();
+  // Ben: 1 × 1 + 3 × 0,5 = 2,5 before Anna: 2 × 1 = 2.
+  const ben2 = place(page, ben);
+  await expect(ben2).toHaveAccessibleName(
+    new RegExp(`^Platz \\d+, ${ben}, 2,5 Punkte, 4 Getränke$`),
+  );
+  await expect(ben2).toContainText(`${bier} 1 · ${radler} 3`);
+  await expect(place(page, anna)).toHaveAccessibleName(
+    new RegExp(`^Platz \\d+, ${anna}, 2 Punkte, 2 Getränke$`),
+  );
+  const rank = async (name: string) =>
+    Number(
+      /^Platz (\d+)/.exec(
+        (await place(page, name).getAttribute('aria-label')) ?? '',
+      )?.[1],
+    );
+  expect(await rank(ben)).toBeLessThan(await rank(anna));
+});
+
 test('the Rangliste lists today’s persons whose entries all wait without a rank, with what they recorded, German-style', async ({
   page,
 }) => {
@@ -151,6 +208,7 @@ test('an entry added in one browser appears on another browser’s Rangliste wit
     baseURL: test.info().project.use.baseURL,
     viewport: test.info().project.use.viewport,
     locale: 'de-DE',
+    extraHTTPHeaders: test.info().project.use.extraHTTPHeaders,
   });
   try {
     const watcher = await other.newPage();

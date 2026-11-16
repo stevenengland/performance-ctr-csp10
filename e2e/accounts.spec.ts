@@ -26,7 +26,12 @@ async function member(request: Parameters<typeof createAccount>[0]) {
 
 /** A second device: a fresh browser context with the window settings of the project. */
 async function otherDevice(browser: Browser, baseURL: string | undefined) {
-  const context = await browser.newContext({ baseURL, locale: 'de-DE' });
+  // The tests' own API calls name the client version, as the config's contexts do.
+  const context = await browser.newContext({
+    baseURL,
+    locale: 'de-DE',
+    extraHTTPHeaders: test.info().project.use.extraHTTPHeaders,
+  });
   return { context, page: await context.newPage() };
 }
 
@@ -153,23 +158,25 @@ test('deleting an account after the dialog ends its sessions and keeps its entri
     })
   ).json()) as { id: number; name: string };
   created.push(`/api/drinks/${String(drink.id)}`);
-  const logged = await device.context.request.put(
-    `/api/entries/${randomUUID()}`,
-    { data: { personId: person.id, drinkId: drink.id, quantity: 2 } },
-  );
+  const entryId = randomUUID();
+  const logged = await device.context.request.put(`/api/entries/${entryId}`, {
+    data: { personId: person.id, drinkId: drink.id, quantity: 2 },
+  });
   expect(logged.status()).toBe(201);
+  // The admin is another account than the member, so it may verify the entry.
+  const verified = await page.request.put(
+    `/api/entries/${entryId}/verification`,
+    { data: {} },
+  );
+  expect(verified.status()).toBe(204);
   const from = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  // The entry waits for verification: it is recorded, without a rank yet.
-  const recorded = async () => {
+  const score = async () => {
     const board = (await (
       await page.request.get(`/api/scoreboard?from=${encodeURIComponent(from)}`)
-    ).json()) as {
-      unranked: { personId: number; drinks: { recordedCount: number }[] }[];
-    };
-    return board.unranked.find(({ personId }) => personId === person.id)
-      ?.drinks[0]?.recordedCount;
+    ).json()) as { rows: { personId: number; score: number }[] };
+    return board.rows.find(({ personId }) => personId === person.id)?.score;
   };
-  expect(await recorded()).toBe(2);
+  expect(await score()).toBe(3);
   await page.goto('/verwalten/konten');
 
   await choose(page, account.userName, 'Löschen');
@@ -186,7 +193,7 @@ test('deleting an account after the dialog ends its sessions and keeps its entri
   await expect(page.getByText(`${account.userName} gelöscht`)).toBeVisible();
   await expect(row(page, account.userName)).toHaveCount(0);
   expect((await device.context.request.get('/api/session')).status()).toBe(401);
-  expect(await recorded()).toBe(2);
+  expect(await score()).toBe(3);
   await page.goto(`/verlauf/${String(person.id)}`);
   await expect(
     page
@@ -194,7 +201,7 @@ test('deleting an account after the dialog ends its sessions and keeps its entri
       .getByRole('listitem'),
   ).toHaveText([
     new RegExp(
-      `^2× ${drink.name}Kein Faktor · \\d\\d:\\d\\d · gelöschtes Kontooffen$`,
+      `^2× ${drink.name}Kein Faktor · \\d\\d:\\d\\d · gelöschtes Konto$`,
     ),
   ]);
   await device.context.close();

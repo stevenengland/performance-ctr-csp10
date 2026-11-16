@@ -5,7 +5,7 @@ import {
   type APIRequestContext,
   type Page,
 } from './support/playwright.ts';
-import { signIn, uniqueName } from './support/session.ts';
+import { signIn, uniqueName, verifierOn } from './support/session.ts';
 
 /*
 Factors are shared by everyone on the stack, and both window projects run this file
@@ -27,15 +27,29 @@ async function create(
   return (await response.json()) as Created;
 }
 
+/** Records an entry, which waits for verification, and returns its id. */
 async function addEntry(
   request: APIRequestContext,
   entry: { personId: number; drinkId: number; quantity: number },
   factorId: number | null,
-) {
-  const response = await request.put(`/api/entries/${randomUUID()}`, {
+): Promise<string> {
+  const id = randomUUID();
+  const response = await request.put(`/api/entries/${id}`, {
     data: { ...entry, factorId },
   });
   expect(response.status()).toBe(201);
+  return id;
+}
+
+/** The id of the entry a saved response names (`PUT /api/entries/<id>`). */
+function idOf(saved: { url(): string }): string {
+  return new URL(saved.url()).pathname.split('/').pop() ?? '';
+}
+
+/** The person's tile on the name list, read afresh. */
+async function personTile(page: Page, person: string) {
+  await page.goto('/zaehlen');
+  return tile(page, person);
 }
 
 /** A person and a beer worth 1,5 points. */
@@ -112,9 +126,11 @@ function factorName(prefix: string): string {
   return name;
 }
 
-test('Happy Hour ×2 from Verwalten → Faktoren doubles the counter of Daniel → Bier → 2', async ({
+test('Happy Hour ×2 from Verwalten → Faktoren doubles the counter and, once verified, the score of Daniel → Bier → 2', async ({
   page,
+  request,
 }) => {
+  const verify = await verifierOn(request);
   const { person, drink } = await evening(page.request);
   const happyHour = factorName('Happy Hour');
 
@@ -141,7 +157,8 @@ test('Happy Hour ×2 from Verwalten → Faktoren doubles the counter of Daniel �
   );
   await page.getByRole('button', { name: `${happyHour}, ×2` }).click();
 
-  expect((await saved).status()).toBe(201);
+  const response = await saved;
+  expect(response.status()).toBe(201);
   await expect(page).toHaveURL(/\/zaehlen$/);
   await expect(
     page.getByText(
@@ -160,9 +177,14 @@ test('Happy Hour ×2 from Verwalten → Faktoren doubles the counter of Daniel �
   await expect(tile(page, drink.name)).toHaveAccessibleName(
     `${drink.name}, 1,5 Punkte, heute 4`,
   );
+  await verify(idOf(response));
+  await expect(await personTile(page, person.name)).toHaveAccessibleName(
+    `${person.name}, 6 Punkte heute`,
+  );
 });
 
-test('Kein Faktor counts once', async ({ page }) => {
+test('Kein Faktor counts once', async ({ page, request }) => {
+  const verify = await verifierOn(request);
   const { person, drink } = await evening(page.request);
   await create(page.request, '/api/factors', {
     name: factorName('Happy Hour'),
@@ -173,6 +195,11 @@ test('Kein Faktor counts once', async ({ page }) => {
   await expect(
     page.getByRole('button').filter({ hasText: 'Kein Faktor' }),
   ).toHaveAccessibleName('Kein Faktor, zählt einfach');
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/entries/') &&
+      response.request().method() === 'PUT',
+  );
   await page
     .getByRole('button', { name: 'Kein Faktor, zählt einfach' })
     .click();
@@ -182,6 +209,10 @@ test('Kein Faktor counts once', async ({ page }) => {
   ).toBeVisible();
   await expect(drinkTile(page, person.name, drink.name)).resolves.toBe(
     `${drink.name}, 1,5 Punkte, heute 2`,
+  );
+  await verify(idOf(await saved));
+  await expect(await personTile(page, person.name)).toHaveAccessibleName(
+    `${person.name}, 3 Punkte heute`,
   );
 });
 
@@ -226,9 +257,11 @@ test('factors are listed alphabetically, edited and validated with inline errors
   await expect(rows.first()).toContainText('×99,99');
 });
 
-test('editing a multiplier changes today’s counter of the entries that use it', async ({
+test('editing a multiplier changes today’s counter and score of the entries that use it', async ({
   page,
+  request,
 }) => {
+  const verify = await verifierOn(request);
   const { person, drink } = await evening(page.request);
   const name = factorName('Happy Hour');
   const factor = await create(page.request, '/api/factors', {
@@ -236,9 +269,12 @@ test('editing a multiplier changes today’s counter of the entries that use it'
     multiplier: 2,
   });
   const entry = { personId: person.id, drinkId: drink.id, quantity: 2 };
-  await addEntry(page.request, entry, factor.id);
+  await verify(await addEntry(page.request, entry, factor.id));
   await expect(drinkTile(page, person.name, drink.name)).resolves.toBe(
     `${drink.name}, 1,5 Punkte, heute 4`,
+  );
+  await expect(await personTile(page, person.name)).toHaveAccessibleName(
+    `${person.name}, 6 Punkte heute`,
   );
 
   await page.goto('/verwalten/faktoren');
@@ -253,11 +289,16 @@ test('editing a multiplier changes today’s counter of the entries that use it'
   await expect(drinkTile(page, person.name, drink.name)).resolves.toBe(
     `${drink.name}, 1,5 Punkte, heute 6`,
   );
+  await expect(await personTile(page, person.name)).toHaveAccessibleName(
+    `${person.name}, 9 Punkte heute`,
+  );
 });
 
 test('deleting a factor after its dialog keeps its entries, which then count ×1', async ({
   page,
+  request,
 }) => {
+  const verify = await verifierOn(request);
   const { person, drink } = await evening(page.request);
   const name = factorName('Happy Hour');
   const factor = await create(page.request, '/api/factors', {
@@ -266,7 +307,7 @@ test('deleting a factor after its dialog keeps its entries, which then count ×1
   });
   const entry = { personId: person.id, drinkId: drink.id, quantity: 1 };
   for (let count = 0; count < 5; count += 1) {
-    await addEntry(page.request, entry, factor.id);
+    await verify(await addEntry(page.request, entry, factor.id));
   }
   await page.goto('/verwalten/faktoren');
 
@@ -282,6 +323,9 @@ test('deleting a factor after its dialog keeps its entries, which then count ×1
   ).toHaveCount(0);
   await expect(drinkTile(page, person.name, drink.name)).resolves.toBe(
     `${drink.name}, 1,5 Punkte, heute 5`,
+  );
+  await expect(await personTile(page, person.name)).toHaveAccessibleName(
+    `${person.name}, 7,5 Punkte heute`,
   );
 });
 
