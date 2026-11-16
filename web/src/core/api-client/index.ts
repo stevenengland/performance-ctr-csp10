@@ -24,6 +24,8 @@ export type GameChange = components['schemas']['GameChange'];
 export type Outcome = components['schemas']['Outcome'];
 export type NewMatch = components['schemas']['NewMatch'];
 export type Match = components['schemas']['Match'];
+export type NewResult = components['schemas']['NewResult'];
+export type Result = components['schemas']['Result'];
 export type Standings = components['schemas']['Standings'];
 export type DuelRow = components['schemas']['DuelRow'];
 export type PointsRow = components['schemas']['PointsRow'];
@@ -390,6 +392,23 @@ export function putMatch(id: string, match: NewMatch): Promise<Match> {
 /** Deletes a match (undo); its id stays known, so a late retry cannot bring it back. */
 export function deleteMatch(id: string): Promise<void> {
   return request<undefined>('/api/matches/{id}', {
+    method: 'DELETE',
+    params: { id },
+  });
+}
+
+/** Records a result under its client id: repeating it with the same id never records a second one. */
+export function putResult(id: string, result: NewResult): Promise<Result> {
+  return request<Result>('/api/results/{id}', {
+    method: 'PUT',
+    params: { id },
+    body: result,
+  });
+}
+
+/** Deletes a result (undo); its id stays known, so a late retry cannot bring it back. */
+export function deleteResult(id: string): Promise<void> {
+  return request<undefined>('/api/results/{id}', {
     method: 'DELETE',
     params: { id },
   });

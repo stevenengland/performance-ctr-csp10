@@ -12,6 +12,11 @@ import { messages } from '../../core/messages';
 export const gamePath = (gameId: number) => `/spiele/${String(gameId)}`;
 /** The duel recording flow's first step, `Wer spielt?`. */
 export const matchPath = (gameId: number) => `${gamePath(gameId)}/partie`;
+/** The points recording flow's first step, `Für wen?`. */
+export const resultPath = (gameId: number) => `${gamePath(gameId)}/ergebnis`;
+/** The first step of a game's recording flow, by its kind. */
+export const recordPath = (game: Readonly<Pick<Game, 'id' | 'kind'>>) =>
+  game.kind === 'duel' ? matchPath(game.id) : resultPath(game.id);
 
 function kindLabel(kind: Game['kind']): string {
   return kind === 'duel' ? messages.spiele.duel : messages.spiele.points;
@@ -134,4 +139,12 @@ export function outcomeText(
 ): string {
   if (outcome === 'draw') return messages.spiele.draw;
   return messages.spiele.wins(outcome === 'first' ? first : second);
+}
+
+/** A result in words, as the saved snackbar shows it: `Daniel · −20 Punkte`. */
+export function resultText(name: string, points: number): string {
+  return messages.spiele.savedResult(
+    name,
+    messages.spiele.gamePoints(formatSigned(points), points),
+  );
 }

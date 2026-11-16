@@ -150,6 +150,30 @@ export const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/spiele/:gameId(\\d+)/ergebnis',
+    component: () => import('./features/spiele/PlayerStep.vue'),
+    props: ({ params }) => ({ ...params, kind: 'points' }),
+    meta: {
+      title: messages.spiele.title,
+      destination: 'spiele',
+      child: true,
+      step: 1,
+      steps: 2,
+    },
+  },
+  {
+    path: '/spiele/:gameId(\\d+)/ergebnis/:personId(\\d+)',
+    component: () => import('./features/spiele/PointsStep.vue'),
+    props: true,
+    meta: {
+      title: messages.spiele.title,
+      destination: 'spiele',
+      child: true,
+      step: 2,
+      steps: 2,
+    },
+  },
+  {
     path: '/verwalten',
     component: () => import('./features/verwalten/VerwaltenPage.vue'),
     meta: { title: messages.navigation.verwalten, destination: 'verwalten' },

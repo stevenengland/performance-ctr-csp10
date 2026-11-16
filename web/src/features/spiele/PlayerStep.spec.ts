@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { dismissSnackbar, useSnackbar } from '../../core/snackbar';
 import {
   button,
-  duelApi,
+  gameApi,
   openFlow,
   RANKING,
   ROMME,
@@ -12,7 +12,7 @@ import {
   stubEnvironment,
   tapTo,
   tileLabels,
-} from './duel-flow-harness';
+} from './game-flow-harness';
 
 describe('picking the players of a match', () => {
   let wrapper: VueWrapper | undefined;
@@ -29,7 +29,7 @@ describe('picking the players of a match', () => {
   });
 
   it('opens Wer spielt? from Partie eintragen, with each person’s standing in this game', async () => {
-    duelApi();
+    gameApi();
     const opened = await openFlow('/spiele/1');
     wrapper = opened.wrapper;
 
@@ -52,7 +52,7 @@ describe('picking the players of a match', () => {
   });
 
   it('keeps each person’s standing current while the step is open', async () => {
-    const api = duelApi();
+    const api = gameApi();
     const opened = await openFlow('/spiele/1/partie');
     wrapper = opened.wrapper;
 
@@ -68,7 +68,7 @@ describe('picking the players of a match', () => {
   });
 
   it('asks Gegen wen? without the first person', async () => {
-    duelApi();
+    gameApi();
     const opened = await openFlow('/spiele/1/partie');
     wrapper = opened.wrapper;
 
@@ -85,7 +85,7 @@ describe('picking the players of a match', () => {
   });
 
   it('steps back one level with the back arrow', async () => {
-    duelApi();
+    gameApi();
     const opened = await openFlow('/spiele/1/partie');
     wrapper = opened.wrapper;
     await tapTo(wrapper, opened.router, 'Anna, 3,5 Punkte');
@@ -101,23 +101,62 @@ describe('picking the players of a match', () => {
     expect(wrapper.text()).toContain('Wer spielt?');
   });
 
-  it('offers Partie eintragen only on a duel', async () => {
-    duelApi();
-    const opened = await openFlow('/spiele/2');
+  it('offers Partie eintragen on a duel and Ergebnis eintragen on a points game', async () => {
+    gameApi();
+    const opened = await openFlow('/spiele/2', '/spiele/2');
     wrapper = opened.wrapper;
 
     expect(wrapper.get('h1').text()).toBe('Rommé');
     expect(() => button(wrapper as VueWrapper, 'Partie eintragen')).toThrow();
+    await opened.router.push('/spiele/1');
+    await flushPromises();
+    expect(() => button(wrapper as VueWrapper, 'Ergebnis eintragen')).toThrow();
+  });
+
+  it('opens Für wen? from Ergebnis eintragen, with each person’s sum in this game', async () => {
+    gameApi();
+    const opened = await openFlow('/spiele/2', '/spiele/2');
+    wrapper = opened.wrapper;
+
+    await tapTo(wrapper, opened.router, 'Ergebnis eintragen');
+
+    expect(opened.router.currentRoute.value.path).toBe('/spiele/2/ergebnis');
+    expect(wrapper.text()).toContain('Für wen?');
+    expect(wrapper.get('h1').text()).toBe('Rommé');
+    expect(wrapper.get('.top-bar__context').text()).toBe('Ergebnis eintragen');
+    expect(tileLabels(wrapper)).toEqual([
+      'Anna, noch nichts',
+      'Ben, −11 Punkte',
+      'Carla, 25 Punkte',
+    ]);
+    const ben = wrapper.findAll('.count-tile')[1];
+    expect(ben?.text()).toContain('−11');
+    expect(ben?.text()).toContain('2 Ergebnisse');
+    expect(stepIndicator(wrapper)).toBe('Schritt 1 von 2');
+  });
+
+  it('asks Wie viele Punkte? for the tapped person', async () => {
+    gameApi();
+    const opened = await openFlow('/spiele/2/ergebnis', '/spiele/2');
+    wrapper = opened.wrapper;
+
+    await tapTo(wrapper, opened.router, 'Ben, −11 Punkte');
+
+    expect(opened.router.currentRoute.value.path).toBe('/spiele/2/ergebnis/2');
+    expect(wrapper.text()).toContain('Wie viele Punkte?');
+    expect(wrapper.get('.top-bar__context').text()).toBe('Ben');
+    expect(stepIndicator(wrapper)).toBe('Schritt 2 von 2');
   });
 
   it.each([
     ['a game that no longer exists', '/spiele/7/partie'],
     ['a first person who no longer exists', '/spiele/1/partie/9'],
     ['a game that is no duel', `/spiele/${String(ROMME.id)}/partie`],
+    ['a game that is no points game', `/spiele/${String(SCHACH.id)}/ergebnis`],
   ])(
     'leads back to Spiele with “Nicht mehr vorhanden” for %s',
     async (_case, path) => {
-      duelApi([SCHACH, ROMME]);
+      gameApi([SCHACH, ROMME]);
       const opened = await openFlow(path);
       wrapper = opened.wrapper;
 

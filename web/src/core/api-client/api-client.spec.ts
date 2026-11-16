@@ -8,6 +8,7 @@ import {
   deleteFactor,
   deleteMatch,
   deletePerson,
+  deleteResult,
   getDrink,
   getFactor,
   getHealth,
@@ -20,6 +21,7 @@ import {
   onUnauthorized,
   putEntry,
   putMatch,
+  putResult,
   signOut,
   updateAccount,
   updateDrink,
@@ -286,6 +288,30 @@ describe('the API client', () => {
     await expect(deleteMatch(id)).resolves.toBeUndefined();
     expect(remove).toHaveBeenCalledWith(
       `/api/matches/${id}`,
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('records a result under its id and deletes it by that id', async () => {
+    const id = '5c1d9e2a-3b4f-4a6c-8d7e-9f0a1b2c3d4e';
+    const body = { gameId: 2, personId: 4, points: -20 };
+    const result = { id, ...body, createdAt: '2026-11-15T20:00:00.000Z' };
+    const fetch = respond(result, {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(putResult(id, body)).resolves.toEqual(result);
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/results/${id}`,
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify(body) }),
+    );
+
+    const remove = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', remove);
+    await expect(deleteResult(id)).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledWith(
+      `/api/results/${id}`,
       expect.objectContaining({ method: 'DELETE' }),
     );
   });

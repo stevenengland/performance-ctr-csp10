@@ -5,6 +5,8 @@ import {
   gameStandings,
   leaderLine,
   outcomeText,
+  recordPath,
+  resultText,
   ruleLine,
   settingLine,
   sinceLabel,
@@ -186,5 +188,17 @@ describe('a game’s ranking in words', () => {
     expect(outcomeText('first', 'Anna', 'Ben')).toBe('Anna gewinnt');
     expect(outcomeText('second', 'Anna', 'Ben')).toBe('Ben gewinnt');
     expect(outcomeText('draw', 'Anna', 'Ben')).toBe('Remis');
+  });
+
+  it('puts a result in words with a real minus sign and its unit', () => {
+    expect(resultText('Daniel', -20)).toBe('Daniel · −20 Punkte');
+    expect(resultText('Daniel', 1)).toBe('Daniel · 1 Punkt');
+    expect(resultText('Daniel', -1)).toBe('Daniel · −1 Punkt');
+    expect(resultText('Daniel', 0)).toBe('Daniel · 0 Punkte');
+  });
+
+  it('starts a duel’s recording at Wer spielt? and a points game’s at Für wen?', () => {
+    expect(recordPath(game('duel'))).toBe('/spiele/1/partie');
+    expect(recordPath(game('points'))).toBe('/spiele/1/ergebnis');
   });
 });

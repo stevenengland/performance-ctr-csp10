@@ -294,9 +294,12 @@ export const messages = {
     played: (count: number) =>
       `${String(count)} ${count === 1 ? 'Partie' : 'Partien'}`,
     recordMatch: 'Partie eintragen',
+    recordResult: 'Ergebnis eintragen',
     firstQuestion: 'Wer spielt?',
     secondQuestion: 'Gegen wen?',
     outcomeQuestion: 'Wie ging es aus?',
+    personQuestion: 'Für wen?',
+    pointsQuestion: 'Wie viele Punkte?',
     wins: (name: string) => `${name} gewinnt`,
     draw: 'Remis',
     winSupport: '1 Punkt für den Sieg',
@@ -305,6 +308,15 @@ export const messages = {
     pairing: (first: string, second: string) => `${first} – ${second}`,
     /** The saved snackbar: `Anna – Ben · Anna gewinnt`. */
     savedMatch: (pairing: string, outcome: string) => `${pairing} · ${outcome}`,
+    /** The saved snackbar of a result: `Daniel · −20 Punkte`. */
+    savedResult: (person: string, points: string) => `${person} · ${points}`,
+    /** Under the points being typed: the person's sum so far, `bisher −11 Punkte`. */
+    soFar: (points: string) => `bisher ${points}`,
+    /** The number pad's keys (accessible names). */
+    digit: (digit: number) => `Ziffer ${String(digit)}`,
+    sign: 'Vorzeichen wechseln',
+    erase: 'Letzte Ziffer löschen',
+    save: 'Speichern',
     /** A deleted game's matches or results go with it. */
     removeBody: (name: string, kind: 'duel' | 'points', count: number) => {
       if (count === 0) return `${name} wird gelöscht.`;

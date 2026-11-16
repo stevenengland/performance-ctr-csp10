@@ -9,14 +9,14 @@ import { showProblem } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
 import GameStandingList from './GameStandingList.vue';
 import { leaveGone } from './game-flow';
-import { contextLine, gameStandings, matchPath, ruleLine } from './game-view';
+import { contextLine, gameStandings, recordPath, ruleLine } from './game-view';
 
 /**
 A game's page (§7o): its name and context line in the top bar, the rule that
 decides its ranking, and the ranking since the last (re)start, shaped like the
 Rangliste and kept current like it: polled while the page is open, at once on
 focus and after the device's own writes; while its latest refresh failed, the top
-bar shows when the ranking was last confirmed (§6.6). On a duel, `Partie eintragen` (the FAB) opens the recording flow (§7p).
+bar shows when the ranking was last confirmed (§6.6). The FAB opens the recording flow: `Partie eintragen` on a duel (§7p), `Ergebnis eintragen` on a points game (§7q).
 */
 const props = defineProps<{ gameId: string }>();
 const SKELETON_ROWS = 3;
@@ -76,9 +76,13 @@ onMounted(async () => {
       :label="game?.name ?? messages.spiele.title"
     />
     <AppFab
-      v-if="game?.kind === 'duel'"
-      :label="messages.spiele.recordMatch"
-      @click="router.push(matchPath(game.id))"
+      v-if="game"
+      :label="
+        game.kind === 'duel'
+          ? messages.spiele.recordMatch
+          : messages.spiele.recordResult
+      "
+      @click="router.push(recordPath(game))"
     />
   </section>
 </template>

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { dismissSnackbar, useSnackbar } from '../../core/snackbar';
 import {
   button,
-  duelApi,
+  gameApi,
   lost,
   openFlow,
   RANKING,
@@ -14,8 +14,8 @@ import {
   stubEnvironment,
   tapTo,
   tileLabels,
-  type MatchCall,
-} from './duel-flow-harness';
+  type Answer,
+} from './game-flow-harness';
 
 describe('the outcome of a match', () => {
   let wrapper: VueWrapper | undefined;
@@ -32,7 +32,7 @@ describe('the outcome of a match', () => {
   });
 
   it('asks Wie ging es aus? with a win for each and Remis between them, raspberry', async () => {
-    duelApi();
+    gameApi();
     const opened = await openFlow('/spiele/1/partie/1/2');
     wrapper = opened.wrapper;
 
@@ -51,14 +51,14 @@ describe('the outcome of a match', () => {
   });
 
   it('offers no Remis while the game allows no draws', async () => {
-    duelApi([{ ...SCHACH, drawsAllowed: false }, ROMME]);
+    gameApi([{ ...SCHACH, drawsAllowed: false }, ROMME]);
     wrapper = (await openFlow('/spiele/1/partie/2/1')).wrapper;
 
     expect(tileLabels(wrapper)).toEqual(['Ben gewinnt', 'Anna gewinnt']);
   });
 
   it('saves the tapped outcome, returns to Wer spielt? and shows the match with Rückgängig and the new ranking', async () => {
-    const { matches, state } = duelApi();
+    const { matches, state } = gameApi();
     const opened = await openFlow('/spiele/1/partie');
     wrapper = opened.wrapper;
     await tapTo(wrapper, opened.router, 'Anna, 3,5 Punkte');
@@ -89,7 +89,7 @@ describe('the outcome of a match', () => {
   });
 
   it('names a draw in the snackbar', async () => {
-    const { matches } = duelApi();
+    const { matches } = gameApi();
     wrapper = (await openFlow('/spiele/1/partie/2/3')).wrapper;
 
     await button(wrapper, 'Remis').trigger('click');
@@ -100,7 +100,7 @@ describe('the outcome of a match', () => {
   });
 
   it('deletes the match again with Rückgängig and reads the ranking again', async () => {
-    const { matches, state } = duelApi();
+    const { matches, state } = gameApi();
     const opened = await openFlow('/spiele/1/partie');
     wrapper = opened.wrapper;
     await tapTo(wrapper, opened.router, 'Anna, 3,5 Punkte');
@@ -123,8 +123,8 @@ describe('the outcome of a match', () => {
   });
 
   it('offers Erneut versuchen with the same id when the answer got lost, and stays on the step', async () => {
-    let answer: (call: MatchCall) => Response | Promise<Response> = lost;
-    const { matches } = duelApi([SCHACH, ROMME], (call) => answer(call));
+    let answer: Answer = lost;
+    const { matches } = gameApi([SCHACH, ROMME], (call) => answer(call));
     const opened = await openFlow('/spiele/1/partie/1/2');
     wrapper = opened.wrapper;
 
@@ -154,7 +154,7 @@ describe('the outcome of a match', () => {
 
   it('turns the tapped outcome amber and holds the others while it saves', async () => {
     let answer: (response: Response) => void = () => undefined;
-    duelApi(
+    gameApi(
       [SCHACH, ROMME],
       () =>
         new Promise<Response>((resolve) => {
@@ -175,7 +175,7 @@ describe('the outcome of a match', () => {
 
   it('disables the outcome tiles while offline', async () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
-    duelApi();
+    gameApi();
     wrapper = (await openFlow('/spiele/1/partie/1/2')).wrapper;
 
     expect(
@@ -186,7 +186,7 @@ describe('the outcome of a match', () => {
   });
 
   it('leads back to Spiele with “Nicht mehr vorhanden” when a player no longer exists', async () => {
-    duelApi();
+    gameApi();
     const opened = await openFlow('/spiele/1/partie/1/9');
     wrapper = opened.wrapper;
 

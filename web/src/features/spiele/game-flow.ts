@@ -1,5 +1,12 @@
 import type { Router } from 'vue-router';
-import { deleteMatch, putMatch, type NewMatch } from '../../core/api-client';
+import {
+  deleteMatch,
+  deleteResult,
+  putMatch,
+  putResult,
+  type NewMatch,
+  type NewResult,
+} from '../../core/api-client';
 import { refreshStandings } from '../../core/games';
 import { messages } from '../../core/messages';
 import { createSaver, type Saver } from '../../core/saver';
@@ -10,6 +17,15 @@ export function matchSaver(gameId: number): Saver<NewMatch> {
   return createSaver<NewMatch>({
     put: putMatch,
     remove: deleteMatch,
+    refresh: () => refreshStandings(gameId),
+  });
+}
+
+/** Saves a game's results: saving and `Rückgängig` read that game's ranking again. */
+export function resultSaver(gameId: number): Saver<NewResult> {
+  return createSaver<NewResult>({
+    put: putResult,
+    remove: deleteResult,
     refresh: () => refreshStandings(gameId),
   });
 }

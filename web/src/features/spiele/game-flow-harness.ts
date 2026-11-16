@@ -8,7 +8,12 @@ import {
   type RouteLocationNormalizedLoaded,
 } from 'vue-router';
 import AppTopBar from '../../components/AppTopBar.vue';
-import type { Game, NewMatch, Standings } from '../../core/api-client';
+import type {
+  Game,
+  NewMatch,
+  NewResult,
+  Standings,
+} from '../../core/api-client';
 import { routes } from '../../router';
 import { createAppVuetify } from '../../theme';
 
@@ -55,6 +60,17 @@ export const RANKING: Extract<Standings, { kind: 'duel' }> = {
   ],
 };
 
+/** Rommé so far: Carla 25 from 3 results, Ben −11 from 2; Anna has played none. */
+export const POINTS_RANKING: Extract<Standings, { kind: 'points' }> = {
+  kind: 'points',
+  startedAt: ROMME.startedAt,
+  lowerWins: false,
+  rows: [
+    { personId: 3, name: 'Carla', sum: 25, results: 3 },
+    { personId: 2, name: 'Ben', sum: -11, results: 2 },
+  ],
+};
+
 interface RouterViewSlot {
   Component: VNode;
   route: RouteLocationNormalizedLoaded;
@@ -73,45 +89,72 @@ export interface MatchCall {
   body?: NewMatch;
 }
 
+export interface ResultCall {
+  method: string;
+  url: string;
+  body?: NewResult;
+}
+
+function callOf<T>(method: string, url: string, init: RequestInit) {
+  return {
+    method,
+    url,
+    ...(typeof init.body === 'string'
+      ? { body: JSON.parse(init.body) as T }
+      : {}),
+  };
+}
+
+/** How the fake API answers a match's or a result's PUT or DELETE. */
+export type Answer = (
+  call: MatchCall | ResultCall,
+) => Response | Promise<Response>;
+
 /**
-A fake API with the games, the persons and each game's ranking (`standings` may be
-changed by the test, e.g. after a save). Every match PUT and DELETE is recorded and
-answered by `answer` (a saved match by default, 204 for a delete).
+A fake API with the games, the persons and each game's ranking: `standings` for
+duels, `points` for points games (the test may change both, e.g. after a save).
+Every match and result PUT and DELETE is recorded and answered by `answer` (a
+saved one by default, 204 for a delete).
 */
-export function duelApi(
+export function gameApi(
   games: Game[] = [SCHACH, ROMME],
-  answer: (call: MatchCall) => Response | Promise<Response> = saved,
+  answer: Answer = saved,
 ) {
   const matches: MatchCall[] = [];
-  const state: { standings: Standings } = { standings: RANKING };
+  const results: ResultCall[] = [];
+  const state: { standings: Standings; points: Standings } = {
+    standings: RANKING,
+    points: POINTS_RANKING,
+  };
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init: RequestInit = {}) => {
       const method = init.method ?? 'GET';
       if (url.startsWith('/api/matches/')) {
-        const call: MatchCall = {
-          method,
-          url,
-          ...(typeof init.body === 'string'
-            ? { body: JSON.parse(init.body) as NewMatch }
-            : {}),
-        };
+        const call = callOf<NewMatch>(method, url, init);
         matches.push(call);
+        return answer(call);
+      }
+      if (url.startsWith('/api/results/')) {
+        const call = callOf<NewResult>(method, url, init);
+        results.push(call);
         return answer(call);
       }
       if (url === '/api/games') return json({ games });
       if (url === '/api/persons') return json({ persons: PERSONS });
       if (url === '/api/factors') return json({ factors: [] });
-      if (/^\/api\/games\/\d+\/standings$/.test(url)) {
-        return json(state.standings);
+      const standings = /^\/api\/games\/(\d+)\/standings$/.exec(url);
+      if (standings) {
+        const game = games.find(({ id }) => id === Number(standings[1]));
+        return json(game?.kind === 'points' ? state.points : state.standings);
       }
       throw new Error(`unexpected ${method} ${url}`);
     }),
   );
-  return { matches, state };
+  return { matches, results, state };
 }
 
-export function saved({ method, url, body }: MatchCall): Response {
+export function saved({ method, url, body }: MatchCall | ResultCall): Response {
   if (method === 'DELETE') return new Response(null, { status: 204 });
   return json(
     { id: url.split('/').pop(), ...body, createdAt: '2026-11-15T20:00:00Z' },
@@ -121,11 +164,11 @@ export function saved({ method, url, body }: MatchCall): Response {
 
 export const lost = () => Promise.reject(new TypeError('Failed to fetch'));
 
-/** The app's routes in a shell with the top bar, opened at the game's page and then at `path`. */
-export async function openFlow(path: string) {
+/** The app's routes in a shell with the top bar, opened at a game's page (`from`) and then at `path`. */
+export async function openFlow(path: string, from = '/spiele/1') {
   const router = createRouter({ history: createMemoryHistory(), routes });
-  await router.push('/spiele/1');
-  if (path !== '/spiele/1') await router.push(path);
+  await router.push(from);
+  if (path !== from) await router.push(path);
   // Like the app's shell: a new path is a new screen.
   const shell = defineComponent(() => () => [
     h(AppTopBar),
