@@ -9,8 +9,9 @@ use Performance\Tests\Support\InterleavedWrites;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
- * Matches written by requests that run at the same moment, each in its own process on the real
- * database: whatever the interleaving, they end in exactly one consistent state.
+ * Matches written, verified and rejected by requests that run at the same moment, each in its
+ * own process on the real database: whatever the interleaving, they end in exactly one
+ * consistent state, with at most one verify or reject event (PRD #61).
  */
 final class MatchRacesTest extends DatabaseTestCase
 {
@@ -19,6 +20,10 @@ final class MatchRacesTest extends DatabaseTestCase
     private const MATCH = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
     private const SUCCEEDED = 0;
     private const NOT_FOUND = 3;
+    private const ALREADY_VERIFIED = 4;
+    /** The bootstrap admin (1) records the match; Anna (2) and Ben (3) may verify or reject it. */
+    private const ANNA = 2;
+    private const BEN = 3;
 
     protected function setUp(): void
     {
@@ -28,6 +33,8 @@ final class MatchRacesTest extends DatabaseTestCase
             $this->send('POST', '/api/persons', ['name' => $name], $session);
         }
         $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $session);
+        $this->createAccount('anna', 'annas-startpasswort');
+        $this->createAccount('ben', 'bens-startpasswort');
     }
 
     public function testParallelIdenticalRecordsCreateOneMatch(): void
@@ -249,6 +256,119 @@ final class MatchRacesTest extends DatabaseTestCase
         self::assertSame(count($events) === 1 ? 'Ben' : null, $snapshot['second'], 'the undo records the match as it found it');
     }
 
+    public function testOfConcurrentVerificationsExactlyOneRecordsItsEventAndBumpsTheRevision(): void
+    {
+        $this->record();
+        $revision = $this->revision();
+
+        $exitCodes = $this->interleaveOnTheMatch(['verify', 'verify-ben', 'verify']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame([['operation' => 'create'], ['operation' => 'verify']], $this->matchEvents());
+        self::assertSame($revision + 1, $this->revision());
+        self::assertSame([['pending' => 0, 'verified_by_account_id' => self::ANNA]], $this->verificationState());
+    }
+
+    public function testOfConcurrentRejectionsExactlyOneRemovesTheMatchAndRecordsItsEvent(): void
+    {
+        $this->record();
+
+        $exitCodes = $this->interleaveOnTheMatch(['reject', 'reject-ben', 'reject']);
+
+        sort($exitCodes);
+        self::assertSame([self::SUCCEEDED, self::NOT_FOUND, self::NOT_FOUND], $exitCodes);
+        self::assertSame([['operation' => 'create'], ['operation' => 'reject']], $this->matchEvents());
+        self::assertSame([], $this->verificationState());
+    }
+
+    /**
+     * Whichever locks the match first decides: a verified match can no longer be rejected
+     * (409), and a rejected one is no longer there to verify (404).
+     */
+    public function testAVerificationRacingARejectionEndsInOneConsistentState(): void
+    {
+        $this->record();
+
+        [$verify, $reject] = $this->interleaveOnTheMatch(['verify', 'reject-ben']);
+
+        self::assertContains([$verify, $reject], [[self::SUCCEEDED, self::ALREADY_VERIFIED], [self::NOT_FOUND, self::SUCCEEDED]]);
+        self::assertSame($verify === self::SUCCEEDED ? [['pending' => 0, 'verified_by_account_id' => self::ANNA]] : [], $this->verificationState());
+        self::assertSame(
+            [['operation' => 'create'], ['operation' => $verify === self::SUCCEEDED ? 'verify' : 'reject']],
+            $this->matchEvents(),
+        );
+    }
+
+    /** The undo removes the match whether it was verified or not; a verification after it finds nothing. */
+    public function testAVerificationRacingTheUndoEndsInOneConsistentState(): void
+    {
+        $this->record();
+
+        [$verify, $undo] = $this->interleaveOnTheMatch(['verify', 'undo']);
+
+        self::assertSame(self::SUCCEEDED, $undo);
+        self::assertContains($verify, [self::SUCCEEDED, self::NOT_FOUND]);
+        self::assertSame(
+            $verify === self::SUCCEEDED ? ['create', 'verify', 'delete'] : ['create', 'delete'],
+            array_column($this->matchEvents(), 'operation'),
+        );
+        self::assertSame([], $this->verificationState());
+    }
+
+    /**
+     * The person's deletion and the verification lock the match and the person in opposite
+     * orders; the loser of the deadlock runs again. Either way the match ends verified with the
+     * person's side cleared, verified exactly once.
+     */
+    public function testAVerificationRacingAPersonsDeletionEndsVerifiedWithTheSideCleared(): void
+    {
+        $this->record();
+
+        $exitCodes = $this->interleaveOnTheMatch(['verify', 'person']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame([['pending' => 0, 'verified_by_account_id' => self::ANNA]], $this->verificationState());
+        self::assertSame([['first_person_id' => 1, 'second_person_id' => null]], $this->rows('SELECT first_person_id, second_person_id FROM matches'));
+        $operations = array_column($this->matchEvents(), 'operation');
+        self::assertContains($operations, [['create', 'verify', 'update'], ['create', 'update', 'verify']]);
+    }
+
+    /**
+     * The game's deletion and the verification lock the match and the game in opposite orders;
+     * the loser of the deadlock runs again. Either the verified match goes with the game, or
+     * the verification finds it gone.
+     */
+    public function testAVerificationRacingTheGamesDeletionEndsInOneConsistentState(): void
+    {
+        $this->record();
+
+        [$verify, $deletion] = $this->interleaveOnTheMatch(['verify', 'game']);
+
+        self::assertSame(self::SUCCEEDED, $deletion);
+        self::assertContains($verify, [self::SUCCEEDED, self::NOT_FOUND]);
+        self::assertSame(
+            $verify === self::SUCCEEDED ? ['create', 'verify', 'delete'] : ['create', 'delete'],
+            array_column($this->matchEvents(), 'operation'),
+        );
+        self::assertSame([], $this->verificationState());
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function verificationState(): array
+    {
+        return $this->rows('SELECT pending, verified_by_account_id FROM matches');
+    }
+
+    private function revision(): int
+    {
+        $revision = $this->rows('SELECT revision FROM data_revision')[0]['revision'];
+        self::assertIsInt($revision);
+
+        return $revision;
+    }
+
     private function record(): void
     {
         $response = $this->send('PUT', '/api/matches/' . self::MATCH, ['gameId' => 1, 'firstPersonId' => 1, 'secondPersonId' => 2, 'outcome' => 'first'], $this->signIn());
@@ -291,7 +411,7 @@ final class MatchRacesTest extends DatabaseTestCase
     /**
      * Runs the writes on the recorded match in the order given (InterleavedWrites).
      *
-     * @param list<'game'|'person'|'undo'> $writes
+     * @param list<'game'|'person'|'undo'|'verify'|'verify-ben'|'reject'|'reject-ben'> $writes `verify` and `reject` act as Anna
      *
      * @return list<int> the exit codes, in the order given
      */
@@ -301,6 +421,10 @@ final class MatchRacesTest extends DatabaseTestCase
             'game' => ['delete-game', '1'],
             'person' => ['delete-person', '2'],
             'undo' => ['undo-match', self::MATCH],
+            'verify' => ['verify-match', self::MATCH, self::ANNA],
+            'verify-ben' => ['verify-match', self::MATCH, self::BEN],
+            'reject' => ['reject-match', self::MATCH, self::ANNA],
+            'reject-ben' => ['reject-match', self::MATCH, self::BEN],
         }, $writes));
     }
 

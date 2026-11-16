@@ -8,8 +8,9 @@ declare(strict_types=1);
  * Role `delete-person`, `delete-drink`, `delete-factor` or `delete-game` deletes that row;
  * `undo-entry`, `undo-match` and `undo-result` delete that entry, match or result;
  * `rename-person` renames that person to `Berta`, `set-photo` sets their photo to
- * photos/progressive.jpg and `remove-photo` removes it; `verify-entry` verifies that entry as
- * the account, `reject-entry` rejects it as the account, and `delete-account` deletes that
+ * photos/progressive.jpg and `remove-photo` removes it; `verify-entry` and `verify-match`
+ * verify that entry or match as the account, `reject-entry` and `reject-match` reject it as
+ * the account, and `delete-account` deletes that
  * account. Exits 0 when the write succeeded, 3 when its row was not found (gone already) and 4
  * when a rejection found the row verified already; any other failure ends the process with its
  * message and a non-zero code.
@@ -83,10 +84,12 @@ try {
             (new Database($config, $clock))->personPhotos()->remove($actor, (int) $id);
             break;
         case 'verify-entry':
-            (new Database($config, $clock))->verification()->verify($actor, VerifiableKind::Entry, $id);
+        case 'verify-match':
+            (new Database($config, $clock))->verification()->verify($actor, VerifiableKind::from(substr($role, strlen('verify-'))), $id);
             break;
         case 'reject-entry':
-            (new Database($config, $clock))->verification()->reject($actor, VerifiableKind::Entry, $id);
+        case 'reject-match':
+            (new Database($config, $clock))->verification()->reject($actor, VerifiableKind::from(substr($role, strlen('reject-'))), $id);
             break;
         case 'delete-account':
             (new Database($config, $clock))->accounts()->delete((int) $id);
