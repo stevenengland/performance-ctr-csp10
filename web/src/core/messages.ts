@@ -1,3 +1,9 @@
+/** `1 Eintrag`, `23 Einträge`; nothing for none. */
+function counted(count: number, one: string, many: string) {
+  if (count === 0) return undefined;
+  return count === 1 ? `1 ${one}` : `${String(count)} ${many}`;
+}
+
 /** Every user-visible German text of the app. */
 export const messages = {
   appName: 'Performance',
@@ -208,14 +214,25 @@ export const messages = {
       return `${name} und ${counted} werden gelöscht.`;
     },
     /**
-    A deleted person's entries go with them; their matches stay, with their side
-    shown as `gelöschte Person`.
+    A deleted person's entries and results go with them (`Daniel, 23 Einträge und
+    7 Ergebnisse werden gelöscht.`); their matches stay, with their side shown as
+    `gelöschte Person`.
     */
-    personBody: (name: string, entries: number, matches: number) => {
+    personBody: (
+      name: string,
+      entries: number,
+      results: number,
+      matches: number,
+    ) => {
+      const gone = [
+        counted(entries, 'Eintrag', 'Einträge'),
+        counted(results, 'Ergebnis', 'Ergebnisse'),
+      ].filter((part) => part !== undefined);
+      const last = gone.pop();
       const first =
-        entries === 0
+        last === undefined
           ? `${name} wird gelöscht.`
-          : `${name} und ${entries === 1 ? '1 Eintrag' : `${String(entries)} Einträge`} werden gelöscht.`;
+          : `${[name, ...gone].join(', ')} und ${last} werden gelöscht.`;
       if (matches === 0) return first;
       const kept =
         matches === 1

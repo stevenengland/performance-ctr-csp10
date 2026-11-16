@@ -87,6 +87,18 @@ describe('Verwalten → Spiele', () => {
     expect(rows(wrapper)).toEqual([]);
   });
 
+  it('counts the results that go with a points game in its delete dialog', async () => {
+    const romme = game(2, 'Rommé', 'points');
+    api([romme], () => json({ ...romme, matchCount: 0, resultCount: 8 }));
+    wrapper = await page();
+
+    await click(buttonIn(document, 'Rommé löschen'));
+
+    expect(dialog().textContent).toContain(
+      'Rommé und 8 Ergebnisse werden gelöscht.',
+    );
+  });
+
   it('opens the create dialog when asked to with ?anlegen', async () => {
     api([]);
 

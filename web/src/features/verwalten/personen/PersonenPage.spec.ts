@@ -150,15 +150,45 @@ describe('Verwalten → Personen', () => {
     );
   });
 
+  it('names the results that go with the person in the delete dialog', async () => {
+    api([{ id: 2, name: 'Daniel' }], {
+      replies: [
+        () =>
+          json({
+            id: 2,
+            name: 'Daniel',
+            entryCount: 23,
+            matchCount: 0,
+            resultCount: 7,
+          }),
+      ],
+    });
+    wrapper = await page();
+
+    await click(buttonIn(document, 'Daniel löschen'));
+
+    expect(dialog().textContent).toContain(
+      'Daniel, 23 Einträge und 7 Ergebnisse werden gelöscht.',
+    );
+  });
+
   it.each([
-    [0, 1, 'Daniel wird gelöscht. 1 Partie bleibt mit „gelöschte Person“.'],
-    [1, 0, 'Daniel und 1 Eintrag werden gelöscht.'],
+    [0, 1, 0, 'Daniel wird gelöscht. 1 Partie bleibt mit „gelöschte Person“.'],
+    [1, 0, 0, 'Daniel und 1 Eintrag werden gelöscht.'],
+    [0, 0, 1, 'Daniel und 1 Ergebnis werden gelöscht.'],
+    [
+      1,
+      2,
+      2,
+      'Daniel, 1 Eintrag und 2 Ergebnisse werden gelöscht. 2 Partien bleiben mit „gelöschte Person“.',
+    ],
   ])(
-    'names %i entries and %i matches in the delete dialog',
-    async (entryCount, matchCount, body) => {
+    'names %i entries, %i matches and %i results in the delete dialog',
+    async (entryCount, matchCount, resultCount, body) => {
       api([{ id: 2, name: 'Daniel' }], {
         replies: [
-          () => json({ id: 2, name: 'Daniel', entryCount, matchCount }),
+          () =>
+            json({ id: 2, name: 'Daniel', entryCount, matchCount, resultCount }),
         ],
       });
       wrapper = await page();

@@ -14,8 +14,8 @@ import PersonDialog from './PersonDialog.vue';
 
 /**
 Verwalten → Personen (§7i): persons alphabetically, each renamable and
-deletable; deleting says how many entries go with the person and how many
-matches stay with `gelöschte Person` (§6.9). A name opens
+deletable; deleting says how many entries and results go with the person and
+how many matches stay with `gelöschte Person` (§6.9). A name opens
 the person's Verlauf (§7g).
 */
 const persons = usePersons();
@@ -62,6 +62,7 @@ onMounted(() => {
         messages.remove.personBody(
           removing?.name ?? '',
           removing?.entryCount ?? 0,
+          removing?.resultCount ?? 0,
           removing?.matchCount ?? 0,
         )
       "
