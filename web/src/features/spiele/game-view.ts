@@ -31,8 +31,12 @@ function kindLabel(kind: Game['kind']): string {
   return kind === 'duel' ? messages.spiele.duel : messages.spiele.points;
 }
 
-/** `seit 15.09.`, or `seit heute, 19:30` when the game was (re)started today. */
-export function sinceLabel(startedAt: string, now: Date = new Date()): string {
+/**
+`seit 15.09.`, or `seit heute, 19:30` when the game was (re)started today. `now` is
+any instant of the current day: a screen passes `useToday()`, so the label moves
+on at midnight while it stays open.
+*/
+export function sinceLabel(startedAt: string, now: Date): string {
   const start = new Date(startedAt);
   return start >= startOfToday(now)
     ? messages.spiele.sinceToday(formatTime(start))
@@ -57,17 +61,17 @@ export function gameAsRanked(
 }
 
 /** The game's context line in the list and the top bar: `Duell · seit 15.09.`. */
-export function contextLine(game: DeepReadonly<Game>): string {
+export function contextLine(game: DeepReadonly<Game>, now: Date): string {
   return messages.spiele.context(
     kindLabel(game.kind),
-    sinceLabel(game.startedAt),
+    sinceLabel(game.startedAt, now),
   );
 }
 
 /** The Verlauf's context line in the top bar: `Schach · seit 15.09.`. */
 export function historyContextLine(
   game: DeepReadonly<Game>,
-  now: Date = new Date(),
+  now: Date,
 ): string {
   return messages.spiele.historyContext(
     game.name,

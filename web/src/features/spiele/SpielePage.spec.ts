@@ -113,6 +113,19 @@ describe('Spiele', () => {
     expect(wrapper.find('ul[aria-label="Spiele"]').exists()).toBe(true);
   });
 
+  it('moves a game started today to its date once the page is used again on a later day', async () => {
+    api([game(3, 'Rommé', 'points', '2026-11-15T18:30:00.000Z')]);
+    wrapper = await spiele();
+
+    vi.setSystemTime(new Date('2026-11-16T00:05:00Z'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+
+    expect(cards(wrapper)).toEqual([
+      'RomméPunktespiel · seit 15.11.noch keine Ergebnisse',
+    ]);
+  });
+
   it('shows each game’s leader, or that nothing was recorded yet', async () => {
     const started = '2026-09-15T10:00:00.000Z';
     const fetch = api(

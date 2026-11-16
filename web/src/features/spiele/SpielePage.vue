@@ -9,6 +9,7 @@ import {
 } from '../../core/games';
 import { messages } from '../../core/messages';
 import { showProblem } from '../../core/snackbar';
+import { useToday } from '../../core/today';
 import { contextLine, gamePath, leaderLine } from './game-view';
 
 /**
@@ -21,6 +22,8 @@ failed read keeps the leader shown.
 const SKELETON_CARDS = 3;
 
 const games = useGames();
+/** `seit heute, 19:30` turns into the date at midnight, even while the page stays open. */
+const today = useToday();
 
 /** The game's leader line; empty until its ranking was first read. */
 function leaderOf(gameId: number): string {
@@ -77,7 +80,7 @@ onUnmounted(() => {
             <v-icon :icon="mdiChevronRight" size="24" />
           </span>
           <span class="type-support game-card__context">{{
-            contextLine(game)
+            contextLine(game, today)
           }}</span>
           <span class="type-label game-card__leader">{{
             leaderOf(game.id)

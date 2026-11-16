@@ -208,7 +208,7 @@ All user-visible text lives in one German messages module; all formatting goes t
 | Time of an entry | `HH:mm`, browser time zone | `23:41` |
 | Last update | `Stand: HH:mm` | `Stand: 23:41` |
 | Quantity in text | `<n>×` | `2× Bier` |
-| Start of a game's run | `seit dd.MM.`, or `seit heute, HH:mm` when it lies after local midnight; browser time zone | `seit 15.09.`, `seit heute, 19:30` |
+| Start of a game's run | `seit dd.MM.`, or `seit heute, HH:mm` when it lies after local midnight; browser time zone; turns into the date at the next local midnight, or when the screen is shown or focused again after it | `seit 15.09.`, `seit heute, 19:30` |
 | Day heading (Protokoll) | `Heute`, `Gestern`, else short weekday and date, browser time zone | `Sa., 14.11.2026` |
 | Changed value (Protokoll) | `<label>: <before> → <after>` | `Punkte: 1 Punkt → 0,5 Punkte` |
 

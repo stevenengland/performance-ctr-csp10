@@ -13,6 +13,7 @@ import {
 import { loadGames, refreshStandings, useGames } from '../../core/games';
 import { messages } from '../../core/messages';
 import { showProblem, showSnackbar } from '../../core/snackbar';
+import { useToday } from '../../core/today';
 import { provideTopBar } from '../../core/top-bar';
 import { leaveGone } from './game-flow';
 import {
@@ -47,8 +48,10 @@ const confirming = ref(false);
 const removing = shallowRef<GameHistoryRow>();
 const busy = ref(false);
 
+/** `seit heute, 19:30` turns into the date at midnight, even while the page stays open. */
+const today = useToday();
 provideTopBar(() => ({
-  context: game.value ? historyContextLine(game.value) : undefined,
+  context: game.value ? historyContextLine(game.value, today.value) : undefined,
 }));
 
 const isNotFound = (failure: unknown) =>

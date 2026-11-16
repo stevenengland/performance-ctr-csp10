@@ -240,6 +240,22 @@ describe('a game’s Verlauf', () => {
     expect(wrapper.find('ul[aria-label="Verlauf"]').exists()).toBe(true);
   });
 
+  it('moves the context line of a game started today to its date on a later day', async () => {
+    // On the day of the run's start (12:00 in Berlin).
+    vi.setSystemTime(new Date('2026-09-15T21:00:00Z'));
+    api({ results: romme() });
+    wrapper = await verlauf(1);
+    expect(wrapper.get('.top-bar__context').text()).toBe(
+      'Rommé · seit heute, 12:00',
+    );
+
+    vi.setSystemTime(new Date('2026-09-15T22:05:00Z'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+
+    expect(wrapper.get('.top-bar__context').text()).toBe('Rommé · seit 15.09.');
+  });
+
   it('lists a points game’s results with their points, local date and time and account', async () => {
     api({ results: romme() });
 

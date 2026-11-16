@@ -14,6 +14,7 @@ import {
 } from '../../core/games';
 import { messages } from '../../core/messages';
 import { showProblem, showSnackbar } from '../../core/snackbar';
+import { useToday } from '../../core/today';
 import { provideTopBar } from '../../core/top-bar';
 import GameStandingList from './GameStandingList.vue';
 import { leaveGone } from './game-flow';
@@ -54,6 +55,9 @@ const standings = computed(() =>
   ranking.value.value ? gameStandings(ranking.value.value) : undefined,
 );
 
+/** `seit heute, 19:30` turns into the date at midnight, even while the page stays open. */
+const today = useToday();
+
 const confirming = ref(false);
 const restarting = ref(false);
 
@@ -61,7 +65,7 @@ provideTopBar(() => {
   const { stale, updatedAt } = ranking.value;
   return {
     title: game.value?.name,
-    context: game.value ? contextLine(game.value) : undefined,
+    context: game.value ? contextLine(game.value, today.value) : undefined,
     stale:
       stale && updatedAt ? messages.stand(formatTime(updatedAt)) : undefined,
   };

@@ -191,6 +191,26 @@ describe('a game’s page', () => {
     expect(wrapper.text()).toContain('Seit dem Start noch keine Ergebnisse.');
   });
 
+  it('moves the context line of a game started today to its date on a later day', async () => {
+    api([
+      game(2, 'Rommé', 'points', { startedAt: '2026-11-15T18:30:00.000Z' }),
+    ]);
+    wrapper = await spiel(2);
+    // The morning's network is slow: the ranking read on resume has not answered yet.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => undefined)),
+    );
+
+    vi.setSystemTime(new Date('2026-11-16T00:05:00Z'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+
+    expect(wrapper.get('.top-bar__context').text()).toBe(
+      'Punktespiel · seit 15.11.',
+    );
+  });
+
   it.each([
     [game(3, 'Tischtennis', 'duel', { drawsAllowed: false }), 'Kein Remis'],
     [game(3, 'Kniffel', 'points'), 'Höchste Summe gewinnt'],

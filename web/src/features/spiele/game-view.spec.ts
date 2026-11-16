@@ -62,8 +62,8 @@ describe('a game in words', () => {
   });
 
   it('puts the kind before the start in the context line', () => {
-    expect(contextLine(game('duel'))).toBe('Duell · seit 15.09.');
-    expect(contextLine(game('points'))).toBe('Punktespiel · seit 15.09.');
+    expect(contextLine(game('duel'), now)).toBe('Duell · seit 15.09.');
+    expect(contextLine(game('points'), now)).toBe('Punktespiel · seit 15.09.');
   });
 
   it.each([
