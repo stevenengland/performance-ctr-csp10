@@ -13,6 +13,7 @@ import {
   getScoreboard,
   getPerson,
   getSession,
+  listAuditEvents,
   listEntries,
   onUnauthorized,
   putEntry,
@@ -278,6 +279,28 @@ describe('the API client', () => {
     );
     expect(fetch).toHaveBeenCalledWith(
       '/api/entries?personId=3&from=2026-11-14T23%3A00%3A00.000Z',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('reads the newest page of the audit log, and an older one before a given event', async () => {
+    const page = { events: [], next: null };
+    const fetch = respond(page, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(listAuditEvents()).resolves.toEqual(page);
+    await listAuditEvents(41);
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      '/api/audit',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/audit?before=41',
       expect.objectContaining({ method: 'GET' }),
     );
   });

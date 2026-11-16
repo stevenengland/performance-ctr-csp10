@@ -96,7 +96,7 @@ onMounted(load);
         <span class="list__main">
           <span class="type-row-title list__title">{{ account.userName }}</span>
         </span>
-        <span v-if="account.isAdmin" class="admin-chip type-caption">{{
+        <span v-if="account.isAdmin" class="assist-chip type-caption">{{
           messages.konten.admin
         }}</span>
         <AccountMenu

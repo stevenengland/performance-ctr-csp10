@@ -30,8 +30,8 @@
    engine") after rolling the statement back, where MySQL 8 (lock mode 2) never takes the lock.
    `Accounts::ensureBootstrapAdmin` treats 1467 like 1213: another request inserts the admin.
    `BootstrapTest`'s race failed with 1467 on MariaDB before the change.
-4. **Audited and unchanged for MariaDB:** `SELECT … FOR UPDATE` (no `LOCK IN SHARE MODE` is
-   used), `START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY`, `INSERT … ON DUPLICATE KEY
+4. **Audited and unchanged for MariaDB:** `SELECT … FOR UPDATE`, `SELECT … LOCK IN SHARE MODE`
+   (amended for the audit log, PRD #14, below), `START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY`, `INSERT … ON DUPLICATE KEY
    UPDATE` without the MySQL-only `AS new` alias, `GET_LOCK`/`IS_USED_LOCK`/`RELEASE_LOCK`
    (lock name ≤ 64 characters), `information_schema` guards, `DATETIME(3)` with
    `UTC_TIMESTAMP(3)`, named `CHECK` constraints, foreign keys, explicit `utf8mb4_unicode_ci`
@@ -41,6 +41,21 @@
    turns `innodb_snapshot_isolation` on, which fails a locking read of a row changed after the
    transaction's read view; every explicit write transaction opens with a locking statement and
    reads nothing without a lock before it, so no read view exists when it locks.
+
+   *Amendment (PRD #14, audit log, PR #26).* Entry snapshots (`EntrySnapshots`) are read with
+   `LOCK IN SHARE MODE` on the write path of every entry add, entry undo and catalog deletion.
+   A plain read there would open the read view that snapshot isolation fails on (decision D2 of
+   PR #26), and the referenced person, drink and factor are locked shared, not for update,
+   because an entry insert holds them shared for its foreign key checks while it waits for the
+   parent a deletion holds: an exclusive lock there deadlocks (D1). Two more constructs follow
+   from it. Catalog deletions run one at a time under `GET_LOCK('performance.catalog-deletion.'
+   + database name, 10)`, taken before the transaction locks any row: two deletions of rows that
+   share an entry otherwise lock each other's rows in opposite order. And `DataRevision::write`
+   runs a whole write transaction again when it loses a deadlock (1213), up to three times: an
+   entry undo locks the entry before its person, drink and factor, a deletion of one of them
+   the other way round, and neither order can change without breaking the guarantees above.
+   `ConcurrentDeletionTest` forces both interleavings on CI's MariaDB 11.8 with the server's
+   default settings (`innodb_snapshot_isolation` on).
 5. **PHP 8.5.12.** `config.platform.php` is `8.5.12` and `require.php` `~8.5.0`; the image is
    `php:8.5-apache` (8.5.12) by digest. Every pinned package already allows 8.5, so no pin
    moved. PHPStan passes with `phpVersion: 80500`; the code uses none of 8.5's deprecations

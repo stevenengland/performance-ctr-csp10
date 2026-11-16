@@ -6,7 +6,7 @@
 > written back here in the same pull request. Design follows spec.
 >
 > **Source of truth.** Product rules come from PRD #1 (user stories, scoring, delete semantics,
-> day window). The API contract is `api/openapi.yaml`. This document surfaces those rules; it
+> day window) and PRD #14 (the audit log). The API contract is `api/openapi.yaml`. This document surfaces those rules; it
 > never invents domain rules.
 >
 > **Review surface.** The fixture preview (§12) — the real app on canned answers, published as
@@ -39,7 +39,8 @@ connection. One or two of them are admins.
 - **One decision per screen.** The add flow asks exactly one question per step and saves on the
   last answer. No confirm button on the happy path; undo instead.
 - **Today only.** Every view covers the current day, from 00:00 in the browser's time zone. No
-  view shows other days.
+  view shows other days — with one recorded exception: Protokoll (§7l), the admins' audit log,
+  covers all days, since looking up what happened yesterday or last week is its purpose.
 - **Honest state.** The UI never claims a save that did not happen: offline blocks saving,
   failures say so, stale data shows its age.
 - **Readable across the table.** Names and numbers are set large in a condensed display face;
@@ -205,6 +206,8 @@ All user-visible text lives in one German messages module; all formatting goes t
 | Time of an entry | `HH:mm`, browser time zone | `23:41` |
 | Last update | `Stand: HH:mm` | `Stand: 23:41` |
 | Quantity in text | `<n>×` | `2× Bier` |
+| Day heading (Protokoll) | `Heute`, `Gestern`, else short weekday and date, browser time zone | `Sa., 14.11.2026` |
+| Changed value (Protokoll) | `<label>: <before> → <after>` | `Punkte: 1 Punkt → 0,5 Punkte` |
 
 Inputs accept a decimal comma or point (`0,5` and `0.5`).
 
@@ -221,6 +224,7 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
 /verwalten                                  hub                     [nav: Verwalten]
 /verwalten/personen | getraenke | faktoren  master data
 /verwalten/konten                           accounts (admins only)
+/verwalten/protokoll                        audit log, all days (admins only)
 /konto                                      own account (top app bar)
 ```
 
@@ -514,6 +518,8 @@ submit on Enter.
 - The counts are the lengths of the lists (`GET /api/persons`, `/api/drinks`, `/api/factors`,
   and `/api/accounts` for admins only), read when the hub opens; a count shows once its list
   has loaded, and a row without one still opens its screen.
+- Last, for admins only: `Protokoll` (§7l) with the fixed supporting line
+  `Wer hat was geändert` instead of a count — the hub does not read the log.
 
 ### 7i. Personen / Getränke / Faktoren
 
@@ -592,6 +598,44 @@ submit on Enter.
   marks (30 dp, as on Anmelden). The version lines read `Version <app version>` (`row-title`) and
   `Server: <app version>` (`support`), or `Server: nicht erreichbar` when health cannot be read.
 
+### 7l. Protokoll `/verwalten/protokoll` (admins only)
+
+- The audit log: every create, change and delete of an entry, a person, a drink or a factor,
+  with the account that did it. Title `Protokoll` with a back button; the navigation keeps
+  `Verwalten` active. Non-admins never see it: the row is missing on the hub and
+  `/verwalten/protokoll` sends them to `/verwalten`.
+- **All days** — the one exception to "today only" (§1). Events newest first under day
+  headings in `label`, `on-surface-variant`: `Heute`, `Gestern`, otherwise the date
+  (`Sa., 14.11.2026`), by calendar day in the browser's time zone.
+- Rows on `outline-variant` hairlines, without actions:
+  - primary (`row-title`): the subject with its kind, `Getränk Bier`, `Person Daniel`,
+    `Faktor Happy Hour`, `Eintrag 2× Bier für Daniel` — the names as the event recorded them,
+    so the log stays readable after a rename or a deletion;
+  - then (`body`), when there is one: for a change the changed values as
+    `Punkte: 1 Punkt → 0,5 Punkte`, several joined with ` · ` (`Name: Bier → Pils`,
+    `Multiplikator: ×2 → ×1,5`, `Faktor: Happy Hour ×2 → Kein Faktor`); for a creation or a
+    deletion the values without the name: `1 Punkt` for a drink, `×2` for a factor,
+    `1 Punkt · Happy Hour ×2` for an entry (the drink's points, and the factor unless none);
+    a value the event does not hold is left out;
+  - then (`support`): the local time and the user name the event recorded, `23:41 · anna`
+    (kept after the account is deleted);
+  - trailing, an outlined assist chip (corner 8 dp, `caption`) with the operation: `Angelegt`,
+    `Geändert`, or `Gelöscht` in `error`.
+- A consequential event — an entry removed by the deletion of its person or drink, or an entry
+  that lost its factor when the factor was deleted — is indented by 20 dp and its supporting
+  line ends with its cause, `23:41 · anna · durch Löschen von Wein`. The cause comes with the
+  event itself, so it shows even when the deletion is on another page.
+- Pages of 20: below the list the tonal button `Ältere laden` appends the next older page; on
+  the last page it is gone. A failed older page shows the problem title and keeps what is
+  loaded.
+- Loading: four skeleton rows. Empty: `Noch keine Änderungen.` A failed first page has nothing
+  to keep, so instead of the skeleton it shows the empty-state pattern: `Protokoll nicht
+  geladen.` with the button `Erneut versuchen`, which loads it again (skeleton meanwhile); a
+  problem the API names also shows its title in the snackbar. Below everything the closing
+  line (`support`) `Jede Änderung mit Konto und Zeit. Das Protokoll kann nicht bearbeitet oder
+  gelöscht werden.` — the log is application-level append-only history; the screen has no
+  other action.
+
 ## 8. Key flows
 
 1. **Log two beers in happy hour:** Zählen → Daniel → Bier → 2 → Happy Hour ×2 → back on
@@ -654,8 +698,9 @@ submit on Enter.
 | Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window |
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt` and `accountName` (or `null`); 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count; `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
-| Verwalten | `GET /api/{persons,drinks,factors}`, `GET /api/accounts` (admins) | Counts are the list lengths |
+| Verwalten | `GET /api/{persons,drinks,factors}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
+| Protokoll | `GET /api/audit?before=` | Admins only (401/403). Answer `{events, next}`, newest first; `next` is the `before` of `Ältere laden`, null on the last page. Each event: `occurredAt`, `operation`, `subjectKind`, `actor.userName`, snapshots `before`/`after` (names and values as they were), `cause` (`{id, subjectKind, name}` or null). No polling |
 | Update / reload floor | `GET /api/health` | `minClientVersion` |
 
 `from` is always local midnight of the current day in the browser's time zone, as a UTC instant.
@@ -677,6 +722,13 @@ the shareable page a UI change is reviewed on before it reaches the host.
   (marked as sample data: persons, drinks, factors and entries timed relative to now, so the
   preview never ages out of "today"), keeps writes in memory for the session (adds, undo,
   deletes, CRUD), and answers anything else with 503.
+- **Audit log in the preview.** Protokoll starts with a seeded log that reaches back over
+  several days, holds a cascade (the deletion of `Sekt` with the entries it removed) and names
+  an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are
+  then recorded in memory by the API's rules: one event per change with the signed-in account,
+  the entries a deletion removes or changes as consequential events with their cause, and
+  nothing for a save that changes nothing, a write that fails, a replayed or conflicting entry
+  request, or an account change.
 - **No service worker.** The preview build does not register the service worker; the update
   prompt and reload floor can be triggered from a small preview-only menu. The menu's summary
   `Vorschau · Beispieldaten` (the sample-data marker) is a thin strip above the app that pushes
@@ -687,7 +739,8 @@ the shareable page a UI change is reviewed on before it reaches the host.
 
 ## 13. Out of scope (this spec)
 
-- Views of other days, all-time totals, statistics or charts.
+- Views of other days (Protokoll, §7l, excepted), all-time totals, statistics or charts.
+- Filters, search or export of the Protokoll; restoring data from it.
 - Theme switch, custom colours per person, avatars.
 - English UI.
 - Tablet- or desktop-specific layouts beyond widened grids.

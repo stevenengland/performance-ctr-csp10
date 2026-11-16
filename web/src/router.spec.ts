@@ -82,6 +82,22 @@ describe('the route guard', () => {
     expect((await open('/verwalten/konten')).path).toBe('/verwalten/konten');
   });
 
+  it('keeps Protokoll to admins, under Verwalten', async () => {
+    signedInAs({ id: 2, userName: 'anna', isAdmin: false });
+    expect((await open('/verwalten/protokoll')).path).toBe('/verwalten');
+
+    forgetSession();
+    signedInAs({ id: 1, userName: 'chef', isAdmin: true });
+    const protokoll = await open('/verwalten/protokoll');
+    expect(protokoll.path).toBe('/verwalten/protokoll');
+    expect(protokoll.meta).toMatchObject({
+      title: 'Protokoll',
+      destination: 'verwalten',
+      child: true,
+      admin: true,
+    });
+  });
+
   it('sends a signed-in user away from Anmelden to where they wanted to go', async () => {
     signedInAs({ id: 2, userName: 'anna', isAdmin: false });
 

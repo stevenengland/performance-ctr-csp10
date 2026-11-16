@@ -50,7 +50,7 @@ async function leave() {
         <span class="type-row-title" data-testid="account-name">{{
           account?.userName
         }}</span>
-        <span v-if="account?.isAdmin" class="admin-chip type-caption">{{
+        <span v-if="account?.isAdmin" class="assist-chip type-caption">{{
           messages.konto.admin
         }}</span>
       </p>

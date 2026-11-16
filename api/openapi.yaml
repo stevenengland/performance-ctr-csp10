@@ -644,6 +644,50 @@ paths:
           $ref: '#/components/responses/Problem'
         '422':
           $ref: '#/components/responses/Problem'
+  /api/audit:
+    get:
+      operationId: listAuditEvents
+      summary: A page of audit events, newest first (admins only)
+      description: >-
+        The audit log is application-level append-only history: every create, update and
+        delete of a person, a drink or a factor, and every entry counted or deleted, recorded
+        in the transaction of the change with the acting account and the values before and
+        after. A write that fails, a replayed entry request, and an update that changes no
+        value record nothing. No route changes or deletes an event (other methods on this
+        path answer 405), and reading the log does not change the data revision. Pages run
+        newest first by event id: `before` reads only older events, `limit` sets the page size,
+        and `next` is the `before` of the next older page. A `before` that is not a positive
+        integer, or a `limit` outside 1 to 100, is 422.
+      parameters:
+        - name: before
+          in: query
+          required: false
+          description: An event id; only older events are returned. Omitted, the page starts at the newest event.
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          description: Events per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: A page of events, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     session:
@@ -1006,6 +1050,132 @@ components:
           type: string
         count:
           type: number
+    AuditPage:
+      type: object
+      additionalProperties: false
+      required: [events, next]
+      properties:
+        events:
+          type: array
+          description: Newest first, by id
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next:
+          type: [integer, 'null']
+          minimum: 1
+          description: >-
+            The `before` of the next older page; null when no older event exists, so a last page
+            that is exactly full is not followed by an empty one
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          occurredAt,
+          operation,
+          subjectKind,
+          subjectId,
+          actor,
+          before,
+          after,
+          cause,
+        ]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+          description: Sequential; a later event has a larger id
+        occurredAt:
+          type: string
+          format: date-time
+          description: Server time of the change, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+        operation:
+          type: string
+          enum: [create, update, delete]
+        subjectKind:
+          type: string
+          enum: [entry, person, drink, factor]
+        subjectId:
+          type: string
+          description: The subject's id as text (an integer for persons, drinks and factors, the UUID for entries)
+        actor:
+          type: object
+          additionalProperties: false
+          required: [accountId, userName]
+          description: The account that made the change, as it was then; kept after the account is renamed or deleted
+          properties:
+            accountId:
+              type: integer
+            userName:
+              type: string
+        before:
+          description: The subject's values before the change; null for a create
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/AuditSnapshot'
+        after:
+          description: The subject's values after the change; null for a delete
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/AuditSnapshot'
+        cause:
+          description: >-
+            The event whose change caused this one, null for a direct change. An entry removed
+            or changed by the deletion of its person, drink or factor names that deletion here,
+            so it can be shown when the deletion's own event is on another page.
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [id, subjectKind, name]
+              properties:
+                id:
+                  type: integer
+                  description: The causing event's id
+                subjectKind:
+                  type: string
+                  enum: [entry, person, drink, factor]
+                name:
+                  type: string
+                  description: The causing event's subject name, as that event recorded it
+    AuditSnapshot:
+      type: object
+      description: >-
+        The subject's values as they were, with referenced names resolved then: a person
+        `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry
+        `{person, drink, points, quantity, factor}` with the person's and the drink's names,
+        the drink's points, and the factor `{name, multiplier}` or null. Keys are only ever
+        added, never renamed, removed or given a new meaning; a reader treats a key it does
+        not know, or a missing one, as unknown.
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+        points:
+          type: number
+        multiplier:
+          type: number
+        person:
+          type: string
+        drink:
+          type: string
+        quantity:
+          type: integer
+        factor:
+          oneOf:
+            - type: 'null'
+            - type: object
+              description: >-
+                The factor's values, under the same rule as the snapshot: keys are only ever
+                added, and a missing one is unknown.
+              additionalProperties: true
+              properties:
+                name:
+                  type: string
+                multiplier:
+                  type: number
     Health:
       type: object
       additionalProperties: false

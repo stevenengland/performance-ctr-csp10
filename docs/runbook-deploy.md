@@ -217,6 +217,40 @@ There are no database backups; a schema change is never rolled back. Health repo
 the database is really at: an older release whose PHP answers on a newer database reports the
 newer number, not its own newest migration.
 
+## Audit log
+
+*Verwalten → Protokoll* (admins only) reads `audit_events`: every change to entries, persons,
+drinks and factors, with the account that made it and the values before and after.
+
+**What it is:** application-level append-only history. The API only appends events, in the
+same transaction as the change, and only reads them back (`GET /api/audit`; no route edits or
+deletes an event, other methods answer 405). The table has no foreign keys, so deleting an
+account, person, drink or factor leaves its events as they were.
+
+**What it is not:** tamper-resistant. Anyone who can log in to the database with the API's
+credentials, or through the host's database administration, can change or delete events
+without a trace: there is no hash chain, no signature and no copy outside the database. Do not
+present the log as tamper-proof or as evidence beyond "what the app recorded".
+
+**What protects it:**
+
+- the database credentials: `DB_USER`/`DB_PASS` live only in the repository secrets and in the
+  rendered `config/runtime.php` on the host; rotate them (host panel, then the secrets, then
+  deploy) if they may have leaked;
+- the host's database access: only that one account is used, and its administration login is
+  the hosting account's; keep both to as few people as possible;
+- backups: this project makes none (see *Rollback*). The log is lost or rewritten together with
+  the database; if its history matters beyond the live database, enable the host's database
+  backups or export the table regularly. This is the owner's decision and not set up yet.
+
+**Size of a deletion:** deleting a person, drink or factor records one event per affected entry
+in the same transaction, and holds the locks on those entries until it commits. It reads the
+entries 2 000 at a time, so memory stays flat. Measured locally (MariaDB 10.11, PHP 8.3; the host
+may be slower): 1 000 entries 0.03 s and 3 MB, 10 000 entries 0.3 s and 5 MB, 50 000 entries
+1.5 s and 11 MB peak. Meanwhile counting with that person, drink or factor waits. Deletions run
+one at a time; one that waits more than 10 s for the one before it answers 500 and changes
+nothing. A write that loses a deadlock is run again, up to three times (ADR 0004, decision 4).
+
 ## Live check
 
 `live-check.yml` runs every Monday 05:17 UTC (and on demand). It fails, and GitHub emails the

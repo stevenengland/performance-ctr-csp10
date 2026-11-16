@@ -6,6 +6,7 @@ namespace Performance\Http;
 
 use PDO;
 use Performance\Domain\Accounts;
+use Performance\Domain\AuditLog;
 use Performance\Domain\Catalog\Catalog;
 use Performance\Domain\Clock;
 use Performance\Domain\DataRevision;
@@ -29,6 +30,7 @@ final class Database
     private ?EntryLedger $entries = null;
     private ?Scoreboard $scoreboard = null;
     private ?DataRevision $revision = null;
+    private ?AuditLog $audit = null;
 
     public function __construct(
         private readonly Config $config,
@@ -57,17 +59,22 @@ final class Database
 
     public function catalog(): Catalog
     {
-        return $this->catalog ??= new Catalog($this->pdo(), $this->clock, $this->revision());
+        return $this->catalog ??= new Catalog($this->pdo(), $this->clock, $this->revision(), $this->audit());
     }
 
     public function entries(): EntryLedger
     {
-        return $this->entries ??= new EntryLedger($this->pdo(), $this->clock, $this->revision());
+        return $this->entries ??= new EntryLedger($this->pdo(), $this->clock, $this->revision(), $this->audit());
     }
 
     public function scoreboard(): Scoreboard
     {
         return $this->scoreboard ??= new Scoreboard($this->pdo(), $this->revision());
+    }
+
+    public function audit(): AuditLog
+    {
+        return $this->audit ??= new AuditLog($this->pdo(), $this->clock);
     }
 
     private function revision(): DataRevision
