@@ -114,6 +114,132 @@ final class AuditLogTest extends DatabaseTestCase
         self::assertSame('urn:performance:problem:forbidden', $this->body($member)['type']);
     }
 
+    public function testTheLogPagesBackNewestFirstWithBeforeAndLimit(): void
+    {
+        foreach (['Bier', 'Wein', 'Sekt', 'Saft'] as $name) {
+            $this->send('POST', '/api/drinks', ['name' => $name, 'points' => 1], $this->admin);
+        }
+
+        $newest = $this->page('?limit=2');
+        $older = $this->page('?limit=2&before=' . $newest['next']);
+
+        self::assertSame([4, 3], array_column($newest['events'], 'id'));
+        self::assertSame(3, $newest['next']);
+        self::assertSame([2, 1], array_column($older['events'], 'id'));
+        self::assertNull($older['next'], 'a last page that is exactly full points to no empty page');
+        self::assertSame(['events' => [], 'next' => null], $this->page('?before=1'));
+        self::assertSame([4, 3, 2, 1], array_column($this->page('?before=99')['events'], 'id'));
+    }
+
+    public function testAPageHoldsTwentyEventsByDefaultAndAtMostAHundred(): void
+    {
+        // 3 catalog events, the drink's deletion as event 4, and 110 entry deletions as events 5 to 114.
+        $this->entryCatalog();
+        $this->seedEntries(110);
+        $this->send('DELETE', '/api/drinks/1', session: $this->admin);
+
+        $default = $this->page();
+        $largest = $this->page('?limit=100');
+        $rest = $this->page('?limit=100&before=' . $largest['next']);
+
+        self::assertSame(range(114, 95), array_column($default['events'], 'id'));
+        self::assertSame(95, $default['next']);
+        self::assertSame(range(114, 15), array_column($largest['events'], 'id'));
+        self::assertSame(15, $largest['next']);
+        self::assertSame(range(14, 1), array_column($rest['events'], 'id'));
+        self::assertNull($rest['next']);
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function invalidPaging(): iterable
+    {
+        yield 'before 0' => ['?before=0', 'before'];
+        yield 'negative before' => ['?before=-3', 'before'];
+        yield 'empty before' => ['?before=', 'before'];
+        yield 'before as text' => ['?before=abc', 'before'];
+        yield 'fractional before' => ['?before=2.5', 'before'];
+        yield 'before as a list' => ['?before[]=2', 'before'];
+        yield 'limit 0' => ['?limit=0', 'limit'];
+        yield 'limit 101' => ['?limit=101', 'limit'];
+        yield 'negative limit' => ['?limit=-1', 'limit'];
+        yield 'empty limit' => ['?limit=', 'limit'];
+        yield 'limit as text' => ['?limit=zehn', 'limit'];
+        yield 'fractional limit' => ['?limit=1.5', 'limit'];
+        yield 'huge limit' => ['?limit=99999999999999999999', 'limit'];
+    }
+
+    #[DataProvider('invalidPaging')]
+    public function testAnInvalidBeforeOrLimitIsRejectedWith422(string $query, string $field): void
+    {
+        $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $this->admin);
+
+        $response = $this->send('GET', '/api/audit' . $query, session: $this->admin);
+
+        self::assertSame(422, $response->getStatusCode(), (string) $response->getBody());
+        $problem = $this->body($response);
+        self::assertSame('urn:performance:problem:validation', $problem['type']);
+        self::assertIsArray($problem['errors']);
+        self::assertSame([$field], array_keys($problem['errors']));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function writingMethods(): iterable
+    {
+        yield 'POST' => ['POST'];
+        yield 'PUT' => ['PUT'];
+        yield 'PATCH' => ['PATCH'];
+        yield 'DELETE' => ['DELETE'];
+    }
+
+    #[DataProvider('writingMethods')]
+    public function testTheLogCannotBeWrittenThroughTheApi(string $method): void
+    {
+        $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $this->admin);
+        $recorded = $this->events();
+        $revision = $this->scoreboardTag();
+        $event = self::event(2, 'delete', 'drink', '1', ['accountId' => 1, 'userName' => 'admin'], ['name' => 'Bier', 'points' => 1], null);
+
+        $response = $this->send($method, '/api/audit', $event, $this->admin);
+        $addressed = $this->send($method, '/api/audit/1', $event, $this->admin);
+
+        self::assertSame(405, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('GET', $response->getHeaderLine('Allow'));
+        self::assertSame(404, $addressed->getStatusCode(), (string) $addressed->getBody());
+        self::assertSame($recorded, $this->events());
+        self::assertSame($revision, $this->scoreboardTag());
+    }
+
+    public function testEventsStayUnchangedAfterTheAccountAndTheItemsTheyMentionAreDeleted(): void
+    {
+        $member = $this->member();
+        $this->send('POST', '/api/persons', ['name' => 'Daniel'], $member);
+        $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1.5], $member);
+        $this->send('POST', '/api/factors', ['name' => 'Happy Hour', 'multiplier' => 2], $member);
+        $this->putEntry(self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2, 'factorId' => 1], $member);
+        $recorded = $this->events();
+
+        foreach (['/api/accounts/2', '/api/factors/1', '/api/drinks/1', '/api/persons/1'] as $path) {
+            $response = $this->send('DELETE', $path, session: $this->admin);
+            self::assertSame(204, $response->getStatusCode(), "{$path}: " . (string) $response->getBody());
+        }
+
+        $actor = ['accountId' => 2, 'userName' => self::MEMBER];
+        self::assertSame(
+            [
+                self::event(4, 'create', 'entry', self::ENTRY, $actor, null, self::entrySnapshot(2, ['name' => 'Happy Hour', 'multiplier' => 2])),
+                self::event(3, 'create', 'factor', '1', $actor, null, ['name' => 'Happy Hour', 'multiplier' => 2]),
+                self::event(2, 'create', 'drink', '1', $actor, null, ['name' => 'Bier', 'points' => 1.5]),
+                self::event(1, 'create', 'person', '1', $actor, null, ['name' => 'Daniel']),
+            ],
+            $recorded,
+        );
+        self::assertSame($recorded, $this->page('?before=5')['events']);
+    }
+
     public function testWritesThatFailOrChangeNothingRecordNoEvent(): void
     {
         $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $this->admin);
@@ -370,6 +496,7 @@ final class AuditLogTest extends DatabaseTestCase
             array_fill(0, AuditLog::PAGE_SIZE, ['id' => 4, 'subjectKind' => 'drink', 'name' => 'Bier']),
             array_column($events, 'cause'),
         );
+        self::assertSame([5, 4, 3, 2, 1], array_column($this->page('?before=' . $this->page()['next'])['events'], 'id'), 'the cause sits on the next page');
     }
 
     public function testADeletionAffecting1000EntriesSucceedsAndRecords1000ConsequentialEvents(): void
@@ -380,13 +507,13 @@ final class AuditLogTest extends DatabaseTestCase
         $response = $this->send('DELETE', '/api/persons/1', session: $this->admin);
 
         self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
-        self::assertSame(
-            [['events' => 1000, 'entries' => 1000]],
-            $this->rows(
-                "SELECT COUNT(*) AS events, COUNT(DISTINCT subject_id) AS entries FROM audit_events
-                  WHERE cause_id = 4 AND operation = 'delete' AND subject_kind = 'entry'",
-            ),
-        );
+        $removed = self::subjectIds(array_filter(
+            $this->allEvents(),
+            static fn(array $event): bool => $event['operation'] === 'delete' && $event['subjectKind'] === 'entry'
+                && $event['cause'] === ['id' => 4, 'subjectKind' => 'person', 'name' => 'Daniel'],
+        ));
+        self::assertCount(1000, $removed);
+        self::assertCount(1000, array_unique($removed));
         self::assertSame([], $this->rows('SELECT id FROM entries'));
     }
 
@@ -424,23 +551,30 @@ final class AuditLogTest extends DatabaseTestCase
             $this->raceDeletion($kind, $parents, 0.02 * $round);
 
             $message = "{$kind} deletion, round {$round}";
-            $created = array_column($this->rows(
-                "SELECT subject_id FROM audit_events WHERE id > {$lastBefore} AND subject_kind = 'entry' AND operation = 'create' ORDER BY subject_id",
-            ), 'subject_id');
-            $deletion = $this->rows(
-                "SELECT id FROM audit_events WHERE subject_kind = '{$kind}' AND subject_id = '{$parents[$kind]}' AND operation = 'delete'",
-            );
+            $events = array_filter($this->allEvents(), static fn(array $event): bool => $event['id'] > $lastBefore);
+            $created = self::subjectIds(array_filter(
+                $events,
+                static fn(array $event): bool => $event['subjectKind'] === 'entry' && $event['operation'] === 'create',
+            ));
+            $deletion = array_column(array_filter(
+                $events,
+                static fn(array $event): bool => $event['subjectKind'] === $kind && $event['subjectId'] === (string) $parents[$kind]
+                    && $event['operation'] === 'delete',
+            ), 'id');
             self::assertCount(1, $deletion, $message);
-            $deletionId = $deletion[0]['id'];
-            self::assertIsInt($deletionId);
-            $consequences = $this->rows("SELECT subject_id, operation FROM audit_events WHERE cause_id = {$deletionId} ORDER BY subject_id");
+            $consequences = array_filter(
+                $events,
+                static fn(array $event): bool => is_array($event['cause']) && $event['cause']['id'] === $deletion[0],
+            );
+            $expected = $kind === 'factor' ? 'update' : 'delete';
+
+            self::assertSame($created, self::subjectIds($consequences), $message);
+            self::assertSame(array_fill(0, count($consequences), $expected), array_column($consequences, 'operation'), $message);
             $surviving = array_column($this->rows(
                 "SELECT id FROM entries WHERE person_id = {$parents['person']} OR drink_id = {$parents['drink']} ORDER BY id",
             ), 'id');
             $withFactor = $this->rows("SELECT id FROM entries WHERE factor_id = {$parents['factor']}");
-            $expected = $kind === 'factor' ? 'update' : 'delete';
 
-            self::assertSame(array_map(static fn(mixed $id): array => ['subject_id' => $id, 'operation' => $expected], $created), $consequences, $message);
             self::assertSame($kind === 'factor' ? $created : [], $surviving, $message);
             self::assertSame([], $withFactor, $message);
             $this->otherSession()->exec('DELETE FROM entries');
@@ -538,10 +672,38 @@ final class AuditLogTest extends DatabaseTestCase
 
     private function lastEventId(): int
     {
-        $id = $this->rows('SELECT MAX(id) AS id FROM audit_events')[0]['id'] ?? 0;
+        $id = $this->page('?limit=1')['events'][0]['id'] ?? 0;
         self::assertIsInt($id);
 
         return $id;
+    }
+
+    /**
+     * The subject ids of events, sorted.
+     *
+     * @param array<array<string, mixed>> $events
+     *
+     * @return list<string>
+     */
+    private static function subjectIds(array $events): array
+    {
+        $ids = [];
+        foreach ($events as $event) {
+            self::assertIsString($event['subjectId']);
+            $ids[] = $event['subjectId'];
+        }
+        sort($ids);
+
+        return $ids;
+    }
+
+    /** The scoreboard's ETag, which names the data revision. */
+    private function scoreboardTag(): string
+    {
+        $response = $this->send('GET', '/api/scoreboard?from=' . rawurlencode(self::NOW), session: $this->admin);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+
+        return $response->getHeaderLine('ETag');
     }
 
     /** Signs in a second account, which is not an admin, and returns its session. */
@@ -553,17 +715,47 @@ final class AuditLogTest extends DatabaseTestCase
     }
 
     /**
-     * The events an admin reads, newest first.
+     * The newest page of events an admin reads, newest first.
      *
      * @return list<array<string, mixed>>
      */
     private function events(): array
     {
-        $response = $this->send('GET', '/api/audit', session: $this->admin);
-        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        return $this->page()['events'];
+    }
 
-        /** @var list<array<string, mixed>> */
-        return $this->body($response)['events'];
+    /**
+     * A page an admin reads, for a query string such as `?before=5&limit=2`.
+     *
+     * @return array{events: list<array<string, mixed>>, next: int|null}
+     */
+    private function page(string $query = ''): array
+    {
+        $response = $this->send('GET', '/api/audit' . $query, session: $this->admin);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $page = $this->body($response);
+        self::assertSame(['events', 'next'], array_keys($page));
+
+        /** @var array{events: list<array<string, mixed>>, next: int|null} */
+        return $page;
+    }
+
+    /**
+     * Every event an admin reads, newest first, page after page of the largest size.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function allEvents(): array
+    {
+        $events = [];
+        $next = null;
+        do {
+            $page = $this->page('?limit=' . AuditLog::MAX_PAGE_SIZE . ($next === null ? '' : "&before={$next}"));
+            array_push($events, ...$page['events']);
+            $next = $page['next'];
+        } while ($next !== null);
+
+        return $events;
     }
 
     /**

@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Performance\Http;
 
 use Performance\Domain\AuditEvent;
+use Performance\Domain\AuditLog;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * `GET /api/audit` (admins only): the newest audit events, newest first. Reading the log
- * changes nothing, not even the data revision.
+ * `GET /api/audit?before=<id>&limit=<n>` (admins only): a page of audit events, newest first,
+ * and the `before` of the next older page. Reading the log changes nothing, not even the data
+ * revision. The route has no writing method, so the log cannot be changed through the API.
  */
 final readonly class AuditActions
 {
@@ -21,7 +23,29 @@ final readonly class AuditActions
 
     public function list(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
-        return Json::write($response, ['events' => array_map(self::event(...), $this->database->audit()->page())]);
+        parse_str($request->getUri()->getQuery(), $query);
+        $page = $this->database->audit()->page(
+            self::integer($query, 'before'),
+            self::integer($query, 'limit') ?? AuditLog::PAGE_SIZE,
+        );
+
+        return Json::write($response, ['events' => array_map(self::event(...), $page->events), 'next' => $page->next]);
+    }
+
+    /**
+     * An optional whole-number query parameter: null when it is missing; anything but an
+     * integer reads as 0, which the audit log then rejects.
+     *
+     * @param array<mixed> $query
+     */
+    private static function integer(array $query, string $name): ?int
+    {
+        $value = $query[$name] ?? null;
+        if ($value === null) {
+            return null;
+        }
+
+        return is_string($value) && preg_match('/^-?[0-9]{1,18}$/D', $value) === 1 ? (int) $value : 0;
     }
 
     /**

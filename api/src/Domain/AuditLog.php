@@ -24,7 +24,9 @@ final readonly class AuditLog
 {
     /** The shape of the snapshots written now; raised only if a breaking change is ever unavoidable. */
     public const SNAPSHOT_VERSION = 1;
+    /** Events per page when the reader names no limit. */
     public const PAGE_SIZE = 20;
+    public const MAX_PAGE_SIZE = 100;
     /** Events per insert statement when one change records many; keeps a statement well below the placeholder limit. */
     private const BATCH_SIZE = 500;
     private const COLUMNS_PER_EVENT = 10;
@@ -98,27 +100,47 @@ final readonly class AuditLog
     }
 
     /**
-     * The newest events, newest first.
+     * A page of events, newest first: the newest ones, or with `$before` the newest of those
+     * older than that event. The page says where the next older one starts, and only when an
+     * older event exists, so a log of exactly `$limit` events is one page, not two.
      *
-     * @return list<AuditEvent>
+     * @param int|null $before an event id; only older events are read. Null reads from the newest.
+     * @param int      $limit  events per page, 1 to MAX_PAGE_SIZE
+     *
+     * @throws ValidationFailed when `$before` is not a positive id or `$limit` is out of range
      */
-    public function page(): array
+    public function page(?int $before = null, int $limit = self::PAGE_SIZE): AuditPage
     {
+        $errors = [];
+        if ($before !== null && $before < 1) {
+            $errors['before'] = 'Positive ganze Zahl.';
+        }
+        if ($limit < 1 || $limit > self::MAX_PAGE_SIZE) {
+            $errors['limit'] = sprintf('1 bis %d.', self::MAX_PAGE_SIZE);
+        }
+        if ($errors !== []) {
+            throw new ValidationFailed($errors);
+        }
+
+        // One event more than the page holds tells whether an older page exists.
         $statement = $this->pdo->prepare(
             'SELECT e.id, e.occurred_at, e.operation, e.subject_kind, e.subject_id, e.actor_account_id, e.actor_user_name,
                     e.before_json, e.after_json, e.cause_id,
                     c.subject_kind AS cause_kind, c.before_json AS cause_before_json, c.after_json AS cause_after_json
                FROM audit_events e
                LEFT JOIN audit_events c ON c.id = e.cause_id
+              ' . ($before === null ? '' : 'WHERE e.id < ?') . '
               ORDER BY e.id DESC
-              LIMIT ' . self::PAGE_SIZE,
+              LIMIT ' . ($limit + 1),
         );
-        $statement->execute();
+        $statement->execute($before === null ? [] : [$before]);
 
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+        $events = array_map(self::eventOf(...), array_slice($rows, 0, $limit));
+        $oldest = end($events);
 
-        return array_map(self::eventOf(...), $rows);
+        return new AuditPage($events, count($rows) > $limit && $oldest !== false ? $oldest->id : null);
     }
 
     private function checkTransaction(): void

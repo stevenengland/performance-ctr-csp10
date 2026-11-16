@@ -306,8 +306,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * The newest audit events, newest first (admins only)
-     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink or a factor, and every entry counted or deleted, recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry request, and an update that changes no value record nothing. No route changes or deletes an event, and reading the log does not change the data revision. Answers the newest 20 events.
+     * A page of audit events, newest first (admins only)
+     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink or a factor, and every entry counted or deleted, recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
      */
     get: operations['listAuditEvents'];
     put?: never;
@@ -480,6 +480,8 @@ export interface components {
     AuditPage: {
       /** @description Newest first, by id */
       events: components['schemas']['AuditEvent'][];
+      /** @description The `before` of the next older page; null when no older event exists, so a last page that is exactly full is not followed by an empty one */
+      next: number | null;
     };
     AuditEvent: {
       /** @description Sequential; a later event has a larger id */
@@ -1359,14 +1361,19 @@ export interface operations {
   };
   listAuditEvents: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description An event id; only older events are returned. Omitted, the page starts at the newest event. */
+        before?: number;
+        /** @description Events per page */
+        limit?: number;
+      };
       header?: never;
       path?: never;
       cookie?: never;
     };
     requestBody?: never;
     responses: {
-      /** @description The newest events, newest first */
+      /** @description A page of events, newest first */
       200: {
         headers: {
           [name: string]: unknown;
@@ -1377,6 +1384,7 @@ export interface operations {
       };
       401: components['responses']['Problem'];
       403: components['responses']['Problem'];
+      422: components['responses']['Problem'];
     };
   };
 }
