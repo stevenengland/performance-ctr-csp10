@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext } from './support/playwright.ts';
 import { signIn, signInVia, uniqueName } from './support/session.ts';
 
@@ -12,6 +13,29 @@ async function created(
   const response = await request.post(path, { data });
   expect(response.status()).toBe(201);
   return ((await response.json()) as { id: number }).id;
+}
+
+/** A duel between two new persons with one match the first won, recorded through the API. */
+async function duelWithAMatch(request: APIRequestContext) {
+  const anna = uniqueName('Anna');
+  const ben = uniqueName('Ben');
+  const annaId = await created(request, '/api/persons', { name: anna });
+  const benId = await created(request, '/api/persons', { name: ben });
+  const game = uniqueName('Schach');
+  const gameId = await created(request, '/api/games', {
+    name: game,
+    kind: 'duel',
+  });
+  const response = await request.put(`/api/matches/${randomUUID()}`, {
+    data: {
+      gameId,
+      firstPersonId: annaId,
+      secondPersonId: benId,
+      outcome: 'first',
+    },
+  });
+  expect(response.status()).toBe(201);
+  return { anna, ben, benId, game, gameId };
 }
 
 test.beforeEach(async ({ page }) => {
@@ -91,4 +115,66 @@ test('a result typed on the number pad is saved and ranked on the game’s page'
       name: `Platz 1, ${daniel}, −20 Punkte, 1 Ergebnis`,
     }),
   ).toBeVisible();
+});
+
+test('a restart empties the game’s ranking and keeps nothing of the old run on its page', async ({
+  page,
+}) => {
+  const { anna, game, gameId } = await duelWithAMatch(page.request);
+
+  await page.goto(`/spiele/${String(gameId)}`);
+  await expect(
+    page.getByRole('listitem', { name: new RegExp(`^Platz 1, ${anna},`) }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Neu starten' }).click();
+  const confirm = page.getByRole('dialog');
+  await expect(confirm.getByRole('heading')).toHaveText(`${game} neu starten?`);
+  await confirm.getByRole('button', { name: 'Neu starten' }).click();
+
+  await expect(page.getByText(`${game} neu gestartet`)).toBeVisible();
+  await expect(
+    page.getByText('Seit dem Start noch keine Partien.'),
+  ).toBeVisible();
+  await expect(page.getByRole('banner')).toContainText(
+    /Duell · seit heute, \d\d:\d\d/,
+  );
+});
+
+test('a match deleted from the game’s Verlauf leaves its ranking', async ({
+  page,
+}) => {
+  const { anna, ben, gameId } = await duelWithAMatch(page.request);
+
+  await page.goto(`/spiele/${String(gameId)}/verlauf`);
+  await page
+    .getByRole('button', {
+      name: new RegExp(`^${anna} – ${ben} vom \\d\\d\\.\\d\\d\\. löschen$`),
+    })
+    .click();
+  const confirm = page.getByRole('dialog');
+  await expect(confirm.getByRole('heading')).toHaveText('Partie löschen?');
+  await confirm.getByRole('button', { name: 'Löschen' }).click();
+
+  await expect(page.getByText('Partie gelöscht')).toBeVisible();
+  await expect(
+    page.getByText('Seit dem Start noch keine Partien.'),
+  ).toBeVisible();
+  await page.goto(`/spiele/${String(gameId)}`);
+  await expect(
+    page.getByText('Seit dem Start noch keine Partien.'),
+  ).toBeVisible();
+});
+
+test('a deleted person’s match stays in the Verlauf as “gelöschte Person”', async ({
+  page,
+}) => {
+  const { anna, benId, gameId } = await duelWithAMatch(page.request);
+  const deleted = await page.request.delete(`/api/persons/${String(benId)}`);
+  expect(deleted.status()).toBe(204);
+
+  await page.goto(`/spiele/${String(gameId)}/verlauf`);
+
+  await expect(
+    page.getByRole('list', { name: 'Verlauf' }).getByRole('listitem'),
+  ).toHaveText([new RegExp(`^${anna} – gelöschte Person\\s*${anna} gewinnt`)]);
 });
