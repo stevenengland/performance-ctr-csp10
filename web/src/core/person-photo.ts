@@ -98,33 +98,53 @@ export class PhotoUnreadable extends Error {
   }
 }
 
-/** Width of the small first decode that tells a picture's upright aspect. */
+/** Width of the probe that tells a picture's upright aspect, unless that would make it too tall. */
 const PROBE_WIDTH = 256;
 const UPRIGHT = { imageOrientation: 'from-image' } as const;
 
 /**
 Decodes a chosen file upright (EXIF orientation applied) into the working image:
 its longer side at most `MAX_WORKING_EDGE`, scaled by the decode itself, so the
-full-size picture is never kept. A small first decode tells the aspect, which
-picks the width that keeps the longer side in bounds. Rejects with
-`PhotoUnreadable` what the browser cannot decode.
+full-size picture is never kept. Two small decodes come first. One pixel wide,
+the picture is as many pixels tall as it is times taller than wide (rounded up),
+which bounds the second: as wide as `PROBE_WIDTH` allows while its height stays
+in bounds. That one tells the aspect precisely enough to pick the width that
+keeps the working image's longer side in bounds. Rejects with `PhotoUnreadable`
+what the browser cannot decode, and a picture more than `MAX_WORKING_EDGE`
+times taller than wide, which no working image in bounds could show.
 */
 export async function decodePhoto(file: Blob): Promise<ImageBitmap> {
   try {
-    const probe = await createImageBitmap(file, {
-      ...UPRIGHT,
-      resizeWidth: PROBE_WIDTH,
-    });
-    const aspect = (probe.height + 1) / probe.width;
-    probe.close();
+    const rough = await heightAt(file, 1);
+    if (rough > MAX_WORKING_EDGE) throw new PhotoUnreadable();
+    const probeWidth = Math.max(
+      1,
+      Math.min(PROBE_WIDTH, Math.floor(MAX_WORKING_EDGE / (rough + 1))),
+    );
+    const aspect = ((await heightAt(file, probeWidth)) + 1) / probeWidth;
     return await createImageBitmap(file, {
       ...UPRIGHT,
-      resizeWidth: Math.floor(Math.min(1, 1 / aspect) * MAX_WORKING_EDGE),
+      resizeWidth: Math.max(
+        1,
+        Math.floor(Math.min(1, 1 / aspect) * MAX_WORKING_EDGE),
+      ),
       resizeQuality: 'high',
     });
   } catch (failure) {
+    if (failure instanceof PhotoUnreadable) throw failure;
     throw new PhotoUnreadable({ cause: failure });
   }
+}
+
+/** The height of the picture decoded upright at `width`, its bitmap closed at once. */
+async function heightAt(file: Blob, width: number): Promise<number> {
+  const probe = await createImageBitmap(file, {
+    ...UPRIGHT,
+    resizeWidth: width,
+  });
+  const { height } = probe;
+  probe.close();
+  return height;
 }
 
 /** Draws the framed picture into a square canvas context of `edge` pixels, on white (a JPEG has no transparency). */

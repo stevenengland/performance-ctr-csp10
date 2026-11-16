@@ -210,6 +210,42 @@ describe('decodePhoto', () => {
     expect(picture.close).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [1000, 20000],
+    [1, 2048],
+    [20000, 1000],
+    [2048, 1],
+    [500, 30000],
+  ])(
+    'decodes no bitmap of a %i × %i picture with a side over 2048 px, probes included',
+    async (width, height) => {
+      const { decoded } = browser(width, height);
+
+      const picture = await decodePhoto(new Blob(['photo']));
+
+      for (const each of decoded) {
+        expect(Math.max(each.width, each.height)).toBeLessThanOrEqual(
+          MAX_WORKING_EDGE,
+        );
+      }
+      expect(Math.max(picture.width, picture.height)).toBeGreaterThan(
+        MAX_WORKING_EDGE * 0.95,
+      );
+    },
+  );
+
+  it('rejects a picture more than 2048 times taller than wide as unreadable', async () => {
+    const { decoded } = browser(1, 4096);
+
+    await expect(decodePhoto(new Blob(['photo']))).rejects.toBeInstanceOf(
+      PhotoUnreadable,
+    );
+    for (const each of decoded) {
+      expect(Math.max(each.width, each.height)).toBeLessThanOrEqual(4096);
+      expect(each.close).toHaveBeenCalled();
+    }
+  });
+
   it('rejects a file the browser cannot decode as unreadable', async () => {
     vi.stubGlobal(
       'createImageBitmap',
