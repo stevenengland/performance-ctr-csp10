@@ -58,6 +58,7 @@ test('a match recorded in one browser appears on another browser’s game page w
     baseURL: test.info().project.use.baseURL,
     viewport: test.info().project.use.viewport,
     locale: 'de-DE',
+    extraHTTPHeaders: test.info().project.use.extraHTTPHeaders,
   });
   try {
     const watcher = await other.newPage();

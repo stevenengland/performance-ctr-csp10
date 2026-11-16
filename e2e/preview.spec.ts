@@ -72,6 +72,7 @@ test('the preview marker covers no control of any screen', async ({ page }) => {
     ['spiele/2/verlauf', 'Verlauf'],
     ['verwalten/konten', 'Konten'],
     ['verlauf/3', 'Daniel'],
+    ['offen', 'Offen'],
   ] as const) {
     await page.goto(`/index.html#/${screen}`);
     await expect(
@@ -193,6 +194,34 @@ test('the fixture preview ranks its sample evening on the Rangliste', async ({
   ).toHaveAccessibleName('Jule, Aperol 1 · Bier 2, +2 offen');
 });
 
+test('the fixture preview lists what anna may verify under Offen with its badge, and Bestätigen lets it count', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/offen');
+  const navigation = page.getByRole('navigation', { name: 'Hauptnavigation' });
+  await expect(
+    navigation.getByRole('link', { name: 'Offen, 2 offen' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('list', { name: 'Zu bestätigen' }).getByRole('listitem'),
+  ).toHaveText([/^2× Bier für Jule.* · ben/, /^1× Aperol für Jule.* · mara/]);
+
+  await page
+    .getByRole('button', { name: '2× Bier für Jule bestätigen' })
+    .click();
+
+  await expect(
+    page.getByRole('list', { name: 'Zu bestätigen' }).getByRole('listitem'),
+  ).toHaveText([/^1× Aperol für Jule/]);
+  await expect(
+    navigation.getByRole('link', { name: 'Offen, 1 offen' }),
+  ).toBeVisible();
+  await page.goto('/index.html#/rangliste');
+  await expect(
+    page.getByRole('link', { name: /^Platz \d+, Jule, 2 Punkte/ }),
+  ).toBeVisible();
+});
+
 test('the fixture preview shows and deletes entries on a person’s Verlauf', async ({
   page,
 }) => {
@@ -252,7 +281,7 @@ test('the fixture preview lists its sample games with their leaders under Spiele
   await page.goto('/index.html#/zaehlen');
   await expect(
     page.getByRole('navigation', { name: 'Hauptnavigation' }).getByRole('link'),
-  ).toHaveText(['Zählen', 'Rangliste', 'Spiele', 'Verwalten']);
+  ).toHaveText(['Zählen', 'Rangliste', 'Spiele', /Offen$/, 'Verwalten']);
   await page
     .getByRole('navigation', { name: 'Hauptnavigation' })
     .getByRole('link', { name: 'Spiele' })
