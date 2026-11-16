@@ -62,7 +62,10 @@
    `Cache-Control: private, max-age=31536000, immutable`; the outermost middleware keeps
    `no-store` as the default for every other answer, every photo error included, but no longer
    overwrites a header an action set. It is also the first API response loaded outside the
-   single fetch wrapper (through `<img>`).
+   single fetch wrapper (through `<img>`). An `<img>` request sends the session cookie but no
+   `X-Client-Version`, so it counts as the last client without the header (0.1.0): raising
+   `MIN_CLIENT_VERSION` past 0.1.0 would refuse every photo, and that change has to let the
+   photo `GET` through.
    *Rejected (owner decision):* sending only a version and painting bytes fetched by the fetch
    wrapper into canvases, which also uses the HTTP cache, but the CSP blocks `blob:` images, so
    it needs a canvas per avatar, DPR handling and its own failure states.

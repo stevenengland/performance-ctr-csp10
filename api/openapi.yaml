@@ -22,6 +22,9 @@ info:
     use at most once a day: only then does a response set the cookie again) and
     answers 401 without a valid one. Request bodies must be
     `application/json` (415 otherwise).
+
+    Every answer carries `Cache-Control: no-store`, except a served person photo
+    (`GET /api/persons/{id}/photo?v=`), which may be cached for good.
 servers:
   - url: /
 security:
@@ -337,6 +340,43 @@ paths:
         schema:
           type: integer
           minimum: 1
+    get:
+      operationId: getPersonPhoto
+      summary: A person's photo, by its version
+      description: >-
+        Served only while `v` is the photo's stored version, the one the server put in the
+        person's `photoUrl`; version and bytes are read together, so no URL ever answers another
+        version's bytes. Re-uploading an earlier photo gives it its old version, which then
+        answers exactly those bytes again. A missing, malformed or stale `v`, a person without
+        a photo and an unknown person are all 404. The only API answer that may be cached:
+        every other answer of this and every route, every problem included, is `no-store`.
+        Browsers load it through `<img>`, which sends the session cookie but no
+        `X-Client-Version`.
+      parameters:
+        - name: v
+          in: query
+          required: true
+          description: The photo's version, the lowercase hex SHA-256 of its stored bytes
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      responses:
+        '200':
+          description: The stored JPEG, 256 × 256, without metadata
+          headers:
+            Cache-Control:
+              description: '`private, max-age=31536000, immutable`'
+              schema:
+                type: string
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                contentMediaType: image/jpeg
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
     put:
       operationId: putPersonPhoto
       summary: Set or replace a person's photo
