@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils';
+import { type DOMWrapper, flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
@@ -41,6 +41,33 @@ const evening: Scoreboard = {
     },
   ],
 };
+
+/** The evening with Daniel's photo at `version`, or without a photo. */
+function withDanielsPhoto(version: string | null): Scoreboard {
+  return {
+    rows: evening.rows.map((row) =>
+      row.personId === 3
+        ? {
+            ...row,
+            photoUrl:
+              version === null ? null : `/api/persons/3/photo?v=${version}`,
+          }
+        : row,
+    ),
+  };
+}
+
+/** The leader's or a row's avatar. */
+function avatarIn(place: DOMWrapper<Element>) {
+  const avatar = place.get('.person-avatar').element;
+  return {
+    size: avatar.getAttribute('style'),
+    photo: avatar.querySelector('img')?.getAttribute('src'),
+    initials: avatar
+      .querySelector('[data-initials]')
+      ?.getAttribute('data-initials'),
+  };
+}
 
 function answer(board: Scoreboard) {
   return () =>
@@ -142,6 +169,62 @@ describe('the Rangliste', () => {
     expect(rows[1]?.text()).toContain('0,5');
     expect(rows[0]?.text()).toContain('Bier 3 · Wein 3');
     expect(wrapper.text()).not.toContain('Stand');
+  });
+
+  it('shows the leader’s 64 px avatar above the name and each row’s 44 px avatar between rank and name, keeping every place’s accessible name', async () => {
+    api(answer(withDanielsPhoto('d1')));
+
+    wrapper = await rangliste();
+
+    const leader = wrapper.get('[data-test="leader"]');
+    expect(leader.attributes('aria-label')).toBe(
+      'Platz 1, Daniel, 13,5 Punkte, 9 Getränke',
+    );
+    expect(avatarIn(leader)).toEqual({
+      size: expect.stringContaining('width: 64px'),
+      photo: '/api/persons/3/photo?v=d1',
+      initials: undefined,
+    });
+    // Above the name, in the same column.
+    expect(
+      leader.get('.person-avatar').element.nextElementSibling?.textContent,
+    ).toBe('Daniel');
+    const rows = wrapper.findAll('[data-test="rank"]');
+    expect(rows.map((row) => row.attributes('aria-label'))).toEqual([
+      'Platz 2, Anna, 9 Punkte, 6 Getränke',
+      'Platz 3, Tom, 0,5 Punkte, 1 Getränk',
+    ]);
+    const [anna] = rows;
+    if (!anna) throw new Error('no row');
+    expect(avatarIn(anna)).toEqual({
+      size: expect.stringContaining('width: 44px'),
+      photo: undefined,
+      initials: 'A',
+    });
+    const avatar = anna.get('.person-avatar').element;
+    expect(avatar.previousElementSibling?.textContent).toBe('2');
+    expect(avatar.nextElementSibling?.textContent).toContain('Anna');
+    expect(avatar.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('shows a photo changed on another phone after the next refresh, and initials once it is removed', async () => {
+    api(
+      answer(withDanielsPhoto('d1')),
+      answer(withDanielsPhoto('d2')),
+      answer(withDanielsPhoto(null)),
+    );
+    const page = await rangliste();
+    wrapper = page;
+    const leader = () => avatarIn(page.get('[data-test="leader"]'));
+    expect(leader().photo).toBe('/api/persons/3/photo?v=d1');
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flushPromises();
+    expect(leader().photo).toBe('/api/persons/3/photo?v=d2');
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flushPromises();
+    expect(leader()).toMatchObject({ photo: undefined, initials: 'D' });
   });
 
   it('opens a person’s Verlauf from the leader card and from each row', async () => {

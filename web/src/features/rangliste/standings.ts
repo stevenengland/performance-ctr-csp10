@@ -8,6 +8,8 @@ export interface Standing {
   personId: number;
   rank: number;
   name: string;
+  /** The person's photo, or `null` for their initials. */
+  photoUrl: string | null;
   /** Total score today: `13,5`. */
   score: string;
   /** Total count today, for the tally. */
@@ -35,6 +37,7 @@ export function standingsOf(board: DeepReadonly<Scoreboard>): Standing[] {
       personId: row.personId,
       rank,
       name: row.name,
+      photoUrl: row.photoUrl,
       score: formatNumber(row.score),
       count: row.count,
       countText,
