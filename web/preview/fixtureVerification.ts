@@ -8,17 +8,19 @@ import {
   PROBLEMS,
   validation,
 } from './fixtureHttp';
-import { matchSnapshot } from './fixtureGames';
+import { matchSnapshot, resultSnapshot } from './fixtureGames';
 import {
   entrySnapshot,
   type FixtureEntry,
   type FixtureMatch,
+  type FixtureResult,
   type Fixtures,
 } from './fixtures';
 
 /*
 The four-eyes rule of the fixture backend (PRD #61), like the API's
-Verification: verifying or rejecting another account's pending entry or match,
+Verification: verifying or rejecting another account's pending entry, match or
+result,
 and the pending queue of the signed-in account.
 */
 
@@ -98,6 +100,25 @@ function matchItem(fixtures: Fixtures, match: FixtureMatch): PendingItem {
   };
 }
 
+function resultItem(fixtures: Fixtures, result: FixtureResult): PendingItem {
+  const game = fixtures.games.find(({ id }) => id === result.gameId);
+  return {
+    kind: 'result',
+    id: result.id,
+    createdAt: result.createdAt,
+    accountName: accountNameOf(fixtures, result.accountId),
+    game: { id: result.gameId, name: game?.name ?? '' },
+    earlierRun: game !== undefined && result.run < game.run,
+    // A deleted person's results went with them, so the person exists.
+    person: {
+      id: result.personId,
+      name:
+        fixtures.persons.find(({ id }) => id === result.personId)?.name ?? '',
+    },
+    points: result.points,
+  };
+}
+
 /** A kind of row the rule applies to, like the API's VerifiableRows: its rows, its snapshot and its queue item. */
 interface Verifiable<
   T extends { id: string; accountId: number | null; pending: boolean },
@@ -127,6 +148,14 @@ const MATCHES: Verifiable<FixtureMatch> = {
   item: matchItem,
 };
 
+const RESULTS: Verifiable<FixtureResult> = {
+  kind: 'result',
+  path: '/api/results/{id}/verification',
+  rows: (fixtures) => fixtures.results,
+  snapshot: (fixtures, result) => resultSnapshot(fixtures, result),
+  item: resultItem,
+};
+
 /**
 The routes of the four-eyes rule. `unchanged` marks a successful write that
 changed nothing, so the revision stays.
@@ -147,9 +176,11 @@ export function verificationBackend(
       .map((row) => item(fixtures, row));
   /** Every row the account may verify, in the queue's order. */
   const eligible = (accountId: number) =>
-    [...eligibleOf(ENTRIES, accountId), ...eligibleOf(MATCHES, accountId)].sort(
-      (a, b) => order(positionOfItem(a), positionOfItem(b)),
-    );
+    [
+      ...eligibleOf(ENTRIES, accountId),
+      ...eligibleOf(MATCHES, accountId),
+      ...eligibleOf(RESULTS, accountId),
+    ].sort((a, b) => order(positionOfItem(a), positionOfItem(b)));
 
   /** Verifying and rejecting a row of the kind, like the API's Verification. */
   function decisionRoutes<
@@ -227,5 +258,6 @@ export function verificationBackend(
     ],
     ...decisionRoutes(ENTRIES),
     ...decisionRoutes(MATCHES),
+    ...decisionRoutes(RESULTS),
   ];
 }

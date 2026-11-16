@@ -55,6 +55,8 @@ export interface FixtureResult {
   points: number;
   accountId: number | null;
   createdAt: string;
+  /** Whether it waits for verification by another account (PRD #61). */
+  pending: boolean;
 }
 
 /** Canned answers of the fixture preview; typed against the generated API types. */
@@ -183,8 +185,14 @@ const MATCHES: [
   ['Tischtennis', 'Mara', 'Tom', 'second', 5, 'daniel'],
   ['Tischtennis', 'Jule', 'Tom', 'second', 1, 'mara', true],
 ];
-/** Tonight's Rommé, two rounds so far: person, penalty points (going out first gives −20) and account. */
-const RESULTS: [string, number, string][] = [
+/**
+Tonight's Rommé, two rounds so far and the third begun: person, penalty points
+(going out first gives −20), account and whether the result still waits for
+verification. Daniel's 14 (ben) waits beside his counted results, `+1 offen`, and
+is in Offen; Jule's only result, a 0 (anna), waits, so she is listed without a
+rank instead of leading the lowest-wins ladder.
+*/
+const RESULTS: [string, number, string, boolean?][] = [
   ['Anna', 35, 'anna'],
   ['Ben', 12, 'anna'],
   ['Daniel', -20, 'anna'],
@@ -193,6 +201,8 @@ const RESULTS: [string, number, string][] = [
   ['Ben', 27, 'ben'],
   ['Daniel', 9, 'ben'],
   ['Mara', 31, 'ben'],
+  ['Daniel', 14, 'ben', true],
+  ['Jule', 0, 'anna', true],
 ];
 
 /** The games with their matches (evenings at 21:00) and tonight's results, spread between midnight and now. */
@@ -237,7 +247,7 @@ function sampleGames(
     }),
   );
   const span = now.getTime() - midnight;
-  const results = RESULTS.map(([person, points, account], index) => ({
+  const results = RESULTS.map(([person, points, account, pending], index) => ({
     id: `00000000-0000-4000-b000-${String(index + 1).padStart(12, '0')}`,
     gameId: gameOf('Rommé'),
     run: 1,
@@ -247,6 +257,7 @@ function sampleGames(
     createdAt: new Date(
       midnight + Math.floor((span * (index + 1)) / (RESULTS.length + 1)),
     ).toISOString(),
+    pending: pending ?? false,
   }));
   return { games, matches, results };
 }

@@ -5,15 +5,19 @@ import {
   getScoreboard,
   getStandings,
   listMatches,
+  listResults,
   listPending,
   putEntry,
   putMatch,
+  putResult,
   rejectEntry,
   rejectMatch,
+  rejectResult,
   restartGame,
   signIn,
   verifyEntry,
   verifyMatch,
+  verifyResult,
   type PendingPage,
 } from '../src/core/api-client';
 import { todayFrom } from '../src/core/day-window';
@@ -27,6 +31,9 @@ const JULES_APEROL = '00000000-0000-4000-8000-000000000015';
 const JULES_BEER = '00000000-0000-4000-8000-000000000016';
 /** Last night's Tischtennis match Jule – Tom, Tom won; mara recorded it, and it waits. */
 const JULE_TOM = '00000000-0000-4000-a000-000000000013';
+/** Tonight's Rommé: Daniel's 14 (ben) waits beside his counted results; Jule's only result, a 0 (anna), waits too. */
+const DANIELS_14 = '00000000-0000-4000-b000-000000000009';
+const JULES_0 = '00000000-0000-4000-b000-000000000010';
 
 /** The first page of the signed-in account's queue, asked without condition. */
 async function firstPage(): Promise<PendingPage> {
@@ -49,10 +56,19 @@ describe('the fixture backend’s four-eyes rule', () => {
     expect(page.items.map(({ id }) => id)).toEqual([
       JULES_BEER,
       JULES_APEROL,
+      DANIELS_14,
       JULE_TOM,
     ]);
-    expect(page).toMatchObject({ next: null, count: 3 });
+    expect(page).toMatchObject({ next: null, count: 4 });
     expect(page.items[2]).toMatchObject({
+      kind: 'result',
+      accountName: 'ben',
+      game: { name: 'Rommé' },
+      earlierRun: false,
+      person: { name: 'Daniel' },
+      points: 14,
+    });
+    expect(page.items[3]).toMatchObject({
       kind: 'match',
       accountName: 'mara',
       game: { name: 'Tischtennis' },
@@ -84,6 +100,7 @@ describe('the fixture backend’s four-eyes rule', () => {
     });
     expect((await firstPage()).items.map(({ id }) => id)).toEqual([
       JULES_APEROL,
+      DANIELS_14,
       JULE_TOM,
     ]);
     const [event] = await newest(1);
@@ -129,6 +146,7 @@ describe('the fixture backend’s four-eyes rule', () => {
     expect(fixtures.entries.map(({ id }) => id)).not.toContain(JULES_BEER);
     expect((await firstPage()).items.map(({ id }) => id)).toEqual([
       JULES_APEROL,
+      DANIELS_14,
       JULE_TOM,
     ]);
     const log = await newest(100);
@@ -213,14 +231,14 @@ describe('the fixture backend’s four-eyes rule', () => {
     if (first.next === null) throw new Error('no next page');
     const second = await listPending(first.next);
 
-    expect(first.count).toBe(26);
+    expect(first.count).toBe(27);
     expect(first.items).toHaveLength(20);
-    expect(second.items).toHaveLength(6);
-    expect(second.count).toBe(21);
+    expect(second.items).toHaveLength(7);
+    expect(second.count).toBe(22);
     expect(second.next).toBeNull();
     expect(
       new Set([...first.items, ...second.items].map(({ id }) => id)).size,
-    ).toBe(26);
+    ).toBe(27);
   });
 
   it('verifies another account’s match: it counts on both sides, leaves the queue, and the log says verify', async () => {
@@ -303,5 +321,100 @@ describe('the fixture backend’s four-eyes rule', () => {
     ).toMatchObject({ played: 2, pendingCount: 1 });
     expect(history.items[0]).toMatchObject({ id, pending: true });
     expect(queued).toMatchObject({ kind: 'match', earlierRun: true });
+  });
+
+  it('verifies another account’s result: it counts, leaves the queue, and the log says verify', async () => {
+    installFixtureBackend(sampleEvening());
+    const before = await getStandings(1);
+    if (before === 'unchanged') throw new Error('asked without condition');
+
+    await verifyResult(DANIELS_14);
+
+    const after = await getStandings(1);
+    if (after === 'unchanged') throw new Error('asked without condition');
+    const place = (standings: typeof after, name: string) =>
+      standings.standings.kind === 'points'
+        ? standings.standings.rows.find((row) => row.name === name)
+        : undefined;
+    expect(place(before, 'Daniel')).toMatchObject({
+      sum: -11,
+      results: 2,
+      pendingCount: 1,
+    });
+    expect(place(after, 'Daniel')).toMatchObject({
+      sum: 3,
+      results: 3,
+      pendingCount: 0,
+    });
+    expect((await firstPage()).items.map(({ id }) => id)).not.toContain(
+      DANIELS_14,
+    );
+    const [event] = await newest(1);
+    expect(event && told(event)).toMatchObject({
+      operation: 'verify',
+      subjectKind: 'result',
+      subjectId: DANIELS_14,
+      before: { game: 'Rommé', person: 'Daniel', points: 14, pending: true },
+      after: { game: 'Rommé', person: 'Daniel', points: 14, pending: false },
+    });
+  });
+
+  it('lists a person whose results all wait without a rank, even on a zero in a lowest-wins game', async () => {
+    installFixtureBackend(sampleEvening());
+
+    const answer = await getStandings(1);
+    if (answer === 'unchanged') throw new Error('asked without condition');
+
+    expect(answer.standings).toMatchObject({
+      kind: 'points',
+      lowerWins: true,
+      unranked: [{ name: 'Jule', pendingCount: 1 }],
+    });
+    expect(answer.standings.rows.map(({ name }) => name)).not.toContain('Jule');
+    expect(answer.standings.rows[0]?.name).toBe('Daniel');
+  });
+
+  it('rejects another account’s result and refuses its own (403), a verified one (409) and a missing one (404)', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    await expect(rejectResult(JULES_0)).rejects.toMatchObject({ status: 403 });
+    await expect(verifyResult(JULES_0)).rejects.toMatchObject({ status: 403 });
+
+    await rejectResult(DANIELS_14);
+
+    expect(fixtures.results.map(({ id }) => id)).not.toContain(DANIELS_14);
+    const [event] = await newest(1);
+    expect(event && told(event)).toMatchObject({
+      operation: 'reject',
+      subjectKind: 'result',
+      subjectId: DANIELS_14,
+      after: null,
+    });
+    await expect(rejectResult(DANIELS_14)).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(
+      rejectResult('00000000-0000-4000-b000-000000000005'),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('records a new result pending, outside the sum until verified, and marks it in the Verlauf and an earlier run in the queue', async () => {
+    installFixtureBackend(sampleEvening());
+    await signIn('ben', SAMPLE_PASSWORD);
+    const id = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4ea';
+    await putResult(id, { gameId: 1, personId: 1, points: -20 });
+    await signIn('anna', SAMPLE_PASSWORD);
+    const standings = await getStandings(1);
+    if (standings === 'unchanged') throw new Error('asked without condition');
+    const history = await listResults(1);
+    await restartGame(1);
+
+    const queued = (await firstPage()).items.find((item) => item.id === id);
+
+    expect(
+      standings.standings.rows.find(({ name }) => name === 'Anna'),
+    ).toMatchObject({ sum: 15, results: 2, pendingCount: 1 });
+    expect(history.items[0]).toMatchObject({ id, pending: true });
+    expect(queued).toMatchObject({ kind: 'result', earlierRun: true });
   });
 });
