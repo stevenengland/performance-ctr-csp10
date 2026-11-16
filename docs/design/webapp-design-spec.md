@@ -585,8 +585,9 @@ without a photo, so rows line up either way. Each surface sets its size (Persone
   hairlines; primary text in `row-title`.
 - Create/edit dialog: `Name`; drinks also `Punkte` (decimal); factors also `Multiplikator`
   (decimal, shown with `×` prefix). Buttons `Abbrechen` and `Speichern`.
-- **Photo control** (`Person bearbeiten`): above the name, the person's avatar at 112 dp (§6.12)
-  and the text buttons `Foto wählen` (no photo) / `Foto ändern` (a photo) / `Anderes Foto` (one
+- **Photo control** (`Person anlegen` and `Person bearbeiten`): above the name, the person's
+  avatar at 112 dp (§6.12; while creating, the initials of the name as it is typed) and the text
+  buttons `Foto wählen` (no photo) / `Foto ändern` (a photo) / `Anderes Foto` (one
   is being framed), `Foto entfernen`, and `Foto behalten` while a removal is pending. Choosing
   opens the platform's own picker for images (`<input type="file" accept="image/*">`, no
   `capture`), so phones usually offer the camera and the gallery. The chosen picture is decoded
@@ -611,6 +612,12 @@ without a photo, so rows line up either way. Each surface sets its size (Persone
   refused photo (`Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).`, `Foto zu groß.`) —
   each keeps the photo that was there — and `Person gespeichert, Foto nicht.` when the name
   saved and the photo did not (the dialog stays; `Speichern` again sends only the photo).
+- `Person anlegen` with a photo encodes it, creates the person (`POST`), then uploads the
+  photo. The created person joins the list as soon as the server acknowledges it; when only the
+  upload fails, the dialog stays on that person, now titled `Person bearbeiten`, and `Speichern`
+  again sends only the photo — never a second person. `Abbrechen` then closes it and keeps the
+  person without a photo; nothing is undone. A failed reload of the list afterwards shows the
+  list's own error and does not undo the save.
 - Delete: confirmation dialog with the entry count (§6.9); for a person also the results that
   go and the matches that stay with `gelöschte Person`.
 - Validation errors inline (§6.11); duplicate name → `Name ist bereits vergeben.`; points
