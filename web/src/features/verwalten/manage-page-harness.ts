@@ -37,13 +37,19 @@ export function problem(status: number, body: Record<string, unknown>) {
 /**
 A fake API over one collection (`/api/persons` with key `persons`, …): writes
 answer with the next given reply (or succeed), the list always reads the current
-items, and reading one item adds `entryCount`.
+items, and reading one item adds `entryCount`. A created item gets the fields of
+`created` the request does not send (a person's `photoUrl: null`); a changed one
+keeps them.
 */
 export function catalogApi<T extends Item>(
   path: string,
   key: string,
   items: T[],
-  { entryCount = 5, replies = [] as (() => Response)[] } = {},
+  {
+    entryCount = 5,
+    replies = [] as (() => Response)[],
+    created = {} as Partial<T>,
+  } = {},
 ) {
   const calls: Call[] = [];
   vi.stubGlobal(
@@ -64,6 +70,7 @@ export function catalogApi<T extends Item>(
         return new Response(null, { status: 204 });
       }
       const changed = {
+        ...(method === 'POST' ? created : items[index]),
         id: method === 'POST' ? 9 : id,
         ...(body as object),
       } as T;

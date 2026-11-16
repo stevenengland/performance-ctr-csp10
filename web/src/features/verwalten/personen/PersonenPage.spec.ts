@@ -17,8 +17,14 @@ import {
 } from '../manage-page-harness';
 import PersonenPage from './PersonenPage.vue';
 
-const api = (persons: Person[], options?: Parameters<typeof catalogApi>[3]) =>
-  catalogApi('/api/persons', 'persons', persons, options);
+const api = (
+  persons: Person[],
+  options?: Parameters<typeof catalogApi<Person>>[3],
+) =>
+  catalogApi('/api/persons', 'persons', persons, {
+    created: { photoUrl: null },
+    ...options,
+  });
 const page = () => mountPage('/verwalten/personen', PersonenPage);
 
 describe('Verwalten → Personen', () => {
@@ -55,6 +61,55 @@ describe('Verwalten → Personen', () => {
     const link = wrapper.get('a[aria-label="Verlauf von Daniel"]');
     expect(link.attributes('href')).toBe('/verlauf/2');
     expect(link.text()).toBe('Daniel');
+  });
+
+  it('shows each person’s avatar left of the name: the photo, or the initials', async () => {
+    api([
+      { id: 1, name: 'Anna Lena', photoUrl: null },
+      { id: 2, name: 'Daniel', photoUrl: '/api/persons/2/photo?v=abc' },
+    ]);
+
+    wrapper = await page();
+
+    const [anna, daniel] = wrapper.findAll('.list__main');
+    expect(anna?.get('.person-avatar').attributes('style')).toContain(
+      'width: 40px',
+    );
+    expect(anna?.get('[data-initials]').attributes('data-initials')).toBe(
+      'AL',
+    );
+    expect(daniel?.get('img').attributes('src')).toBe(
+      '/api/persons/2/photo?v=abc',
+    );
+    expect(
+      daniel?.element.firstElementChild?.classList.contains('person-avatar'),
+    ).toBe(true);
+  });
+
+  it('shows the initials when a photo fails to load', async () => {
+    api([{ id: 2, name: 'Daniel', photoUrl: '/api/persons/2/photo?v=abc' }]);
+    wrapper = await page();
+
+    await wrapper.get('.list__main img').trigger('error');
+
+    expect(wrapper.find('.list__main img').exists()).toBe(false);
+    expect(wrapper.get('[data-initials]').attributes('data-initials')).toBe(
+      'D',
+    );
+  });
+
+  it('keeps the row text and the Verlauf link name with an avatar, which is hidden', async () => {
+    api([
+      { id: 1, name: 'Anna Lena', photoUrl: null },
+      { id: 2, name: 'Daniel', photoUrl: '/api/persons/2/photo?v=abc' },
+    ]);
+
+    wrapper = await page();
+
+    expect(rows(wrapper)).toEqual(['Anna Lena', 'Daniel']);
+    const link = wrapper.get('a[aria-label="Verlauf von Daniel"]');
+    expect(link.text()).toBe('Daniel');
+    expect(link.get('.person-avatar').attributes('aria-hidden')).toBe('true');
   });
 
   it('creates a person', async () => {

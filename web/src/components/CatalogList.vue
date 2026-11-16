@@ -6,7 +6,9 @@ import { messages } from '../core/messages';
 A master-data list (design spec §7i): skeleton rows while `items` is undefined,
 the empty sentence for none, and otherwise a row per item with its name, an
 optional supporting line and trailing edit and delete icon buttons. With `link`,
-the name opens the item's own screen (a person's Verlauf).
+the name opens the item's own screen (a person's Verlauf). The `leading` slot puts
+something of each item before its name (a person's avatar); the list itself stays
+generic.
 */
 defineProps<{
   items: readonly T[] | undefined;
@@ -16,6 +18,7 @@ defineProps<{
   link?: (item: T) => { to: string; label: string };
 }>();
 const emit = defineEmits<{ edit: [item: T]; remove: [item: T] }>();
+const slots = defineSlots<{ leading?(props: { item: T }): unknown }>();
 
 /** Skeleton rows while the list loads (§6.10). */
 const SKELETON_ROWS = 3;
@@ -37,10 +40,17 @@ const SKELETON_ROWS = 3;
         :to="link(item).to"
         :aria-label="link(item).label"
         class="list__main list__link"
+        :class="{ 'list__main--leading': slots.leading }"
       >
+        <slot name="leading" :item="item" />
         <span class="type-row-title list__title">{{ item.name }}</span>
       </RouterLink>
-      <span v-else class="list__main">
+      <span
+        v-else
+        class="list__main"
+        :class="{ 'list__main--leading': slots.leading }"
+      >
+        <slot name="leading" :item="item" />
         <span class="type-row-title list__title">{{ item.name }}</span>
         <span v-if="support" class="type-support list__support">{{
           support(item)

@@ -268,6 +268,18 @@ p {
   color: rgb(var(--v-theme-on-surface-variant));
 }
 
+/* A leading slot (the Personen avatar) left of the name and its supporting line. */
+.list__main--leading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: center;
+}
+
+.list__main--leading > :first-child {
+  grid-row: 1 / span 2;
+}
+
 /* Room for the FAB under the last row of a master-data list. */
 .catalog-page {
   padding-bottom: 88px;
