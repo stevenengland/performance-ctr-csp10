@@ -7,7 +7,7 @@ import {
 } from '../../../core/person-photo';
 
 /** How the draft decodes and encodes; the browser's by default. */
-export interface PhotoDraftCodec {
+interface PhotoDraftCodec {
   decode: (file: Blob) => Promise<ImageBitmap>;
   encode: (picture: ImageBitmap, framing: Framing) => Promise<string>;
 }
@@ -99,5 +99,3 @@ export function usePhotoDraft({
     encode: encodeDraft,
   };
 }
-
-export type PhotoDraft = ReturnType<typeof usePhotoDraft>;
