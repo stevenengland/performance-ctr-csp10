@@ -26,6 +26,7 @@ import {
   updateGame,
   getHealth,
   getScoreboard,
+  getStandings,
   listDrinks,
   listEntries,
   listPersons,
@@ -732,9 +733,15 @@ describe('the fixture backend’s audit log', () => {
     const entriesOf = (personId: number) =>
       fixtures.entries.filter((entry) => entry.personId === personId).length;
     const danielsEntries = entriesOf(3);
+    // Daniel's matches stay with his side cleared; their events come last.
+    const danielsMatches = fixtures.matches.filter(
+      (match) => match.firstPersonId === 3 || match.secondPersonId === 3,
+    ).length;
 
     await deletePerson(3);
-    const personEvents = await newest(danielsEntries + 1);
+    const personEvents = (
+      await newest(danielsMatches + danielsEntries + 1)
+    ).slice(danielsMatches);
     const deletion = personEvents.at(-1);
     expect(deletion).toMatchObject({
       operation: 'delete',
@@ -950,7 +957,7 @@ describe('the fixture backend’s games', () => {
 
     await expect(getGame(schach.id)).resolves.toEqual({
       ...schach,
-      matchCount: 0,
+      matchCount: 9,
       resultCount: 0,
     });
     await expect(
@@ -1086,5 +1093,173 @@ describe('the fixture backend’s games', () => {
       },
     ]);
     expect(fixtures.audit).toHaveLength(seeded + 4);
+  });
+
+  /** A game's id by its sample name. */
+  async function gameId(name: string): Promise<number> {
+    const game = (await listGames()).find(
+      (candidate) => candidate.name === name,
+    );
+    if (!game) throw new Error(`no ${name}`);
+    return game.id;
+  }
+
+  /** A ranking's rows as `name points W-D-L/played` or `name sum (results)`. */
+  async function ranking(id: number): Promise<string[]> {
+    const standings = await getStandings(id);
+    return standings.kind === 'duel'
+      ? standings.rows.map(
+          (row) =>
+            `${row.name} ${String(row.points)} ${String(row.wins)}-${String(row.draws)}-${String(row.losses)}/${String(row.played)}`,
+        )
+      : standings.rows.map(
+          (row) => `${row.name} ${String(row.sum)} (${String(row.results)})`,
+        );
+  }
+
+  it('ranks the sample duels like the API: points, wins, name — a deleted side counts for no one', async () => {
+    installFixtureBackend(sampleEvening());
+
+    expect(await ranking(await gameId('Schach'))).toEqual([
+      'Anna 4 3-2-0/5',
+      'Ben 3.5 3-1-1/5',
+      'Tom 1 0-2-2/4',
+      'Daniel 0.5 0-1-2/3',
+    ]);
+    expect(await ranking(await gameId('Tischtennis'))).toEqual([
+      'Jule 1 1-0-1/2',
+      'Mara 1 1-0-1/2',
+      'Tom 1 1-0-1/2',
+    ]);
+  });
+
+  it('ranks tonight’s Rommé by the lowest sum, and the highest once the direction flips', async () => {
+    installFixtureBackend(sampleEvening());
+    const romme = await gameId('Rommé');
+
+    const standings = await getStandings(romme);
+    expect(standings).toMatchObject({ kind: 'points', lowerWins: true });
+    expect(await ranking(romme)).toEqual([
+      'Daniel -11 (2)',
+      'Anna 15 (2)',
+      'Ben 39 (2)',
+      'Mara 79 (2)',
+    ]);
+    await expect(getGame(romme)).resolves.toMatchObject({
+      matchCount: 0,
+      resultCount: 8,
+    });
+
+    await updateGame(romme, { name: 'Rommé', lowerWins: false });
+
+    expect(await ranking(romme)).toEqual([
+      'Mara 79 (2)',
+      'Ben 39 (2)',
+      'Anna 15 (2)',
+      'Daniel -11 (2)',
+    ]);
+  });
+
+  it('ranks only the current run: a restart starts from an empty ranking', async () => {
+    installFixtureBackend(sampleEvening());
+    const schach = await gameId('Schach');
+
+    await restart(schach);
+
+    await expect(getStandings(schach)).resolves.toMatchObject({ rows: [] });
+    await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 9 });
+  });
+
+  it('tags the ranking with the data revision and answers 304 while it holds', async () => {
+    installFixtureBackend(sampleEvening());
+    const schach = await gameId('Schach');
+
+    const first = await fetch(`/api/games/${String(schach)}/standings`);
+    const etag = first.headers.get('ETag') ?? '';
+    const again = await fetch(`/api/games/${String(schach)}/standings`, {
+      headers: { 'If-None-Match': etag },
+    });
+    await restart(schach);
+    const changed = await fetch(`/api/games/${String(schach)}/standings`, {
+      headers: { 'If-None-Match': etag },
+    });
+
+    expect(etag).toMatch(/^"\d+"$/);
+    expect(again.status).toBe(304);
+    expect(changed.status).toBe(200);
+    await expect(
+      fetch('/api/games/999/standings').then(({ status }) => status),
+    ).resolves.toBe(404);
+  });
+
+  it('deletes a game’s matches with it, one caused event per match', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const tischtennis = await gameId('Tischtennis');
+
+    await deleteGame(tischtennis);
+
+    const events = (await newest(4)).map(told).reverse();
+    expect(events[0]).toMatchObject({
+      operation: 'delete',
+      subjectKind: 'game',
+      cause: null,
+    });
+    expect(events.slice(1)).toEqual(
+      [
+        ['00000000-0000-4000-a000-000000000010', 'Mara', 'Jule', 'first'],
+        ['00000000-0000-4000-a000-000000000011', 'Jule', 'Tom', 'first'],
+        ['00000000-0000-4000-a000-000000000012', 'Mara', 'Tom', 'second'],
+      ].map(([id, first, second, outcome]) => ({
+        operation: 'delete',
+        subjectKind: 'match',
+        subjectId: id,
+        userName: 'anna',
+        before: { game: 'Tischtennis', first, second, outcome },
+        after: null,
+        cause: { subjectKind: 'game', name: 'Tischtennis' },
+      })),
+    );
+    expect(
+      fixtures.matches.filter(({ gameId }) => gameId === tischtennis),
+    ).toEqual([]);
+  });
+
+  it('keeps a deleted person’s matches with that side cleared, so the others keep their record', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const ben = (await listPersons()).find(({ name }) => name === 'Ben');
+    if (!ben) throw new Error('no Ben');
+    await expect(getPerson(ben.id)).resolves.toMatchObject({ matchCount: 5 });
+
+    await deletePerson(ben.id);
+
+    expect(await ranking(await gameId('Schach'))).toEqual([
+      'Anna 4 3-2-0/5',
+      'Tom 1 0-2-2/4',
+      'Daniel 0.5 0-1-2/3',
+    ]);
+    expect(await ranking(await gameId('Rommé'))).toEqual([
+      'Daniel -11 (2)',
+      'Anna 15 (2)',
+      'Mara 79 (2)',
+    ]);
+    const updates = (await newest(5)).map(told).reverse();
+    expect(updates[0]).toMatchObject({
+      operation: 'update',
+      subjectKind: 'match',
+      subjectId: '00000000-0000-4000-a000-000000000001',
+      before: {
+        game: 'Schach',
+        first: 'Anna',
+        second: 'Ben',
+        outcome: 'first',
+      },
+      after: { game: 'Schach', first: 'Anna', second: null, outcome: 'first' },
+      cause: { subjectKind: 'person', name: 'Ben' },
+    });
+    expect(updates.every(({ subjectKind }) => subjectKind === 'match')).toBe(
+      true,
+    );
   });
 });

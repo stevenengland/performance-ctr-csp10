@@ -228,7 +228,7 @@ test('the fixture preview opens another person’s Verlauf as a new screen', asy
   await expect(page.getByText('Heute keine Einträge.')).toBeVisible();
 });
 
-test('the fixture preview lists its sample games under Spiele and opens one', async ({
+test('the fixture preview lists its sample games with their leaders under Spiele and opens one’s ranking', async ({
   page,
 }) => {
   await page.goto('/index.html#/zaehlen');
@@ -243,9 +243,11 @@ test('the fixture preview lists its sample games under Spiele and opens one', as
   const games = page.getByRole('list', { name: 'Spiele' }).getByRole('link');
   await expect(games).toHaveCount(3);
   await expect(games.nth(0)).toHaveText(
-    /^Rommé\s*Punktespiel · seit heute, 00:00$/,
+    /^Rommé\s*Punktespiel · seit heute, 00:00\s*1\. Daniel · −11 Punkte$/,
   );
-  await expect(games.nth(1)).toHaveText(/^Schach\s*Duell · seit \d\d\.\d\d\.$/);
+  await expect(games.nth(1)).toHaveText(
+    /^Schach\s*Duell · seit \d\d\.\d\d\.\s*1\. Anna · 4 Punkte$/,
+  );
   await games.nth(1).click();
 
   await expect(page).toHaveURL(/#\/spiele\/2$/);
@@ -253,9 +255,18 @@ test('the fixture preview lists its sample games under Spiele and opens one', as
   await expect(bar.getByRole('heading', { level: 1 })).toHaveText('Schach');
   await expect(bar).toContainText(/Duell · seit \d\d\.\d\d\./);
   await expect(page.getByText('Remis möglich')).toBeVisible();
-  await expect(
-    page.getByText('Seit dem Start noch keine Partien.'),
-  ).toBeVisible();
+  const ranking = page
+    .getByRole('list', { name: 'Schach' })
+    .getByRole('listitem');
+  await expect(ranking.first()).toHaveAccessibleName(
+    'Platz 1, Anna, 4 Punkte, 5 Partien · 3 S · 2 R · 0 N',
+  );
+  await expect(ranking).toHaveText([
+    /^Anna\s*4\s*4 Punkte\s*5 Partien · 3 S · 2 R · 0 N$/,
+    /^2\s*Ben\s*5 Partien · 3 S · 1 R · 1 N\s*3,5$/,
+    /^3\s*Tom\s*4 Partien · 0 S · 2 R · 2 N\s*1$/,
+    /^4\s*Daniel\s*3 Partien · 0 S · 1 R · 2 N\s*0,5$/,
+  ]);
 });
 
 /** Opens an account's menu on Konten once any other menu has closed. */

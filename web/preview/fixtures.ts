@@ -6,6 +6,7 @@ import type {
   Factor,
   Game,
   Health,
+  Outcome,
   Person,
 } from '../src/core/api-client';
 import { startOfToday } from '../src/core/day-window';
@@ -26,6 +27,29 @@ export interface FixtureGame extends Game {
   run: number;
 }
 
+/** A match as the database keeps it: in its game's run, a side `null` once its person is deleted. */
+export interface FixtureMatch {
+  id: string;
+  gameId: number;
+  run: number;
+  firstPersonId: number | null;
+  secondPersonId: number | null;
+  outcome: Outcome;
+  accountId: number | null;
+  createdAt: string;
+}
+
+/** A points-game result as the database keeps it, in its game's run. */
+export interface FixtureResult {
+  id: string;
+  gameId: number;
+  run: number;
+  personId: number;
+  points: number;
+  accountId: number | null;
+  createdAt: string;
+}
+
 /** Canned answers of the fixture preview; typed against the generated API types. */
 export interface Fixtures {
   health: Health;
@@ -37,6 +61,8 @@ export interface Fixtures {
   factors: Factor[];
   entries: FixtureEntry[];
   games: FixtureGame[];
+  matches: FixtureMatch[];
+  results: FixtureResult[];
   /** Fingerprints of every entry id ever put, so a replay never recreates an undone entry. */
   entryRequests: Map<string, string>;
   /** The audit log, oldest first, as the API answers its events. */
@@ -104,18 +130,93 @@ const GAMES: [string, Game['kind'], boolean, boolean, number][] = [
   ['Schach', 'duel', true, false, 62],
   ['Tischtennis', 'duel', false, false, 21],
 ];
+/**
+Schach and Tischtennis: game, first, second (`null`: a person deleted since),
+outcome, days ago and the recording account (`null`: deleted since).
+*/
+const MATCHES: [
+  string,
+  string | null,
+  string | null,
+  Outcome,
+  number,
+  string | null,
+][] = [
+  ['Schach', 'Anna', 'Ben', 'first', 58, 'anna'],
+  ['Schach', null, 'Ben', 'second', 51, 'ben'],
+  ['Schach', 'Daniel', 'Tom', 'draw', 44, 'daniel'],
+  ['Schach', 'Anna', 'Daniel', 'first', 37, 'anna'],
+  ['Schach', 'Ben', 'Tom', 'first', 30, null],
+  ['Schach', 'Tom', 'Anna', 'draw', 23, 'mara'],
+  ['Schach', 'Daniel', 'Ben', 'second', 16, 'daniel'],
+  ['Schach', 'Anna', 'Tom', 'first', 9, 'anna'],
+  ['Schach', 'Ben', 'Anna', 'draw', 2, 'ben'],
+  ['Tischtennis', 'Mara', 'Jule', 'first', 19, 'mara'],
+  ['Tischtennis', 'Jule', 'Tom', 'first', 12, 'mara'],
+  ['Tischtennis', 'Mara', 'Tom', 'second', 5, 'daniel'],
+];
+/** Tonight's Rommé, two rounds so far: person, penalty points (going out first gives −20) and account. */
+const RESULTS: [string, number, string][] = [
+  ['Anna', 35, 'anna'],
+  ['Ben', 12, 'anna'],
+  ['Daniel', -20, 'anna'],
+  ['Mara', 48, 'anna'],
+  ['Anna', -20, 'ben'],
+  ['Ben', 27, 'ben'],
+  ['Daniel', 9, 'ben'],
+  ['Mara', 31, 'ben'],
+];
 
-function sampleGames(now: Date): FixtureGame[] {
+/** The games with their matches (evenings at 21:00) and tonight's results, spread between midnight and now. */
+function sampleGames(
+  now: Date,
+  persons: Person[],
+  accounts: FixtureAccount[],
+): Pick<Fixtures, 'games' | 'matches' | 'results'> {
   const midnight = startOfToday(now).getTime();
-  return GAMES.map(([name, kind, drawsAllowed, lowerWins, daysAgo], index) => ({
-    id: index + 1,
-    name,
-    kind,
-    drawsAllowed,
-    lowerWins,
+  const games = GAMES.map(
+    ([name, kind, drawsAllowed, lowerWins, daysAgo], index) => ({
+      id: index + 1,
+      name,
+      kind,
+      drawsAllowed,
+      lowerWins,
+      run: 1,
+      startedAt: new Date(midnight - daysAgo * DAY).toISOString(),
+    }),
+  );
+  const gameOf = (name: string) =>
+    games.find((game) => game.name === name)?.id ?? 0;
+  const personOf = (name: string | null) =>
+    persons.find((person) => person.name === name)?.id ?? null;
+  const accountOf = (userName: string | null) =>
+    accounts.find(({ account }) => account.userName === userName)?.account.id ??
+    null;
+  const matches = MATCHES.map(
+    ([game, first, second, outcome, daysAgo, account], index) => ({
+      id: `00000000-0000-4000-a000-${String(index + 1).padStart(12, '0')}`,
+      gameId: gameOf(game),
+      run: 1,
+      firstPersonId: personOf(first),
+      secondPersonId: personOf(second),
+      outcome,
+      accountId: accountOf(account),
+      createdAt: new Date(midnight - daysAgo * DAY + 21 * HOUR).toISOString(),
+    }),
+  );
+  const span = now.getTime() - midnight;
+  const results = RESULTS.map(([person, points, account], index) => ({
+    id: `00000000-0000-4000-b000-${String(index + 1).padStart(12, '0')}`,
+    gameId: gameOf('Rommé'),
     run: 1,
-    startedAt: new Date(midnight - daysAgo * DAY).toISOString(),
+    personId: personOf(person) ?? 0,
+    points,
+    accountId: accountOf(account),
+    createdAt: new Date(
+      midnight + Math.floor((span * (index + 1)) / (RESULTS.length + 1)),
+    ).toISOString(),
   }));
+  return { games, matches, results };
 }
 
 /**
@@ -455,7 +556,7 @@ export function sampleEvening(now: Date = new Date()): Fixtures {
     drinks,
     factors,
     entries,
-    games: sampleGames(now),
+    ...sampleGames(now, persons, accounts),
     entryRequests: new Map(),
     audit,
   };

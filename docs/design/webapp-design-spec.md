@@ -687,10 +687,15 @@ submit on Enter.
   column on compact windows and two from 600 dp: the name (`tile-name`, one line, ellipsis)
   with a trailing `mdiChevronRight`, and under it in `support`, `on-surface-variant`, the
   context line — the kind and since when its ranking counts: `Duell · seit 15.09.`,
-  `Punktespiel · seit heute, 19:30` (§3.5). The tiles form the list `Spiele`.
+  `Punktespiel · seit heute, 19:30` (§3.5). Under it, 6 dp apart, in `label`, the game's
+  leader with the value of its ranking (§7o): `1. Anna · 4 Punkte`, `1. Daniel · −11 Punkte`, or
+  `noch keine Ergebnisse` before anything was recorded since the start; the line keeps its
+  height (20 dp) until the rankings have loaded. The tiles form the list `Spiele`.
 - Loading: three skeleton tiles. Empty: `Noch keine Spiele.` + button `Spiel anlegen` →
   `/verwalten/spiele?anlegen` (Verwalten → Spiele with its create dialog open).
-- The list is read when the screen opens (`GET /api/games`); no polling.
+- The list is read when the screen opens (`GET /api/games`), then every game's ranking once
+  (`GET /api/games/{id}/standings`) for its leader; no polling per game. A failed read shows
+  the problem title in the snackbar; the tiles stay without leaders.
 
 ### 7o. Spiel `/spiele/:gameId`
 
@@ -700,9 +705,30 @@ submit on Enter.
 - At the top, in `label`, `on-surface-variant`, the rule that decides the ranking:
   `Remis möglich` or `Kein Remis` for a duel, `Höchste Summe gewinnt` or
   `Niedrigste Summe gewinnt` for a points game.
-- Below it the game's ranking since the last (re)start. Until matches and results can be
-  recorded it is empty: `Seit dem Start noch keine Partien.` for a duel,
-  `Seit dem Start noch keine Ergebnisse.` for a points game.
+- Below it the game's ranking since the last (re)start, shaped like the Rangliste (§7f):
+  - **Rank 1 — leader card:** `primary-container`, corner 18 dp. Name (`name-hero`) on the
+    left, the value (`score-hero`) on the right; below, the value with its unit
+    (`4 Punkte`, `label`) and the details (`support`).
+  - **Ranks 2+ — rows** on `outline-variant` hairlines: rank numeral (`title`,
+    `on-surface-variant`), name (`rank-name`) with the details beneath (`support`,
+    `on-surface-variant`), and the value (`numeral`) on the right.
+  - A **duel**'s value is the points (win 1, draw ½, loss 0) in German format (`3,5`); its
+    details are the record, `5 Partien · 3 S · 1 R · 1 N` (one: `1 Partie`). Order: points,
+    then wins, then name, as the API sends it.
+  - A **points game**'s value is the sum with a real minus sign (`−11`); its details are
+    `2 Ergebnisse` (one: `1 Ergebnis`). Order: the sum in the game's direction (lowest first
+    when `Niedrigste Summe gewinnt`), then name, as the API sends it.
+  - The value's unit: `1 Punkt`, otherwise `Punkte` (`0,5 Punkte`, `−1 Punkt`). Tied persons
+    get consecutive ranks, as on the Rangliste. Persons without a match or result since the
+    start are not listed; a person deleted since counts for no one, and the other side keeps
+    its win, draw or loss.
+  - Card and rows form one ordered list named after the game; each place has the accessible
+    name `Platz 1, Anna, 4 Punkte, 5 Partien · 3 S · 2 R · 0 N`. Places are not links.
+- Empty: `Seit dem Start noch keine Partien.` for a duel, `Seit dem Start noch keine
+  Ergebnisse.` for a points game.
+- The ranking (`GET /api/games/{id}/standings`) is read when the page opens and after the
+  device's own writes; a failed read keeps what is shown and states the problem title in the
+  snackbar.
 - Loading: a skeleton card and three skeleton rows.
 - A game that no longer exists (deleted on another phone): back to Spiele with
   `Nicht mehr vorhanden` (§9).
@@ -770,7 +796,7 @@ submit on Enter.
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt` and `accountName` (or `null`); 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count; `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Verwalten | `GET /api/{persons,drinks,factors,games}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
-| Spiele / Spiel | `GET /api/games` | Name, kind, setting and `startedAt` from the list; a game missing from it is gone |
+| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. Standings of the current run, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played}`, a points game's `{personId, name, sum, results}` with `lowerWins` |
 | Verwalten → Spiele | `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/{id}` | Game: `id`, `name`, `kind` (`duel` \| `points`), `drawsAllowed`, `lowerWins`, `startedAt`. `POST` takes `name`, `kind` and the kind's setting; `PATCH` takes `name` and the setting (the kind is fixed); `GET …/{id}` adds `matchCount` and `resultCount` (every run) |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
 | Protokoll | `GET /api/audit?before=` | Admins only (401/403). Answer `{events, next}`, newest first; `next` is the `before` of `Ältere laden`, null on the last page. Each event: `occurredAt`, `operation`, `subjectKind`, `actor.userName`, snapshots `before`/`after` (names and values as they were), `cause` (`{id, subjectKind, name}` or null). No polling |
@@ -798,12 +824,17 @@ the shareable page a UI change is reviewed on before it reaches the host.
   sum wins, started today), `Schach` (duel with draws, two months) and `Tischtennis` (duel
   without draws, three weeks) — on Spiele `Punktespiel · seit heute, 00:00`, `Duell · seit …`; they
   are served by the API's rules (name, kind and setting
-  validation, the kind fixed, restart starting the next run from now).
+  validation, the kind fixed, restart starting the next run from now). Schach holds nine
+  sample matches (one with a person deleted since) and Tischtennis three, on evenings before
+  today; Rommé holds tonight's eight results. Both rankings are computed like the API's
+  (current run only); deleting a game takes its matches and results along, deleting a person
+  keeps their matches with that side cleared and removes their results.
 - **Audit log in the preview.** Protokoll starts with a seeded log that reaches back over
   several days, holds a cascade (the deletion of `Sekt` with the entries it removed) and names
   an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are
   then recorded in memory by the API's rules (game writes included, a restart as a change of
-  `run` and `startedAt`): one event per change with the signed-in account,
+  `run` and `startedAt`, a game's or person's deletion with one caused event per match it
+  deletes or clears): one event per change with the signed-in account,
   the entries a deletion removes or changes as consequential events with their cause, and
   nothing for a save that changes nothing, a write that fails, a replayed or conflicting entry
   request, or an account change.

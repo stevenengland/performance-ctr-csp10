@@ -5,6 +5,7 @@ import type {
   HistoryEntry,
   ScoreRow,
   Scoreboard,
+  Standings,
 } from '../src/core/api-client';
 import type { components } from '../src/core/api-client/schema';
 import {
@@ -13,6 +14,7 @@ import {
   type FixtureAccount,
   type FixtureEntry,
   type FixtureGame,
+  type FixtureMatch,
   type Fixtures,
 } from './fixtures';
 
@@ -202,6 +204,91 @@ function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
   };
 }
 
+/** The game's ranking in its current run, like the API's Standings: a cleared side counts for no one. */
+function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
+  const nameOf = (personId: number) =>
+    fixtures.persons.find(({ id }) => id === personId)?.name ?? '';
+  const byNameThenId = (
+    a: { name: string; personId: number },
+    b: { name: string; personId: number },
+  ) => byName(a, b) || a.personId - b.personId;
+  const { kind, startedAt } = game;
+  if (kind === 'duel') {
+    const rows = new Map<number, DuelRow>();
+    const count = (personId: number | null, result: DuelResult) => {
+      if (personId === null) return;
+      const row = rows.get(personId) ?? {
+        personId,
+        name: nameOf(personId),
+        points: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        played: 0,
+      };
+      row[result] += 1;
+      row.played += 1;
+      row.points = row.wins + row.draws / 2;
+      rows.set(personId, row);
+    };
+    for (const match of inRun(fixtures.matches, game)) {
+      const [first, second] = DUEL_RESULTS[match.outcome];
+      count(match.firstPersonId, first);
+      count(match.secondPersonId, second);
+    }
+    return {
+      kind,
+      startedAt,
+      rows: [...rows.values()].sort(
+        (a, b) => b.points - a.points || b.wins - a.wins || byNameThenId(a, b),
+      ),
+    };
+  }
+  const rows = new Map<number, PointsRow>();
+  for (const result of inRun(fixtures.results, game)) {
+    const row = rows.get(result.personId) ?? {
+      personId: result.personId,
+      name: nameOf(result.personId),
+      sum: 0,
+      results: 0,
+    };
+    row.sum += result.points;
+    row.results += 1;
+    rows.set(result.personId, row);
+  }
+  const direction = game.lowerWins ? 1 : -1;
+  return {
+    kind,
+    startedAt,
+    lowerWins: game.lowerWins,
+    rows: [...rows.values()].sort(
+      (a, b) => direction * (a.sum - b.sum) || byNameThenId(a, b),
+    ),
+  };
+}
+
+type DuelRow = Extract<Standings, { kind: 'duel' }>['rows'][number];
+type PointsRow = Extract<Standings, { kind: 'points' }>['rows'][number];
+type DuelResult = 'wins' | 'draws' | 'losses';
+
+/** What an outcome is for the first and the second side. */
+const DUEL_RESULTS: Record<FixtureMatch['outcome'], [DuelResult, DuelResult]> =
+  {
+    first: ['wins', 'losses'],
+    second: ['losses', 'wins'],
+    draw: ['draws', 'draws'],
+  };
+
+/** The game's rows of its current run. */
+function inRun<T extends { gameId: number; run: number }>(
+  rows: T[],
+  game: FixtureGame,
+): T[] {
+  return rows.filter(
+    ({ gameId, run }) => gameId === game.id && run === game.run,
+  );
+}
+
 /** A person's entries since `from`, newest first, like the API's EntryLedger. */
 function history(
   fixtures: Fixtures,
@@ -291,14 +378,14 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/persons/<n>`, `/api/games/<n>/restart`, … */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/persons/<n>`, `/api/games/<n>/standings`, … */
 function routeOf(path: string): { route: string; id: string } {
   const entry = /^\/api\/entries\/([^/]+)$/.exec(path)?.[1];
   if (entry && ENTRY_ID.test(entry)) {
     return { route: '/api/entries/{id}', id: entry };
   }
   const item =
-    /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart)?$/.exec(
+    /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart|\/standings)?$/.exec(
       path,
     );
   if (item?.[1] && item[2]) {
@@ -396,6 +483,10 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       values: (item: T) => AuditSnapshot;
       uses: (entry: Entry, item: T) => boolean;
       remove: (item: T) => void;
+      /** Counts of other dependents besides entries, for the delete dialog. */
+      counts?: (item: T) => Record<string, number>;
+      /** What the deletion does to other dependents, recorded as caused by it. */
+      cascade?: (me: FixtureAccount, item: T, cause?: AuditEvent) => void;
     },
   ): [string, Handler][] {
     const path = `/api/${collection}`;
@@ -430,7 +521,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
           const entryCount = fixtures.entries.filter((entry) =>
             rules.uses(entry, item),
           ).length;
-          return json({ ...item, entryCount });
+          return json({ ...item, entryCount, ...rules.counts?.(item) });
         }),
       ],
       [
@@ -476,16 +567,75 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
               cause,
             );
           }
+          rules.cascade?.(me, item, cause);
           return new Response(null, { status: 204 });
         }),
       ],
     ];
   }
 
+  /** A match as the audit log records it; `deleted` names a person whose deletion is being recorded. */
+  const matchSnapshot = (
+    match: FixtureMatch,
+    deleted?: { id: number; name: string },
+  ): AuditSnapshot => {
+    const nameOf = (personId: number | null) =>
+      [...fixtures.persons, ...(deleted ? [deleted] : [])].find(
+        ({ id }) => id === personId,
+      )?.name ?? null;
+    return {
+      game: fixtures.games.find(({ id }) => id === match.gameId)?.name ?? '',
+      first: nameOf(match.firstPersonId),
+      second: nameOf(match.secondPersonId),
+      outcome: match.outcome,
+    };
+  };
+  const byId = (a: { id: string }, b: { id: string }) =>
+    a.id.localeCompare(b.id);
+
+  /**
+  Like the API's person deletion: the person's matches stay with that side
+  cleared, one caused update each; their results go with them (results are not
+  audited before the API records them).
+  */
+  const clearPerson = (
+    me: FixtureAccount,
+    person: { id: number; name: string },
+    cause?: AuditEvent,
+  ) => {
+    const named = fixtures.matches
+      .filter(
+        ({ firstPersonId, secondPersonId }) =>
+          firstPersonId === person.id || secondPersonId === person.id,
+      )
+      .sort(byId);
+    for (const match of named) {
+      const before = matchSnapshot(match, person);
+      if (match.firstPersonId === person.id) match.firstPersonId = null;
+      if (match.secondPersonId === person.id) match.secondPersonId = null;
+      record(
+        me,
+        'update',
+        ['match', match.id],
+        before,
+        matchSnapshot(match),
+        cause,
+      );
+    }
+    fixtures.results = fixtures.results.filter(
+      ({ personId }) => personId !== person.id,
+    );
+  };
+  const matchCountOf = (personId: number) =>
+    fixtures.matches.filter(
+      ({ firstPersonId, secondPersonId }) =>
+        firstPersonId === personId || secondPersonId === personId,
+    ).length;
+
   /**
   The games, like the API's Games: list, create, read (with its match and result
-  counts; the preview has neither yet), edit, restart and delete, each write
-  recorded in the audit log.
+  counts of every run), edit, restart, delete (its matches and results with it)
+  and its ranking, each write recorded in the audit log.
   */
   function gameRoutes(): [string, Handler][] {
     const find = (id: string) =>
@@ -538,7 +688,12 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         guarded((_me, _body, { id }) => {
           const game = find(id);
           if (!game) return problem(PROBLEMS.notFound);
-          return json({ ...gameOf(game), matchCount: 0, resultCount: 0 });
+          const ofGame = ({ gameId }: { gameId: number }) => gameId === game.id;
+          return json({
+            ...gameOf(game),
+            matchCount: fixtures.matches.filter(ofGame).length,
+            resultCount: fixtures.results.filter(ofGame).length,
+          });
         }),
       ],
       [
@@ -579,9 +734,44 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         guarded((me, _body, { id }) => {
           const game = find(id);
           if (!game) return problem(PROBLEMS.notFound);
+          const matches = fixtures.matches
+            .filter(({ gameId }) => gameId === game.id)
+            .sort(byId)
+            .map((match) => [match, matchSnapshot(match)] as const);
           fixtures.games.splice(fixtures.games.indexOf(game), 1);
-          record(me, 'delete', ['game', id], gameValues(game), null);
+          const cause = record(
+            me,
+            'delete',
+            ['game', id],
+            gameValues(game),
+            null,
+          );
+          for (const [match, before] of matches) {
+            record(me, 'delete', ['match', match.id], before, null, cause);
+          }
+          // Like the foreign keys: the game's matches and results go with it.
+          fixtures.matches = fixtures.matches.filter(
+            ({ gameId }) => gameId !== game.id,
+          );
+          fixtures.results = fixtures.results.filter(
+            ({ gameId }) => gameId !== game.id,
+          );
           return new Response(null, { status: 204 });
+        }),
+      ],
+      [
+        'GET /api/games/{id}/standings',
+        guarded((_me, _body, { id, headers }) => {
+          const game = find(id);
+          if (!game) return problem(PROBLEMS.notFound);
+          // Like the API: the data revision names the ranking.
+          const etag = `"${String(revision())}"`;
+          if (headers.get('If-None-Match') === etag) {
+            return new Response(null, { status: 304, headers: { ETag: etag } });
+          }
+          const response = json(standingsOf(fixtures, game));
+          response.headers.set('ETag', etag);
+          return response;
         }),
       ],
     ];
@@ -715,6 +905,8 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
           (fixtures.entries = fixtures.entries.filter(
             (entry) => entry.personId !== person.id,
           )),
+        counts: (person) => ({ matchCount: matchCountOf(person.id) }),
+        cascade: clearPerson,
       },
     ),
     ...catalogRoutes(

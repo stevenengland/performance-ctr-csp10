@@ -21,6 +21,7 @@ export type Game = components['schemas']['Game'];
 export type GameDetail = components['schemas']['GameDetail'];
 export type NewGame = components['schemas']['NewGame'];
 export type GameChange = components['schemas']['GameChange'];
+export type Outcome = components['schemas']['Outcome'];
 export type Standings = components['schemas']['Standings'];
 export type DuelRow = components['schemas']['DuelRow'];
 export type PointsRow = components['schemas']['PointsRow'];
