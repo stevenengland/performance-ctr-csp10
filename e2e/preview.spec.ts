@@ -101,7 +101,7 @@ test('the preview marker covers no control of any screen', async ({ page }) => {
   }
 });
 
-test('the fixture preview counts a drink with Happy Hour ×2 on its sample evening and undoes it', async ({
+test('the fixture preview counts a drink with Happy Hour ×2 on its sample evening, where it waits for verification, and undoes it', async ({
   page,
 }) => {
   await page.goto('/index.html');
@@ -113,14 +113,16 @@ test('the fixture preview counts a drink with Happy Hour ×2 on its sample eveni
   await page.getByRole('button', { name: 'Happy Hour, ×2' }).click();
 
   await expect(
-    page.getByText('2× Bier · Happy Hour ×2 · Daniel'),
+    page.getByText('2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung'),
   ).toBeVisible();
+  // It waits: the score stays, the drink's counter shows what was recorded.
+  await page.getByRole('button', { name: 'Daniel, 13,5 Punkte heute' }).click();
   await expect(
-    page.getByRole('button', { name: 'Daniel, 17,5 Punkte heute' }),
+    page.getByRole('button', { name: 'Bier, 1 Punkt, heute 8' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Rückgängig' }).click();
   await expect(
-    page.getByRole('button', { name: 'Daniel, 13,5 Punkte heute' }),
+    page.getByRole('button', { name: 'Bier, 1 Punkt, heute 4' }),
   ).toBeVisible();
 });
 
@@ -183,6 +185,12 @@ test('the fixture preview ranks its sample evening on the Rangliste', async ({
   await expect(places.last()).toHaveAccessibleName(
     'Platz 5, Tom, 0,5 Punkte, 1 Getränk',
   );
+  await expect(places.nth(2)).toHaveAccessibleName(
+    'Platz 3, Mara, 6 Punkte, 4 Getränke, +1 offen',
+  );
+  await expect(
+    page.getByRole('list', { name: 'Noch nicht gewertet' }).getByRole('link'),
+  ).toHaveAccessibleName('Jule, Aperol 1 · Bier 2, +2 offen');
 });
 
 test('the fixture preview shows and deletes entries on a person’s Verlauf', async ({
@@ -232,7 +240,10 @@ test('the fixture preview opens another person’s Verlauf as a new screen', asy
   await page.goto('/index.html#/verlauf/4');
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Jule');
-  await expect(page.getByText('Heute keine Einträge.')).toBeVisible();
+  const entries = page
+    .getByRole('list', { name: 'Einträge von Jule' })
+    .getByRole('listitem');
+  await expect(entries).toHaveText([/^2× Bier.*offen/, /^1× Aperol.*offen/]);
 });
 
 test('the fixture preview lists its sample games with their leaders under Spiele and opens one’s ranking', async ({
@@ -592,8 +603,12 @@ test('the fixture preview shows avatars on the Zählen tiles and the Rangliste',
   expect(ring).toBe(`${ink} 0px 0px 0px 3px`);
   const rows = page.locator('[data-test="rank"]');
   await expect(rows).toHaveCount(4);
-  const sizes = await avatars(page.locator('.rank'))();
+  const sizes = await avatars(rows)();
   expect(sizes.map((avatar) => avatar.size)).toEqual([44, 44, 44, 44]);
+  const unranked = page.locator('[data-test="unranked"]');
+  await expect(unranked).toHaveCount(1);
+  const unrankedSizes = await avatars(unranked)();
+  expect(unrankedSizes.map((avatar) => avatar.size)).toEqual([44]);
 });
 
 test('the fixture preview removes a person’s photo in Person bearbeiten', async ({
