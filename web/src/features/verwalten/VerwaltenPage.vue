@@ -17,9 +17,9 @@ import { useSession } from '../../core/session';
 import { showProblem } from '../../core/snackbar';
 
 /**
-Verwalten (§7h): Personen, Getränke, Faktoren, Spiele and, for admins, Konten, each with
-its count as supporting line (absent until its list has loaded), and, for admins,
-Protokoll with a fixed one (the hub does not load the log).
+Verwalten (§7h): Personen, Getränke, Faktoren, Spiele and, for admins, Konten,
+each with its count as supporting line (absent until its list has loaded), and,
+for admins, Protokoll with a fixed one (the hub does not load the log).
 */
 type Count = (formatted: string, count: number) => string;
 

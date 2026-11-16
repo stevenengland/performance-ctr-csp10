@@ -2,7 +2,7 @@ import type { DeepReadonly } from 'vue';
 import type { Game } from '../../core/api-client';
 import { messages } from '../../core/messages';
 
-export function kindLabel(kind: Game['kind']): string {
+function kindLabel(kind: Game['kind']): string {
   return kind === 'duel' ? messages.spiele.duel : messages.spiele.points;
 }
 
