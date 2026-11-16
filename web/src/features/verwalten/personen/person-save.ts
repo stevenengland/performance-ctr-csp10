@@ -30,9 +30,10 @@ export interface PersonDraft {
 
 /**
 `photoNotSaved`: the name committed, in this save or an earlier one of the same
-dialog, and the photo did not; the photo is still pending.
+dialog, and the photo did not (`failure` says why); the photo is still pending.
 */
-export type PersonSaveOutcome = 'saved' | 'photoNotSaved';
+export type PersonSaveOutcome =
+  { kind: 'saved' } | { kind: 'photoNotSaved'; failure: unknown };
 
 export interface PersonSave {
   /**
@@ -108,12 +109,12 @@ export function personSave(person: Readonly<Person> | undefined): PersonSave {
     const photo = await prepare(draft.photo);
     const before = committed;
     const target = await saveName(draft.name);
-    let outcome: PersonSaveOutcome = 'saved';
+    let outcome: PersonSaveOutcome = { kind: 'saved' };
     try {
       await savePhoto(target, photo);
     } catch (failure) {
       if (!nameCommitted) throw failure;
-      outcome = 'photoNotSaved';
+      outcome = { kind: 'photoNotSaved', failure };
     }
     // Every acknowledged step replaced `committed`.
     if (committed !== before) refresh();

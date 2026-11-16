@@ -621,7 +621,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   the browser cannot decode (HEIC on most desktops) or encode, the server's message for a
   refused photo (`Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).`, `Foto zu groß.`) —
   each keeps the photo that was there — and `Person gespeichert, Foto nicht.` when the name
-  saved and the photo did not (the dialog stays; `Speichern` again sends only the photo).
+  saved and the photo did not, followed by one of those reasons when there is one (the dialog
+  stays; `Speichern` again sends only the photo).
 - `Person anlegen` with a photo encodes it, creates the person (`POST`), then uploads the
   photo. The created person joins the list as soon as the server acknowledges it; when only the
   upload fails, the dialog stays on that person, now titled `Person bearbeiten`, and `Speichern`

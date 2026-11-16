@@ -22,7 +22,7 @@ chosen photo or shows the initials until `Foto behalten` brings the photo back.
 A file that cannot be opened, and a photo the server refuses, show under the
 photo and keep what was there; the photo controls are frozen while saving. When
 the name committed and the photo did not, the dialog stays on the person (a new
-one is then edited) and says so; `Speichern` again sends only the photo, and
+one is then edited) and says so, with the photo's reason when there is one; `Speichern` again sends only the photo, and
 `Abbrechen` keeps what committed.
 */
 const open = defineModel<boolean>({ required: true });
@@ -105,8 +105,12 @@ async function save() {
         name: name.value,
         photo: photoChange.value,
       });
-      if (outcome === 'photoNotSaved') {
-        message = messages.personen.photoNotSaved;
+      if (outcome.kind === 'photoNotSaved') {
+        // Followed by the photo's own reason when the server or the browser gave one.
+        const reason = photoFailure(outcome.failure);
+        message = [messages.personen.photoNotSaved, reason]
+          .filter((part) => part !== undefined)
+          .join(' ');
       }
     } catch (failure) {
       message = photoFailure(failure);

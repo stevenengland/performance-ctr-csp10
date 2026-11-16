@@ -112,7 +112,7 @@ describe('saving a person in the dialog', () => {
       photo: { kind: 'remove' },
     });
 
-    expect(outcome).toBe('saved');
+    expect(outcome).toEqual({ kind: 'saved' });
     expect(api.calls.slice(0, 1)).toEqual(['DELETE /api/persons/2/photo']);
   });
 
@@ -147,7 +147,7 @@ describe('saving a person in the dialog', () => {
     });
     await flushPromises();
 
-    expect(outcome).toBe('saved');
+    expect(outcome).toEqual({ kind: 'saved' });
     expect(api.calls).toEqual([]);
   });
 
@@ -178,7 +178,7 @@ describe('saving a person in the dialog', () => {
     });
     await flushPromises();
 
-    expect(outcome).toBe('saved');
+    expect(outcome).toEqual({ kind: 'saved' });
     expect(usePersons().value?.[1]).toEqual({
       id: 2,
       name: 'Dani',
@@ -197,7 +197,10 @@ describe('saving a person in the dialog', () => {
       photo: { kind: 'remove' },
     });
 
-    expect(outcome).toBe('photoNotSaved');
+    expect(outcome).toEqual({
+      kind: 'photoNotSaved',
+      failure: expect.anything(),
+    });
     expect(saving.person).toEqual({ id: 2, name: 'Dani', photoUrl: PHOTO });
     expect(usePersons().value?.[1]).toEqual(saving.person);
   });
@@ -213,7 +216,7 @@ describe('saving a person in the dialog', () => {
 
     const outcome = await saving.save(draft);
 
-    expect(outcome).toBe('saved');
+    expect(outcome).toEqual({ kind: 'saved' });
     expect(api.calls.slice(0, 1)).toEqual(['DELETE /api/persons/2/photo']);
     expect(api.calls).not.toContain('PATCH /api/persons/2');
   });
@@ -225,7 +228,9 @@ describe('saving a person in the dialog', () => {
     const draft = { name: 'Dani', photo: { kind: 'remove' } } as const;
     await saving.save(draft);
 
-    await expect(saving.save(draft)).resolves.toBe('photoNotSaved');
+    await expect(saving.save(draft)).resolves.toMatchObject({
+      kind: 'photoNotSaved',
+    });
   });
 
   it('fails as a whole when nothing committed', async () => {
@@ -263,7 +268,7 @@ describe('saving a person in the dialog', () => {
         photo: photo.change,
       });
 
-      expect(outcome).toBe('saved');
+      expect(outcome).toEqual({ kind: 'saved' });
       expect(sentBeforeEncoding).toEqual([]);
       expect(api.calls.slice(0, 2)).toEqual([
         'PATCH /api/persons/2',
@@ -307,7 +312,7 @@ describe('saving a person in the dialog', () => {
       });
       await flushPromises();
 
-      expect(outcome).toBe('saved');
+      expect(outcome).toEqual({ kind: 'saved' });
       expect(usePersons().value?.[1]?.photoUrl).toBe(NEW_PHOTO);
       expect(useSnackbar().value?.text).toBe('GET /api/persons failed');
     });
@@ -331,12 +336,14 @@ describe('saving a person in the dialog', () => {
       const saving = personSave(daniel);
       const draft = { name: 'Dani', photo: framed('/9j/AA==').change };
 
-      await expect(saving.save(draft)).resolves.toBe('photoNotSaved');
+      await expect(saving.save(draft)).resolves.toMatchObject({
+        kind: 'photoNotSaved',
+      });
       api.failing.clear();
       api.calls.length = 0;
       api.images.length = 0;
 
-      await expect(saving.save(draft)).resolves.toBe('saved');
+      await expect(saving.save(draft)).resolves.toEqual({ kind: 'saved' });
       expect(api.calls.slice(0, 1)).toEqual(['PUT /api/persons/2/photo']);
       expect(api.images).toEqual(['/9j/AA==']);
     });
@@ -366,7 +373,7 @@ describe('saving a person in the dialog', () => {
 
       const outcome = await saving.save({ name: 'Jule', photo: photo.change });
 
-      expect(outcome).toBe('saved');
+      expect(outcome).toEqual({ kind: 'saved' });
       expect(sentBeforeEncoding).toEqual([]);
       expect(api.calls).toEqual([
         'POST /api/persons',
@@ -397,7 +404,7 @@ describe('saving a person in the dialog', () => {
         photo: framed().change,
       });
 
-      expect(outcome).toBe('saved');
+      expect(outcome).toEqual({ kind: 'saved' });
       expect(usePersons().value?.map(({ name }) => name)).toEqual([
         'Anna',
         'Daniel',
@@ -417,7 +424,7 @@ describe('saving a person in the dialog', () => {
       });
       await flushPromises();
 
-      expect(outcome).toBe('saved');
+      expect(outcome).toEqual({ kind: 'saved' });
       expect(saving.person).toEqual(jule);
       expect(usePersons().value).toContainEqual(jule);
       expect(useSnackbar().value?.text).toBe('GET /api/persons failed');
@@ -444,14 +451,16 @@ describe('saving a person in the dialog', () => {
       const saving = personSave(undefined);
       const draft = { name: 'Jule', photo: framed('/9j/AA==').change };
 
-      await expect(saving.save(draft)).resolves.toBe('photoNotSaved');
+      await expect(saving.save(draft)).resolves.toMatchObject({
+        kind: 'photoNotSaved',
+      });
       expect(saving.person).toEqual(jule);
       expect(usePersons().value).toContainEqual(jule);
       api.failing.clear();
       api.calls.length = 0;
       api.images.length = 0;
 
-      await expect(saving.save(draft)).resolves.toBe('saved');
+      await expect(saving.save(draft)).resolves.toEqual({ kind: 'saved' });
       expect(api.calls).toEqual([
         'PUT /api/persons/3/photo',
         'GET /api/persons',
@@ -500,7 +509,7 @@ describe('saving a person in the dialog', () => {
       api.failing.clear();
       api.calls.length = 0;
 
-      await expect(saving.save(draft)).resolves.toBe('saved');
+      await expect(saving.save(draft)).resolves.toEqual({ kind: 'saved' });
       expect(api.calls.slice(0, 2)).toEqual([
         'POST /api/persons',
         'PUT /api/persons/3/photo',

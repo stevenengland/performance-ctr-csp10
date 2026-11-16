@@ -641,6 +641,29 @@ describe('Verwalten → Personen', () => {
       );
     });
 
+    it('says both when the person is created and the server refuses the photo with 422', async () => {
+      await createJule({
+        replies: [
+          undefined,
+          () =>
+            problem(422, {
+              title: 'Eingaben ungültig.',
+              errors: {
+                image: 'Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).',
+              },
+            }),
+        ],
+      });
+
+      await click(buttonIn(dialog(), 'Speichern'));
+
+      expect(alert()).toBe(
+        'Person gespeichert, Foto nicht. Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).',
+      );
+      expect(title()).toBe('Person bearbeiten');
+      expect(crop()).not.toBeNull();
+    });
+
     it('keeps the created person’s id and counts the save when only the reload of the list fails', async () => {
       const { calls, shown } = await createJule({
         lists: [undefined, maintenance],
