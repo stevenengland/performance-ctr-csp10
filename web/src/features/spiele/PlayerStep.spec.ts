@@ -1,10 +1,11 @@
-import type { VueWrapper } from '@vue/test-utils';
+import { flushPromises, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { dismissSnackbar, useSnackbar } from '../../core/snackbar';
 import {
   button,
   duelApi,
   openFlow,
+  RANKING,
   ROMME,
   SCHACH,
   stepIndicator,
@@ -48,6 +49,22 @@ describe('picking the players of a match', () => {
     expect(anna?.text()).toContain('3,5');
     expect(carla?.text()).toContain('noch nichts');
     expect(stepIndicator(wrapper)).toBe('Schritt 1 von 3');
+  });
+
+  it('keeps each person’s standing current while the step is open', async () => {
+    const api = duelApi();
+    const opened = await openFlow('/spiele/1/partie');
+    wrapper = opened.wrapper;
+
+    api.state.standings = { ...RANKING, rows: RANKING.rows.slice(1) };
+    window.dispatchEvent(new Event('focus'));
+    await flushPromises();
+
+    expect(tileLabels(wrapper)).toEqual([
+      'Anna, noch nichts',
+      'Ben, 2 Punkte',
+      'Carla, noch nichts',
+    ]);
   });
 
   it('asks Gegen wen? without the first person', async () => {

@@ -1,7 +1,7 @@
-import { readonly, shallowRef, type ShallowRef } from 'vue';
+import { readonly, shallowRef } from 'vue';
 import * as api from './api-client';
 import type { Game, GameChange, NewGame, Standings } from './api-client';
-import { showProblem } from './snackbar';
+import { createPolledResources, usePolledResource } from './polled-resource';
 
 /** The games, shared by Verwalten and its Spiele screen; every screen refreshes them when it opens. */
 const games = shallowRef<Game[]>();
@@ -29,36 +29,37 @@ export async function updateGame(
 
 export async function deleteGame(id: number): Promise<void> {
   await api.deleteGame(id);
-  rankings.delete(id);
+  rankings.forget(id);
   await loadGames();
 }
 
-/** Each game's ranking as last read, shared by the screens that show it. */
-const rankings = new Map<number, ShallowRef<Standings | undefined>>();
+/** One polled ranking per game, created when a screen first needs it. */
+const rankings = createPolledResources<number, Standings>(
+  (gameId) => async (etag) => {
+    const answer = await api.getStandings(gameId, etag);
+    return answer === 'unchanged'
+      ? 'unchanged'
+      : { value: answer.standings, etag: answer.etag };
+  },
+);
 
-function rankingOf(gameId: number): ShallowRef<Standings | undefined> {
-  let ranking = rankings.get(gameId);
-  if (!ranking) {
-    ranking = shallowRef<Standings>();
-    rankings.set(gameId, ranking);
-  }
-  return ranking;
+/**
+A game's ranking for the calling screen, kept current while it is open: the
+game's one poller runs while any screen showing it is open (§6.6).
+*/
+export function useStandings(gameId: number) {
+  return usePolledResource(rankings.of(gameId));
 }
 
-/** A game's ranking; undefined until it was first read. */
-export function useStandings(gameId: number) {
-  return readonly(rankingOf(gameId));
+/** A game's ranking as last read, without polling it (the Spiele list reads on open and on focus). */
+export function viewStandings(gameId: number) {
+  return rankings.of(gameId).state;
 }
 
 /**
-Reads a game's ranking now: when its page opens and after the device's own
-writes. A failed read keeps the ranking shown and states the problem in the
-snackbar.
+Reads a game's ranking now: on open, on focus and after the device's own
+writes. Never rejects: a failed read keeps the ranking shown, marked stale.
 */
-export async function refreshStandings(gameId: number): Promise<void> {
-  try {
-    rankingOf(gameId).value = await api.getStandings(gameId);
-  } catch (failure) {
-    showProblem(failure);
-  }
+export function refreshStandings(gameId: number): Promise<void> {
+  return rankings.of(gameId).refresh();
 }

@@ -38,6 +38,7 @@ import {
   listAuditEvents,
   type AuditEvent,
   type Game,
+  type Standings,
   signIn,
   signOut,
 } from '../src/core/api-client';
@@ -1106,9 +1107,16 @@ describe('the fixture backend’s games', () => {
     return game.id;
   }
 
+  /** A game's ranking, read without condition. */
+  async function standingsOf(id: number): Promise<Standings> {
+    const answer = await getStandings(id);
+    if (answer === 'unchanged') throw new Error('asked without condition');
+    return answer.standings;
+  }
+
   /** A ranking's rows as `name points W-D-L/played` or `name sum (results)`. */
   async function ranking(id: number): Promise<string[]> {
-    const standings = await getStandings(id);
+    const standings = await standingsOf(id);
     return standings.kind === 'duel'
       ? standings.rows.map(
           (row) =>
@@ -1139,7 +1147,7 @@ describe('the fixture backend’s games', () => {
     installFixtureBackend(sampleEvening());
     const romme = await gameId('Rommé');
 
-    const standings = await getStandings(romme);
+    const standings = await standingsOf(romme);
     expect(standings).toMatchObject({ kind: 'points', lowerWins: true });
     expect(await ranking(romme)).toEqual([
       'Daniel -11 (2)',
@@ -1168,7 +1176,7 @@ describe('the fixture backend’s games', () => {
 
     await restart(schach);
 
-    await expect(getStandings(schach)).resolves.toMatchObject({ rows: [] });
+    await expect(standingsOf(schach)).resolves.toMatchObject({ rows: [] });
     await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 9 });
   });
 

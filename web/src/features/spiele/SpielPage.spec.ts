@@ -13,6 +13,16 @@ import { refreshStandings } from '../../core/games';
 import { dismissSnackbar, useSnackbar } from '../../core/snackbar';
 import { createAppVuetify } from '../../theme';
 import { json, problem } from '../verwalten/manage-page-harness';
+
+/** A 503 while a migration runs, to be retried after `Retry-After`. */
+function maintenance(): Response {
+  const answer = problem(503, {
+    type: 'urn:performance:problem:maintenance',
+    title: 'Wird aktualisiert – gleich wieder da',
+  });
+  answer.headers.set('Retry-After', '30');
+  return answer;
+}
 import SpielPage from './SpielPage.vue';
 
 const STARTED = '2026-09-15T10:00:00.000Z';
@@ -225,13 +235,10 @@ describe('a game’s page', () => {
     expect(wrapper.get('.game-leader__value').text()).toBe('−11');
   });
 
-  it('shows a failed ranking load in the snackbar', async () => {
+  it('shows maintenance in the snackbar when the ranking cannot be read', async () => {
     // A game no screen has read the ranking of yet.
     api([game(5, 'Dame', 'duel')], {
-      5: problem(503, {
-        type: 'urn:performance:problem:maintenance',
-        title: 'Wird aktualisiert – gleich wieder da',
-      }),
+      5: maintenance(),
     });
 
     wrapper = await spiel(5);
@@ -261,5 +268,110 @@ describe('a game’s page', () => {
 
     expect(router.currentRoute.value.path).toBe('/spiele');
     expect(useSnackbar().value?.text).toBe('Nicht mehr vorhanden');
+  });
+});
+
+describe('keeping a game’s page current', () => {
+  const zone = process.env.TZ;
+  let wrapper: VueWrapper | undefined;
+
+  beforeEach(() => {
+    process.env.TZ = 'Europe/Berlin';
+    vi.useFakeTimers({ now: new Date('2026-11-15T22:41:00Z') });
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible',
+    });
+    dismissSnackbar();
+  });
+  afterEach(() => {
+    wrapper?.unmount();
+    document.body.innerHTML = '';
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    process.env.TZ = zone;
+  });
+
+  /** The API with one game whose ranking has the given ETag; `answer` decides each ranking request. */
+  function serve(
+    subject: Game,
+    answer: (ifNoneMatch: string | undefined) => Response | Promise<Response>,
+  ) {
+    const asked: (string | undefined)[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        if (url === '/api/games') return json({ games: [subject] });
+        const ifNoneMatch = (init.headers as Record<string, string>)[
+          'If-None-Match'
+        ];
+        asked.push(ifNoneMatch);
+        return answer(ifNoneMatch);
+      }),
+    );
+    return asked;
+  }
+
+  const tagged = (body: Standings, etag: string) => {
+    const answer = json(body);
+    answer.headers.set('ETag', etag);
+    return answer;
+  };
+
+  it('asks for the ranking every 10 s on condition of its ETag and at once on focus, showing what changed', async () => {
+    let current = SCHACH;
+    const asked = serve(game(21, 'Schach', 'duel'), (ifNoneMatch) =>
+      ifNoneMatch === `"${String(current.rows.length)}"`
+        ? new Response(null, { status: 304 })
+        : tagged(current, `"${String(current.rows.length)}"`),
+    );
+    wrapper = await spiel(21);
+    expect(wrapper.findAll('.game-rank')).toHaveLength(2);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(asked).toEqual([undefined, '"3"']);
+
+    current = { ...SCHACH, rows: SCHACH.rows.slice(0, 2) };
+    window.dispatchEvent(new Event('focus'));
+    await flushPromises();
+
+    expect(asked).toEqual([undefined, '"3"', '"3"']);
+    expect(wrapper.findAll('.game-rank')).toHaveLength(1);
+  });
+
+  it('keeps the last ranking with “Stand: hh:mm” in the top bar when a refresh fails, and retries after 5 s', async () => {
+    let online = true;
+    const asked = serve(game(22, 'Schach', 'duel'), () =>
+      online
+        ? tagged(SCHACH, '"1"')
+        : Promise.reject(new TypeError('Failed to fetch')),
+    );
+    wrapper = await spiel(22);
+    expect(wrapper.text()).not.toContain('Stand');
+
+    online = false;
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flushPromises();
+
+    expect(wrapper.get('.game-leader').text()).toContain('Anna');
+    expect(wrapper.get('.top-bar').text()).toContain('Stand: 23:41');
+
+    online = true;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await flushPromises();
+    expect(asked).toHaveLength(3);
+    expect(wrapper.text()).not.toContain('Stand');
+  });
+
+  it('stops asking once the page is left', async () => {
+    const asked = serve(game(23, 'Schach', 'duel'), () =>
+      tagged(SCHACH, '"1"'),
+    );
+    wrapper = await spiel(23);
+
+    await router.push('/spiele');
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(asked).toHaveLength(1);
   });
 });

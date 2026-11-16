@@ -2,12 +2,8 @@
 import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import AppFab from '../../components/AppFab.vue';
-import {
-  loadGames,
-  refreshStandings,
-  useGames,
-  useStandings,
-} from '../../core/games';
+import { formatTime } from '../../core/format';
+import { loadGames, useGames, useStandings } from '../../core/games';
 import { messages } from '../../core/messages';
 import { showProblem } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
@@ -18,8 +14,9 @@ import { contextLine, gameStandings, matchPath, ruleLine } from './game-view';
 /**
 A game's page (§7o): its name and context line in the top bar, the rule that
 decides its ranking, and the ranking since the last (re)start, shaped like the
-Rangliste. The ranking is read when the page opens and after the device's own
-writes. On a duel, `Partie eintragen` (the FAB) opens the recording flow (§7p).
+Rangliste and kept current like it: polled while the page is open, at once on
+focus and after the device's own writes; while its latest refresh failed, the top
+bar shows when the ranking was last confirmed (§6.6). On a duel, `Partie eintragen` (the FAB) opens the recording flow (§7p).
 */
 const props = defineProps<{ gameId: string }>();
 const SKELETON_ROWS = 3;
@@ -32,19 +29,23 @@ const game = computed(() =>
 );
 const ranking = useStandings(gameId.value);
 const standings = computed(() =>
-  ranking.value ? gameStandings(ranking.value) : undefined,
+  ranking.value.value ? gameStandings(ranking.value.value) : undefined,
 );
 
-provideTopBar(() => ({
-  title: game.value?.name,
-  context: game.value ? contextLine(game.value) : undefined,
-}));
+provideTopBar(() => {
+  const { stale, updatedAt } = ranking.value;
+  return {
+    title: game.value?.name,
+    context: game.value ? contextLine(game.value) : undefined,
+    stale:
+      stale && updatedAt ? messages.stand(formatTime(updatedAt)) : undefined,
+  };
+});
 
 onMounted(async () => {
   try {
     await loadGames();
     if (!game.value) leaveGone(router);
-    else await refreshStandings(gameId.value);
   } catch (failure) {
     showProblem(failure);
   }

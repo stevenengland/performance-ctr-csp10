@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { mdiChevronRight } from '@mdi/js';
-import { onMounted, shallowRef, type DeepReadonly } from 'vue';
-import { getStandings, type Game } from '../../core/api-client';
-import { loadGames, useGames } from '../../core/games';
+import { onMounted, onUnmounted } from 'vue';
+import {
+  loadGames,
+  refreshStandings,
+  useGames,
+  viewStandings,
+} from '../../core/games';
 import { messages } from '../../core/messages';
 import { showProblem } from '../../core/snackbar';
 import { contextLine, gamePath, leaderLine } from './game-view';
@@ -11,30 +15,40 @@ import { contextLine, gamePath, leaderLine } from './game-view';
 Spiele (§7n): every game alphabetically, each with its kind, the day its
 ranking counts from and its current leader. A game opens its page; with no games
 yet, the empty state links to Verwalten → Spiele with the create dialog open.
+The leaders are read on open and on focus only, never polled per game (§6.6); a
+failed read keeps the leader shown.
 */
 const SKELETON_CARDS = 3;
 
 const games = useGames();
-/** The leader line per game id, read once when the list opens; absent until then. */
-const leaders = shallowRef<Partial<Record<number, string>>>({});
 
-async function loadLeaders(list: DeepReadonly<Game[]>) {
-  const lines = await Promise.all(
-    list.map(
-      async (game) =>
-        [game.id, leaderLine(await getStandings(game.id))] as const,
-    ),
-  );
-  leaders.value = Object.fromEntries(lines);
+/** The game's leader line; empty until its ranking was first read. */
+function leaderOf(gameId: number): string {
+  const ranking = viewStandings(gameId).value.value;
+  return ranking ? leaderLine(ranking) : '';
 }
 
-onMounted(async () => {
+async function load() {
   try {
     await loadGames();
-    if (games.value) await loadLeaders(games.value);
+    await Promise.all(
+      (games.value ?? []).map((game) => refreshStandings(game.id)),
+    );
   } catch (failure) {
     showProblem(failure);
   }
+}
+
+function onFocus() {
+  void load();
+}
+
+onMounted(() => {
+  window.addEventListener('focus', onFocus);
+  void load();
+});
+onUnmounted(() => {
+  window.removeEventListener('focus', onFocus);
 });
 </script>
 
@@ -66,7 +80,7 @@ onMounted(async () => {
             contextLine(game)
           }}</span>
           <span class="type-label game-card__leader">{{
-            leaders[game.id]
+            leaderOf(game.id)
           }}</span>
         </RouterLink>
       </li>

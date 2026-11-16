@@ -280,7 +280,8 @@ button on every screen below a navigation destination, and the account icon on t
 steps 2–4 the bar also shows, right-aligned before the account icon, the chosen person's
 total score for today — all drinks, factors applied — as a numeral (`title`) over the caption
 `Punkte heute` (from the scoreboard feed; `0` when there are no entries). On the
-Rangliste the bar also shows `Stand: HH:mm` in `error` when data is stale (§6.6).
+Rangliste and a game's page (§7o) the bar also shows `Stand: HH:mm` in `error` when data is
+stale (§6.6).
 
 ### 6.2 Navigation bar / rail
 
@@ -344,7 +345,8 @@ last step disables its buttons; all other screens keep showing their last data.
 
 ### 6.6 Stale indicator
 
-When the latest scoreboard refresh failed, the last data stays visible and `Stand: HH:mm`
+When the latest refresh of the scoreboard or of a game's ranking failed, the last data stays
+visible and `Stand: HH:mm`
 (time of the last successful refresh) appears in `caption`, `error`, at the right of the top app bar. It
 disappears after the next successful refresh.
 
@@ -353,7 +355,14 @@ scores or counters is open (Rangliste and the add flow) and the page is visible:
 10 s with `If-None-Match` (304 keeps the standings), at once on focus, on becoming visible and
 after the device's own writes, and never while hidden. Each request computes `from` anew, so
 the next refresh after local midnight shows the new day; an answer overtaken by a newer request
-or a new day is dropped. After a failure it retries after 5, 10, 20, 40, then every 60 s.
+or a new day is dropped. After a failure it retries after 5, 10, 20, 40, then every 60 s; a
+503 with `Retry-After` shows `Wird aktualisiert – gleich wieder da` and retries after that delay.
+
+The mechanism is a keyed *polled resource* (`core/polled-resource.ts`): the drink feed is one
+instance, and each game has at most one for its ranking (`GET /api/games/{id}/standings`,
+ETag = data revision), shared by every screen that shows it (the game's page §7o and the duel
+flow's player steps §7p) and stopped when the last one closes. The Spiele list (§7n) never
+polls: it reads each game's ranking on open and on focus only.
 
 ### 6.7 Update prompt and reload floor
 
@@ -700,9 +709,10 @@ submit on Enter.
   height (20 dp) until the rankings have loaded. The tiles form the list `Spiele`.
 - Loading: three skeleton tiles. Empty: `Noch keine Spiele.` + button `Spiel anlegen` →
   `/verwalten/spiele?anlegen` (Verwalten → Spiele with its create dialog open).
-- The list is read when the screen opens (`GET /api/games`), then every game's ranking once
-  (`GET /api/games/{id}/standings`) for its leader; no polling per game. A failed read shows
-  the problem title in the snackbar; the tiles stay without leaders.
+- The list is read when the screen opens and again on focus (`GET /api/games`), then every
+  game's ranking (`GET /api/games/{id}/standings`, with `If-None-Match` once known) for its
+  leader; no polling per game (§6.6). A failed read keeps the leader shown (a tile never read
+  stays without one); a list that cannot be read shows the problem title in the snackbar.
 
 ### 7o. Spiel `/spiele/:gameId`
 
@@ -735,9 +745,10 @@ submit on Enter.
     name `Platz 1, Anna, 4 Punkte, 5 Partien · 3 S · 2 R · 0 N`. Places are not links.
 - Empty: `Seit dem Start noch keine Partien.` for a duel, `Seit dem Start noch keine
   Ergebnisse.` for a points game.
-- The ranking (`GET /api/games/{id}/standings`) is read when the page opens and after the
-  device's own writes; a failed read keeps what is shown and states the problem title in the
-  snackbar.
+- The ranking (`GET /api/games/{id}/standings`) is kept current like the Rangliste (§6.6):
+  read when the page opens, every 10 s while visible with `If-None-Match` (304 keeps it), at
+  once on focus and after the device's own writes. A failed read keeps what is shown with
+  `Stand: HH:mm` in the top bar and retries with backoff up to 60 s.
 - Loading: a skeleton card and three skeleton rows.
 - A game that no longer exists (deleted on another phone): back to Spiele with
   `Nicht mehr vorhanden` (§9).
@@ -751,7 +762,8 @@ submit on Enter.
   person, alphabetically, in the tile grid. Instead of today's score each tile shows the
   person's standing in this game since the start: the points (`numeral`, `3,5`) with
   `5 Partien` in `support`, or just `noch nichts`; accessible name `Anna, 3,5 Punkte` /
-  `Carla, noch nichts`. The standing comes from the game's ranking (§7o).
+  `Carla, noch nichts`. The standing comes from the game's ranking (§7o), kept current by the
+  game's poller while the step is open.
 - **Step 2 — `Gegen wen?`** (context line `Anna – …`): the same tiles without the first person.
 - **Step 3 — `Wie ging es aus?`** (context line `Anna – Ben`): one column of tiles, a phone's
   width as in §7e: `Anna gewinnt` (`1 Punkt für den Sieg`), `Remis` (`je ½ Punkt`, a raspberry
@@ -833,7 +845,7 @@ submit on Enter.
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt` and `accountName` (or `null`); 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count (a person also `matchCount`); `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Verwalten | `GET /api/{persons,drinks,factors,games}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
-| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. Standings of the current run, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played}`, a points game's `{personId, name, sum, results}` with `lowerWins` |
+| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` (ETag, `If-None-Match` → 304) | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. The game's page polls every 10 s while visible, Spiele reads on open and on focus; ETag = data revision. Standings of the current run, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played}`, a points game's `{personId, name, sum, results}` with `lowerWins` |
 | Verwalten → Spiele | `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/{id}` | Game: `id`, `name`, `kind` (`duel` \| `points`), `drawsAllowed`, `lowerWins`, `startedAt`. `POST` takes `name`, `kind` and the kind's setting; `PATCH` takes `name` and the setting (the kind is fixed); `GET …/{id}` adds `matchCount` and `resultCount` (every run) |
 | Partie eintragen | `GET /api/games`, `GET /api/persons`, `GET /api/games/{id}/standings`, `PUT /api/matches/{uuid}` | Body `{gameId, firstPersonId, secondPersonId, outcome}` with `outcome` `first` \| `second` \| `draw`; 201 new, 200 replay; the same UUID with other content is 409 `request-conflict` |
 | Snackbar `Rückgängig` (match) | `DELETE /api/matches/{uuid}` | 404 counts as undone; the ranking is read again |

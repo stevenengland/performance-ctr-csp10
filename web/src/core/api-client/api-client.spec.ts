@@ -442,7 +442,7 @@ describe('the API client', () => {
     );
   });
 
-  it('reads a game’s ranking, tagged with its kind', async () => {
+  it('reads a game’s ranking, tagged with its kind, and keeps its ETag', async () => {
     const standings = {
       kind: 'duel',
       startedAt: '2026-09-15T10:00:00.000Z',
@@ -450,13 +450,36 @@ describe('the API client', () => {
     };
     const fetch = respond(standings, {
       status: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ETag: '"42"' },
     });
 
-    await expect(getStandings(2)).resolves.toEqual(standings);
+    await expect(getStandings(2)).resolves.toEqual({
+      standings,
+      etag: '"42"',
+    });
     expect(fetch).toHaveBeenCalledWith(
       '/api/games/2/standings',
-      expect.anything(),
+      expect.objectContaining({
+        headers: expect.not.objectContaining({
+          'If-None-Match': expect.anything(),
+        }),
+      }),
+    );
+  });
+
+  it('asks for a game’s ranking on condition of the last ETag; 304 means unchanged', async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(null, { status: 304, headers: { ETag: '"42"' } }),
+    );
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(getStandings(2, '"42"')).resolves.toBe('unchanged');
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/games/2/standings',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'If-None-Match': '"42"' }),
+      }),
     );
   });
 

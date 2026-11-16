@@ -159,14 +159,15 @@ describe('Spiele', () => {
     expect(fetch).toHaveBeenCalledTimes(4);
   });
 
-  it('shows a failed leader load in the snackbar and keeps the list', async () => {
+  it('shows maintenance in the snackbar when a leader cannot be read and keeps the list', async () => {
     const started = '2026-09-15T10:00:00.000Z';
-    api([game(1, 'Schach', 'duel', started)], {
-      1: problem(503, {
-        type: 'urn:performance:problem:maintenance',
-        title: 'Wird aktualisiert – gleich wieder da',
-      }),
+    const maintenance = problem(503, {
+      type: 'urn:performance:problem:maintenance',
+      title: 'Wird aktualisiert – gleich wieder da',
     });
+    maintenance.headers.set('Retry-After', '30');
+    // A game no screen has read the ranking of yet.
+    api([game(43, 'Schach', 'duel', started)], { 43: maintenance });
 
     wrapper = await spiele();
 
@@ -174,6 +175,92 @@ describe('Spiele', () => {
       'Wird aktualisiert – gleich wieder da',
     );
     expect(cards(wrapper)).toEqual(['SchachDuell · seit 15.09.']);
+  });
+
+  it('reads the leaders again on focus, on condition of each ranking’s ETag, and never polls them', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-15T22:45:00Z') });
+    const started = '2026-09-15T10:00:00.000Z';
+    const asked: string[] = [];
+    let leader = 'Anna';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        if (url === '/api/games') {
+          return json({ games: [game(41, 'Schach', 'duel', started)] });
+        }
+        const ifNoneMatch = (init.headers as Record<string, string>)[
+          'If-None-Match'
+        ];
+        asked.push(ifNoneMatch ?? 'none');
+        if (ifNoneMatch === `"${leader}"`) {
+          return new Response(null, { status: 304 });
+        }
+        const answer = json({
+          kind: 'duel',
+          startedAt: started,
+          rows: [
+            {
+              personId: 1,
+              name: leader,
+              points: 1,
+              wins: 1,
+              draws: 0,
+              losses: 0,
+              played: 1,
+            },
+          ],
+        });
+        answer.headers.set('ETag', `"${leader}"`);
+        return answer;
+      }),
+    );
+    wrapper = await spiele();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(asked).toEqual(['none']);
+
+    window.dispatchEvent(new Event('focus'));
+    await flushPromises();
+    expect(asked).toEqual(['none', '"Anna"']);
+
+    leader = 'Ben';
+    window.dispatchEvent(new Event('focus'));
+    await flushPromises();
+    expect(wrapper.get('.game-card__leader').text()).toBe('1. Ben · 1 Punkt');
+
+    wrapper.unmount();
+    wrapper = undefined;
+    window.dispatchEvent(new Event('focus'));
+    await flushPromises();
+    expect(asked).toHaveLength(3);
+  });
+
+  it('keeps a leader shown when reading it again fails', async () => {
+    const started = '2026-09-15T10:00:00.000Z';
+    const anna = {
+      kind: 'duel' as const,
+      startedAt: started,
+      rows: [
+        {
+          personId: 1,
+          name: 'Anna',
+          points: 2,
+          wins: 2,
+          draws: 0,
+          losses: 0,
+          played: 2,
+        },
+      ],
+    };
+    api([game(42, 'Schach', 'duel', started)], { 42: anna });
+    wrapper = await spiele();
+
+    api([game(42, 'Schach', 'duel', started)], {
+      42: problem(500, { type: 'about:blank', title: 'Fehler' }),
+    });
+    window.dispatchEvent(new Event('focus'));
+    await flushPromises();
+
+    expect(wrapper.get('.game-card__leader').text()).toBe('1. Anna · 2 Punkte');
   });
 
   it('opens a game’s page', async () => {

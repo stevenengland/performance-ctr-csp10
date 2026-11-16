@@ -353,11 +353,29 @@ export function deleteGame(id: number): Promise<void> {
   });
 }
 
-/** A game's ranking in its current run, tagged with the game's kind. */
-export function getStandings(gameId: number): Promise<Standings> {
-  return request<Standings>('/api/games/{id}/standings', {
+/** A game's ranking with the ETag that names it, to ask on condition of next time. */
+export interface StandingsAnswer {
+  standings: Standings;
+  etag: string | undefined;
+}
+
+/**
+A game's ranking in its current run, tagged with the game's kind. With the ETag
+of the ranking already shown, `unchanged` means it still holds.
+*/
+export async function getStandings(
+  gameId: number,
+  etag?: string,
+): Promise<StandingsAnswer | 'unchanged'> {
+  const response = await send('/api/games/{id}/standings', {
     params: { id: String(gameId) },
+    ifNoneMatch: etag,
   });
+  if (response.status === NOT_MODIFIED) return 'unchanged';
+  return {
+    standings: (await response.json()) as Standings,
+    etag: response.headers.get('ETag') ?? undefined,
+  };
 }
 
 /** Records a match under its client id: repeating it with the same id never records a second one. */

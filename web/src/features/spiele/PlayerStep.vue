@@ -3,12 +3,7 @@ import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import CountTile from '../../components/CountTile.vue';
 import { loadPersons, usePersons } from '../../core/catalog';
-import {
-  loadGames,
-  refreshStandings,
-  useGames,
-  useStandings,
-} from '../../core/games';
+import { loadGames, useGames, useStandings } from '../../core/games';
 import { messages } from '../../core/messages';
 import { showProblem } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
@@ -18,7 +13,8 @@ import { gameStandings, matchPath, type GameStanding } from './game-view';
 /**
 Picking a duel's players (§7p), one decision per screen: the first player
 (`/partie`, `Wer spielt?`), then the second without the first (`/partie/:firstId`,
-`Gegen wen?`). Each tile shows the person's standing in this game.
+`Gegen wen?`). Each tile shows the person's standing in this game, kept current
+by the game's shared poller while the step is open.
 */
 const props = defineProps<{ gameId: string; firstId?: string }>();
 const SKELETON_TILES = 4;
@@ -41,7 +37,7 @@ const choices = computed(() =>
   persons.value?.filter((person) => person.id !== firstId.value),
 );
 const standings = computed(() =>
-  ranking.value ? gameStandings(ranking.value) : [],
+  ranking.value.value ? gameStandings(ranking.value.value) : [],
 );
 
 provideTopBar(() => ({
@@ -71,7 +67,6 @@ onMounted(async () => {
       game.value?.kind !== 'duel' ||
       (firstId.value !== undefined && !first.value);
     if (gone) leaveGone(router);
-    else await refreshStandings(gameId.value);
   } catch (failure) {
     showProblem(failure);
   }
