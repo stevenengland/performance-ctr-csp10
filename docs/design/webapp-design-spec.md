@@ -429,6 +429,23 @@ icon button (`Passwort anzeigen` / `Passwort verbergen`). Built as the app compo
 mockup exactly and keeps the field framework out of the sign-in screen's bundle. Forms in dialogs
 submit on Enter.
 
+### 6.12 Person avatar
+
+`PersonAvatar` — a person's round avatar (a beer mat seen from above), the same size with or
+without a photo, so rows line up either way. Each surface sets its size (Personen rows 40 dp,
+§7i).
+
+- **Photo:** the person's `photoUrl` in an `<img>` with `alt=""`, `object-fit: cover`. A photo
+  that fails to load shows the initials instead.
+- **Initials** without a photo: at most two, the first letters of the first and last word
+  (`Anna Lena` → `AL`, `Daniel` → `D`), upper-cased for `de-DE`, in the display face (Big
+  Shoulders Display 900, 42 % of the size) on `secondary-container` / `on-secondary-container`
+  — the same pair for everyone, no per-person colours.
+- **Decorative** (§10): `aria-hidden`; the initials are drawn by CSS from a `data-initials`
+  attribute, so they never join the text or accessible name of the row they sit in.
+- Lists and tiles stay generic: `CatalogList` takes it through its `leading` slot and lays the
+  slot out left of the name, 12 dp apart.
+
 ## 7. Screens
 
 ### 7a. Anmelden `/anmelden`
@@ -561,7 +578,8 @@ submit on Enter.
 
 - Alphabetical list; each row: name and, for drinks, `1 Punkt`, for factors, `×2`; trailing edit
   and delete icon buttons. Under Personen the name is a link `Verlauf von Daniel` to the
-  person's Verlauf (§7g).
+  person's Verlauf (§7g), led by the person's 40 dp avatar (§6.12) inside the link; its name
+  stays `Verlauf von Daniel`.
 - Extended FAB `Person anlegen` / `Getränk anlegen` / `Faktor anlegen` (bottom right, above the
   navigation bar; `primary`, corner 10 dp, no shadow). Rows are separated by `outline-variant`
   hairlines; primary text in `row-title`.
@@ -936,6 +954,9 @@ submit on Enter.
 - Contrast from the role pairs in §3.1 only; every pair in use meets AA.
 - Tally marks are decorative and hidden from assistive technology; upper-case display text is
   produced with CSS so it is read in normal case.
+- Person avatars (§6.12) are decorative: `aria-hidden`, photos with `alt=""`, initials drawn
+  from an attribute. The name beside an avatar carries the meaning, so no accessible name
+  changes with a photo.
 - Every counting button has an accessible name with its state, e.g. `Bier, 1 Punkt, heute 4`,
   `Daniel, 13,5 Punkte heute` or `Jule, noch nichts`; the stepper's buttons are `Eins weniger`
   and `Eins mehr`.
@@ -989,7 +1010,9 @@ the shareable page a UI change is reviewed on before it reaches the host.
 - **Behaviour.** The fixture backend starts signed in as the admin `anna` (the sample
   accounts `anna`, `ben`, `daniel`, `mara` sign in with `beispiel-passwort`), serves a sample evening
   (marked as sample data: persons, drinks, factors and entries timed relative to now, so the
-  preview never ages out of "today"), keeps writes in memory for the session (adds, undo,
+  preview never ages out of "today"; Anna, Daniel and Mara have illustrated sample photos — no
+  real people — bundled as hashed assets in place of the API's versioned photo URL, the others
+  show their initials), keeps writes in memory for the session (adds, undo,
   deletes, CRUD), and answers anything else with 503. Its games are `Rommé` (points, lowest
   sum wins, started today), `Schach` (duel with draws, two months) and `Tischtennis` (duel
   without draws, three weeks) — on Spiele `Punktespiel · seit heute, 00:00`, `Duell · seit …`; they
