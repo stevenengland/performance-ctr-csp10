@@ -767,6 +767,9 @@ submit on Enter.
   read when the page opens, every 10 s while visible with `If-None-Match` (304 keeps it), at
   once on focus and after the device's own writes. A failed read keeps what is shown with
   `Stand: HH:mm` in the top bar and retries with backoff up to 60 s.
+  The ranking carries the run's start and a points game's direction: the context line's
+  `seit …` and the rule line follow each ranking read, so a restart or rule edit on another
+  device shows with the ranking it changed.
 - Below the ranking (or the empty state) a row of text buttons (`row-title`, normal case):
   `Verlauf` (`mdiHistory`) opens the game's Verlauf (§7r); `Neu starten` (`mdiRestart`) opens
   the confirmation dialog (§6.9) `Schach neu starten?` – `Die Rangliste beginnt wieder bei null.

@@ -369,6 +369,30 @@ describe('keeping a game’s page current', () => {
     expect(wrapper.findAll('.game-rank')).toHaveLength(1);
   });
 
+  it('shows the start and the rule the ranking was read with after a restart or rule edit on another device', async () => {
+    const before = game(24, 'Rommé', 'points');
+    let current: Standings = noRows(before);
+    serve(before, () => json(current));
+    wrapper = await spiel(24);
+    expect(wrapper.get('.top-bar__context').text()).toBe(
+      'Punktespiel · seit 15.09.',
+    );
+    expect(wrapper.get('.spiel__rule').text()).toBe('Höchste Summe gewinnt');
+
+    current = {
+      kind: 'points',
+      startedAt: '2026-11-15T21:00:00.000Z',
+      lowerWins: true,
+      rows: [],
+    };
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(wrapper.get('.top-bar__context').text()).toBe(
+      'Punktespiel · seit heute, 22:00',
+    );
+    expect(wrapper.get('.spiel__rule').text()).toBe('Niedrigste Summe gewinnt');
+  });
+
   it('keeps the last ranking with “Stand: hh:mm” in the top bar when a refresh fails, and retries after 5 s', async () => {
     let online = true;
     const asked = serve(game(22, 'Schach', 'duel'), () =>

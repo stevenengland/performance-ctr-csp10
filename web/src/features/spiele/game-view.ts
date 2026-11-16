@@ -39,6 +39,23 @@ export function sinceLabel(startedAt: string, now: Date = new Date()): string {
     : messages.spiele.since(formatDay(start));
 }
 
+/**
+The game as its ranking was read: the ranking carries the run's start and, on a
+points game, its direction, so a restart or rule edit on another device shows
+with the ranking it changed.
+*/
+export function gameAsRanked(
+  game: DeepReadonly<Game>,
+  standings: DeepReadonly<Standings> | undefined,
+): DeepReadonly<Game> {
+  if (!standings) return game;
+  return {
+    ...game,
+    startedAt: standings.startedAt,
+    ...(standings.kind === 'points' ? { lowerWins: standings.lowerWins } : {}),
+  };
+}
+
 /** The game's context line in the list and the top bar: `Duell · seit 15.09.`. */
 export function contextLine(game: DeepReadonly<Game>): string {
   return messages.spiele.context(

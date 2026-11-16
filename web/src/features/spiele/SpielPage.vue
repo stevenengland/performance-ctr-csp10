@@ -19,6 +19,7 @@ import GameStandingList from './GameStandingList.vue';
 import { leaveGone } from './game-flow';
 import {
   contextLine,
+  gameAsRanked,
   gameHistoryPath,
   gameStandings,
   recordPath,
@@ -30,7 +31,8 @@ A game's page (§7o): its name and context line in the top bar, the rule that
 decides its ranking, and the ranking since the last (re)start, shaped like the
 Rangliste and kept current like it: polled while the page is open, at once on
 focus and after the device's own writes; while its latest refresh failed, the top
-bar shows when the ranking was last confirmed (§6.6). The FAB opens the recording flow: `Partie eintragen` on a duel (§7p), `Ergebnis eintragen` on a points game (§7q);
+bar shows when the ranking was last confirmed (§6.6). The start and rule shown come
+with each ranking read, so a restart or rule edit elsewhere shows with it. The FAB opens the recording flow: `Partie eintragen` on a duel (§7p), `Ergebnis eintragen` on a points game (§7q);
 `Verlauf` under the ranking opens the game's Verlauf (§7r); `Neu starten` beside it
 starts the game's next run after a confirmation. A game deleted meanwhile, found
 on open or by the ranking's poll, leads back to Spiele.
@@ -41,10 +43,13 @@ const SKELETON_ROWS = 3;
 const router = useRouter();
 const games = useGames();
 const gameId = computed(() => Number(props.gameId));
-const game = computed(() =>
-  games.value?.find((candidate) => candidate.id === gameId.value),
-);
 const ranking = useStandings(gameId.value);
+const game = computed(() => {
+  const listed = games.value?.find(
+    (candidate) => candidate.id === gameId.value,
+  );
+  return listed && gameAsRanked(listed, ranking.value.value);
+});
 const standings = computed(() =>
   ranking.value.value ? gameStandings(ranking.value.value) : undefined,
 );

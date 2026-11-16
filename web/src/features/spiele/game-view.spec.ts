@@ -8,6 +8,7 @@ import type {
 } from '../../core/api-client';
 import {
   contextLine,
+  gameAsRanked,
   gameHistoryPath,
   gameStandings,
   historyContextLine,
@@ -72,6 +73,27 @@ describe('a game in words', () => {
     [game('points', { lowerWins: true }), 'Niedrigste Summe gewinnt'],
   ])('states the rule of %o as %s', (subject, rule) => {
     expect(ruleLine(subject)).toBe(rule);
+  });
+
+  it('takes the run’s start and a points game’s direction from its ranking', () => {
+    const restarted = '2026-11-15T21:00:00.000Z';
+
+    expect(
+      gameAsRanked(game('points'), {
+        kind: 'points',
+        startedAt: restarted,
+        lowerWins: true,
+        rows: [],
+      }),
+    ).toEqual(game('points', { startedAt: restarted, lowerWins: true }));
+    expect(
+      gameAsRanked(game('duel', { drawsAllowed: false }), {
+        kind: 'duel',
+        startedAt: restarted,
+        rows: [],
+      }),
+    ).toEqual(game('duel', { drawsAllowed: false, startedAt: restarted }));
+    expect(gameAsRanked(game('duel'), undefined)).toEqual(game('duel'));
   });
 
   it('keeps the setting line of Verwalten → Spiele', () => {
