@@ -70,8 +70,9 @@ export function catalogApi<T extends Item>(
       const id = Number(member);
       const index = items.findIndex((candidate) => candidate.id === id);
       if (method === 'GET') return json({ ...items[index], entryCount });
-      if (method === 'DELETE' && photo) {
-        items.splice(index, 1, { ...items[index], photoUrl: null } as T);
+      const item = items[index];
+      if (method === 'DELETE' && photo && item) {
+        items.splice(index, 1, { ...item, photoUrl: null });
         return new Response(null, { status: 204 });
       }
       if (method === 'DELETE') {
