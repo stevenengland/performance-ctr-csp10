@@ -1,23 +1,37 @@
 <script setup lang="ts">
 import { mdiChevronRight } from '@mdi/js';
-import { onMounted } from 'vue';
+import { onMounted, shallowRef, type DeepReadonly } from 'vue';
+import { getStandings, type Game } from '../../core/api-client';
 import { loadGames, useGames } from '../../core/games';
 import { messages } from '../../core/messages';
 import { showProblem } from '../../core/snackbar';
-import { contextLine, gamePath } from './game-view';
+import { contextLine, gamePath, leaderLine } from './game-view';
 
 /**
-Spiele (§7n): every game alphabetically, each with its kind and the day its
-ranking counts from. A game opens its page; with no games yet, the empty state
-links to Verwalten → Spiele with the create dialog open.
+Spiele (§7n): every game alphabetically, each with its kind, the day its
+ranking counts from and its current leader. A game opens its page; with no games
+yet, the empty state links to Verwalten → Spiele with the create dialog open.
 */
 const SKELETON_CARDS = 3;
 
 const games = useGames();
+/** The leader line per game id, read once when the list opens; absent until then. */
+const leaders = shallowRef<Partial<Record<number, string>>>({});
+
+async function loadLeaders(list: DeepReadonly<Game[]>) {
+  const lines = await Promise.all(
+    list.map(
+      async (game) =>
+        [game.id, leaderLine(await getStandings(game.id))] as const,
+    ),
+  );
+  leaders.value = Object.fromEntries(lines);
+}
 
 onMounted(async () => {
   try {
     await loadGames();
+    if (games.value) await loadLeaders(games.value);
   } catch (failure) {
     showProblem(failure);
   }
@@ -50,6 +64,9 @@ onMounted(async () => {
           </span>
           <span class="type-support game-card__context">{{
             contextLine(game)
+          }}</span>
+          <span class="type-label game-card__leader">{{
+            leaders[game.id]
           }}</span>
         </RouterLink>
       </li>
@@ -98,5 +115,10 @@ onMounted(async () => {
 
 .game-card__context {
   color: rgb(var(--v-theme-on-surface-variant));
+}
+
+.game-card__leader {
+  min-height: 20px;
+  margin-top: 6px;
 }
 </style>
