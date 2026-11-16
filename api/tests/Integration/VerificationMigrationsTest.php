@@ -10,6 +10,7 @@ use Performance\Domain\MigrationState;
 use Performance\Domain\Migrator;
 use Performance\Domain\Timestamp;
 use Performance\Tests\Support\DatabaseTestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 /**
@@ -22,60 +23,81 @@ final class VerificationMigrationsTest extends DatabaseTestCase
 {
     /** The newest migration of the release before the four-eyes rule. */
     private const PREVIOUS_SCHEMA = '0019_create_person_photos';
-    private const ENTRY_MIGRATIONS = ['0020_add_entries_verification', '0021_add_entries_pending_index', '0022_add_entries_verifier_foreign_key'];
-    private const ENTRY = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
+    /** Each row table's migrations: its columns, its pending index, its verifier foreign key. */
+    private const MIGRATIONS = [
+        'entries' => ['0020_add_entries_verification', '0021_add_entries_pending_index', '0022_add_entries_verifier_foreign_key'],
+        'matches' => ['0024_add_matches_verification', '0025_add_matches_pending_index', '0026_add_matches_verifier_foreign_key'],
+    ];
+    private const ROW = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
 
-    public function testTheUpgradeKeepsEveryEntryCountingWithoutCopyingTheTable(): void
+    /**
+     * @return iterable<string, array{'entries'|'matches'}>
+     */
+    public static function tables(): iterable
+    {
+        foreach (array_keys(self::MIGRATIONS) as $table) {
+            yield $table => [$table];
+        }
+    }
+
+    /**
+     * @param 'entries'|'matches' $table
+     */
+    #[DataProvider('tables')]
+    public function testTheUpgradeKeepsEveryRowCountingWithoutCopyingTheTable(string $table): void
     {
         $this->migrateUpTo(self::PREVIOUS_SCHEMA);
-        $this->previousReleaseRecordsAnEntry();
-        $table = $this->tableId('entries');
+        $this->previousReleaseRecords($table);
+        $tableId = $this->tableId($table);
 
         $health = $this->body($this->get('/api/health'));
 
         self::assertSame('ok', $health['migration']);
-        self::assertSame($table, $this->tableId('entries'), 'the table was neither copied nor rebuilt');
-        $board = $this->body($this->send('GET', '/api/scoreboard?from=2026-11-14T00:00:00Z', session: $this->signIn()));
-        self::assertSame(
-            ['personId' => 1, 'name' => 'Daniel', 'score' => 2.5, 'count' => 1],
-            array_intersect_key(self::list($board['rows'])[0], array_flip(['personId', 'name', 'score', 'count'])),
-            'the entry from before counts',
-        );
+        self::assertSame($tableId, $this->tableId($table), 'the table was neither copied nor rebuilt');
+        self::assertSame(self::COUNTED[$table], $this->firstRanked($table), 'the row from before counts');
     }
 
-    public function testEachEntryMigrationRunsAgainAfterACrashBeforeItsBookkeepingWithoutChangingAnything(): void
+    /**
+     * @param 'entries'|'matches' $table
+     */
+    #[DataProvider('tables')]
+    public function testEachMigrationRunsAgainAfterACrashBeforeItsBookkeepingWithoutChangingAnything(string $table): void
     {
         $this->get('/api/health');
-        $this->previousReleaseRecordsAnEntry();
+        $this->previousReleaseRecords($table);
         // A crash between each DDL and its bookkeeping: the change is in, the rows say started.
         $this->otherSession()->exec(
-            "UPDATE schema_migrations SET state = 'started', completed_at = NULL WHERE version IN ('" . implode("', '", self::ENTRY_MIGRATIONS) . "')",
+            "UPDATE schema_migrations SET state = 'started', completed_at = NULL WHERE version IN ('" . implode("', '", self::MIGRATIONS[$table]) . "')",
         );
 
         $health = $this->body($this->get('/api/health'));
 
         self::assertSame('ok', $health['migration']);
         $states = array_column($this->rows('SELECT version, state FROM schema_migrations'), 'state', 'version');
-        foreach (self::ENTRY_MIGRATIONS as $name) {
+        foreach (self::MIGRATIONS[$table] as $name) {
             self::assertSame('completed', $states[$name], $name);
         }
-        self::assertSame([['id' => self::ENTRY]], $this->rows('SELECT id FROM entries'), 'the table is kept as it was');
+        self::assertSame([['id' => self::ROW]], $this->rows("SELECT id FROM {$table}"), 'the table is kept as it was');
     }
 
-    public function testDeletingTheVerifyingAccountClearsTheVerifierAndKeepsTheEntry(): void
+    /**
+     * @param 'entries'|'matches' $table
+     */
+    #[DataProvider('tables')]
+    public function testDeletingTheVerifyingAccountClearsTheVerifierAndKeepsTheRow(string $table): void
     {
         $this->createAccount('daniel', 'daniels-passwort');
-        $this->previousReleaseRecordsAnEntry();
-        // Verified by daniel; set directly, as nothing verifies through the API yet.
-        $this->otherSession()->exec("UPDATE entries SET verified_at = UTC_TIMESTAMP(3), verified_by_account_id = 2 WHERE id = '" . self::ENTRY . "'");
+        $this->previousReleaseRecords($table);
+        // Verified by daniel; set directly, as the previous release left the row counting already.
+        $this->otherSession()->exec("UPDATE {$table} SET verified_at = UTC_TIMESTAMP(3), verified_by_account_id = 2 WHERE id = '" . self::ROW . "'");
 
         $deleted = $this->send('DELETE', '/api/accounts/2', session: $this->signIn());
 
         self::assertSame(204, $deleted->getStatusCode(), (string) $deleted->getBody());
-        self::assertSame([['id' => self::ENTRY, 'verified_by_account_id' => null]], $this->rows('SELECT id, verified_by_account_id FROM entries'));
+        self::assertSame([['id' => self::ROW, 'verified_by_account_id' => null]], $this->rows("SELECT id, verified_by_account_id FROM {$table}"));
     }
 
-    public function testTheForeignKeyMigrationRestoresTheSessionsForeignKeyChecksAfterSuccess(): void
+    public function testTheForeignKeyMigrationsRestoreTheSessionsForeignKeyChecksAfterSuccess(): void
     {
         $pdo = $this->migrationSession();
         $migrator = new Migrator($pdo, self::migrations(static fn(string $name): bool => true));
@@ -85,17 +107,22 @@ final class VerificationMigrationsTest extends DatabaseTestCase
         self::assertSame(1, self::foreignKeyChecks($pdo));
     }
 
-    public function testTheForeignKeyMigrationRestoresTheSessionsForeignKeyChecksAfterAFailure(): void
+    /**
+     * @param 'entries'|'matches' $table
+     */
+    #[DataProvider('tables')]
+    public function testTheForeignKeyMigrationRestoresTheSessionsForeignKeyChecksAfterAFailure(string $table): void
     {
         $pdo = $this->migrationSession();
         // Without the columns and their index, the foreign key names a column that does not exist.
-        $migrator = new Migrator($pdo, self::migrations(static fn(string $name): bool => !in_array($name, array_slice(self::ENTRY_MIGRATIONS, 0, 2), true)));
+        $skipped = array_slice(self::MIGRATIONS[$table], 0, 2);
+        $migrator = new Migrator($pdo, self::migrations(static fn(string $name): bool => !in_array($name, $skipped, true)));
 
         self::assertSame(MigrationState::Failed, $migrator->migrate());
 
         self::assertSame(1, self::foreignKeyChecks($pdo));
-        self::assertSame('failed', array_column($this->rows('SELECT version, state FROM schema_migrations'), 'state', 'version')[self::ENTRY_MIGRATIONS[2]]);
-        self::assertSame([], $this->rows("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'entries_verifier'"));
+        self::assertSame('failed', array_column($this->rows('SELECT version, state FROM schema_migrations'), 'state', 'version')[self::MIGRATIONS[$table][2]]);
+        self::assertSame([], $this->rows("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = '{$table}_verifier'"));
     }
 
     /** Brings an empty database to the schema of the given migration, as the previous release left it. */
@@ -105,15 +132,51 @@ final class VerificationMigrationsTest extends DatabaseTestCase
         self::assertSame(MigrationState::Ok, $migrator->migrate());
     }
 
-    /** The previous release's catalog writes and entry insert, as far as they touch the database. */
-    private function previousReleaseRecordsAnEntry(): void
+    /** What the first ranked row of each table's ranking shows of the row the previous release recorded. */
+    private const COUNTED = [
+        'entries' => ['personId' => 1, 'name' => 'Daniel', 'score' => 2.5, 'count' => 1],
+        'matches' => ['personId' => 1, 'name' => 'Daniel', 'points' => 1, 'played' => 1],
+    ];
+
+    /**
+     * The previous release's catalog writes and its insert of an entry or a match, as far as
+     * they touch the database.
+     *
+     * @param 'entries'|'matches' $table
+     */
+    private function previousReleaseRecords(string $table): void
     {
         $other = $this->otherSession();
         $now = Timestamp::of($this->clock->now());
-        $other->prepare('INSERT INTO persons (name, created_at, updated_at) VALUES (?, ?, ?)')->execute(['Daniel', $now, $now]);
-        $other->prepare('INSERT INTO drinks (name, points, created_at, updated_at) VALUES (?, ?, ?, ?)')->execute(['Aperol', '2.50', $now, $now]);
-        $other->prepare('INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at) VALUES (?, 1, 1, 1, NULL, ?)')
-            ->execute([self::ENTRY, $now]);
+        foreach (['Daniel', 'Anna'] as $name) {
+            $other->prepare('INSERT INTO persons (name, created_at, updated_at) VALUES (?, ?, ?)')->execute([$name, $now, $now]);
+        }
+        if ($table === 'entries') {
+            $other->prepare('INSERT INTO drinks (name, points, created_at, updated_at) VALUES (?, ?, ?, ?)')->execute(['Aperol', '2.50', $now, $now]);
+            $other->prepare('INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at) VALUES (?, 1, 1, 1, NULL, ?)')
+                ->execute([self::ROW, $now]);
+
+            return;
+        }
+        $other->prepare("INSERT INTO games (name, kind, draws_allowed, lower_wins, run, started_at, created_at) VALUES ('Schach', 'duel', 1, 0, 1, ?, ?)")
+            ->execute([$now, $now]);
+        $other->prepare("INSERT INTO matches (id, game_id, first_person_id, second_person_id, outcome, run, account_id, created_at) VALUES (?, 1, 1, 2, 'first', 1, NULL, ?)")
+            ->execute([self::ROW, $now]);
+    }
+
+    /**
+     * The first ranked row of the table's ranking: today's Rangliste, or Schach's standings.
+     *
+     * @param 'entries'|'matches' $table
+     *
+     * @return array<string, mixed>
+     */
+    private function firstRanked(string $table): array
+    {
+        $path = $table === 'entries' ? '/api/scoreboard?from=2026-11-14T00:00:00Z' : '/api/games/1/standings';
+        $first = self::list($this->body($this->send('GET', $path, session: $this->signIn()))['rows'])[0];
+
+        return array_intersect_key($first, self::COUNTED[$table]);
     }
 
     /**
