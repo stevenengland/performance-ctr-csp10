@@ -439,13 +439,21 @@ final class PersonPhotoTest extends DatabaseTestCase
         return $this->app()->handle($request);
     }
 
-    /** The URL of a photo by its label (see label()), as the server builds it. */
+    /**
+     * The URL of a photo by its label (see label()), as the server builds it.
+     *
+     * @param 'A'|'B' $label
+     */
     private static function versioned(string $label): string
     {
         return self::PHOTO . '?v=' . self::version($label);
     }
 
-    /** The version of photo `A` or `B` (see label()). */
+    /**
+     * The version of photo `A` or `B` (see label()).
+     *
+     * @param 'A'|'B' $label
+     */
     private static function version(string $label): string
     {
         return hash('sha256', match ($label) {
