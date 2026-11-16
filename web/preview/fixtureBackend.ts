@@ -50,6 +50,17 @@ at most the API's 87 384 characters. Unlike the API it does not walk the JPEG.
 const BASE64_JPEG =
   /^\/9j\/(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MAX_PHOTO_CHARACTERS = 87_384;
+
+/**
+Successful writes that changed nothing, so they leave the revision as it is,
+like the API's no-op photo writes.
+*/
+const UNCHANGED = new WeakSet<Response>();
+
+function unchanged(response: Response): Response {
+  UNCHANGED.add(response);
+  return response;
+}
 const INVALID_PHOTO = 'Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).';
 
 /**
@@ -555,8 +566,10 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         ) {
           return validation({ image: INVALID_PHOTO });
         }
+        const photoUrl = `data:image/jpeg;base64,${image}`;
+        if (person.photoUrl === photoUrl) return unchanged(json(person));
         const before = personValues(person);
-        person.photoUrl = `data:image/jpeg;base64,${image}`;
+        person.photoUrl = photoUrl;
         record(me, 'update', ['person', id], before, personValues(person));
         return json(person);
       }),
@@ -567,6 +580,9 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       guarded((me, _body, { id }) => {
         const person = fixtures.persons.find((item) => item.id === Number(id));
         if (!person) return problem(PROBLEMS.notFound);
+        if (person.photoUrl === null) {
+          return unchanged(new Response(null, { status: 204 }));
+        }
         const before = personValues(person);
         person.photoUrl = null;
         record(me, 'update', ['person', id], before, personValues(person));
@@ -828,8 +844,11 @@ export function installFixtureBackend(fixtures: Fixtures): void {
           (input instanceof globalThis.Request ? input.headers : undefined),
       ),
     });
-    // Every successful write counts as a change of the standings, like the API's data revision.
-    if (method !== 'GET' && response.ok) revision += 1;
+    // Every successful write that changed something counts as a change of the
+    // standings, like the API's data revision.
+    if (method !== 'GET' && response.ok && !UNCHANGED.has(response)) {
+      revision += 1;
+    }
     return response;
   };
 }

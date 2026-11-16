@@ -441,6 +441,27 @@ describe('the fixture backend', () => {
     });
   });
 
+  it('keeps the scoreboard’s ETag for a photo write that changes nothing, like the API', async () => {
+    installFixtureBackend(sampleEvening());
+    const image = '/9j/2Q==';
+    await putPersonPhoto(2, image);
+    await deletePersonPhoto(4);
+    const first = await getScoreboard(todayFrom());
+    if (first === 'unchanged') throw new Error('asked without condition');
+
+    // The same photo again, and a removal where there is none.
+    await putPersonPhoto(2, image);
+    await deletePersonPhoto(4);
+
+    await expect(getScoreboard(todayFrom(), first.etag)).resolves.toBe(
+      'unchanged',
+    );
+    await putPersonPhoto(2, '/9j/2Q+=');
+    await expect(getScoreboard(todayFrom(), first.etag)).resolves.not.toBe(
+      'unchanged',
+    );
+  });
+
   it('keeps an uploaded photo as a data: URL on the person and their scoreboard row', async () => {
     installFixtureBackend(sampleEvening());
     const image = '/9j/2Q==';
