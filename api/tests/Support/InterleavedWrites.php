@@ -19,7 +19,7 @@ trait InterleavedWrites
      * @param string|list<string>                     $ids    the row held, or the rows held when the writes start on different rows
      * @param list<array{0: string, 1: string, 2?: int}> $writes each one's role, id and acting account (1 unless named), as concurrent-write.php takes them
      *
-     * @return list<int> the exit codes, in the order given: 0 succeeded, 3 found its row gone
+     * @return list<int> the exit codes, in the order given: 0 succeeded, 3 found its row gone, 4 found it verified already
      */
     private function interleave(string $table, string|array $ids, array $writes): array
     {
@@ -80,7 +80,7 @@ trait InterleavedWrites
         fclose($pipes[1]);
         fclose($pipes[2]);
         $exitCode = proc_close($process);
-        self::assertContains($exitCode, [0, 3], (string) $output);
+        self::assertContains($exitCode, [0, 3, 4], (string) $output);
 
         return $exitCode;
     }

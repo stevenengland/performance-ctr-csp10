@@ -19,6 +19,7 @@ final class VerificationRacesTest extends DatabaseTestCase
     private const ENTRY = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
     private const SUCCEEDED = 0;
     private const NOT_FOUND = 3;
+    private const ALREADY_VERIFIED = 4;
     /** Anna records the entry; the bootstrap admin (1) and Ben (3) may verify it. */
     private const ANNA = 2;
     private const BEN = 3;
@@ -103,6 +104,61 @@ final class VerificationRacesTest extends DatabaseTestCase
         self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
         self::assertSame(['create', 'verify'], $this->entryEvents());
         self::assertSame([['pending' => 0, 'account_id' => self::ANNA, 'verified_by_account_id' => null]], $this->verification());
+    }
+
+    public function testOfConcurrentRejectionsExactlyOneRemovesTheEntryAndRecordsItsEvent(): void
+    {
+        $revision = $this->revision();
+
+        $exitCodes = $this->interleave('entries', self::ENTRY, [['reject-entry', self::ENTRY], ['reject-entry', self::ENTRY, self::BEN], ['reject-entry', self::ENTRY]]);
+
+        sort($exitCodes);
+        self::assertSame([self::SUCCEEDED, self::NOT_FOUND, self::NOT_FOUND], $exitCodes);
+        self::assertSame(['create', 'reject'], $this->entryEvents());
+        self::assertSame($revision + 1, $this->revision());
+        self::assertSame([], $this->entryState());
+    }
+
+    /**
+     * Whichever locks the entry first decides: a verified entry can no longer be rejected
+     * (409), and a rejected one is no longer there to verify (404).
+     */
+    public function testAVerificationRacingARejectionEndsInOneConsistentState(): void
+    {
+        [$verify, $reject] = $this->interleave('entries', self::ENTRY, [['verify-entry', self::ENTRY], ['reject-entry', self::ENTRY, self::BEN]]);
+
+        self::assertContains([$verify, $reject], [[self::SUCCEEDED, self::ALREADY_VERIFIED], [self::NOT_FOUND, self::SUCCEEDED]]);
+        self::assertSame(
+            $verify === self::SUCCEEDED ? [['pending' => 0, 'verified_by_account_id' => 1]] : [],
+            $this->entryState(),
+        );
+        self::assertSame($verify === self::SUCCEEDED ? ['create', 'verify'] : ['create', 'reject'], $this->entryEvents());
+    }
+
+    /** The undo and the rejection both remove the entry; whichever comes second finds it gone. */
+    public function testARejectionRacingTheUndoEndsInOneConsistentState(): void
+    {
+        [$reject, $undo] = $this->interleave('entries', self::ENTRY, [['reject-entry', self::ENTRY], ['undo-entry', self::ENTRY]]);
+
+        self::assertContains([$reject, $undo], [[self::SUCCEEDED, self::NOT_FOUND], [self::NOT_FOUND, self::SUCCEEDED]]);
+        self::assertSame($reject === self::SUCCEEDED ? ['create', 'reject'] : ['create', 'delete'], $this->entryEvents());
+        self::assertSame([], $this->entryState());
+    }
+
+    /**
+     * The person's deletion and the rejection lock the entry and the person in opposite
+     * orders; the loser of the deadlock runs again. Either the rejection removed the entry
+     * before the person went, or the entry went with the person and the rejection finds it
+     * gone.
+     */
+    public function testARejectionRacingThePersonsDeletionEndsInOneConsistentState(): void
+    {
+        [$reject, $deletion] = $this->interleave('entries', self::ENTRY, [['reject-entry', self::ENTRY], ['delete-person', '1']]);
+
+        self::assertSame(self::SUCCEEDED, $deletion);
+        self::assertContains($reject, [self::SUCCEEDED, self::NOT_FOUND]);
+        self::assertSame($reject === self::SUCCEEDED ? ['create', 'reject'] : ['create', 'delete'], $this->entryEvents());
+        self::assertSame([], $this->entryState());
     }
 
     /**

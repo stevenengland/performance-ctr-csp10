@@ -9,12 +9,15 @@ declare(strict_types=1);
  * `undo-entry`, `undo-match` and `undo-result` delete that entry, match or result;
  * `rename-person` renames that person to `Berta`, `set-photo` sets their photo to
  * photos/progressive.jpg and `remove-photo` removes it; `verify-entry` verifies that entry as
- * the account and `delete-account` deletes that account. Exits 0 when the write succeeded and 3 when its row was not found
- * (gone already); any other failure ends the process with its message and a non-zero code.
+ * the account, `reject-entry` rejects it as the account, and `delete-account` deletes that
+ * account. Exits 0 when the write succeeded, 3 when its row was not found (gone already) and 4
+ * when a rejection found the row verified already; any other failure ends the process with its
+ * message and a non-zero code.
  * Connects with the DB_* environment of the test run.
  */
 
 use Performance\Domain\Actor;
+use Performance\Domain\AlreadyVerified;
 use Performance\Domain\AuditLog;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
@@ -29,6 +32,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 require __DIR__ . '/cli-arguments.php';
 
 const NOT_FOUND = 3;
+const ALREADY_VERIFIED = 4;
 
 [$role, $id, $accountId] = cliArguments(3);
 $env = static fn(string $name): string => (string) getenv($name);
@@ -81,6 +85,9 @@ try {
         case 'verify-entry':
             (new Database($config, $clock))->verification()->verify($actor, VerifiableKind::Entry, $id);
             break;
+        case 'reject-entry':
+            (new Database($config, $clock))->verification()->reject($actor, VerifiableKind::Entry, $id);
+            break;
         case 'delete-account':
             (new Database($config, $clock))->accounts()->delete((int) $id);
             break;
@@ -92,5 +99,7 @@ try {
     }
 } catch (NotFound) {
     exit(NOT_FOUND);
+} catch (AlreadyVerified) {
+    exit(ALREADY_VERIFIED);
 }
 exit(0);
