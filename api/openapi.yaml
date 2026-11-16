@@ -1325,7 +1325,8 @@ components:
         The person's photo, null without one. Built by the server as
         `<basePath>/api/persons/{id}/photo?v=<version>`, naming the photo's version, so the
         photo it serves can be cached for good; use it as it is, never compose one.
-      examples: ['/api/persons/1/photo?v=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08']
+      examples:
+        - '/api/persons/1/photo?v=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'
     Person:
       type: object
       additionalProperties: false

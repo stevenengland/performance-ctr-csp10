@@ -22,8 +22,8 @@ import {
 import VerlaufPage from './VerlaufPage.vue';
 
 const persons: Person[] = [
-  { id: 1, name: 'Anna' },
-  { id: 3, name: 'Daniel' },
+  { id: 1, name: 'Anna', photoUrl: null },
+  { id: 3, name: 'Daniel', photoUrl: null },
 ];
 
 /** Daniel's evening, newest first, as the API sends it. */

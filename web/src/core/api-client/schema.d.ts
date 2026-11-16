@@ -646,13 +646,20 @@ export interface components {
     };
     /** @description Trimmed; 1–40 characters; unique regardless of case */
     Name: string;
+    /**
+     * @description The person's photo, null without one. Built by the server as `<basePath>/api/persons/{id}/photo?v=<version>`, naming the photo's version, so the photo it serves can be cached for good; use it as it is, never compose one.
+     * @example /api/persons/1/photo?v=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+     */
+    PhotoUrl: string | null;
     Person: {
       id: number;
       name: components['schemas']['Name'];
+      photoUrl: components['schemas']['PhotoUrl'];
     };
     PersonDetail: {
       id: number;
       name: components['schemas']['Name'];
+      photoUrl: components['schemas']['PhotoUrl'];
       /** @description Entries of every day that are the person's; deleting the person deletes them */
       entryCount: number;
       /** @description Matches of every game and run that name the person on either side; deleting the person keeps them with that side cleared */
@@ -1582,7 +1589,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Set (or unchanged); the person */
+      /** @description Set (or unchanged); the person, whose `photoUrl` names the stored version */
       200: {
         headers: {
           [name: string]: unknown;

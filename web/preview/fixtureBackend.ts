@@ -507,7 +507,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     ...catalogRoutes(
       ['persons', 'person'],
       () => fixtures.persons,
-      (id) => ({ id, name: '' }),
+      (id) => ({ id, name: '', photoUrl: null }),
       {
         values: ({ name }) => ({ name }),
         uses: (entry, person) => entry.personId === person.id,

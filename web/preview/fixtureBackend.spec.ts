@@ -386,6 +386,18 @@ describe('the fixture backend', () => {
     });
   });
 
+  it('answers the sample persons without a photo, as the API does', async () => {
+    installFixtureBackend(sampleEvening());
+
+    const persons = await listPersons();
+    const person = await getPerson(1);
+
+    expect(persons.map(({ photoUrl }) => photoUrl)).toEqual(
+      persons.map(() => null),
+    );
+    expect(person.photoUrl).toBeNull();
+  });
+
   it('creates persons and drinks with the API’s validation', async () => {
     installFixtureBackend(sampleEvening());
 
@@ -404,7 +416,11 @@ describe('the fixture backend', () => {
     await createPerson(' Zoe ');
     await createDrink('Cola', 0.25);
 
-    expect((await listPersons()).at(-1)).toEqual({ id: 7, name: 'Zoe' });
+    expect((await listPersons()).at(-1)).toEqual({
+      id: 7,
+      name: 'Zoe',
+      photoUrl: null,
+    });
     expect(await listDrinks()).toContainEqual({
       id: 7,
       name: 'Cola',
@@ -487,6 +503,7 @@ describe('the fixture backend', () => {
     await expect(updatePerson(daniel.id, ' Dani ')).resolves.toEqual({
       id: daniel.id,
       name: 'Dani',
+      photoUrl: null,
     });
     expect((await standings(todayFrom())).rows[0]?.name).toBe('Dani');
     const { entryCount } = await getPerson(daniel.id);

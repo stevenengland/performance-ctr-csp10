@@ -522,7 +522,11 @@ function sampleAudit(
 
 /** The sample evening the preview shows (marked as sample data in the preview menu). */
 export function sampleEvening(now: Date = new Date()): Fixtures {
-  const persons = PERSONS.map((name, index) => ({ id: index + 1, name }));
+  const persons = PERSONS.map((name, index) => ({
+    id: index + 1,
+    name,
+    photoUrl: null,
+  }));
   const drinks = DRINKS.map(([name, points], index) => ({
     id: index + 1,
     name,

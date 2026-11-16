@@ -29,9 +29,9 @@ export const SCHACH: Game = {
 export const ROMME: Game = { ...SCHACH, id: 2, name: 'Rommé', kind: 'points' };
 
 export const PERSONS = [
-  { id: 1, name: 'Anna' },
-  { id: 2, name: 'Ben' },
-  { id: 3, name: 'Carla' },
+  { id: 1, name: 'Anna', photoUrl: null },
+  { id: 2, name: 'Ben', photoUrl: null },
+  { id: 3, name: 'Carla', photoUrl: null },
 ];
 
 /** Anna leads Schach with 3,5 points from 5 matches; Ben has 2 from 4; Carla has played none. */

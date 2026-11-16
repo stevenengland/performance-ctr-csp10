@@ -487,7 +487,12 @@ describe('the API client', () => {
   });
 
   it('reads a person with the entry count, renames and deletes the person at its id', async () => {
-    const detail = { id: 2, name: 'Daniel', entryCount: 23 };
+    const detail = {
+      id: 2,
+      name: 'Daniel',
+      photoUrl: null,
+      entryCount: 23,
+    };
     const read = respond(detail, {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -499,12 +504,13 @@ describe('the API client', () => {
     );
 
     const rename = respond(
-      { id: 2, name: 'Dani' },
+      { id: 2, name: 'Dani', photoUrl: null },
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
     await expect(updatePerson(2, 'Dani')).resolves.toEqual({
       id: 2,
       name: 'Dani',
+      photoUrl: null,
     });
     expect(rename).toHaveBeenCalledWith(
       '/api/persons/2',
