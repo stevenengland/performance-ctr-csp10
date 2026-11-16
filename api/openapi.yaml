@@ -11,7 +11,8 @@ info:
 
     Every route except health and sign-in requires the session cookie that
     sign-in sets (`HttpOnly; Secure; SameSite=Strict`, 180 days, renewed on
-    every use) and answers 401 without a valid one. Request bodies must be
+    use at most once a day: only then does a response set the cookie again) and
+    answers 401 without a valid one. Request bodies must be
     `application/json` (415 otherwise).
 servers:
   - url: /

@@ -23,7 +23,7 @@ final class SessionCookie
         return is_string($token) && $token !== '' ? $token : null;
     }
 
-    /** Sets the cookie for the full session lifetime, again on every use (sliding expiry). */
+    /** Sets the cookie for the full session lifetime: at sign-in and whenever the session is renewed (sliding expiry). */
     public static function issue(ResponseInterface $response, string $token): ResponseInterface
     {
         return $response->withHeader('Set-Cookie', self::header($token, Sessions::lifetimeSeconds()));

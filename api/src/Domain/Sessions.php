@@ -10,12 +10,15 @@ use PDO;
 
 /**
  * Sign-in sessions: a random 256-bit token per sign-in, of which only the SHA-256
- * hash is stored; valid for 180 days from its last use. Sign-in is throttled per
- * user name and client address.
+ * hash is stored; valid for 180 days from its last renewal. A request renews its session
+ * only when the last renewal is at least RENEWAL_INTERVAL_HOURS old, so polling clients
+ * cause one write a day, not one per request; a session therefore ends 179 to 180 days after
+ * its last use. Sign-in is throttled per user name and client address.
  */
 final readonly class Sessions
 {
     public const LIFETIME_DAYS = 180;
+    public const RENEWAL_INTERVAL_HOURS = 24;
     public const MAX_FAILURES = 5;
     public const FAILURE_WINDOW_MINUTES = 15;
 
@@ -65,17 +68,19 @@ final readonly class Sessions
     }
 
     /**
-     * The signed-in account of a token that is known and not expired; using it extends the session.
+     * The signed-in account of a token that is known and not expired, renewing the session when
+     * its last renewal is RENEWAL_INTERVAL_HOURS old or older.
      *
      * The session row is read under a shared lock, so a sign-out, password reset, account
      * deletion or purge of expired sessions that is under way finishes first and the session
      * is then seen gone: the answer is the session as it is when this returns, never as it was
      * before a revocation that has committed. The renewal changes the row only while it is
-     * still the one read and still valid; an update of no row is never taken for success.
-     * Each statement locks one row and holds nothing else, so none can deadlock with account
-     * changes, which lock the account before its sessions.
+     * still the one read and still valid; an update of no row is never taken for success: the
+     * session is read again, with its account, and must still be valid. Each statement locks
+     * one row and holds nothing else, so none can deadlock with account changes, which lock
+     * the account before its sessions.
      */
-    public function verify(string $token): ?Account
+    public function verify(string $token): ?VerifiedSession
     {
         $now = $this->clock->now();
         $hash = self::tokenHash($token);
@@ -83,11 +88,11 @@ final readonly class Sessions
         if (!is_string($lastSeenAt)) {
             return null;
         }
-        if (!$this->renew($hash, $lastSeenAt, $now) && $this->validSession($hash, $now) === null) {
-            return null;
-        }
+        $renewed = $this->renewalDue($lastSeenAt, $now) && $this->renew($hash, $lastSeenAt, $now);
+        // Read again: a renewal that changed no row was a parallel request's, or the session is gone.
+        $account = $this->accountOf($hash, $now);
 
-        return $this->accountOf($hash, $now);
+        return $account === null ? null : new VerifiedSession($account, $renewed);
     }
 
     public function revoke(string $token): void
@@ -124,15 +129,17 @@ final readonly class Sessions
         return $row === false ? null : $row;
     }
 
+    private function renewalDue(string $lastSeenAt, DateTimeImmutable $now): bool
+    {
+        return $lastSeenAt <= Timestamp::of($now->sub(new DateInterval(sprintf('PT%dH', self::RENEWAL_INTERVAL_HOURS))));
+    }
+
     /**
      * Extends the session from `$now`, but only if it is still valid and nobody renewed it
      * since it was read (`$lastSeenAt`): true when this request renewed it.
      */
     private function renew(string $hash, string $lastSeenAt, DateTimeImmutable $now): bool
     {
-        if ($lastSeenAt >= Timestamp::of($now)) {
-            return false;
-        }
         $renewal = $this->pdo->prepare(
             'UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ? AND last_seen_at = ? AND expires_at > ?',
         );

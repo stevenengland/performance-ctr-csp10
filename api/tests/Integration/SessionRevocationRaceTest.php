@@ -26,7 +26,7 @@ final class SessionRevocationRaceTest extends DatabaseTestCase
 
     private string $token;
     private int $danielId;
-    /** The request's clock: two days after the sign-in, so the session is due for renewal. */
+    /** The request's clock: two days after the sign-in (due for renewal) unless a test says otherwise. */
     private DateTimeImmutable $requestAt;
 
     protected function setUp(): void
@@ -41,23 +41,25 @@ final class SessionRevocationRaceTest extends DatabaseTestCase
     }
 
     /**
-     * @return iterable<string, array{string}>
+     * @return iterable<string, array{string, string}>
      */
     public static function revocations(): iterable
     {
-        yield 'sign-out' => ['sign-out'];
-        yield 'admin password reset' => ['password reset'];
-        yield 'account deletion' => ['account deletion'];
-        yield 'expiry, purged by a later sign-in' => ['expiry'];
+        foreach (['sign-out', 'password reset', 'account deletion', 'expiry'] as $revocation) {
+            // Two days after the sign-in the request renews the session; an hour after, it only reads it.
+            yield "{$revocation}, renewal due" => [$revocation, 'P2D'];
+            yield "{$revocation}, no renewal due" => [$revocation, 'PT1H'];
+        }
     }
 
     #[DataProvider('revocations')]
-    public function testARequestValidatedWhileItsSessionIsRevokedIsRefusedOnceTheRevocationCommits(string $revocation): void
+    public function testARequestValidatedWhileItsSessionIsRevokedIsRefusedOnceTheRevocationCommits(string $revocation, string $after): void
     {
+        $this->requestAt = $this->clock->now()->add(new DateInterval($after));
         $revoking = $this->openRevocation($revocation);
 
         [$process, $pipes] = $this->startRequest();
-        $this->waitUntilALockWaits();
+        $this->waitUntilLocksWait(1);
         $revoking->commit();
 
         $answer = $this->answer($process, $pipes);
@@ -66,19 +68,29 @@ final class SessionRevocationRaceTest extends DatabaseTestCase
         self::assertSame([], $this->rows('SELECT token_hash FROM sessions WHERE account_id = ' . $this->danielId));
     }
 
-    public function testARequestThatWaitedForAnUnrelatedChangeOfItsSessionStillPasses(): void
+    /**
+     * Two requests due for a renewal read the session at the same moment. One renews it and
+     * sets the cookie; the other finds it renewed (its update changes no row), which is no
+     * reason to refuse it: both pass, and the session is renewed once.
+     */
+    public function testTwoRequestsDueForARenewalAtOnceBothPassAndRenewItOnce(): void
     {
-        $other = $this->otherSession();
-        $other->beginTransaction();
-        $other->prepare('SELECT token_hash FROM sessions WHERE account_id = ? FOR UPDATE')->execute([$this->danielId]);
+        $holder = $this->otherSession();
+        $holder->beginTransaction();
+        $holder->prepare('SELECT token_hash FROM sessions WHERE account_id = ? FOR UPDATE')->execute([$this->danielId]);
 
-        [$process, $pipes] = $this->startRequest();
-        $this->waitUntilALockWaits();
-        $other->commit();
+        $first = $this->startRequest();
+        $second = $this->startRequest();
+        $this->waitUntilLocksWait(2);
+        $holder->commit();
 
-        $answer = $this->answer($process, $pipes);
-        self::assertSame(200, $answer['status']);
-        self::assertStringContainsString("session={$this->token};", $answer['setCookie']);
+        $answers = [$this->answer(...$first), $this->answer(...$second)];
+        self::assertSame([200, 200], array_column($answers, 'status'));
+        self::assertCount(1, array_filter($answers, static fn(array $answer): bool => $answer['setCookie'] !== ''), 'one renewal, one cookie');
+        self::assertSame(
+            [['expires_at' => Timestamp::of($this->requestAt->add(new DateInterval('P180D')))]],
+            $this->rows('SELECT expires_at FROM sessions WHERE account_id = ' . $this->danielId),
+        );
     }
 
     /** Opens the revocation's transaction on another connection and runs its statements, without committing. */
@@ -141,21 +153,21 @@ final class SessionRevocationRaceTest extends DatabaseTestCase
         return [$process, $pipes];
     }
 
-    /** The request read the session and now waits for the row the revocation holds. */
-    private function waitUntilALockWaits(): void
+    /** `$count` requests now wait for the session row another connection holds. */
+    private function waitUntilLocksWait(int $count): void
     {
         $observer = $this->otherSession();
         $deadline = microtime(true) + 10.0;
         while (microtime(true) < $deadline) {
             $waiting = $observer->query("SELECT COUNT(*) FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT'");
             self::assertNotFalse($waiting);
-            if ((int) $waiting->fetchColumn() > 0) {
+            if ((int) $waiting->fetchColumn() >= $count) {
                 return;
             }
             // InnoDB refreshes this table only when it was not read for 100 ms.
             usleep(200_000);
         }
-        self::fail('the request never waited for the session row the revocation holds');
+        self::fail("{$count} requests never waited for the session row");
     }
 
     /**

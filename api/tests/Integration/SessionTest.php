@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Performance\Tests\Integration;
 
+use DateInterval;
 use Performance\Domain\Sessions;
 use Performance\Domain\Timestamp;
 use Performance\Tests\Support\DatabaseTestCase;
@@ -126,6 +127,48 @@ final class SessionTest extends DatabaseTestCase
         self::assertSame(200, $this->send('GET', '/api/session', session: $session)->getStatusCode());
 
         $this->clock->advance('P180DT1S');
+        self::assertSame(401, $this->send('GET', '/api/session', session: $session)->getStatusCode());
+    }
+
+    /**
+     * Polling must not write: within a day of its last renewal a request neither changes the
+     * session nor sets the cookie. The first request a day or more later renews both, to the
+     * same expiry.
+     */
+    public function testUseRenewsTheSessionAndItsCookieAtMostOnceADay(): void
+    {
+        $session = $this->signIn();
+        $stored = $this->rows('SELECT last_seen_at, expires_at FROM sessions');
+
+        $this->clock->advance('PT23H59M');
+        $polled = $this->send('GET', '/api/session', session: $session);
+
+        self::assertSame(200, $polled->getStatusCode());
+        self::assertSame('', $polled->getHeaderLine('Set-Cookie'), 'no cookie within the day');
+        self::assertSame($stored, $this->rows('SELECT last_seen_at, expires_at FROM sessions'), 'and no write');
+
+        $this->clock->advance('PT1M');
+        $renewed = $this->send('GET', '/api/session', session: $session);
+
+        self::assertSame(200, $renewed->getStatusCode());
+        self::assertStringContainsString('Max-Age=' . Sessions::lifetimeSeconds(), $renewed->getHeaderLine('Set-Cookie'));
+        $expiresAt = $this->clock->now()->add(new DateInterval('P180D'));
+        self::assertSame(
+            [['last_seen_at' => Timestamp::of($this->clock->now()), 'expires_at' => Timestamp::of($expiresAt)]],
+            $this->rows('SELECT last_seen_at, expires_at FROM sessions'),
+            'the database expires the session when the renewed cookie does',
+        );
+    }
+
+    /** A session used only within the day of its sign-in ends 180 days after the sign-in. */
+    public function testUseThatRenewsNothingDoesNotPostponeTheExpiry(): void
+    {
+        $session = $this->signIn();
+        $this->clock->advance('PT12H');
+        self::assertSame(200, $this->send('GET', '/api/session', session: $session)->getStatusCode());
+
+        $this->clock->advance('P179DT12H');
+
         self::assertSame(401, $this->send('GET', '/api/session', session: $session)->getStatusCode());
     }
 
