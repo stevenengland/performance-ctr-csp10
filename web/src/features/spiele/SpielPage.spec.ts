@@ -42,7 +42,7 @@ const game = (
 
 const noRows = (subject: Game): Standings =>
   subject.kind === 'duel'
-    ? { kind: 'duel', startedAt: subject.startedAt, rows: [] }
+    ? { kind: 'duel', startedAt: subject.startedAt, rows: [], unranked: [] }
     : {
         kind: 'points',
         startedAt: subject.startedAt,
@@ -82,6 +82,7 @@ const SCHACH: Standings = {
       draws: 1,
       losses: 1,
       played: 5,
+      pendingCount: 0,
     },
     {
       personId: 2,
@@ -91,6 +92,7 @@ const SCHACH: Standings = {
       draws: 0,
       losses: 2,
       played: 4,
+      pendingCount: 0,
     },
     {
       personId: 6,
@@ -100,8 +102,10 @@ const SCHACH: Standings = {
       draws: 1,
       losses: 2,
       played: 3,
+      pendingCount: 0,
     },
   ],
+  unranked: [],
 };
 
 let router: Router;
@@ -171,6 +175,30 @@ describe('a game’s page', () => {
     expect(wrapper.get('.top-bar__context').text()).toBe('Duell · seit 15.09.');
     expect(wrapper.get('.spiel__rule').text()).toBe('Remis möglich');
     expect(wrapper.text()).toContain('Seit dem Start noch keine Partien.');
+  });
+
+  it('lists the players whose matches all wait under Noch nicht gewertet instead of saying none were played', async () => {
+    api([game(1, 'Schach', 'duel')], {
+      1: {
+        kind: 'duel',
+        startedAt: STARTED,
+        rows: [],
+        unranked: [
+          { personId: 1, name: 'Anna', pendingCount: 1 },
+          { personId: 2, name: 'Ben', pendingCount: 1 },
+        ],
+      },
+    });
+
+    wrapper = await spiel(1);
+
+    expect(wrapper.text()).not.toContain('Seit dem Start noch keine Partien.');
+    expect(wrapper.find('.game-leader').exists()).toBe(false);
+    expect(
+      wrapper
+        .findAll('[data-test="game-unranked"]')
+        .map((row) => row.attributes('aria-label')),
+    ).toEqual(['Anna, +1 offen', 'Ben, +1 offen']);
   });
 
   it('shows a points game started today with its rule and no results yet', async () => {
@@ -564,7 +592,12 @@ describe('restarting a game', () => {
         if (url === `/api/games/${String(subject.id)}/standings`) {
           return json(
             restarted
-              ? { kind: 'duel', startedAt: current.startedAt, rows: [] }
+              ? {
+                  kind: 'duel',
+                  startedAt: current.startedAt,
+                  rows: [],
+                  unranked: [],
+                }
               : SCHACH,
           );
         }

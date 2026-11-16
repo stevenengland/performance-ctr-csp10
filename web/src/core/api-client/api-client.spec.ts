@@ -18,6 +18,8 @@ import {
   listPending,
   verifyEntry,
   rejectEntry,
+  verifyMatch,
+  rejectMatch,
   getScoreboard,
   getStandings,
   getPerson,
@@ -734,6 +736,25 @@ describe('the API client', () => {
       '/api/entries/6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5/verification',
       expect.objectContaining({ method: 'DELETE' }),
     );
+  });
+
+  it('verifies and rejects a match at its verification', async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+
+    await verifyMatch('0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b');
+    await rejectMatch('0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b');
+
+    expect(fetch.mock.calls).toEqual([
+      [
+        '/api/matches/0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b/verification',
+        expect.objectContaining({ method: 'PUT', body: '{}' }),
+      ],
+      [
+        '/api/matches/0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b/verification',
+        expect.objectContaining({ method: 'DELETE' }),
+      ],
+    ]);
   });
 
   it('reads the first page of the pending queue with its ETag, on condition of the last one', async () => {

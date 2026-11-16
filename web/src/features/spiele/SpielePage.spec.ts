@@ -147,8 +147,10 @@ describe('Spiele', () => {
               draws: 0,
               losses: 1,
               played: 5,
+              pendingCount: 0,
             },
           ],
+          unranked: [],
         },
         3: {
           kind: 'points',
@@ -220,8 +222,10 @@ describe('Spiele', () => {
               draws: 0,
               losses: 0,
               played: 1,
+              pendingCount: 0,
             },
           ],
+          unranked: [],
         });
         answer.headers.set('ETag', `"${leader}"`);
         return answer;
@@ -261,8 +265,10 @@ describe('Spiele', () => {
           draws: 0,
           losses: 0,
           played: 2,
+          pendingCount: 0,
         },
       ],
+      unranked: [],
     };
     api([game(42, 'Schach', 'duel', started)], { 42: anna });
     wrapper = await spiele();

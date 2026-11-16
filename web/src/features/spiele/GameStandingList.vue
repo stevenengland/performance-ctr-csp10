@@ -1,16 +1,23 @@
 <script setup lang="ts">
-import type { GameStanding } from './game-view';
+import { messages } from '../../core/messages';
+import type { GameStanding, UnrankedGameStanding } from './game-view';
 
 /**
 A game's ranking, shaped like the drink Rangliste (§7f): the leader on the amber
 card, everyone else in ranked rows with the record beneath the name and the value
-on the right. Places are not links: a game has one Verlauf, not one per person.
+on the right, then `+2 offen` while rows of the run wait for verification. Persons
+whose rows all wait follow under `Noch nicht gewertet`, without rank and value.
+Places are not links: a game has one Verlauf, not one per person.
 */
-defineProps<{ standings: GameStanding[]; label: string }>();
+defineProps<{
+  standings: GameStanding[];
+  unranked: UnrankedGameStanding[];
+  label: string;
+}>();
 </script>
 
 <template>
-  <ol class="game-ranking" :aria-label="label">
+  <ol v-if="standings.length > 0" class="game-ranking" :aria-label="label">
     <li
       v-for="standing in standings"
       :key="standing.personId"
@@ -23,7 +30,14 @@ defineProps<{ standings: GameStanding[]; label: string }>();
           <p class="type-name-hero game-leader__name">{{ standing.name }}</p>
           <p class="game-leader__value">{{ standing.value }}</p>
         </div>
-        <p class="type-label">{{ standing.valueText }}</p>
+        <p class="type-label game-leader__value-text">
+          {{ standing.valueText }}
+          <span
+            v-if="standing.pending"
+            class="assist-chip game-leader__pending"
+            >{{ standing.pending }}</span
+          >
+        </p>
         <p class="type-support">{{ standing.details }}</p>
       </template>
       <template v-else>
@@ -34,10 +48,39 @@ defineProps<{ standings: GameStanding[]; label: string }>();
             standing.details
           }}</span>
         </span>
-        <span class="type-numeral game-rank__value">{{ standing.value }}</span>
+        <span class="game-rank__total">
+          <span class="type-numeral game-rank__value">{{
+            standing.value
+          }}</span>
+          <span v-if="standing.pending" class="assist-chip type-caption">{{
+            standing.pending
+          }}</span>
+        </span>
       </template>
     </li>
   </ol>
+  <template v-if="unranked.length > 0">
+    <h2 class="type-label game-ranking__unranked-title">
+      {{ messages.rangliste.unranked }}
+    </h2>
+    <ul class="game-ranking" :aria-label="messages.rangliste.unranked">
+      <li
+        v-for="standing in unranked"
+        :key="standing.personId"
+        class="game-rank"
+        :aria-label="standing.label"
+        data-test="game-unranked"
+      >
+        <span class="game-rank__position" />
+        <span class="game-rank__who">
+          <span class="game-rank__name">{{ standing.name }}</span>
+        </span>
+        <span class="game-rank__total">
+          <span class="assist-chip type-caption">{{ standing.pending }}</span>
+        </span>
+      </li>
+    </ul>
+  </template>
 </template>
 
 <style scoped>
@@ -79,6 +122,23 @@ defineProps<{ standings: GameStanding[]; label: string }>();
   font-variant-numeric: tabular-nums;
 }
 
+.game-leader__value-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* On the amber card the chip takes the card's colour, like everything else on it. */
+.game-leader__pending {
+  border-color: currentcolor;
+  color: inherit;
+}
+
+.game-ranking__unranked-title {
+  margin: 20px 4px 4px;
+  color: rgb(var(--v-theme-on-surface-variant));
+}
+
 .game-rank {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) auto;
@@ -110,6 +170,13 @@ defineProps<{ standings: GameStanding[]; label: string }>();
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.game-rank__total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
 }
 
 .game-rank__details {

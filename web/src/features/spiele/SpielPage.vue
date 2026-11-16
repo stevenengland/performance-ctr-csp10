@@ -34,6 +34,7 @@ import {
   gameStandings,
   recordPath,
   ruleLine,
+  unrankedGameStandings,
 } from './game-view';
 
 /**
@@ -65,10 +66,15 @@ const game = computed(() => {
 /** The ranking of the run the game knows of; the page waits for the game before it shows one. */
 const run = (listed: DeepReadonly<Game>) =>
   currentRun(listed, ranking.value.value);
-const standings = computed(() => {
-  const ranked = game.value ? run(game.value) : ranking.value.value;
-  return ranked ? gameStandings(ranked) : undefined;
-});
+const ranked = computed(() =>
+  game.value ? run(game.value) : ranking.value.value,
+);
+const standings = computed(() =>
+  ranked.value ? gameStandings(ranked.value) : undefined,
+);
+const unranked = computed(() =>
+  ranked.value ? unrankedGameStandings(ranked.value) : [],
+);
 
 /** `seit heute, 19:30` turns into the date at midnight, even while the page stays open. */
 const today = useToday();
@@ -158,7 +164,10 @@ function onVisibilityChange() {
         class="spiel__skeleton-row"
       />
     </div>
-    <p v-else-if="standings.length === 0" class="type-body empty-state">
+    <p
+      v-else-if="standings.length === 0 && unranked.length === 0"
+      class="type-body empty-state"
+    >
       {{
         game?.kind === 'points'
           ? messages.spiele.noneYetPoints
@@ -168,6 +177,7 @@ function onVisibilityChange() {
     <GameStandingList
       v-else
       :standings="standings"
+      :unranked="unranked"
       :label="game?.name ?? messages.spiele.title"
     />
     <div v-if="game" class="spiel__actions">

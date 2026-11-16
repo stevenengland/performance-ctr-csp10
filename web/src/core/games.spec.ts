@@ -15,8 +15,10 @@ const standings = (gameId: number): Standings => ({
       draws: 0,
       losses: 0,
       played: 1,
+      pendingCount: 0,
     },
   ],
+  unranked: [],
 });
 
 interface Call {
