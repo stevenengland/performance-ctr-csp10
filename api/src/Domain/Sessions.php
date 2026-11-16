@@ -228,7 +228,9 @@ final readonly class Sessions
     {
         $finished = $this->pdo->prepare('SELECT id FROM login_attempts WHERE user_name = ? AND client_address = ? AND pending = 0');
         $finished->execute([$userName, $clientAddress]);
-        $ids = [$attempt, ...array_map(intval(...), $finished->fetchAll(PDO::FETCH_COLUMN))];
+        /** @var list<int|string> $finishedIds */
+        $finishedIds = $finished->fetchAll(PDO::FETCH_COLUMN);
+        $ids = [$attempt, ...array_map(intval(...), $finishedIds)];
         $this->pdo->prepare('DELETE FROM login_attempts WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')')
             ->execute($ids);
     }
