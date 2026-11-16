@@ -148,6 +148,7 @@ final class EntryHistoryTest extends DatabaseTestCase
         yield 'no offset' => ['personId=1&from=2026-11-14T23:00:00'];
         yield 'not a date' => ['personId=1&from=gestern'];
         yield 'impossible date' => ['personId=1&from=2026-02-30T23:00:00Z'];
+        yield 'null byte' => ['personId=1&from=2026-11-14T23:00:00Z%00'];
         yield 'list' => ['personId=1&from[]=' . self::FROM];
     }
 

@@ -115,6 +115,7 @@ final class ScoreboardTest extends DatabaseTestCase
         yield 'no time zone' => ['?from=2026-11-14T00:00:00'];
         yield 'not a date' => ['?from=gestern'];
         yield 'an impossible date' => ['?from=2026-13-45T00:00:00Z'];
+        yield 'a null byte' => ['?from=2026-11-14T00:00:00Z%00'];
     }
 
     #[DataProvider('invalidFroms')]
