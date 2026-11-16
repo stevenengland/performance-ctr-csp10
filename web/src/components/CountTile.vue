@@ -26,7 +26,7 @@ const props = defineProps<{
   disabled?: boolean;
 }>();
 const emit = defineEmits<{ click: [] }>();
-defineSlots<{ leading?(): unknown }>();
+const slots = defineSlots<{ leading?(): unknown }>();
 
 /** Names that do not fit shrink one step (28 → 24 → 20) before they ellipsize (§3.2). */
 const nameSize = computed(() => {
@@ -49,7 +49,10 @@ const nameSize = computed(() => {
     :disabled="disabled"
     @click="emit('click')"
   >
-    <span class="count-tile__row count-tile__row--top">
+    <span
+      class="count-tile__row"
+      :class="{ 'count-tile__row--leading': slots.leading }"
+    >
       <slot name="leading" />
       <span class="type-tile-name count-tile__name" :class="nameSize">{{
         name
@@ -82,13 +85,10 @@ const nameSize = computed(() => {
   min-width: 0;
 }
 
-.count-tile__row--top {
+/* With a leading item the name follows it, both centred on one line. */
+.count-tile__row--leading {
   align-items: center;
   justify-content: flex-start;
-}
-
-.count-tile__row--top > .type-numeral {
-  margin-left: auto;
 }
 
 .count-tile__name {
