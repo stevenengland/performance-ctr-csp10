@@ -438,6 +438,9 @@ export const messages = {
     removeTitle: (userName: string) => `Konto ${userName} löschen?`,
     removeBody: (userName: string) =>
       `Einträge von ${userName} bleiben erhalten.`,
+    /** The four-eyes rule needs a second account, which the server cannot check (PRD #61). */
+    ownAccount:
+      'Wer Einträge bestätigen soll, braucht ein eigenes Konto: eigene Einträge bestätigt immer ein anderes Konto.',
   },
   konto: {
     title: 'Konto',
