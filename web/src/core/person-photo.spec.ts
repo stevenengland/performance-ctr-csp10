@@ -10,7 +10,10 @@ describe('initialsOf', () => {
     ['Øyvind Ærø', 'ØÆ'],
     ['😀 Tom', '😀T'],
     ['', ''],
-  ])('takes the first letters of the first and last word of %j', (name, initials) => {
-    expect(initialsOf(name)).toBe(initials);
-  });
+  ])(
+    'takes the first letters of the first and last word of %j',
+    (name, initials) => {
+      expect(initialsOf(name)).toBe(initials);
+    },
+  );
 });

@@ -75,9 +75,7 @@ describe('Verwalten → Personen', () => {
     expect(anna?.get('.person-avatar').attributes('style')).toContain(
       'width: 40px',
     );
-    expect(anna?.get('[data-initials]').attributes('data-initials')).toBe(
-      'AL',
-    );
+    expect(anna?.get('[data-initials]').attributes('data-initials')).toBe('AL');
     expect(daniel?.get('img').attributes('src')).toBe(
       '/api/persons/2/photo?v=abc',
     );

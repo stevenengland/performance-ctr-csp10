@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
-import { h } from 'vue';
+import { h, type VNode } from 'vue';
 import { createAppVuetify } from '../theme';
 import CatalogList from './CatalogList.vue';
 
@@ -9,15 +9,20 @@ const ITEMS = [
   { id: 2, name: 'Radler' },
 ];
 
-function list(slots: Parameters<typeof mount>[1]['slots'] = {}) {
-  return mount(CatalogList<{ id: number; name: string }>, {
+interface Item {
+  id: number;
+  name: string;
+}
+
+function list(leading?: (props: { item: Item }) => VNode) {
+  return mount(CatalogList<Item>, {
     props: {
       items: ITEMS,
       label: 'Getränke',
       empty: 'Noch keine Getränke.',
-      support: (item: { name: string }) => `${item.name.length} Punkte`,
+      support: (item: Item) => `${String(item.name.length)} Punkte`,
     },
-    slots,
+    slots: leading ? { leading } : {},
     global: { plugins: [createAppVuetify()] },
   });
 }
@@ -40,10 +45,9 @@ describe('CatalogList', () => {
   });
 
   it('puts the leading slot of each item before its name', () => {
-    const wrapper = list({
-      leading: ({ item }: { item: { name: string } }) =>
-        h('span', { class: 'lead', 'data-name': item.name }),
-    });
+    const wrapper = list(({ item }) =>
+      h('span', { class: 'lead', 'data-name': item.name }),
+    );
 
     expect(parts(wrapper)[0]).toEqual([
       'lead',

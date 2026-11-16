@@ -52,12 +52,15 @@ describe('PersonAvatar', () => {
   it.each([
     ['a photo', PHOTO],
     ['initials', null],
-  ])('adds no text to its parent and is hidden from assistive technology with %s', (_, photoUrl) => {
-    const wrapper = avatar('Anna Lena', photoUrl);
+  ])(
+    'adds no text to its parent and is hidden from assistive technology with %s',
+    (_, photoUrl) => {
+      const wrapper = avatar('Anna Lena', photoUrl);
 
-    expect(wrapper.text()).toBe('');
-    expect(wrapper.attributes('aria-hidden')).toBe('true');
-  });
+      expect(wrapper.text()).toBe('');
+      expect(wrapper.attributes('aria-hidden')).toBe('true');
+    },
+  );
 
   it('is as large as asked, 40 px by default', () => {
     expect(avatar('Anna', null).attributes('style')).toContain('width: 40px');
