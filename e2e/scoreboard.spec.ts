@@ -3,9 +3,11 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type Locator,
   type Page,
 } from './support/playwright.ts';
 import { withoutFactors } from './support/factors.ts';
+import { coloursAt } from './support/photo.ts';
 import { signIn, signInVia, uniqueName } from './support/session.ts';
 
 /** The feed's polling interval while the Rangliste is visible. */
@@ -31,6 +33,44 @@ async function addEntry(
     data: { personId, drinkId, quantity },
   });
   expect(response.status()).toBe(201);
+}
+
+/**
+Sets a person's photo through the API, as another phone would: a 256 × 256
+JPEG in one colour, encoded by the browser like the app's own uploads.
+*/
+async function setPhoto(page: Page, personId: number, colour: 'red' | 'blue') {
+  const image = await page.evaluate((fill) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('no 2D context');
+    context.fillStyle = fill;
+    context.fillRect(0, 0, 256, 256);
+    return canvas.toDataURL('image/jpeg', 0.85).split(',')[1] ?? '';
+  }, colour);
+  const response = await page.request.put(
+    `/api/persons/${String(personId)}/photo`,
+    { data: { image } },
+  );
+  expect(response.status()).toBe(200);
+}
+
+/** A person with one drink today, so they have a place on the Rangliste. */
+async function drinking(request: APIRequestContext, name: string) {
+  const personId = await created(request, '/api/persons', { name });
+  const drinkId = await created(request, '/api/drinks', {
+    name: uniqueName('Bier'),
+    points: 1,
+  });
+  await addEntry(request, personId, drinkId, 1);
+  return personId;
+}
+
+/** The colour in the middle of a loaded photo; polled, as photos load late. */
+function colourOf(photo: Locator) {
+  return async () => (await coloursAt(photo, [[0.5, 0.5]]))[0];
 }
 
 /** A person's place on the Rangliste: the leader card or a row, a link named `Platz n, <name>, …`. */
@@ -130,6 +170,64 @@ test('an entry added in one browser appears on another browser’s Rangliste wit
     );
   } finally {
     await other.close();
+  }
+});
+
+test('a photo changed on another phone shows on the Rangliste after the next refresh, and a removed one shows initials', async ({
+  page,
+}) => {
+  const person = uniqueName('Mara');
+  const personId = await drinking(page.request, person);
+  await setPhoto(page, personId, 'red');
+  await page.goto('/rangliste');
+  const avatar = place(page, person).locator('.person-avatar');
+  await expect.poll(colourOf(avatar.locator('img'))).toBe('red');
+
+  await setPhoto(page, personId, 'blue');
+
+  await expect
+    .poll(colourOf(avatar.locator('img')), { timeout: POLL_MS + 5_000 })
+    .toBe('blue');
+  const removed = await page.request.delete(
+    `/api/persons/${String(personId)}/photo`,
+  );
+  expect(removed.status()).toBe(204);
+  await expect(avatar.locator('[data-initials]')).toHaveAttribute(
+    'data-initials',
+    'M',
+    { timeout: POLL_MS + 5_000 },
+  );
+  await expect(avatar.locator('img')).toHaveCount(0);
+  await expect(place(page, person)).toHaveAccessibleName(
+    new RegExp(`^Platz \\d+, ${person}, 1 Punkt, 1 Getränk$`),
+  );
+});
+
+test('after a warm load the cached photos keep showing when the connection drops', async ({
+  page,
+  context,
+}) => {
+  const person = uniqueName('Jule');
+  const personId = await drinking(page.request, person);
+  await setPhoto(page, personId, 'red');
+  const tilePhoto = page
+    .getByRole('button', { name: new RegExp(`^${person},`) })
+    .locator('.person-avatar img');
+  const placePhoto = place(page, person).locator('.person-avatar img');
+  await page.goto('/zaehlen');
+  await expect.poll(colourOf(tilePhoto)).toBe('red');
+  await page.getByRole('link', { name: 'Rangliste' }).click();
+  await expect.poll(colourOf(placePhoto)).toBe('red');
+
+  await context.setOffline(true);
+  try {
+    // Each screen draws new images, which only the browser's cache can fill now.
+    await page.getByRole('link', { name: 'Zählen' }).click();
+    await expect.poll(colourOf(tilePhoto)).toBe('red');
+    await page.getByRole('link', { name: 'Rangliste' }).click();
+    await expect.poll(colourOf(placePhoto)).toBe('red');
+  } finally {
+    await context.setOffline(false);
   }
 });
 

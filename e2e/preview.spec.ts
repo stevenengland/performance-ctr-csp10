@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { coloursAt, pickWith, PICTURES } from './support/photo.ts';
-import { expect, test, type Page } from './support/playwright.ts';
+import { expect, test, type Locator, type Page } from './support/playwright.ts';
 
 test('the fixture preview opens on the fixture backend without network access', async ({
   page,
@@ -543,6 +543,57 @@ test('the fixture preview shows sample photos for Anna, Daniel and Mara and init
   await expect(
     list.getByRole('link', { name: 'Verlauf von Anna', exact: true }),
   ).toHaveText('Anna');
+});
+
+test('the fixture preview shows avatars on the Zählen tiles and the Rangliste', async ({
+  page,
+}) => {
+  /** Each avatar's size, and whether it shows a loaded photo or initials. */
+  const avatars = (scope: Locator) => () =>
+    scope.locator('.person-avatar').evaluateAll((spans) =>
+      spans.map((span) => {
+        const img = span.querySelector('img');
+        return {
+          size: span.getBoundingClientRect().width,
+          shows: img
+            ? img.complete && img.naturalWidth === 256
+              ? 'photo'
+              : 'loading'
+            : span
+                .querySelector('[data-initials]')
+                ?.getAttribute('data-initials'),
+        };
+      }),
+    );
+
+  await page.goto('/index.html#/zaehlen');
+  const tiles = page.locator('.count-tile');
+  await expect(tiles).toHaveCount(6);
+  await expect(tiles.first()).toHaveAccessibleName(/^Anna, /);
+  await expect.poll(avatars(page.locator('.tile-grid'))).toEqual([
+    { size: 40, shows: 'photo' },
+    { size: 40, shows: 'B' },
+    { size: 40, shows: 'photo' },
+    { size: 40, shows: 'J' },
+    { size: 40, shows: 'photo' },
+    { size: 40, shows: 'T' },
+  ]);
+
+  await page.getByRole('link', { name: 'Rangliste' }).click();
+  const leader = page.getByRole('link', {
+    name: 'Platz 1, Daniel, 13,5 Punkte, 9 Getränke',
+  });
+  await expect.poll(avatars(leader)).toEqual([{ size: 64, shows: 'photo' }]);
+  // The ring is the card's own on-primary-container, 3 px wide.
+  const ring = await leader
+    .locator('.person-avatar')
+    .evaluate((span) => getComputedStyle(span).boxShadow);
+  const ink = await leader.evaluate((card) => getComputedStyle(card).color);
+  expect(ring).toBe(`${ink} 0px 0px 0px 3px`);
+  const rows = page.locator('[data-test="rank"]');
+  await expect(rows).toHaveCount(4);
+  const sizes = await avatars(page.locator('.rank'))();
+  expect(sizes.map((avatar) => avatar.size)).toEqual([44, 44, 44, 44]);
 });
 
 test('the fixture preview removes a person’s photo in Person bearbeiten', async ({
