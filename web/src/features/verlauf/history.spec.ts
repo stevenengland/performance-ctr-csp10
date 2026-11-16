@@ -9,6 +9,7 @@ const entry: HistoryEntry = {
   factor: { id: 1, name: 'Geburtstag', multiplier: 1.5 },
   createdAt: '2026-11-15T22:41:00.000Z',
   accountName: 'anna',
+  pending: false,
 };
 
 describe('Verlauf rows', () => {
@@ -20,8 +21,15 @@ describe('Verlauf rows', () => {
         details: 'Geburtstag ×1,5 · 23:41 · anna',
         removeLabel: '2× Bier um 23:41 löschen',
         removeBody: '2× Bier · Geburtstag ×1,5 um 23:41',
+        pending: undefined,
       },
     ]);
+  });
+
+  it('mark an entry that waits for verification as offen', () => {
+    const [row] = historyRows([{ ...entry, pending: true }], 'Europe/Berlin');
+
+    expect(row?.pending).toBe('offen');
   });
 
   it('say “Kein Faktor” and “gelöschtes Konto” where they apply, and leave the factor out of the dialog', () => {

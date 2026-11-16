@@ -63,7 +63,9 @@ export function standingsOf(board: DeepReadonly<Scoreboard>): Standing[] {
       row.count,
     );
     const pending =
-      row.pendingCount > 0 ? messages.pending.hint(row.pendingCount) : undefined;
+      row.pendingCount > 0
+        ? messages.pending.hint(row.pendingCount)
+        : undefined;
     const label = messages.rangliste.label(
       rank,
       row.name,
@@ -86,7 +88,9 @@ export function standingsOf(board: DeepReadonly<Scoreboard>): Standing[] {
 }
 
 /** The persons whose entries of today all wait, by name, as the Rangliste lists them apart. */
-export function unrankedOf(board: DeepReadonly<Scoreboard>): UnrankedStanding[] {
+export function unrankedOf(
+  board: DeepReadonly<Scoreboard>,
+): UnrankedStanding[] {
   return board.unranked.map((row) => {
     const drinks = drinksText(row.drinks, 'recordedCount');
     const pending = messages.pending.hint(row.pendingCount);

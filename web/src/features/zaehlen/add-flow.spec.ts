@@ -169,7 +169,9 @@ describe('saving an entry', () => {
     });
     const [first, retry] = entryCalls(calls);
     expect(retry).toEqual(first);
-    expect(useSnackbar().value?.text).toBe('2× Bier · Daniel · wartet auf Bestätigung');
+    expect(useSnackbar().value?.text).toBe(
+      '2× Bier · Daniel · wartet auf Bestätigung',
+    );
   });
 
   it('books a later save of the same content under a new id, after an ignored Erneut versuchen', async () => {
@@ -205,7 +207,9 @@ describe('saving an entry', () => {
       vi.fn(),
     );
 
-    expect(useSnackbar().value?.text).toBe('2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung');
+    expect(useSnackbar().value?.text).toBe(
+      '2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung',
+    );
   });
 
   it('shows a problem’s title', async () => {

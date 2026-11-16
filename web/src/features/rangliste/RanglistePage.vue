@@ -78,10 +78,7 @@ provideTopBar(() => {
         <h2 class="type-label rangliste__unranked-title">
           {{ messages.rangliste.unranked }}
         </h2>
-        <ul
-          class="rangliste__list"
-          :aria-label="messages.rangliste.unranked"
-        >
+        <ul class="rangliste__list" :aria-label="messages.rangliste.unranked">
           <RankRow
             v-for="standing in unranked"
             :key="standing.personId"

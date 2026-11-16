@@ -19,8 +19,9 @@ import { provideTopBar } from '../../core/top-bar';
 import { historyRows, type HistoryRow } from './history';
 
 /**
-Verlauf · Heute (§7g): a person's entries since local midnight, newest first, each
-deletable behind the confirmation dialog (§6.9). A deletion reaches the counters
+Verlauf · Heute (§7g): a person's entries since local midnight, newest first, those
+that wait for verification marked `offen`, each deletable behind the confirmation
+dialog (§6.9). A deletion reaches the counters
 and the Rangliste through the scoreboard feed.
 */
 const props = defineProps<{ personId: string }>();
@@ -124,6 +125,12 @@ watch(useToday(), () => {
           <span class="type-row-title list__title">{{ row.title }}</span>
           <span class="type-support list__support">{{ row.details }}</span>
         </span>
+        <span
+          v-if="row.pending"
+          class="assist-chip type-caption"
+          data-test="pending"
+          >{{ row.pending }}</span
+        >
         <v-btn
           :icon="mdiDeleteOutline"
           :aria-label="row.removeLabel"

@@ -36,9 +36,7 @@ defineProps<{ standing: Standing | UnrankedStanding }>();
       <span class="rank__total">
         <template v-if="'rank' in standing">
           <span class="type-numeral">{{ standing.score }}</span>
-          <span class="type-caption rank__count">{{
-            standing.countText
-          }}</span>
+          <span class="type-caption rank__count">{{ standing.countText }}</span>
         </template>
         <span v-if="standing.pending" class="assist-chip type-caption">{{
           standing.pending
