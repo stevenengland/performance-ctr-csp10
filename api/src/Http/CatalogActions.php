@@ -19,18 +19,20 @@ final readonly class CatalogActions
     /** A catalog id: a positive integer that fits the INT UNSIGNED column (larger ones match no row). */
     public const ID_PATTERN = '[1-9][0-9]{0,9}';
 
-    public function __construct(private Database $database) {}
+    public function __construct(private Database $database, private PhotoUrl $photoUrl) {}
 
     public function persons(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
-        return Json::write($response, ['persons' => array_map(self::person(...), $this->database->catalog()->persons())]);
+        $persons = array_map(fn(Person $person): array => self::person($person, $this->photoUrl), $this->database->catalog()->persons());
+
+        return Json::write($response, ['persons' => $persons]);
     }
 
     public function createPerson(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         $person = $this->database->catalog()->createPerson(SessionAuth::actor($request), Input::text($request, 'name'));
 
-        return Json::write($response, self::person($person), 201);
+        return Json::write($response, self::person($person, $this->photoUrl), 201);
     }
 
     public function drinks(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
@@ -57,7 +59,7 @@ final readonly class CatalogActions
         $dependents = $catalog->dependentsOfPerson($id);
 
         return Json::write($response, [
-            ...self::person($person),
+            ...self::person($person, $this->photoUrl),
             'entryCount' => $catalog->entriesOfPerson($id),
             'matchCount' => $dependents->matches,
             'resultCount' => $dependents->results,
@@ -71,7 +73,7 @@ final readonly class CatalogActions
     {
         $person = $this->database->catalog()->updatePerson(SessionAuth::actor($request), (int) $arguments['id'], Input::text($request, 'name'));
 
-        return Json::write($response, self::person($person));
+        return Json::write($response, self::person($person, $this->photoUrl));
     }
 
     /**
@@ -169,11 +171,13 @@ final readonly class CatalogActions
     }
 
     /**
-     * @return array{id: int, name: string}
+     * A person as every answer that names one shows them, with the URL of their photo.
+     *
+     * @return array{id: int, name: string, photoUrl: string|null}
      */
-    private static function person(Person $person): array
+    public static function person(Person $person, PhotoUrl $photoUrl): array
     {
-        return ['id' => $person->id, 'name' => $person->name];
+        return ['id' => $person->id, 'name' => $person->name, 'photoUrl' => $photoUrl->of($person->id, $person->photoVersion)];
     }
 
     /**

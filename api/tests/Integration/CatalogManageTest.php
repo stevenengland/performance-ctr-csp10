@@ -28,9 +28,9 @@ final class CatalogManageTest extends DatabaseTestCase
         $response = $this->send('PATCH', '/api/persons/1', ['name' => '  Tom '], $this->session);
 
         self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
-        self::assertSame(['id' => 1, 'name' => 'Tom'], $this->body($response));
+        self::assertSame(['id' => 1, 'name' => 'Tom', 'photoUrl' => null], $this->body($response));
         self::assertSame(
-            [['id' => 2, 'name' => 'Mara'], ['id' => 1, 'name' => 'Tom']],
+            [['id' => 2, 'name' => 'Mara', 'photoUrl' => null], ['id' => 1, 'name' => 'Tom', 'photoUrl' => null]],
             $this->body($this->send('GET', '/api/persons', session: $this->session))['persons'],
         );
     }
@@ -129,7 +129,7 @@ final class CatalogManageTest extends DatabaseTestCase
         $drink = $this->send('GET', '/api/drinks/1', session: $this->session);
 
         self::assertSame(200, $person->getStatusCode());
-        self::assertSame(['id' => 1, 'name' => 'Daniel', 'entryCount' => 3, 'matchCount' => 0, 'resultCount' => 0], $this->body($person));
+        self::assertSame(['id' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'entryCount' => 3, 'matchCount' => 0, 'resultCount' => 0], $this->body($person));
         self::assertSame(200, $drink->getStatusCode());
         self::assertSame(['id' => 1, 'name' => 'Bier', 'points' => 1.5, 'entryCount' => 2], $this->body($drink));
     }
@@ -144,7 +144,7 @@ final class CatalogManageTest extends DatabaseTestCase
         $deleted = $this->send('DELETE', '/api/persons/1', session: $this->session);
 
         self::assertSame(204, $deleted->getStatusCode());
-        self::assertSame([['id' => 2, 'name' => 'Mara']], $this->body($this->send('GET', '/api/persons', session: $this->session))['persons']);
+        self::assertSame([['id' => 2, 'name' => 'Mara', 'photoUrl' => null]], $this->body($this->send('GET', '/api/persons', session: $this->session))['persons']);
         self::assertSame([['person_id' => '2']], $this->rows('SELECT CAST(person_id AS CHAR) AS person_id FROM entries'));
         self::assertSame([2], array_column($this->standings(), 'personId'));
     }
@@ -162,7 +162,7 @@ final class CatalogManageTest extends DatabaseTestCase
         self::assertSame([['id' => 2, 'name' => 'Wein', 'points' => 2]], $this->body($this->send('GET', '/api/drinks', session: $this->session))['drinks']);
         self::assertSame([['drink_id' => '2']], $this->rows('SELECT CAST(drink_id AS CHAR) AS drink_id FROM entries'));
         self::assertSame(
-            [['personId' => 1, 'name' => 'Daniel', 'score' => 2, 'count' => 1, 'drinks' => [['drinkId' => 2, 'name' => 'Wein', 'count' => 1]]]],
+            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 2, 'count' => 1, 'drinks' => [['drinkId' => 2, 'name' => 'Wein', 'count' => 1]]]],
             $this->standings(),
         );
     }

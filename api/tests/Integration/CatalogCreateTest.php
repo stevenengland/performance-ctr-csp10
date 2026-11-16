@@ -18,11 +18,15 @@ final class CatalogCreateTest extends DatabaseTestCase
         $this->send('POST', '/api/persons', ['name' => 'Ben'], $session);
 
         self::assertSame(201, $created->getStatusCode());
-        self::assertSame(['id' => 1, 'name' => 'Daniel'], $this->body($created));
+        self::assertSame(['id' => 1, 'name' => 'Daniel', 'photoUrl' => null], $this->body($created));
         $list = $this->send('GET', '/api/persons', session: $session);
         self::assertSame(200, $list->getStatusCode());
         self::assertSame(
-            [['id' => 2, 'name' => 'anna'], ['id' => 3, 'name' => 'Ben'], ['id' => 1, 'name' => 'Daniel']],
+            [
+                ['id' => 2, 'name' => 'anna', 'photoUrl' => null],
+                ['id' => 3, 'name' => 'Ben', 'photoUrl' => null],
+                ['id' => 1, 'name' => 'Daniel', 'photoUrl' => null],
+            ],
             $this->body($list)['persons'],
         );
     }

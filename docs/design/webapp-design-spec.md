@@ -324,9 +324,12 @@ an older one.
 height 104 dp, padding 12 × 14 dp, a 3 dp inset bottom edge in `outline-variant`, content
 left-aligned. Pressed or saving: `primary-container` / `on-primary-container`, edge removed.
 
-- **Person tile:** name (`tile-name`) at the top; at the bottom `Punkte heute` in `support` on
-  the left and the person's total score for today (`numeral`) on the right, or just
-  `noch nichts` in `support` when there are no entries today. No tally marks here.
+- **Person tile:** the person's avatar (§6.12, 40 dp) and, 8 dp to its right, the name
+  (`tile-name`) at the top; at the bottom `Punkte heute` in `support` on the left and the
+  person's total score for today (`numeral`) on the right, or just `noch nichts` in `support`
+  when there are no entries today. No tally marks here. The avatar comes through the tile's
+  generic `leading` slot, which sits left of the name; the tile knows nothing about photos.
+  The avatar adds nothing to the accessible name (`Daniel, 13,5 Punkte heute`).
 - **Drink tile:** top row — name left, today's counter for the chosen person right (`numeral`,
   omitted at 0); bottom row — points in `support` (`1 Punkt`, `3 Punkte`, `0,5 Punkte`) left,
   tally (18 dp) right.
@@ -429,6 +432,24 @@ icon button (`Passwort anzeigen` / `Passwort verbergen`). Built as the app compo
 mockup exactly and keeps the field framework out of the sign-in screen's bundle. Forms in dialogs
 submit on Enter.
 
+### 6.12 Person avatar
+
+`PersonAvatar` — a person's round avatar (a beer mat seen from above), the same size with or
+without a photo, so rows line up either way. Each surface sets its size: Zählen tiles 40 dp
+(§6.4), Personen rows 40 dp (§7i), Rangliste rows 44 dp and the leader card 64 dp (§7f), the
+person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
+
+- **Photo:** the person's `photoUrl` in an `<img>` with `alt=""`, `object-fit: cover`. A photo
+  that fails to load shows the initials instead.
+- **Initials** without a photo: at most two, the first letters of the first and last word
+  (`Anna Lena` → `AL`, `Daniel` → `D`), upper-cased for `de-DE`, in the display face (Big
+  Shoulders Display 900, 42 % of the size) on `secondary-container` / `on-secondary-container`
+  — the same pair for everyone, no per-person colours.
+- **Decorative** (§10): `aria-hidden`; the initials are drawn by CSS from a `data-initials`
+  attribute, so they never join the text or accessible name of the row they sit in.
+- Lists and tiles stay generic: `CatalogList` takes it through its `leading` slot and lays the
+  slot out left of the name, 12 dp apart.
+
 ## 7. Screens
 
 ### 7a. Anmelden `/anmelden`
@@ -447,8 +468,8 @@ submit on Enter.
 ### 7b. Zählen, step 1 — Namen `/zaehlen`
 
 - Title `Zählen`; step indicator at 1. Question `Für wen?` in `question`.
-- Grid of person tiles (§6.4), alphabetical, each with the person's total score for today
-  (from the scoreboard feed).
+- Grid of person tiles (§6.4), alphabetical, each with the person's avatar (40 dp, left of the
+  name) and total score for today (from the scoreboard feed).
 - Empty: `Noch keine Personen.` + button `Person anlegen` → `/verwalten/personen?anlegen` (the
   query opens the create dialog).
 
@@ -504,22 +525,27 @@ submit on Enter.
 
 - Title `Rangliste` with the context line `Heute`.
 - Persons with entries today, ranked by score (ties by name):
-  - **Rank 1 — leader card:** `primary-container`, corner 18 dp. Name (`name-hero`) and the
-    tally of the total count (26 dp) on the left, score (`score-hero`) on the right; below,
-    the total count (`9 Getränke`, `label`) and the per-drink counters
-    (`Bier 4 · Margarita 1`, `support`).
+  - **Rank 1 — leader card:** `primary-container`, corner 18 dp. On the left the avatar
+    (§6.12, 64 dp, with a 3 dp ring in `on-primary-container`), under it the name
+    (`name-hero`) and the tally of the total count (26 dp); score (`score-hero`) on the right;
+    below, the total count (`9 Getränke`, `label`) and the per-drink counters
+    (`Bier 4 · Margarita 1`, `support`). The avatar sits above the name, not beside it:
+    beside it, the name had no room left (`DANIEL` was cut off).
   - **Ranks 2+ — rows** separated by `outline-variant` hairlines: rank numeral (`title`,
-    `on-surface-variant`), name (`rank-name`) with per-drink counters beneath (`support`),
-    and on the right the score (`numeral`) with the total count beneath (12 dp, Text 400,
-    `on-surface-variant`, as in the mockup).
+    `on-surface-variant`, 28 dp column), the avatar (44 dp), name (`rank-name`) with
+    per-drink counters beneath (`support`), and on the right the score (`numeral`) with the
+    total count beneath (12 dp, Text 400, `on-surface-variant`, as in the mockup).
   - The rank is the position in the API's order (score, ties by name); tied persons get
     consecutive ranks. Per-drink counters are listed alphabetically, as the API sends them.
     A total count of one reads `1 Getränk`.
 - Card and rows form one ordered list `Rangliste`; each place has the accessible name
-  `Platz 1, Daniel, 13,5 Punkte, 9 Getränke`. The card and each row are links with that name
+  `Platz 1, Daniel, 13,5 Punkte, 9 Getränke` (avatars are decorative, §10). The card and each row are links with that name
   (inside their list items) and open `/verlauf/:personId`.
 - Loading: a skeleton card and three skeleton rows.
 - Persons without entries today are not listed.
+- Photos come from versioned URLs the browser caches, so a running app keeps showing the photos
+  it has loaded when the connection drops (best effort; reopening the app offline is not
+  promised). A photo changed on another phone shows with the next refresh.
 - Empty: `Heute noch keine Getränke.` + button `Zählen` → `/zaehlen`.
 - Stale indicator (§6.6) in the top app bar.
 
@@ -561,12 +587,48 @@ submit on Enter.
 
 - Alphabetical list; each row: name and, for drinks, `1 Punkt`, for factors, `×2`; trailing edit
   and delete icon buttons. Under Personen the name is a link `Verlauf von Daniel` to the
-  person's Verlauf (§7g).
+  person's Verlauf (§7g), led by the person's 40 dp avatar (§6.12) inside the link; its name
+  stays `Verlauf von Daniel`.
 - Extended FAB `Person anlegen` / `Getränk anlegen` / `Faktor anlegen` (bottom right, above the
   navigation bar; `primary`, corner 10 dp, no shadow). Rows are separated by `outline-variant`
   hairlines; primary text in `row-title`.
 - Create/edit dialog: `Name`; drinks also `Punkte` (decimal); factors also `Multiplikator`
   (decimal, shown with `×` prefix). Buttons `Abbrechen` and `Speichern`.
+- **Photo control** (`Person anlegen` and `Person bearbeiten`): above the name, the person's
+  avatar at 112 dp (§6.12; while creating, the initials of the name as it is typed) and the text
+  buttons `Foto wählen` (no photo) / `Foto ändern` (a photo) / `Anderes Foto` (one
+  is being framed), `Foto entfernen`, and `Foto behalten` while a removal is pending. Choosing
+  opens the platform's own picker for images (`<input type="file" accept="image/*">`, no
+  `capture`), so phones usually offer the camera and the gallery. The chosen picture is decoded
+  upright (EXIF orientation applied) into a working image of at most 2048 px on its longer side
+  and framed in `PhotoCrop` in place of the avatar: a 232 dp square canvas (corner 14 dp,
+  `surface-container-high`) under a round mask that dims everything outside the circle with the
+  scrim at 50 % and outlines it in white — what is inside the circle becomes the avatar. One
+  pointer drags, two pinch, the wheel and the `Zoom` slider (magnifier icons, `primary`) zoom
+  from 1 (the picture just covers the frame) to 4; the frame is never uncovered. Under the
+  canvas, `Ziehen zum Verschieben · zoomen mit zwei Fingern oder dem Regler` (`support`,
+  `on-surface-variant`). The canvas is focusable and an application (`role="application"`,
+  role description `Fotoausschnitt`, so screen readers hand it the arrow keys), named
+  `Ausschnitt des Fotos` and described by that hint and `Pfeiltasten verschieben, Plus und Minus zoomen.`; the arrow keys move it, `+`/`-`
+  zoom, and the slider's value says the zoom (`×1,5`). The canvas is the preview, so the CSP
+  needs no `blob:` or `data:` images.
+- Only `Speichern` sends the photo, after the name: it is encoded first (256 × 256 JPEG at
+  quality 0.85, lowered to 0.75 / 0.6 / 0.45 until it is at most 64 KB) and then uploaded
+  (`PUT …/photo`); `Abbrechen` discards it. The latest pick wins (a picture still loading when
+  another is chosen, or when the dialog closes, is dropped). While saving, the photo buttons
+  and the framing are frozen; once encoded the framing stays as it was saved (`Anderes Foto`
+  frames anew). Under the buttons, in `error`: `Dieses Foto lässt sich nicht öffnen.` for a file
+  the browser cannot decode (HEIC on most desktops) or encode, the server's message for a
+  refused photo (`Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).`, `Foto zu groß.`) —
+  each keeps the photo that was there — and `Person gespeichert, Foto nicht.` when the name
+  saved and the photo did not, followed by one of those reasons when there is one (the dialog
+  stays; `Speichern` again sends only the photo).
+- `Person anlegen` with a photo encodes it, creates the person (`POST`), then uploads the
+  photo. The created person joins the list as soon as the server acknowledges it; when only the
+  upload fails, the dialog stays on that person, now titled `Person bearbeiten`, and `Speichern`
+  again sends only the photo — never a second person. `Abbrechen` then closes it and keeps the
+  person without a photo; nothing is undone. A failed reload of the list afterwards shows the
+  list's own error and does not undo the save.
 - Delete: confirmation dialog with the entry count (§6.9); for a person also the results that
   go and the matches that stay with `gelöschte Person`.
 - Validation errors inline (§6.11); duplicate name → `Name ist bereits vergeben.`; points
@@ -581,8 +643,9 @@ submit on Enter.
   problem title shows in the snackbar and the list reloads. After deleting, the snackbar
   `Daniel gelöscht` (§6.3).
 - Deleting a person or a drink deletes its entries; the Rangliste and the counters show it on
-  their next refresh. A rename shows on the Rangliste the same way; a drink's new points
-  change today's scores of its entries.
+  their next refresh. A rename shows on the Rangliste the same way, and so does a photo set,
+  changed or removed (initials then); a drink's new points change today's scores of its
+  entries.
 
 ### 7j. Konten `/verwalten/konten` (admins only)
 
@@ -654,7 +717,10 @@ submit on Enter.
   - then (`body`), when there is one: for a change the changed values as
     `Punkte: 1 Punkt → 0,5 Punkte`, several joined with ` · ` (`Name: Bier → Pils`,
     `Multiplikator: ×2 → ×1,5`, `Faktor: Happy Hour ×2 → Kein Faktor`, a game's
-    `Regel: Remis möglich → kein Remis`); a game's restart reads `Neu gestartet`, and a match
+    `Regel: Remis möglich → kein Remis`); a person's photo change reads `Foto gesetzt`,
+    `Foto geändert` or `Foto entfernt` after any name change, never the photo's version (an event
+    from before photos does not record the photo and says nothing about it); a game's restart
+    reads `Neu gestartet`, and a match
     side cleared by a person deletion reads `Ben → gelöschte Person`, under the match's title as
     it was (`Partie Ben – Anna`); for a creation or a
     deletion the values without the name: `1 Punkt` for a drink, `×2` for a factor,
@@ -936,6 +1002,9 @@ submit on Enter.
 - Contrast from the role pairs in §3.1 only; every pair in use meets AA.
 - Tally marks are decorative and hidden from assistive technology; upper-case display text is
   produced with CSS so it is read in normal case.
+- Person avatars (§6.12) are decorative: `aria-hidden`, photos with `alt=""`, initials drawn
+  from an attribute. The name beside an avatar carries the meaning, so no accessible name
+  changes with a photo.
 - Every counting button has an accessible name with its state, e.g. `Bier, 1 Punkt, heute 4`,
   `Daniel, 13,5 Punkte heute` or `Jule, noch nichts`; the stepper's buttons are `Eins weniger`
   and `Eins mehr`.
@@ -958,6 +1027,8 @@ submit on Enter.
 | Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window |
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt` and `accountName` (or `null`); 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count (a person also `matchCount` and `resultCount`); `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
+| Personen (photo) | `PUT /api/persons/{id}/photo`, `DELETE /api/persons/{id}/photo` | Any member, any person; never a field of the person `PATCH`. `PUT` body `{image}`: base64 of a 256 × 256 JPEG of at most 64 KiB; answers the person (200). A body over 96 KiB is 413 `Foto zu groß.`, an invalid photo 422 on `image`. `DELETE` is 204, also without a photo. The same photo again and removing none change nothing |
+| Photo display | `GET /api/persons/{id}/photo?v=<version>` | Loaded by `<img>`, outside the fetch wrapper. 200 `image/jpeg` with `Cache-Control: private, max-age=31536000, immutable` only while `v` is the stored version; a missing, malformed or stale `v`, no photo and an unknown person are 404, every error `no-store`. The client never builds this URL |
 | Verwalten | `GET /api/{persons,drinks,factors,games}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
 | Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` (ETag, `If-None-Match` → 304) | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. The game's page polls every 10 s while visible, Spiele reads on open and on focus; ETag = data revision. Standings of the current run, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played}`, a points game's `{personId, name, sum, results}` with `lowerWins` |
 | Verwalten → Spiele | `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/{id}` | Game: `id`, `name`, `kind` (`duel` \| `points`), `drawsAllowed`, `lowerWins`, `startedAt`. `POST` takes `name`, `kind` and the kind's setting; `PATCH` takes `name` and the setting (the kind is fixed); `GET …/{id}` adds `matchCount` and `resultCount` (every run) |
@@ -987,8 +1058,12 @@ the shareable page a UI change is reviewed on before it reaches the host.
 - **Behaviour.** The fixture backend starts signed in as the admin `anna` (the sample
   accounts `anna`, `ben`, `daniel`, `mara` sign in with `beispiel-passwort`), serves a sample evening
   (marked as sample data: persons, drinks, factors and entries timed relative to now, so the
-  preview never ages out of "today"), keeps writes in memory for the session (adds, undo,
-  deletes, CRUD), and answers anything else with 503. Its games are `Rommé` (points, lowest
+  preview never ages out of "today"; Anna, Daniel and Mara have illustrated sample photos — no
+  real people — bundled as hashed assets in place of the API's versioned photo URL, the others
+  show their initials), keeps writes in memory for the session (adds, undo,
+  deletes, CRUD; an uploaded photo is kept as a `data:` URL in place of the versioned URL —
+  the artifact host allows `data:` images, the production CSP never sees them — and checked
+  only for base64 that starts like a JPEG), and answers anything else with 503. Its games are `Rommé` (points, lowest
   sum wins, started today), `Schach` (duel with draws, two months) and `Tischtennis` (duel
   without draws, three weeks) — on Spiele `Punktespiel · seit heute, 00:00`, `Duell · seit …`; they
   are served by the API's rules (name, kind and setting
@@ -1003,9 +1078,10 @@ the shareable page a UI change is reviewed on before it reaches the host.
   Verlauf is paged by the API's rules (newest first, 20 a page, a cursor that keeps its run,
   the other kind's route 404).
 - **Audit log in the preview.** Protokoll starts with a seeded log that reaches back over
-  several days, holds a cascade (the deletion of `Sekt` with the entries it removed) and names
-  an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are
-  then recorded in memory by the API's rules (game, match and result writes included, a restart as a change of
+  several days, holds a cascade (the deletion of `Sekt` with the entries it removed), a photo
+  change (`Person Anna`, `Foto gesetzt`) and names an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are
+  then recorded in memory by the API's rules (a person's photo set, change or removal as a person update, game,
+  match and result writes included, a restart as a change of
   `run` and `startedAt`, a game's or person's deletion with one caused event per match it
   deletes or clears and per result it deletes): one event per change with the signed-in account,
   the entries a deletion removes or changes as consequential events with their cause, and
@@ -1023,7 +1099,7 @@ the shareable page a UI change is reviewed on before it reaches the host.
 
 - Views of other days (Protokoll, §7l, excepted), all-time totals, statistics or charts.
 - Filters, search or export of the Protokoll; restoring data from it.
-- Theme switch, custom colours per person, avatars.
+- Theme switch, custom colours per person.
 - English UI.
 - Tablet- or desktop-specific layouts beyond widened grids.
 - Offline saving.

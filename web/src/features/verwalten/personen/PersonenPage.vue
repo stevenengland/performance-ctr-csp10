@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import AppFab from '../../../components/AppFab.vue';
 import CatalogList from '../../../components/CatalogList.vue';
 import ConfirmDialog from '../../../components/ConfirmDialog.vue';
+import PersonAvatar from '../../../components/PersonAvatar.vue';
 import { getPerson, type Person } from '../../../core/api-client';
 import { deletePerson, loadPersons, usePersons } from '../../../core/catalog';
 import { useConfirmedDelete } from '../../../core/confirmed-delete';
@@ -13,8 +14,8 @@ import { verlaufPath } from '../../verlauf/history';
 import PersonDialog from './PersonDialog.vue';
 
 /**
-Verwalten → Personen (§7i): persons alphabetically, each renamable and
-deletable; deleting says how many entries and results go with the person and
+Verwalten → Personen (§7i): persons alphabetically, each with their avatar
+(§6.12), renamable and deletable; deleting says how many entries and results go with the person and
 how many matches stay with `gelöschte Person` (§6.9). A name opens
 the person's Verlauf (§7g).
 */
@@ -52,7 +53,11 @@ onMounted(() => {
       :link="verlauf"
       @edit="openDialog"
       @remove="removal.ask"
-    />
+    >
+      <template #leading="{ item }">
+        <PersonAvatar :name="item.name" :photo-url="item.photoUrl" />
+      </template>
+    </CatalogList>
     <AppFab :label="messages.personen.create" @click="openDialog()" />
     <PersonDialog v-model="editing" :person="edited" />
     <ConfirmDialog

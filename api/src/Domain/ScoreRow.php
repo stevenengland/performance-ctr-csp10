@@ -8,11 +8,13 @@ namespace Performance\Domain;
 final readonly class ScoreRow
 {
     /**
+     * @param string|null $photoVersion the version of the person's photo, null without a photo
      * @param list<DrinkCount> $drinks by drink name
      */
     public function __construct(
         public int $personId,
         public string $name,
+        public ?string $photoVersion,
         public string $score,
         public string $count,
         public array $drinks,

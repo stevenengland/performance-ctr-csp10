@@ -231,6 +231,22 @@ final class MigratorTest extends DatabaseTestCase
         self::assertSame([['points' => '-20']], $this->rows('SELECT CAST(points AS CHAR) AS points FROM results'), 'the table is kept as it was');
     }
 
+    public function testThePersonPhotosMigrationRunsAgainAfterACrashBeforeItsBookkeepingWithoutChangingAnything(): void
+    {
+        $this->get('/api/health');
+        $other = $this->otherSession();
+        $other->exec("INSERT INTO persons (name, created_at, updated_at) VALUES ('Daniel', UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))");
+        $other->exec("INSERT INTO person_photos (person_id, jpeg, version, updated_at) VALUES (1, 'jpeg', REPEAT('a', 64), UTC_TIMESTAMP(3))");
+        // A crash between the DDL and its bookkeeping: the table exists, the row says started.
+        $other->exec("UPDATE schema_migrations SET state = 'started', completed_at = NULL WHERE version = '0019_create_person_photos'");
+
+        $health = $this->body($this->get('/api/health'));
+
+        self::assertSame('ok', $health['migration']);
+        self::assertSame('completed', array_column($this->bookkeeping(), 'state', 'version')['0019_create_person_photos']);
+        self::assertSame([['jpeg' => 'jpeg']], $this->rows('SELECT jpeg FROM person_photos'), 'the table is kept as it was');
+    }
+
     public function testNoTwoMigrationsShareANumber(): void
     {
         $numbers = array_map(static fn(string $name): string => substr($name, 0, 4), self::migrationNames());

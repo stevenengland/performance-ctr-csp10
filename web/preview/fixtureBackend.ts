@@ -2,6 +2,7 @@ import type {
   AuditEvent,
   Entry,
   HistoryEntry,
+  Person,
   ScoreRow,
   Scoreboard,
 } from '../src/core/api-client';
@@ -42,6 +43,35 @@ const MAX_MULTIPLIER = 99.99;
 const MAX_QUANTITY = 99;
 /** A positive integer id in a query, as the API's routes accept it. */
 const QUERY_ID = /^[1-9]\d{0,9}$/;
+/**
+A photo upload the preview takes: base64 that starts like a JPEG (`FF D8 FF`),
+at most the API's 87 384 characters. Unlike the API it does not walk the JPEG.
+*/
+const BASE64_JPEG =
+  /^\/9j\/(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const MAX_PHOTO_CHARACTERS = 87_384;
+
+/**
+Successful writes that changed nothing, so they leave the revision as it is,
+like the API's no-op photo writes.
+*/
+const UNCHANGED = new WeakSet<Response>();
+
+function unchanged(response: Response): Response {
+  UNCHANGED.add(response);
+  return response;
+}
+const INVALID_PHOTO = 'Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).';
+
+/**
+A person as the audit log records them, like the API's `{name, photo}`. The
+preview has no photo versions, so its photo URL stands in for the version;
+Protokoll never shows it.
+*/
+const personValues = ({ name, photoUrl }: Person): AuditSnapshot => ({
+  name,
+  photo: photoUrl,
+});
 
 /** A number up to `max` with at most two decimals. */
 function isDecimal(value: unknown, max: number): value is number {
@@ -77,6 +107,7 @@ function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
     const row = rows.get(person.id) ?? {
       personId: person.id,
       name: person.name,
+      photoUrl: person.photoUrl,
       score: 0,
       count: 0,
       drinks: [],
@@ -192,14 +223,14 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/matches/<uuid>`, `/api/results/<uuid>`, `/api/persons/<n>`, `/api/games/<n>/standings`, `/api/games/<n>/matches`, … */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/matches/<uuid>`, `/api/results/<uuid>`, `/api/persons/<n>`, `/api/persons/<n>/photo`, `/api/games/<n>/standings`, `/api/games/<n>/matches`, … */
 function routeOf(path: string): { route: string; id: string } {
   const record = /^\/api\/(entries|matches|results)\/([^/]+)$/.exec(path);
   if (record?.[1] && record[2] && ENTRY_ID.test(record[2])) {
     return { route: `/api/${record[1]}/{id}`, id: record[2] };
   }
   const item =
-    /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart|\/standings|\/matches|\/results)?$/.exec(
+    /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart|\/standings|\/matches|\/results|\/photo)?$/.exec(
       path,
     );
   if (item?.[1] && item[2]) {
@@ -507,9 +538,9 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     ...catalogRoutes(
       ['persons', 'person'],
       () => fixtures.persons,
-      (id) => ({ id, name: '' }),
+      (id) => ({ id, name: '', photoUrl: null }),
       {
-        values: ({ name }) => ({ name }),
+        values: personValues,
         uses: (entry, person) => entry.personId === person.id,
         // Like the foreign key: the person's entries go with them.
         remove: (person) =>
@@ -520,6 +551,44 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         cascade: games.clearPerson,
       },
     ),
+    [
+      // Any member, any person. The preview keeps the upload as a data: URL in
+      // place of the API's versioned URL (the artifact host allows data: images).
+      'PUT /api/persons/{id}/photo',
+      guarded((me, body, { id }) => {
+        const person = fixtures.persons.find((item) => item.id === Number(id));
+        if (!person) return problem(PROBLEMS.notFound);
+        const { image } = body;
+        if (
+          typeof image !== 'string' ||
+          image.length > MAX_PHOTO_CHARACTERS ||
+          !BASE64_JPEG.test(image)
+        ) {
+          return validation({ image: INVALID_PHOTO });
+        }
+        const photoUrl = `data:image/jpeg;base64,${image}`;
+        if (person.photoUrl === photoUrl) return unchanged(json(person));
+        const before = personValues(person);
+        person.photoUrl = photoUrl;
+        record(me, 'update', ['person', id], before, personValues(person));
+        return json(person);
+      }),
+    ],
+    [
+      // Any member, any person; without a photo nothing changes, like the API.
+      'DELETE /api/persons/{id}/photo',
+      guarded((me, _body, { id }) => {
+        const person = fixtures.persons.find((item) => item.id === Number(id));
+        if (!person) return problem(PROBLEMS.notFound);
+        if (person.photoUrl === null) {
+          return unchanged(new Response(null, { status: 204 }));
+        }
+        const before = personValues(person);
+        person.photoUrl = null;
+        record(me, 'update', ['person', id], before, personValues(person));
+        return new Response(null, { status: 204 });
+      }),
+    ],
     ...catalogRoutes(
       ['drinks', 'drink'],
       () => fixtures.drinks,
@@ -775,8 +844,11 @@ export function installFixtureBackend(fixtures: Fixtures): void {
           (input instanceof globalThis.Request ? input.headers : undefined),
       ),
     });
-    // Every successful write counts as a change of the standings, like the API's data revision.
-    if (method !== 'GET' && response.ok) revision += 1;
+    // Every successful write that changed something counts as a change of the
+    // standings, like the API's data revision.
+    if (method !== 'GET' && response.ok && !UNCHANGED.has(response)) {
+      revision += 1;
+    }
     return response;
   };
 }

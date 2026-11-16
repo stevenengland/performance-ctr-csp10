@@ -12,6 +12,7 @@ import {
   deleteEntry,
   deleteFactor,
   deletePerson,
+  deletePersonPhoto,
   getDrink,
   getFactor,
   getPerson,
@@ -25,6 +26,7 @@ import {
   listEntries,
   listPersons,
   putEntry,
+  putPersonPhoto,
   getSession,
   listAccounts,
   listAuditEvents,
@@ -32,6 +34,7 @@ import {
   signOut,
 } from '../src/core/api-client';
 import { todayFrom } from '../src/core/day-window';
+import { auditDays } from '../src/features/verwalten/protokoll/audit-rows';
 import { installFixtureBackend } from './fixtureBackend';
 import { newest, told } from './fixtureTesting';
 import { SAMPLE_PASSWORD, sampleEvening } from './fixtures';
@@ -386,6 +389,109 @@ describe('the fixture backend', () => {
     });
   });
 
+  it('answers sample photos for Anna, Daniel and Mara and none for the others', async () => {
+    installFixtureBackend(sampleEvening());
+
+    const persons = await listPersons();
+    const daniel = await getPerson(3);
+
+    expect(persons.map(({ name, photoUrl }) => [name, photoUrl])).toEqual([
+      ['Anna', expect.stringMatching(/sample-sunset.*\.jpg$/)],
+      ['Ben', null],
+      ['Daniel', expect.stringMatching(/sample-beer.*\.jpg$/)],
+      ['Jule', null],
+      ['Mara', expect.stringMatching(/sample-hills.*\.jpg$/)],
+      ['Tom', null],
+    ]);
+    expect(daniel.photoUrl).toBe(persons[2]?.photoUrl);
+  });
+
+  it('answers each scoreboard row with its person’s photoUrl', async () => {
+    const fixtures = sampleEvening();
+    const photoUrl = `/api/persons/1/photo?v=${'0'.repeat(64)}`;
+    fixtures.persons = fixtures.persons.map((person) =>
+      person.id === 1 ? { ...person, photoUrl } : person,
+    );
+    installFixtureBackend(fixtures);
+
+    const { rows } = await standings(todayFrom());
+
+    expect(rows.map((row) => [row.name, row.photoUrl])).toEqual([
+      ['Daniel', fixtures.persons[2]?.photoUrl],
+      ['Anna', photoUrl],
+      ['Mara', fixtures.persons[4]?.photoUrl],
+      ['Ben', null],
+      ['Tom', null],
+    ]);
+  });
+
+  it('removes a person’s photo, also when there is none, and refuses an unknown person', async () => {
+    installFixtureBackend(sampleEvening());
+    const anna = (await listPersons()).find(({ name }) => name === 'Anna');
+    if (!anna) throw new Error('no Anna');
+
+    await deletePersonPhoto(anna.id);
+    await deletePersonPhoto(anna.id);
+
+    expect((await getPerson(anna.id)).photoUrl).toBeNull();
+    const { rows } = await standings(todayFrom());
+    expect(rows.find(({ name }) => name === 'Anna')?.photoUrl).toBeNull();
+    await expect(deletePersonPhoto(99)).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it('keeps the scoreboard’s ETag for a photo write that changes nothing, like the API', async () => {
+    installFixtureBackend(sampleEvening());
+    const image = '/9j/2Q==';
+    await putPersonPhoto(2, image);
+    await deletePersonPhoto(4);
+    const first = await getScoreboard(todayFrom());
+    if (first === 'unchanged') throw new Error('asked without condition');
+
+    // The same photo again, and a removal where there is none.
+    await putPersonPhoto(2, image);
+    await deletePersonPhoto(4);
+
+    await expect(getScoreboard(todayFrom(), first.etag)).resolves.toBe(
+      'unchanged',
+    );
+    await putPersonPhoto(2, '/9j/2Q+=');
+    await expect(getScoreboard(todayFrom(), first.etag)).resolves.not.toBe(
+      'unchanged',
+    );
+  });
+
+  it('keeps an uploaded photo as a data: URL on the person and their scoreboard row', async () => {
+    installFixtureBackend(sampleEvening());
+    const image = '/9j/2Q==';
+
+    const ben = await putPersonPhoto(2, image);
+
+    const photoUrl = `data:image/jpeg;base64,${image}`;
+    expect(ben).toEqual({ id: 2, name: 'Ben', photoUrl });
+    expect((await getPerson(2)).photoUrl).toBe(photoUrl);
+    const { rows } = await standings(todayFrom());
+    expect(rows.find(({ name }) => name === 'Ben')?.photoUrl).toBe(photoUrl);
+  });
+
+  it('refuses a photo that is no base64 JPEG like the API, and an unknown person', async () => {
+    installFixtureBackend(sampleEvening());
+
+    for (const image of ['iVBORw0KGgo=', '/9j/ not base64', '']) {
+      await expect(putPersonPhoto(2, image)).rejects.toMatchObject({
+        status: 422,
+        errors: {
+          image: 'Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).',
+        },
+      });
+    }
+    await expect(putPersonPhoto(99, '/9j/2Q==')).rejects.toMatchObject({
+      status: 404,
+    });
+    expect((await getPerson(2)).photoUrl).toBeNull();
+  });
+
   it('creates persons and drinks with the API’s validation', async () => {
     installFixtureBackend(sampleEvening());
 
@@ -404,7 +510,11 @@ describe('the fixture backend', () => {
     await createPerson(' Zoe ');
     await createDrink('Cola', 0.25);
 
-    expect((await listPersons()).at(-1)).toEqual({ id: 7, name: 'Zoe' });
+    expect((await listPersons()).at(-1)).toEqual({
+      id: 7,
+      name: 'Zoe',
+      photoUrl: null,
+    });
     expect(await listDrinks()).toContainEqual({
       id: 7,
       name: 'Cola',
@@ -487,6 +597,7 @@ describe('the fixture backend', () => {
     await expect(updatePerson(daniel.id, ' Dani ')).resolves.toEqual({
       id: daniel.id,
       name: 'Dani',
+      photoUrl: daniel.photoUrl,
     });
     expect((await standings(todayFrom())).rows[0]?.name).toBe('Dani');
     const { entryCount } = await getPerson(daniel.id);
@@ -592,6 +703,69 @@ describe('the fixture backend’s audit log', () => {
     // Tonight's entries were counted, so the log has them.
     const entryIds = new Set(events.map(({ subjectId }) => subjectId));
     expect(fixtures.entries.every(({ id }) => entryIds.has(id))).toBe(true);
+    // A photo change, as Protokoll shows it.
+    const rows = auditDays(events).flatMap(({ rows }) => rows);
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        title: 'Person Anna',
+        changes: 'Foto gesetzt',
+      }),
+    );
+  });
+
+  it('records a person’s photo being set, changed and removed, and nothing when it stays', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const seeded = fixtures.audit.length;
+    const first = '/9j/2Q==';
+    const second = '/9j/2Z==';
+
+    await putPersonPhoto(2, first);
+    await putPersonPhoto(2, first);
+    await putPersonPhoto(2, second);
+    await updatePerson(2, 'Benno');
+    await deletePersonPhoto(2);
+    await deletePersonPhoto(2);
+
+    const photo = (image: string) => `data:image/jpeg;base64,${image}`;
+    const update = (
+      before: { name: string; photo: string | null },
+      after: { name: string; photo: string | null },
+    ) => ({
+      operation: 'update',
+      subjectKind: 'person',
+      subjectId: '2',
+      userName: 'anna',
+      before,
+      after,
+      cause: null,
+    });
+    expect((await newest(4)).map(told).reverse()).toEqual([
+      update(
+        { name: 'Ben', photo: null },
+        { name: 'Ben', photo: photo(first) },
+      ),
+      update(
+        { name: 'Ben', photo: photo(first) },
+        { name: 'Ben', photo: photo(second) },
+      ),
+      update(
+        { name: 'Ben', photo: photo(second) },
+        { name: 'Benno', photo: photo(second) },
+      ),
+      update(
+        { name: 'Benno', photo: photo(second) },
+        { name: 'Benno', photo: null },
+      ),
+    ]);
+    expect(fixtures.audit).toHaveLength(seeded + 4);
+    const rows = auditDays(await newest(4)).flatMap(({ rows }) => rows);
+    expect(rows.map(({ changes }) => changes)).toEqual([
+      'Foto entfernt',
+      'Name: Ben → Benno',
+      'Foto geändert',
+      'Foto gesetzt',
+    ]);
   });
 
   it('answers only admins, and invalid paging with the API’s validation', async () => {
@@ -660,7 +834,7 @@ describe('the fixture backend’s audit log', () => {
         subjectId: String(person.id),
         userName: 'anna',
         before: null,
-        after: { name: 'Lea' },
+        after: { name: 'Lea', photo: null },
         cause: null,
       },
       {
@@ -668,8 +842,8 @@ describe('the fixture backend’s audit log', () => {
         subjectKind: 'person',
         subjectId: String(person.id),
         userName: 'anna',
-        before: { name: 'Lea' },
-        after: { name: 'Lena' },
+        before: { name: 'Lea', photo: null },
+        after: { name: 'Lena', photo: null },
         cause: null,
       },
       {
@@ -686,7 +860,7 @@ describe('the fixture backend’s audit log', () => {
         subjectKind: 'person',
         subjectId: String(person.id),
         userName: 'anna',
-        before: { name: 'Lena' },
+        before: { name: 'Lena', photo: null },
         after: null,
         cause: null,
       },

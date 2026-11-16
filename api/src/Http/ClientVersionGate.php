@@ -15,7 +15,9 @@ use Psr\Http\Server\RequestHandlerInterface;
  * that was open across a deploy learns on its next request that it must reload, and the
  * request changes nothing. The client sends its version in `X-Client-Version`; a request
  * without it counts as the last version that sent none. Health always answers: the client
- * reads the floor there when it starts, and the deploy probes it.
+ * reads the floor there when it starts, and the deploy probes it. A person's photo `GET`
+ * always answers too: an `<img>` loads it and sends no version, and the route only reads a
+ * version-addressed photo, so no client can be too old for it (ADR 0007, decision 7).
  */
 final readonly class ClientVersionGate implements MiddlewareInterface
 {
@@ -23,14 +25,14 @@ final readonly class ClientVersionGate implements MiddlewareInterface
 
     public function __construct(
         private ResponseFactoryInterface $responses,
-        private string $healthPath,
+        private string $basePath,
         private string $minClientVersion = Compatibility::MIN_CLIENT_VERSION,
         private string $lastVersionWithoutHeader = Compatibility::LAST_VERSION_WITHOUT_HEADER,
     ) {}
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        if ($request->getUri()->getPath() === $this->healthPath) {
+        if ($this->isExempt($request)) {
             return $handler->handle($request);
         }
         $clientVersion = $request->getHeaderLine(self::HEADER);
@@ -42,6 +44,17 @@ final readonly class ClientVersionGate implements MiddlewareInterface
         }
 
         return $handler->handle($request);
+    }
+
+    private function isExempt(ServerRequestInterface $request): bool
+    {
+        $path = $request->getUri()->getPath();
+        if ($path === $this->basePath . '/api/health') {
+            return true;
+        }
+        $photo = '#^' . preg_quote($this->basePath, '#') . '/api/persons/' . CatalogActions::ID_PATTERN . '/photo$#D';
+
+        return $request->getMethod() === 'GET' && preg_match($photo, $path) === 1;
     }
 
     /** Compares `MAJOR.MINOR.PATCH` as the web client does; build metadata and pre-release tags do not count. */

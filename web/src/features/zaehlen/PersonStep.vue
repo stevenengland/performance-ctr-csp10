@@ -2,6 +2,7 @@
 import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import CountTile from '../../components/CountTile.vue';
+import PersonAvatar from '../../components/PersonAvatar.vue';
 import { loadFactors, loadPersons, usePersons } from '../../core/catalog';
 import { formatNumber } from '../../core/format';
 import { messages } from '../../core/messages';
@@ -9,7 +10,7 @@ import { scoreOf, useScoreboardFeed } from '../../core/scoreboard-feed';
 import { showProblem } from '../../core/snackbar';
 import { choosePerson } from './add-flow';
 
-/** Step 1 — Namen (§7b): one tile per person with today's total score. */
+/** Step 1 — Namen (§7b): one tile per person with their avatar and today's total score. */
 const SKELETON_TILES = 4;
 
 const router = useRouter();
@@ -59,7 +60,15 @@ onMounted(() => {
           "
           :numeral="score(person.id)"
           @click="choosePerson(router, person.id)"
-        />
+        >
+          <template #leading>
+            <PersonAvatar
+              :name="person.name"
+              :photo-url="person.photoUrl"
+              :size="40"
+            />
+          </template>
+        </CountTile>
       </li>
     </ul>
   </section>

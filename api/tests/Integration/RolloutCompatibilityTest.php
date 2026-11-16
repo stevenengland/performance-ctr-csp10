@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Performance\Tests\Integration;
 
 use DateInterval;
+use PDO;
 use Performance\Domain\Sessions;
 use Performance\Domain\Timestamp;
 use Performance\Tests\Support\DatabaseTestCase;
@@ -171,6 +172,38 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
             [['person_id' => '1', 'account_id' => null, 'points' => '-20']],
             $this->rows('SELECT CAST(person_id AS CHAR) AS person_id, account_id, CAST(points AS CHAR) AS points FROM results'),
         );
+    }
+
+    /**
+     * The person photos migration adds a table the previous release does not know. Its person
+     * list, rename and delete keep working on persons with a photo, and its delete takes the
+     * photo with the person (the foreign key cascades). Its renames record `{name}` as before;
+     * a snapshot without `photo` means unknown (PRD #14).
+     */
+    public function testThePreviousReleaseListsRenamesAndDeletesPersonsWithAPhoto(): void
+    {
+        $session = $this->signIn();
+        $photo = (string) file_get_contents(dirname(__DIR__) . '/Support/photos/metadata.jpg');
+        foreach (['Anna', 'Ben'] as $id => $name) {
+            $this->send('POST', '/api/persons', ['name' => $name], $session);
+            $set = $this->send('PUT', '/api/persons/' . ($id + 1) . '/photo', ['image' => base64_encode($photo)], $session);
+            self::assertSame(200, $set->getStatusCode(), (string) $set->getBody());
+        }
+        $other = $this->otherSession();
+
+        // The previous release's person list, rename and delete, as far as they touch the database.
+        $list = $other->query('SELECT CAST(id AS CHAR) AS id, name FROM persons ORDER BY name, id');
+        self::assertNotFalse($list);
+        $listed = $list->fetchAll(PDO::FETCH_ASSOC);
+        $other->beginTransaction();
+        $other->prepare('SELECT name FROM persons WHERE id = ? FOR UPDATE')->execute([1]);
+        $other->prepare('UPDATE persons SET name = ?, updated_at = ? WHERE id = ?')->execute(['Berta', Timestamp::of($this->clock->now()), 1]);
+        $other->commit();
+        $other->exec('DELETE FROM persons WHERE id = 2');
+
+        self::assertSame([['id' => '1', 'name' => 'Anna'], ['id' => '2', 'name' => 'Ben']], $listed);
+        self::assertSame([['id' => '1', 'name' => 'Berta']], $this->rows('SELECT CAST(id AS CHAR) AS id, name FROM persons'));
+        self::assertSame([['person_id' => '1']], $this->rows('SELECT CAST(person_id AS CHAR) AS person_id FROM person_photos'));
     }
 
     private function previousReleaseReserves(): void

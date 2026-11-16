@@ -8,6 +8,8 @@ import {
   deleteFactor,
   deleteMatch,
   deletePerson,
+  deletePersonPhoto,
+  putPersonPhoto,
   deleteResult,
   getDrink,
   getFactor,
@@ -486,8 +488,45 @@ describe('the API client', () => {
     );
   });
 
+  it('removes a person’s photo at the person’s photo path', async () => {
+    const remove = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', remove);
+
+    await expect(deletePersonPhoto(2)).resolves.toBeUndefined();
+
+    expect(remove).toHaveBeenCalledWith(
+      '/api/persons/2/photo',
+      expect.objectContaining({ method: 'DELETE', body: undefined }),
+    );
+  });
+
+  it('puts a person’s photo as base64 JSON at the person’s photo path and answers the person', async () => {
+    const person = {
+      id: 2,
+      name: 'Daniel',
+      photoUrl: `/api/persons/2/photo?v=${'a'.repeat(64)}`,
+    };
+    const put = vi.fn(async () => Response.json(person));
+    vi.stubGlobal('fetch', put);
+
+    await expect(putPersonPhoto(2, '/9j/2Q==')).resolves.toEqual(person);
+
+    expect(put).toHaveBeenCalledWith(
+      '/api/persons/2/photo',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ image: '/9j/2Q==' }),
+      }),
+    );
+  });
+
   it('reads a person with the entry count, renames and deletes the person at its id', async () => {
-    const detail = { id: 2, name: 'Daniel', entryCount: 23 };
+    const detail = {
+      id: 2,
+      name: 'Daniel',
+      photoUrl: null,
+      entryCount: 23,
+    };
     const read = respond(detail, {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -499,12 +538,13 @@ describe('the API client', () => {
     );
 
     const rename = respond(
-      { id: 2, name: 'Dani' },
+      { id: 2, name: 'Dani', photoUrl: null },
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
     await expect(updatePerson(2, 'Dani')).resolves.toEqual({
       id: 2,
       name: 'Dani',
+      photoUrl: null,
     });
     expect(rename).toHaveBeenCalledWith(
       '/api/persons/2',

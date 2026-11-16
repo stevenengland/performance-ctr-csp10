@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { expect, test, type Page } from './support/playwright.ts';
+import { coloursAt, pickWith, PICTURES } from './support/photo.ts';
+import { expect, test, type Locator, type Page } from './support/playwright.ts';
 
 test('the fixture preview opens on the fixture backend without network access', async ({
   page,
@@ -506,4 +507,219 @@ test('the fixture preview records a change and shows it on Protokoll with the si
   await expect(newest).toContainText('Geändert');
   // The sample log reaches back over several days.
   await expect(page.getByRole('list', { name: 'Gestern' })).toBeVisible();
+});
+
+test('the fixture preview shows sample photos for Anna, Daniel and Mara and initials for the others', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verwalten/personen');
+  const list = page.getByRole('list', { name: 'Personen' });
+  await expect(list.getByRole('listitem')).toHaveCount(6);
+
+  // Polled: the photos load after the rows are there.
+  const avatars = () =>
+    list.locator('.person-avatar').evaluateAll((spans) =>
+      spans.map((span) => {
+        const img = span.querySelector('img');
+        return img
+          ? { photo: img.complete && img.naturalWidth === 256 }
+          : {
+              initials: span
+                .querySelector('[data-initials]')
+                ?.getAttribute('data-initials'),
+            };
+      }),
+    );
+  await expect
+    .poll(avatars)
+    .toEqual([
+      { photo: true },
+      { initials: 'B' },
+      { photo: true },
+      { initials: 'J' },
+      { photo: true },
+      { initials: 'T' },
+    ]);
+  await expect(
+    list.getByRole('link', { name: 'Verlauf von Anna', exact: true }),
+  ).toHaveText('Anna');
+});
+
+test('the fixture preview shows avatars on the Zählen tiles and the Rangliste', async ({
+  page,
+}) => {
+  /** Each avatar's size, and whether it shows a loaded photo or initials. */
+  const avatars = (scope: Locator) => () =>
+    scope.locator('.person-avatar').evaluateAll((spans) =>
+      spans.map((span) => {
+        const img = span.querySelector('img');
+        return {
+          size: span.getBoundingClientRect().width,
+          shows: img
+            ? img.complete && img.naturalWidth === 256
+              ? 'photo'
+              : 'loading'
+            : span
+                .querySelector('[data-initials]')
+                ?.getAttribute('data-initials'),
+        };
+      }),
+    );
+
+  await page.goto('/index.html#/zaehlen');
+  const tiles = page.locator('.count-tile');
+  await expect(tiles).toHaveCount(6);
+  await expect(tiles.first()).toHaveAccessibleName(/^Anna, /);
+  await expect.poll(avatars(page.locator('.tile-grid'))).toEqual([
+    { size: 40, shows: 'photo' },
+    { size: 40, shows: 'B' },
+    { size: 40, shows: 'photo' },
+    { size: 40, shows: 'J' },
+    { size: 40, shows: 'photo' },
+    { size: 40, shows: 'T' },
+  ]);
+
+  await page.getByRole('link', { name: 'Rangliste' }).click();
+  const leader = page.getByRole('link', {
+    name: 'Platz 1, Daniel, 13,5 Punkte, 9 Getränke',
+  });
+  await expect.poll(avatars(leader)).toEqual([{ size: 64, shows: 'photo' }]);
+  // The ring is the card's own on-primary-container, 3 px wide.
+  const ring = await leader
+    .locator('.person-avatar')
+    .evaluate((span) => getComputedStyle(span).boxShadow);
+  const ink = await leader.evaluate((card) => getComputedStyle(card).color);
+  expect(ring).toBe(`${ink} 0px 0px 0px 3px`);
+  const rows = page.locator('[data-test="rank"]');
+  await expect(rows).toHaveCount(4);
+  const sizes = await avatars(page.locator('.rank'))();
+  expect(sizes.map((avatar) => avatar.size)).toEqual([44, 44, 44, 44]);
+});
+
+test('the fixture preview removes a person’s photo in Person bearbeiten', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verwalten/personen');
+  const anna = page
+    .getByRole('list', { name: 'Personen' })
+    .getByRole('listitem')
+    .first();
+  await expect(anna.locator('.person-avatar img')).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Anna bearbeiten' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.locator('.person-avatar')).toHaveCSS('width', '112px');
+  await dialog.getByRole('button', { name: 'Foto entfernen' }).click();
+  await expect(dialog.locator('[data-initials="A"]')).toHaveCount(1);
+  await dialog.getByRole('button', { name: 'Speichern' }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect(anna.locator('.person-avatar img')).toHaveCount(0);
+  await expect(anna.locator('[data-initials]')).toHaveAttribute(
+    'data-initials',
+    'A',
+  );
+
+  // Protokoll names the change, never the photo's version.
+  await page.goto('/index.html#/verwalten/protokoll');
+  const newest = page
+    .getByRole('list', { name: 'Heute' })
+    .getByRole('listitem')
+    .first();
+  await expect(newest).toContainText('Person Anna');
+  await expect(newest).toContainText('Foto entfernt');
+  await expect(newest).not.toContainText(/data:|\.jpg/);
+});
+
+test('the fixture preview sets and replaces a person’s photo in Person bearbeiten', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verwalten/personen');
+  const ben = page
+    .getByRole('list', { name: 'Personen' })
+    .getByRole('listitem')
+    .filter({ hasText: 'Ben' });
+  await expect(ben.locator('[data-initials="B"]')).toHaveCount(1);
+  const dialog = page.getByRole('dialog');
+  const photo = ben.locator('.person-avatar img');
+  const loaded = () =>
+    photo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth);
+
+  await page.getByRole('button', { name: 'Ben bearbeiten' }).click();
+  await pickWith(
+    page,
+    dialog.getByRole('button', { name: 'Foto wählen' }),
+    PICTURES.halves,
+  );
+  await expect(
+    dialog.getByRole('application', { name: 'Ausschnitt des Fotos' }),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Speichern' }).click();
+  await expect(dialog).toBeHidden();
+
+  await expect(photo).toHaveAttribute('src', /^data:image\/jpeg;base64,/);
+  await expect.poll(loaded).toBe(256);
+  const first = await photo.getAttribute('src');
+
+  await page.getByRole('button', { name: 'Ben bearbeiten' }).click();
+  await pickWith(
+    page,
+    dialog.getByRole('button', { name: 'Foto ändern' }),
+    PICTURES.exifRotated,
+  );
+  await expect(
+    dialog.getByRole('button', { name: 'Anderes Foto' }),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Speichern' }).click();
+  await expect(dialog).toBeHidden();
+
+  await expect(photo).not.toHaveAttribute('src', first ?? '');
+  await expect.poll(loaded).toBe(256);
+  expect(
+    await coloursAt(photo, [
+      [0.5, 0.2],
+      [0.5, 0.8],
+    ]),
+  ).toEqual(['red', 'blue']);
+});
+
+test('the fixture preview creates a person with a photo in Person anlegen', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verwalten/personen');
+  const list = page.getByRole('list', { name: 'Personen' });
+  await expect(list.getByRole('listitem')).toHaveCount(6);
+  const dialog = page.getByRole('dialog');
+
+  await page.getByRole('button', { name: 'Person anlegen' }).click();
+  await dialog.getByLabel('Name').fill('Lea');
+  await expect(dialog.locator('[data-initials="L"]')).toHaveCount(1);
+  await pickWith(
+    page,
+    dialog.getByRole('button', { name: 'Foto wählen' }),
+    PICTURES.halves,
+  );
+  await expect(
+    dialog.getByRole('application', { name: 'Ausschnitt des Fotos' }),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Speichern' }).click();
+  await expect(dialog).toBeHidden();
+
+  const lea = list.getByRole('listitem').filter({ hasText: 'Lea' });
+  const photo = lea.locator('.person-avatar img');
+  await expect(list.getByRole('listitem')).toHaveCount(7);
+  await expect(photo).toHaveAttribute('src', /^data:image\/jpeg;base64,/);
+  await expect
+    .poll(() =>
+      photo.evaluate(
+        (img: HTMLImageElement) => img.complete && img.naturalWidth,
+      ),
+    )
+    .toBe(256);
+  expect(
+    await coloursAt(photo, [
+      [0.3, 0.5],
+      [0.7, 0.5],
+    ]),
+  ).toEqual(['red', 'blue']);
 });

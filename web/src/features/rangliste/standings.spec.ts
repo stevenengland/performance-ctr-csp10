@@ -7,6 +7,7 @@ const board: Scoreboard = {
     {
       personId: 3,
       name: 'Daniel',
+      photoUrl: '/api/persons/3/photo?v=d1',
       score: 13.5,
       count: 9,
       drinks: [
@@ -17,6 +18,7 @@ const board: Scoreboard = {
     {
       personId: 1,
       name: 'Anna',
+      photoUrl: null,
       score: 9,
       count: 6,
       drinks: [{ drinkId: 6, name: 'Wein', count: 6 }],
@@ -24,6 +26,7 @@ const board: Scoreboard = {
     {
       personId: 6,
       name: 'Tom',
+      photoUrl: null,
       score: 1,
       count: 1,
       drinks: [{ drinkId: 4, name: 'Radler', count: 1 }],
@@ -32,12 +35,13 @@ const board: Scoreboard = {
 };
 
 describe('the standings on the Rangliste', () => {
-  it('ranks the rows in the order the scoreboard sends them, numbers German-style', () => {
+  it('ranks the rows in the order the scoreboard sends them, with their photos, numbers German-style', () => {
     expect(standingsOf(board)).toEqual([
       {
         personId: 3,
         rank: 1,
         name: 'Daniel',
+        photoUrl: '/api/persons/3/photo?v=d1',
         score: '13,5',
         count: 9,
         countText: '9 Getränke',
@@ -48,6 +52,7 @@ describe('the standings on the Rangliste', () => {
         personId: 1,
         rank: 2,
         name: 'Anna',
+        photoUrl: null,
         score: '9',
         count: 6,
         countText: '6 Getränke',
@@ -58,6 +63,7 @@ describe('the standings on the Rangliste', () => {
         personId: 6,
         rank: 3,
         name: 'Tom',
+        photoUrl: null,
         score: '1',
         count: 1,
         countText: '1 Getränk',

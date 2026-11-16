@@ -278,6 +278,72 @@ describe('the Protokoll rows', () => {
     ).toBe('');
   });
 
+  it('shows a person’s photo change as Foto gesetzt, geändert or entfernt, never its version', () => {
+    const first = 'a'.repeat(64);
+    const second = 'b'.repeat(64);
+    const photoChange = (before: string | null, after: string | null) =>
+      only({
+        subjectKind: 'person',
+        before: { name: 'Anna', photo: before },
+        after: { name: 'Anna', photo: after },
+      });
+
+    expect(photoChange(null, first).changes).toBe('Foto gesetzt');
+    expect(photoChange(first, second).changes).toBe('Foto geändert');
+    expect(photoChange(second, null).changes).toBe('Foto entfernt');
+    const row = photoChange(first, second);
+    expect(row.title).toBe('Person Anna');
+    expect(JSON.stringify(row)).not.toMatch(/aaaa|bbbb/);
+  });
+
+  it('shows a rename that kept the photo as the name change only, and an event without a photo key as before', () => {
+    const version = 'c'.repeat(64);
+
+    expect(
+      only({
+        subjectKind: 'person',
+        before: { name: 'Dani', photo: version },
+        after: { name: 'Daniel', photo: version },
+      }).changes,
+    ).toBe('Name: Dani → Daniel');
+    expect(
+      only({
+        subjectKind: 'person',
+        before: { name: 'Dani' },
+        after: { name: 'Daniel' },
+      }).changes,
+    ).toBe('Name: Dani → Daniel');
+    // A key one side lacks is unknown, so nothing is said about the photo.
+    expect(
+      only({
+        subjectKind: 'person',
+        before: { name: 'Dani' },
+        after: { name: 'Daniel', photo: version },
+      }).changes,
+    ).toBe('Name: Dani → Daniel');
+    expect(
+      only({
+        subjectKind: 'person',
+        before: { name: 'Dani', photo: null },
+        after: { name: 'Daniel', photo: version },
+      }).changes,
+    ).toBe('Name: Dani → Daniel · Foto gesetzt');
+    expect(
+      only({
+        subjectKind: 'person',
+        operation: 'create',
+        after: { name: 'Jule', photo: null },
+      }).changes,
+    ).toBe('');
+    expect(
+      only({
+        subjectKind: 'person',
+        operation: 'delete',
+        before: { name: 'Jule', photo: version },
+      }).changes,
+    ).toBe('');
+  });
+
   it('treats a snapshot key it does not get as unknown', () => {
     const row = only({
       subjectKind: 'factor',

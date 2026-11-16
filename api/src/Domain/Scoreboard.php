@@ -11,8 +11,9 @@ use PDO;
  * The read model and single owner of aggregation: for every person with entries
  * since `from`, the score (Σ quantity × multiplier × points), the count
  * (Σ quantity × multiplier) and the per-drink counters, ranked by score, ties by
- * name. The multiplier is the factor's current one, 1 without a factor. Its version is the data
- * revision: while that stays, the standings for any `from` stay too.
+ * name, with the version of the person's photo (never its bytes). The multiplier is
+ * the factor's current one, 1 without a factor. Its version is the data revision:
+ * while that stays, the standings for any `from` stay too.
  */
 final readonly class Scoreboard
 {
@@ -49,18 +50,20 @@ final readonly class Scoreboard
             static fn(array $row): ScoreRow => new ScoreRow(
                 (int) $row['id'],
                 (string) $row['name'],
+                $row['photo_version'] === null ? null : (string) $row['photo_version'],
                 (string) $row['score'],
                 (string) $row['count'],
                 $drinks[(int) $row['id']] ?? [],
             ),
             $this->rows(
-                'SELECT p.id, p.name,
+                'SELECT p.id, p.name, ph.version AS photo_version,
                         SUM(e.quantity * COALESCE(f.multiplier, 1) * d.points) AS score,
                         SUM(e.quantity * COALESCE(f.multiplier, 1)) AS count
                  FROM entries e JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
                  LEFT JOIN factors f ON f.id = e.factor_id
+                 LEFT JOIN person_photos ph ON ph.person_id = p.id
                  WHERE e.created_at >= ?
-                 GROUP BY p.id, p.name
+                 GROUP BY p.id, p.name, ph.version
                  ORDER BY score DESC, p.name, p.id',
                 $since,
             ),

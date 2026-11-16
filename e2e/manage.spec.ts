@@ -252,8 +252,8 @@ test('the Verwalten hub lists each section with its count, Konten for admins', a
     route.fulfill(
       answer({
         persons: [
-          { id: 1, name: 'Anna' },
-          { id: 2, name: 'Ben' },
+          { id: 1, name: 'Anna', photoUrl: null },
+          { id: 2, name: 'Ben', photoUrl: null },
         ],
       }),
     ),

@@ -93,7 +93,7 @@ final class PersonDeletionTest extends DatabaseTestCase
     public function testReadingAPersonCountsTheirMatchesOnEitherSideNextToTheirEntries(): void
     {
         self::assertSame(
-            ['id' => self::BEN, 'name' => 'Ben', 'entryCount' => 0, 'matchCount' => 2, 'resultCount' => 0],
+            ['id' => self::BEN, 'name' => 'Ben', 'photoUrl' => null, 'entryCount' => 0, 'matchCount' => 2, 'resultCount' => 0],
             $this->body($this->send('GET', '/api/persons/' . self::BEN, session: $this->session)),
         );
         self::assertSame(0, $this->body($this->send('GET', '/api/persons/' . self::DANIEL, session: $this->session))['matchCount']);
@@ -187,7 +187,7 @@ final class PersonDeletionTest extends DatabaseTestCase
         $cause = $events[0]['id'];
         self::assertSame(
             [
-                ['person', (string) self::BEN, 'delete', ['name' => 'Ben'], null, null],
+                ['person', (string) self::BEN, 'delete', ['name' => 'Ben', 'photo' => null], null, null],
                 ['entry', $entry, 'delete', 'the entry', null, $cause],
                 [
                     'match',

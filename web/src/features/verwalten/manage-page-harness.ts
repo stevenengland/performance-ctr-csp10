@@ -36,16 +36,27 @@ export function problem(status: number, body: Record<string, unknown>) {
 
 /**
 A fake API over one collection (`/api/persons` with key `persons`, …): writes
-answer with the next given reply (or succeed), the list always reads the current
-items, and reading one item adds `entryCount`.
+answer with the next given reply (or succeed, also for an `undefined` one), the list reads the current items
+unless its next `lists` reply says otherwise (`undefined` reads them too), and
+reading one item adds `entryCount`. A created item gets the fields of `created`
+the request does not send (a person's `photoUrl: null`); a changed one keeps
+them. Putting an item's `/photo` gives it a new `photoUrl`
+(`<path>/<id>/photo?v=<n>`, `n` counting the uploads); deleting it sets
+`photoUrl` to `null`. A reply may answer later (a promise).
 */
 export function catalogApi<T extends Item>(
   path: string,
   key: string,
   items: T[],
-  { entryCount = 5, replies = [] as (() => Response)[] } = {},
+  {
+    entryCount = 5,
+    replies = [] as ((() => Response | Promise<Response>) | undefined)[],
+    created = {} as Partial<T>,
+    lists = [] as ((() => Response) | undefined)[],
+  } = {},
 ) {
   const calls: Call[] = [];
+  let uploads = 0;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init: RequestInit) => {
@@ -53,17 +64,35 @@ export function catalogApi<T extends Item>(
       const body =
         typeof init.body === 'string' ? (JSON.parse(init.body) as unknown) : {};
       calls.push({ method, url, body });
-      if (method === 'GET' && url === path) return json({ [key]: items });
+      if (method === 'GET' && url === path) {
+        return lists.shift()?.() ?? json({ [key]: items });
+      }
       const reply = replies.shift();
       if (reply) return reply();
-      const id = Number(url.split('/').pop());
+      const [, member, photo] = /\/(\d+)(\/photo)?$/.exec(url) ?? [];
+      const id = Number(member);
       const index = items.findIndex((candidate) => candidate.id === id);
       if (method === 'GET') return json({ ...items[index], entryCount });
+      const item = items[index];
+      if (method === 'PUT' && photo && item) {
+        uploads += 1;
+        const changed = {
+          ...item,
+          photoUrl: `${path}/${String(id)}/photo?v=${String(uploads)}`,
+        };
+        items.splice(index, 1, changed);
+        return json(changed);
+      }
+      if (method === 'DELETE' && photo && item) {
+        items.splice(index, 1, { ...item, photoUrl: null });
+        return new Response(null, { status: 204 });
+      }
       if (method === 'DELETE') {
         items.splice(index, 1);
         return new Response(null, { status: 204 });
       }
       const changed = {
+        ...(method === 'POST' ? created : items[index]),
         id: method === 'POST' ? 9 : id,
         ...(body as object),
       } as T;

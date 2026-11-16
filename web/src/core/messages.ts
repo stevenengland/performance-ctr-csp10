@@ -171,6 +171,10 @@ export const messages = {
     change: (label: string, before: string, after: string) =>
       `${label}: ${before} → ${after}`,
     name: 'Name',
+    /** A person's photo change; the version it recorded is never shown. */
+    photoSet: 'Foto gesetzt',
+    photoChanged: 'Foto geändert',
+    photoRemoved: 'Foto entfernt',
     points: 'Punkte',
     multiplier: 'Multiplikator',
     factor: 'Faktor',
@@ -185,6 +189,23 @@ export const messages = {
     edit: 'Person bearbeiten',
     name: 'Name',
     empty: 'Noch keine Personen.',
+    /** The photo block of `Person anlegen` / `Person bearbeiten` (§7i). */
+    choosePhoto: 'Foto wählen',
+    changePhoto: 'Foto ändern',
+    otherPhoto: 'Anderes Foto',
+    removePhoto: 'Foto entfernen',
+    keepPhoto: 'Foto behalten',
+    /** `PhotoCrop`: the canvas's name and role, its visible hint and its keys (both its description), the slider. */
+    crop: 'Ausschnitt des Fotos',
+    cropRole: 'Fotoausschnitt',
+    cropHint:
+      'Ziehen zum Verschieben · zoomen mit zwei Fingern oder dem Regler',
+    cropKeys: 'Pfeiltasten verschieben, Plus und Minus zoomen.',
+    zoom: 'Zoom',
+    /** A chosen file the browser cannot decode (HEIC on most desktops), or a frame it cannot encode. */
+    photoUnreadable: 'Dieses Foto lässt sich nicht öffnen.',
+    /** The name committed and the photo did not; `Speichern` retries only the photo. */
+    photoNotSaved: 'Person gespeichert, Foto nicht.',
   },
   getraenke: {
     title: 'Getränke',

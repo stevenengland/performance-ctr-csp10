@@ -185,10 +185,10 @@ against it.
 A contract that older apps cannot use ships together with a raised `MIN_CLIENT_VERSION` in
 `api/src/Http/Compatibility.php` (ADR 0006, decision 3). Every app sends its version in
 `X-Client-Version`, and the API refuses one below the floor with 400 `client-outdated` before
-the route runs, on every route but `/api/health`. So an app that starts after the deploy shows
-`Bitte neu laden` at once, and an app that is already open shows it on its next request, which
-changed nothing (a refused write is not booked; the user enters it again after reloading).
-Apps before 0.2.0 send no header: a request without it counts as
+the route runs, on every route but `/api/health` and a person's photo `GET` (below). So an app
+that starts after the deploy shows `Bitte neu laden` at once, and an app that is already open
+shows it on its next request, which changed nothing (a refused write is not booked; the user
+enters it again after reloading). Apps before 0.2.0 send no header: a request without it counts as
 `Compatibility::LAST_VERSION_WITHOUT_HEADER` (0.1.0), so it is served while the floor is 0.1.0
 and refused once the floor is raised. Other callers, checked for this release:
 
@@ -199,6 +199,11 @@ and refused once the floor is raised. Other callers, checked for this release:
   `playwright.config.ts` sends the `web/package.json` version as `X-Client-Version` for them
   (`e2e/pwa-update.spec.ts` turns that off, so only the client's own header counts there).
 - The fixture preview answers the app in the browser and has no floor.
+- Person photos are loaded by `<img>` (`GET /api/persons/{id}/photo?v=`), which sends no
+  `X-Client-Version`. `ClientVersionGate` lets exactly that `GET` through without a version
+  check, because the route only reads a version-addressed photo, so no app can be too old for
+  it; raising the floor does not hide the photos (ADR 0007, decision 7). The photo's `PUT` and
+  `DELETE` come through the fetch wrapper and stay gated.
 - Anything else, such as a manual `curl` to a route other than health, must send
   `X-Client-Version: <version at or above the floor>` once the floor passes 0.1.0.
 

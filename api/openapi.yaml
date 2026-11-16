@@ -22,6 +22,9 @@ info:
     use at most once a day: only then does a response set the cookie again) and
     answers 401 without a valid one. Request bodies must be
     `application/json` (415 otherwise).
+
+    Every answer carries `Cache-Control: no-store`, except a served person photo
+    (`GET /api/persons/{id}/photo?v=`), which may be cached for good.
 servers:
   - url: /
 security:
@@ -323,6 +326,106 @@ paths:
       responses:
         '204':
           description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/persons/{id}/photo:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - name: id
+        in: path
+        required: true
+        description: The person's id; anything but a positive integer is 404
+        schema:
+          type: integer
+          minimum: 1
+    get:
+      operationId: getPersonPhoto
+      summary: A person's photo, by its version
+      description: >-
+        Served only while `v` is the photo's stored version, the one the server put in the
+        person's `photoUrl`; version and bytes are read together, so no URL ever answers another
+        version's bytes. Re-uploading an earlier photo gives it its old version, which then
+        answers exactly those bytes again. A missing, malformed or stale `v`, a person without
+        a photo and an unknown person are all 404. The only API answer that may be cached:
+        every other answer of this and every route, every problem included, is `no-store`.
+        Browsers load it through `<img>`, which sends the session cookie but no
+        `X-Client-Version`; so this `GET`, unlike every other route but health, is never
+        refused as `client-outdated`, whatever the client floor (it only reads a
+        version-addressed photo).
+      parameters:
+        - name: v
+          in: query
+          required: true
+          description: The photo's version, the lowercase hex SHA-256 of its stored bytes
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      responses:
+        '200':
+          description: The stored JPEG, 256 × 256, without metadata
+          headers:
+            Cache-Control:
+              description: '`private, max-age=31536000, immutable`'
+              schema:
+                type: string
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                contentMediaType: image/jpeg
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: putPersonPhoto
+      summary: Set or replace a person's photo
+      description: >-
+        Any member may set the photo of any person. The client crops and scales it to a
+        256 × 256 JPEG; the server does not trust that. A body over 98 304 bytes (96 KiB) is
+        413 before it is parsed, an `image` over 87 384 characters 422 before it is decoded.
+        The server decodes strict base64 and rewrites the JPEG keeping only its image data
+        (no EXIF, GPS, XMP, ICC or comments); anything that is not a 256 × 256 JPEG of 1 or 3
+        components and at most 64 KiB once rewritten is 422 on `image`. The photo's version is
+        the SHA-256 of the stored bytes: the same version again changes nothing, neither the
+        data revision nor the audit log. A change bumps the data revision and is recorded as
+        an update of the person whose snapshot's `photo` changes. The body is checked before
+        the person is looked up, so an invalid image is 422 even for an unknown person; a
+        valid one for an unknown person is 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewPersonPhoto'
+      responses:
+        '200':
+          description: Set (or unchanged); the person, whose `photoUrl` names the stored version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Person'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deletePersonPhoto
+      summary: Remove a person's photo
+      description: >-
+        Any member may remove the photo of any person. Without a photo nothing changes,
+        neither the data revision nor the audit log.
+      responses:
+        '204':
+          description: Removed, or there was none
         '401':
           $ref: '#/components/responses/Problem'
         '404':
@@ -640,6 +743,8 @@ paths:
         factor. The ETag names the data revision, which every write of entries,
         persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the
         last ETag answers 304 without aggregating while the revision is unchanged.
+        Each row names the person's photo by `photoUrl`; a photo write that changes it
+        bumps the revision too, so the next conditional request gets the new URL.
       parameters:
         - name: from
           in: query
@@ -1220,26 +1325,38 @@ components:
       description: Trimmed; 1–40 characters; unique regardless of case
       minLength: 1
       maxLength: 40
+    PhotoUrl:
+      type: [string, 'null']
+      description: >-
+        The person's photo, null without one. Built by the server as
+        `<basePath>/api/persons/{id}/photo?v=<version>`, naming the photo's version, so the
+        photo it serves can be cached for good; use it as it is, never compose one.
+      examples:
+        - '/api/persons/1/photo?v=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'
     Person:
       type: object
       additionalProperties: false
-      required: [id, name]
+      required: [id, name, photoUrl]
       properties:
         id:
           type: integer
           minimum: 1
         name:
           $ref: '#/components/schemas/Name'
+        photoUrl:
+          $ref: '#/components/schemas/PhotoUrl'
     PersonDetail:
       type: object
       additionalProperties: false
-      required: [id, name, entryCount, matchCount, resultCount]
+      required: [id, name, photoUrl, entryCount, matchCount, resultCount]
       properties:
         id:
           type: integer
           minimum: 1
         name:
           $ref: '#/components/schemas/Name'
+        photoUrl:
+          $ref: '#/components/schemas/PhotoUrl'
         entryCount:
           type: integer
           minimum: 0
@@ -1267,6 +1384,16 @@ components:
       properties:
         name:
           $ref: '#/components/schemas/Name'
+    NewPersonPhoto:
+      type: object
+      required: [image]
+      properties:
+        image:
+          type: string
+          maxLength: 87384
+          contentEncoding: base64
+          contentMediaType: image/jpeg
+          description: A 256 × 256 JPEG of at most 64 KiB, as padded base64 without line breaks
     Points:
       type: number
       description: Alcohol base points, 0–9 999.99 with at most two decimals
@@ -1470,12 +1597,14 @@ components:
     ScoreRow:
       type: object
       additionalProperties: false
-      required: [personId, name, score, count, drinks]
+      required: [personId, name, photoUrl, score, count, drinks]
       properties:
         personId:
           type: integer
         name:
           type: string
+        photoUrl:
+          $ref: '#/components/schemas/PhotoUrl'
         score:
           type: number
         count:
@@ -1924,7 +2053,8 @@ components:
       type: object
       description: >-
         The subject's values as they were, with referenced names resolved then: a person
-        `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry
+        `{name, photo}` with the photo's version or null (events recorded before photos
+        existed have only `name`), a drink `{name, points}`, a factor `{name, multiplier}`, an entry
         `{person, drink, points, quantity, factor}` with the person's and the drink's names,
         the drink's points, and the factor `{name, multiplier}` or null, a game
         `{name, kind, drawsAllowed, run, startedAt}` for a duel game and
@@ -1938,6 +2068,9 @@ components:
       properties:
         name:
           type: string
+        photo:
+          type: [string, 'null']
+          description: A person's photo version (lowercase hex SHA-256), null without a photo
         points:
           type: number
         multiplier:
@@ -2041,6 +2174,7 @@ components:
             - urn:performance:problem:entry-conflict
             - urn:performance:problem:request-conflict
             - urn:performance:problem:unsupported-media-type
+            - urn:performance:problem:content-too-large
             - urn:performance:problem:validation
             - urn:performance:problem:too-many-attempts
             - urn:performance:problem:not-found

@@ -16,7 +16,9 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 
 final class ClientVersionGateTest extends TestCase
 {
+    private const BASE_PATH = '/base';
     private const HEALTH = '/base/api/health';
+    private const PHOTO = '/base/api/persons/12/photo';
 
     /** @var ArrayObject<int, string> paths the route behind the gate was asked to handle */
     private ArrayObject $handled;
@@ -118,9 +120,48 @@ final class ClientVersionGateTest extends TestCase
         self::assertSame(200, $withoutHeader->getStatusCode());
     }
 
+    /** An `<img>` sends no version, and the route only reads a version-addressed photo. */
+    public function testAlwaysLetsAPersonsPhotoGetThroughSoImagesKeepLoadingAfterTheFloorRises(): void
+    {
+        $gate = $this->gate(minClientVersion: '9.0.0', lastVersionWithoutHeader: '0.1.0');
+
+        $withoutHeader = $gate->process($this->request('GET', self::PHOTO), $this->route());
+        $outdated = $gate->process($this->request('GET', self::PHOTO, '0.1.0'), $this->route());
+
+        self::assertSame([self::PHOTO, self::PHOTO], $this->handled->getArrayCopy());
+        self::assertSame(200, $withoutHeader->getStatusCode());
+        self::assertSame(200, $outdated->getStatusCode());
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function requestsThatOnlyLookLikeAPhotoGet(): iterable
+    {
+        yield 'a photo upload' => ['PUT', self::PHOTO];
+        yield 'a photo removal' => ['DELETE', self::PHOTO];
+        yield 'a photo HEAD' => ['HEAD', self::PHOTO];
+        yield 'the person' => ['GET', '/base/api/persons/12'];
+        yield 'below the photo' => ['GET', '/base/api/persons/12/photo/x'];
+        yield 'an id with a leading zero' => ['GET', '/base/api/persons/012/photo'];
+        yield 'an id that is not a number' => ['GET', '/base/api/persons/x/photo'];
+        yield 'outside the base path' => ['GET', '/api/persons/12/photo'];
+    }
+
+    #[DataProvider('requestsThatOnlyLookLikeAPhotoGet')]
+    public function testRefusesAnythingElseOnceTheFloorPassesTheLastVersionThatSentNone(string $method, string $path): void
+    {
+        $gate = $this->gate(minClientVersion: '0.2.0', lastVersionWithoutHeader: '0.1.0');
+
+        $response = $gate->process($this->request($method, $path), $this->route());
+
+        self::assertSame([], $this->handled->getArrayCopy());
+        self::assertSame(400, $response->getStatusCode());
+    }
+
     public function testTheShippedFloorStillServesClientsThatSendNoHeader(): void
     {
-        $gate = new ClientVersionGate(new ResponseFactory(), self::HEALTH);
+        $gate = new ClientVersionGate(new ResponseFactory(), self::BASE_PATH);
 
         $response = $gate->process($this->request('GET', '/base/api/games'), $this->route());
 
@@ -129,7 +170,7 @@ final class ClientVersionGateTest extends TestCase
 
     private function gate(string $minClientVersion, string $lastVersionWithoutHeader = '0.1.0'): ClientVersionGate
     {
-        return new ClientVersionGate(new ResponseFactory(), self::HEALTH, $minClientVersion, $lastVersionWithoutHeader);
+        return new ClientVersionGate(new ResponseFactory(), self::BASE_PATH, $minClientVersion, $lastVersionWithoutHeader);
     }
 
     private function request(string $method, string $path, ?string $clientVersion = null): ServerRequestInterface

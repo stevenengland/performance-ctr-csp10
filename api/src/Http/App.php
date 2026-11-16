@@ -12,6 +12,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 use Slim\App as SlimApp;
 use Slim\Interfaces\RouteInterface;
 use Slim\Psr7\Factory\ResponseFactory;
+use Slim\Psr7\Factory\StreamFactory;
 
 /**
  * The composition root: constructs and wires every module of the API.
@@ -28,14 +29,25 @@ final class App
         $signedIn = new SessionAuth($database, $responses, $problems);
         $adminOnly = new AdminOnly($responses);
         $jsonBody = new JsonBody($responses);
-        // Route middleware added last runs first: SessionAuth, then AdminOnly, then
-        // JsonBody, so a request without a session is 401 before its body is looked at.
-        // Unknown routes and methods stay 404/405 whatever their body.
-        $member = static fn(RouteInterface $route): RouteInterface => $route->add($jsonBody)->add($signedIn);
+        $photoBody = new BodyLimit($responses, new StreamFactory(), PersonPhotoActions::MAX_BODY_BYTES);
+        // Route middleware added last runs first: SessionAuth, then AdminOnly or a route's
+        // BodyLimit, then JsonBody, so a request without a session is 401 before its body is
+        // looked at, and a bounded body is 413 before it is parsed. Unknown routes and methods
+        // stay 404/405 whatever their body.
+        $member = static function (RouteInterface $route, ?BodyLimit $limit = null) use ($jsonBody, $signedIn): RouteInterface {
+            $route->add($jsonBody);
+            if ($limit !== null) {
+                $route->add($limit);
+            }
+
+            return $route->add($signedIn);
+        };
         $admin = static fn(RouteInterface $route): RouteInterface => $route->add($jsonBody)->add($adminOnly)->add($signedIn);
         $session = new SessionActions($database, $config->bootstrapAdmin);
         $accounts = new AccountActions($database);
-        $catalog = new CatalogActions($database);
+        $photoUrl = new PhotoUrl($basePath);
+        $catalog = new CatalogActions($database, $photoUrl);
+        $photos = new PersonPhotoActions($database, $photoUrl);
         $entries = new EntryActions($database);
         $audit = new AuditActions($database);
         $games = new GameActions($database);
@@ -62,6 +74,9 @@ final class App
         $member($app->get($person, $catalog->readPerson(...)));
         $member($app->patch($person, $catalog->updatePerson(...)));
         $member($app->delete($person, $catalog->deletePerson(...)));
+        $member($app->get($person . '/photo', $photos->read(...)));
+        $member($app->put($person . '/photo', $photos->put(...)), $photoBody);
+        $member($app->delete($person . '/photo', $photos->remove(...)));
         $drink = '/api/drinks/{id:' . CatalogActions::ID_PATTERN . '}';
         $member($app->get($drink, $catalog->readDrink(...)));
         $member($app->patch($drink, $catalog->updateDrink(...)));
@@ -76,7 +91,7 @@ final class App
         $entry = '/api/entries/{id:' . EntryActions::ID_PATTERN . '}';
         $member($app->put($entry, $entries->put(...)));
         $member($app->delete($entry, $entries->delete(...)));
-        $member($app->get('/api/scoreboard', new ScoreboardAction($database)));
+        $member($app->get('/api/scoreboard', new ScoreboardAction($database, $photoUrl)));
         $member($app->get('/api/games', $games->list(...)));
         $member($app->post('/api/games', $games->create(...)));
         $game = '/api/games/{id:' . CatalogActions::ID_PATTERN . '}';
@@ -98,12 +113,15 @@ final class App
         $app->addRoutingMiddleware();
         $app->add(new MigrationGate($database, $responses, $basePath . '/api/health'));
         // Before the migration gate: an outdated client is told to reload, whatever the schema's state.
-        $app->add(new ClientVersionGate($responses, $basePath . '/api/health'));
+        $app->add(new ClientVersionGate($responses, $basePath));
         $app->addErrorMiddleware(false, false, false)
             ->setDefaultErrorHandler($problems);
-        // Outermost, so problem responses carry it too.
+        // Outermost, so problem responses carry it too. An action that sets its own
+        // Cache-Control keeps it; only the served photo does.
         $app->add(static function (ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface {
-            return $handler->handle($request)->withHeader('Cache-Control', 'no-store');
+            $response = $handler->handle($request);
+
+            return $response->hasHeader('Cache-Control') ? $response : $response->withHeader('Cache-Control', 'no-store');
         });
 
         return $app;

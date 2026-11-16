@@ -169,6 +169,40 @@ export interface paths {
     patch: operations['updatePerson'];
     trace?: never;
   };
+  '/api/persons/{id}/photo': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    /**
+     * A person's photo, by its version
+     * @description Served only while `v` is the photo's stored version, the one the server put in the person's `photoUrl`; version and bytes are read together, so no URL ever answers another version's bytes. Re-uploading an earlier photo gives it its old version, which then answers exactly those bytes again. A missing, malformed or stale `v`, a person without a photo and an unknown person are all 404. The only API answer that may be cached: every other answer of this and every route, every problem included, is `no-store`. Browsers load it through `<img>`, which sends the session cookie but no `X-Client-Version`; so this `GET`, unlike every other route but health, is never refused as `client-outdated`, whatever the client floor (it only reads a version-addressed photo).
+     */
+    get: operations['getPersonPhoto'];
+    /**
+     * Set or replace a person's photo
+     * @description Any member may set the photo of any person. The client crops and scales it to a 256 × 256 JPEG; the server does not trust that. A body over 98 304 bytes (96 KiB) is 413 before it is parsed, an `image` over 87 384 characters 422 before it is decoded. The server decodes strict base64 and rewrites the JPEG keeping only its image data (no EXIF, GPS, XMP, ICC or comments); anything that is not a 256 × 256 JPEG of 1 or 3 components and at most 64 KiB once rewritten is 422 on `image`. The photo's version is the SHA-256 of the stored bytes: the same version again changes nothing, neither the data revision nor the audit log. A change bumps the data revision and is recorded as an update of the person whose snapshot's `photo` changes. The body is checked before the person is looked up, so an invalid image is 422 even for an unknown person; a valid one for an unknown person is 404.
+     */
+    put: operations['putPersonPhoto'];
+    post?: never;
+    /**
+     * Remove a person's photo
+     * @description Any member may remove the photo of any person. Without a photo nothing changes, neither the data revision nor the audit log.
+     */
+    delete: operations['deletePersonPhoto'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/drinks': {
     parameters: {
       query?: never;
@@ -329,7 +363,7 @@ export interface paths {
     };
     /**
      * Standings since `from`, the start of the viewer's day
-     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. The ETag names the data revision, which every write of entries, persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged.
+     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. The ETag names the data revision, which every write of entries, persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
      */
     get: operations['getScoreboard'];
     put?: never;
@@ -612,13 +646,20 @@ export interface components {
     };
     /** @description Trimmed; 1–40 characters; unique regardless of case */
     Name: string;
+    /**
+     * @description The person's photo, null without one. Built by the server as `<basePath>/api/persons/{id}/photo?v=<version>`, naming the photo's version, so the photo it serves can be cached for good; use it as it is, never compose one.
+     * @example /api/persons/1/photo?v=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+     */
+    PhotoUrl: string | null;
     Person: {
       id: number;
       name: components['schemas']['Name'];
+      photoUrl: components['schemas']['PhotoUrl'];
     };
     PersonDetail: {
       id: number;
       name: components['schemas']['Name'];
+      photoUrl: components['schemas']['PhotoUrl'];
       /** @description Entries of every day that are the person's; deleting the person deletes them */
       entryCount: number;
       /** @description Matches of every game and run that name the person on either side; deleting the person keeps them with that side cleared */
@@ -631,6 +672,10 @@ export interface components {
     };
     NewPerson: {
       name: components['schemas']['Name'];
+    };
+    NewPersonPhoto: {
+      /** @description A 256 × 256 JPEG of at most 64 KiB, as padded base64 without line breaks */
+      image: string;
     };
     /** @description Alcohol base points, 0–9 999.99 with at most two decimals */
     Points: number;
@@ -729,6 +774,7 @@ export interface components {
     ScoreRow: {
       personId: number;
       name: string;
+      photoUrl: components['schemas']['PhotoUrl'];
       score: number;
       count: number;
       /** @description By drink name; only drinks with entries */
@@ -970,9 +1016,11 @@ export interface components {
         name: string;
       };
     };
-    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null, a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome}` with the game's and both persons' names (a person deleted before is null), a result `{game, person, points}` with the game's and the person's names. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
+    /** @description The subject's values as they were, with referenced names resolved then: a person `{name, photo}` with the photo's version or null (events recorded before photos existed have only `name`), a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null, a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome}` with the game's and both persons' names (a person deleted before is null), a result `{game, person, points}` with the game's and the person's names. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
     AuditSnapshot: {
       name?: string;
+      /** @description A person's photo version (lowercase hex SHA-256), null without a photo */
+      photo?: string | null;
       points?: number;
       multiplier?: number;
       person?: string;
@@ -1041,6 +1089,7 @@ export interface components {
         | 'urn:performance:problem:entry-conflict'
         | 'urn:performance:problem:request-conflict'
         | 'urn:performance:problem:unsupported-media-type'
+        | 'urn:performance:problem:content-too-large'
         | 'urn:performance:problem:validation'
         | 'urn:performance:problem:too-many-attempts'
         | 'urn:performance:problem:not-found'
@@ -1488,6 +1537,100 @@ export interface operations {
       409: components['responses']['Problem'];
       415: components['responses']['Problem'];
       422: components['responses']['Problem'];
+    };
+  };
+  getPersonPhoto: {
+    parameters: {
+      query: {
+        /** @description The photo's version, the lowercase hex SHA-256 of its stored bytes */
+        v: string;
+      };
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The stored JPEG, 256 × 256, without metadata */
+      200: {
+        headers: {
+          /** @description `private, max-age=31536000, immutable` */
+          'Cache-Control'?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          'image/jpeg': string;
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  putPersonPhoto: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewPersonPhoto'];
+      };
+    };
+    responses: {
+      /** @description Set (or unchanged); the person, whose `photoUrl` names the stored version */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Person'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      413: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  deletePersonPhoto: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The person's id; anything but a positive integer is 404 */
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Removed, or there was none */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
     };
   };
   listDrinks: {

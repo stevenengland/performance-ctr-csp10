@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import PersonAvatar from '../../components/PersonAvatar.vue';
 import TallyMarks from '../../components/TallyMarks.vue';
 import { verlaufPath } from '../verlauf/history';
 import type { Standing } from './standings';
 
 /**
 Rank 1 on the Rangliste (§7f): amber, the one loud thing on the screen. Name and the
-tally of the total count left, the score right; under them the total count and the
+tally of the total count left, under the ringed avatar (beside the name it left too
+little room for a long name), the score right; under them the total count and the
 per-drink counters. The card opens the person's Verlauf.
 */
 defineProps<{ standing: Standing }>();
@@ -21,6 +23,12 @@ defineProps<{ standing: Standing }>();
     >
       <div class="leader__top">
         <div class="leader__who">
+          <PersonAvatar
+            :name="standing.name"
+            :photo-url="standing.photoUrl"
+            :size="64"
+            class="leader__avatar"
+          />
           <p class="type-name-hero leader__name">{{ standing.name }}</p>
           <TallyMarks :count="standing.count" :height="26" />
         </div>
@@ -53,7 +61,13 @@ defineProps<{ standing: Standing }>();
   gap: 12px;
 }
 
+.leader__avatar {
+  margin: 3px 0 6px 3px;
+  box-shadow: 0 0 0 3px rgb(var(--v-theme-on-primary-container));
+}
+
 .leader__who {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
