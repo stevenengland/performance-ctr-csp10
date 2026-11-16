@@ -11,6 +11,7 @@ use Performance\Tests\Support\DatabaseTestCase;
 use Performance\Tests\Support\InterleavedWrites;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 use Slim\Psr7\Factory\ServerRequestFactory;
 
 /**
@@ -178,6 +179,49 @@ final class PersonPhotoTest extends DatabaseTestCase
         $served = $this->send('GET', $this->photoUrl($set), session: $this->member, app: $app);
         self::assertSame(200, $served->getStatusCode(), (string) $served->getBody());
         self::assertSame(self::fixture('metadata-cleaned.jpg'), (string) $served->getBody());
+    }
+
+    /** The Rangliste shows each person's photo by the URL their row carries; a person without one has none. */
+    public function testEachScoreboardRowNamesThePersonsPhotoUrl(): void
+    {
+        $this->send('POST', '/api/persons', ['name' => 'Ben'], $this->admin);
+        $this->countOneDrinkFor(1, 2);
+
+        $this->put('metadata.jpg', $this->member);
+
+        self::assertSame(['Anna' => self::versioned('A'), 'Ben' => null], $this->rowPhotos($this->scoreboard()));
+    }
+
+    public function testUnderABasePathTheScoreboardsPhotoUrlStartsWithIt(): void
+    {
+        $this->countOneDrinkFor(1);
+        $this->put('metadata.jpg', $this->member);
+
+        $rows = $this->scoreboard(app: App::create($this->config(), '/performance', $this->clock), basePath: '/performance');
+
+        self::assertSame(['Anna' => '/performance' . self::versioned('A')], $this->rowPhotos($rows));
+    }
+
+    /**
+     * A photo write bumps the revision, so another phone's Rangliste gets the new photo on its next
+     * refresh; the same photo again leaves the revision and that phone's 304.
+     */
+    public function testAPhotoChangeAnswersTheScoreboardsOldTagWithTheNewPhotoUrlAndTheSamePhotoAgainWith304(): void
+    {
+        $this->countOneDrinkFor(1);
+        $this->put('metadata.jpg', $this->member);
+        $before = $this->scoreboard();
+
+        $this->put('progressive.jpg', $this->member);
+        $replaced = $this->scoreboard($before->getHeaderLine('ETag'));
+        $this->put('progressive.jpg', $this->member);
+        $same = $this->scoreboard($replaced->getHeaderLine('ETag'));
+        $this->send('DELETE', self::PHOTO, session: $this->member);
+        $removed = $this->scoreboard($replaced->getHeaderLine('ETag'));
+
+        self::assertSame(['Anna' => self::versioned('B')], $this->rowPhotos($replaced));
+        self::assertSame(304, $same->getStatusCode(), (string) $same->getBody());
+        self::assertSame(['Anna' => null], $this->rowPhotos($removed));
     }
 
     public function testTheStoredVersionsUrlServesExactlyTheStoredBytesCachedForAYear(): void
@@ -628,10 +672,56 @@ final class PersonPhotoTest extends DatabaseTestCase
 
     private function scoreboardTag(): string
     {
-        $response = $this->send('GET', '/api/scoreboard?from=' . rawurlencode('2026-11-13T23:00:00.000Z'), session: $this->admin);
+        $response = $this->scoreboard();
         self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
 
         return $response->getHeaderLine('ETag');
+    }
+
+    /** Today's scoreboard, conditional on a tag if one is given, as a phone refreshes its Rangliste. */
+    private function scoreboard(?string $ifNoneMatch = null, ?RequestHandlerInterface $app = null, string $basePath = ''): ResponseInterface
+    {
+        $request = (new ServerRequestFactory())
+            ->createServerRequest('GET', $basePath . '/api/scoreboard?from=' . rawurlencode('2026-11-13T23:00:00.000Z'))
+            ->withCookieParams(['session' => $this->member]);
+        if ($ifNoneMatch !== null) {
+            $request = $request->withHeader('If-None-Match', $ifNoneMatch);
+        }
+
+        return ($app ?? $this->app())->handle($request);
+    }
+
+    /** One drink counted today for each of these persons, so each stands on the scoreboard. */
+    private function countOneDrinkFor(int ...$personIds): void
+    {
+        $drink = $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $this->admin);
+        self::assertSame(201, $drink->getStatusCode(), (string) $drink->getBody());
+        foreach ($personIds as $index => $personId) {
+            $id = sprintf('00000000-0000-4000-8000-%012d', $index + 1);
+            $entry = $this->send('PUT', "/api/entries/{$id}", ['personId' => $personId, 'drinkId' => 1, 'quantity' => 1], $this->member);
+            self::assertSame(201, $entry->getStatusCode(), (string) $entry->getBody());
+        }
+    }
+
+    /**
+     * Each scoreboard row's `photoUrl` by the person's name, in rank order.
+     *
+     * @return array<string, mixed>
+     */
+    private function rowPhotos(ResponseInterface $response): array
+    {
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $rows = $this->body($response)['rows'];
+        self::assertIsArray($rows);
+        $photos = [];
+        foreach ($rows as $row) {
+            self::assertIsArray($row);
+            self::assertIsString($row['name']);
+            self::assertArrayHasKey('photoUrl', $row);
+            $photos[$row['name']] = $row['photoUrl'];
+        }
+
+        return $photos;
     }
 
     private function revision(): int

@@ -739,6 +739,8 @@ paths:
         factor. The ETag names the data revision, which every write of entries,
         persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the
         last ETag answers 304 without aggregating while the revision is unchanged.
+        Each row names the person's photo by `photoUrl`; a photo write that changes it
+        bumps the revision too, so the next conditional request gets the new URL.
       parameters:
         - name: from
           in: query
@@ -1591,12 +1593,14 @@ components:
     ScoreRow:
       type: object
       additionalProperties: false
-      required: [personId, name, score, count, drinks]
+      required: [personId, name, photoUrl, score, count, drinks]
       properties:
         personId:
           type: integer
         name:
           type: string
+        photoUrl:
+          $ref: '#/components/schemas/PhotoUrl'
         score:
           type: number
         count:

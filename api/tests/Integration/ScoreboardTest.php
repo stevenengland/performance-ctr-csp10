@@ -46,11 +46,12 @@ final class ScoreboardTest extends DatabaseTestCase
                 [
                     'personId' => 1,
                     'name' => 'Daniel',
+                    'photoUrl' => null,
                     'score' => 7.5,
                     'count' => 6,
                     'drinks' => [['drinkId' => 2, 'name' => 'Aperol', 'count' => 1], ['drinkId' => 1, 'name' => 'Bier', 'count' => 5]],
                 ],
-                ['personId' => 2, 'name' => 'Anna', 'score' => 1, 'count' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1]]],
+                ['personId' => 2, 'name' => 'Anna', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1]]],
             ]],
             $this->body($response),
         );
@@ -88,7 +89,7 @@ final class ScoreboardTest extends DatabaseTestCase
         $today = $this->body($this->send('GET', '/api/scoreboard?from=2026-11-15T00:00:00Z', session: $this->session));
         $sameInstantWithOffset = $this->body($this->send('GET', '/api/scoreboard?from=' . rawurlencode('2026-11-15T01:00:00+01:00'), session: $this->session));
 
-        self::assertSame([['personId' => 1, 'name' => 'Daniel', 'score' => 1, 'count' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1]]]], $today['rows']);
+        self::assertSame([['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1]]]], $today['rows']);
         self::assertSame($today, $sameInstantWithOffset);
     }
 

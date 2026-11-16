@@ -18,13 +18,14 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final readonly class ScoreboardAction
 {
-    public function __construct(private Database $database) {}
+    public function __construct(private Database $database, private PhotoUrl $photoUrl) {}
 
     public function __invoke(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         parse_str($request->getUri()->getQuery(), $query);
         $from = Instant::parse('from', is_string($query['from'] ?? null) ? $query['from'] : '');
         $scoreboard = $this->database->scoreboard();
+        $photoUrl = $this->photoUrl;
 
         // The revision and the standings are read in one Snapshot, so they see the same
         // committed data: the per-drink counters add up to each person's count.
@@ -34,7 +35,7 @@ final readonly class ScoreboardAction
             self::tag($scoreboard->revision(), $from),
             static fn(ResponseInterface $response): ResponseInterface => Json::write(
                 $response,
-                ['rows' => array_map(self::row(...), $scoreboard->since($from))],
+                ['rows' => array_map(static fn(ScoreRow $row): array => self::row($row, $photoUrl), $scoreboard->since($from))],
             ),
         ));
     }
@@ -46,13 +47,16 @@ final readonly class ScoreboardAction
     }
 
     /**
-     * @return array{personId: int, name: string, score: int|float, count: int|float, drinks: list<array{drinkId: int, name: string, count: int|float}>}
+     * A person's standing, with the URL of their photo.
+     *
+     * @return array{personId: int, name: string, photoUrl: string|null, score: int|float, count: int|float, drinks: list<array{drinkId: int, name: string, count: int|float}>}
      */
-    private static function row(ScoreRow $row): array
+    private static function row(ScoreRow $row, PhotoUrl $photoUrl): array
     {
         return [
             'personId' => $row->personId,
             'name' => $row->name,
+            'photoUrl' => $photoUrl->of($row->personId, $row->photoVersion),
             'score' => Decimal::json($row->score),
             'count' => Decimal::json($row->count),
             'drinks' => array_map(

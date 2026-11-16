@@ -91,7 +91,7 @@ final class App
         $entry = '/api/entries/{id:' . EntryActions::ID_PATTERN . '}';
         $member($app->put($entry, $entries->put(...)));
         $member($app->delete($entry, $entries->delete(...)));
-        $member($app->get('/api/scoreboard', new ScoreboardAction($database)));
+        $member($app->get('/api/scoreboard', new ScoreboardAction($database, $photoUrl)));
         $member($app->get('/api/games', $games->list(...)));
         $member($app->post('/api/games', $games->create(...)));
         $game = '/api/games/{id:' . CatalogActions::ID_PATTERN . '}';
