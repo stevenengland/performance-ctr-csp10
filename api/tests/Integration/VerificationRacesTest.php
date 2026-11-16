@@ -131,6 +131,9 @@ final class VerificationRacesTest extends DatabaseTestCase
 
     private function revision(): int
     {
-        return (int) $this->rows('SELECT revision FROM data_revision')[0]['revision'];
+        $revision = $this->rows('SELECT revision FROM data_revision')[0]['revision'];
+        self::assertIsInt($revision);
+
+        return $revision;
     }
 }
