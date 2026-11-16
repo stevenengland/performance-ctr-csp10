@@ -16,6 +16,7 @@ use Performance\Domain\AuditLog;
 use Performance\Domain\Catalog\Catalog;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
+use Performance\Domain\Idempotency;
 use Performance\Domain\NotFound;
 use Performance\Domain\SystemClock;
 use Performance\Http\Config;
@@ -54,7 +55,7 @@ try {
             $catalog->deleteFactor($actor, (int) $id);
             break;
         case 'undo-entry':
-            (new EntryLedger($pdo, $clock, $revision, $audit))->delete($actor, $id);
+            (new EntryLedger($pdo, $clock, $revision, $audit, new Idempotency($pdo, $revision)))->delete($actor, $id);
             break;
         default:
             throw new RuntimeException("Unknown role {$role}");

@@ -16,6 +16,7 @@ use Performance\Domain\AuditLog;
 use Performance\Domain\Catalog\Catalog;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
+use Performance\Domain\Idempotency;
 use Performance\Domain\SystemClock;
 use Performance\Domain\ValidationFailed;
 use Performance\Http\Config;
@@ -43,7 +44,7 @@ $actor = new Actor((int) $accountId, 'race');
 time_sleep_until((float) $startAt);
 
 if ($role === 'add') {
-    $ledger = new EntryLedger($pdo, $clock, $revision, $audit);
+    $ledger = new EntryLedger($pdo, $clock, $revision, $audit, new Idempotency($pdo, $revision));
     $factor = (int) $factorId === 0 ? null : (int) $factorId;
     for ($added = 0; $added < ADDS; ++$added) {
         $bytes = random_bytes(16);

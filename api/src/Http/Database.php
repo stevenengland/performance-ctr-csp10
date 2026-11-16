@@ -11,6 +11,7 @@ use Performance\Domain\Catalog\Catalog;
 use Performance\Domain\Clock;
 use Performance\Domain\DataRevision;
 use Performance\Domain\EntryLedger;
+use Performance\Domain\Idempotency;
 use Performance\Domain\Migrator;
 use Performance\Domain\Scoreboard;
 use Performance\Domain\Sessions;
@@ -31,6 +32,7 @@ final class Database
     private ?Scoreboard $scoreboard = null;
     private ?DataRevision $revision = null;
     private ?AuditLog $audit = null;
+    private ?Idempotency $idempotency = null;
 
     public function __construct(
         private readonly Config $config,
@@ -64,7 +66,7 @@ final class Database
 
     public function entries(): EntryLedger
     {
-        return $this->entries ??= new EntryLedger($this->pdo(), $this->clock, $this->revision(), $this->audit());
+        return $this->entries ??= new EntryLedger($this->pdo(), $this->clock, $this->revision(), $this->audit(), $this->idempotency());
     }
 
     public function scoreboard(): Scoreboard
@@ -80,6 +82,11 @@ final class Database
     private function revision(): DataRevision
     {
         return $this->revision ??= new DataRevision($this->pdo());
+    }
+
+    private function idempotency(): Idempotency
+    {
+        return $this->idempotency ??= new Idempotency($this->pdo(), $this->revision());
     }
 
     /**

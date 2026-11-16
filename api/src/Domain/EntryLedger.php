@@ -10,25 +10,23 @@ use PDO;
 use PDOException;
 
 /**
- * The entry log. Adding is idempotent on the client's entry id: the id and a
- * fingerprint of the content are recorded in `entry_requests` in the same
- * transaction as the entry, and its primary key settles concurrent duplicates.
- * A known id answers with the original outcome and never recreates an undone
- * entry; different content under a known id is a conflict. Requests are kept
- * seven days and purged on a later add. It also lists a person's entries of a day.
- * Adding and deleting name their actor and are recorded in the audit log in their own
- * transaction, with the entry as it is then; a replay, a conflict or a failure records nothing.
+ * The entry log. Adding is idempotent on the client's entry id, through the shared retry
+ * keys (Idempotency): a known id answers with the original outcome and never recreates an
+ * undone entry; different content under a known id is a conflict. It also lists a person's
+ * entries of a day. Adding and deleting name their actor and are recorded in the audit log in
+ * their own transaction, with the entry as it is then; a replay, a conflict or a failure
+ * records nothing.
  */
 final readonly class EntryLedger
 {
     public const MAX_QUANTITY = 99;
-    private const KEEP_REQUESTS = 'P7D';
 
     public function __construct(
         private PDO $pdo,
         private Clock $clock,
         private DataRevision $revision,
         private AuditLog $audit,
+        private Idempotency $idempotency,
     ) {}
 
     /**
@@ -43,7 +41,6 @@ final readonly class EntryLedger
             throw new ValidationFailed(['quantity' => sprintf('1 bis %d.', self::MAX_QUANTITY)]);
         }
         $now = $this->clock->now();
-        $this->purge($now);
         $fingerprint = self::fingerprint($personId, $drinkId, $quantity, $factorId);
 
         // A missing id is a row that does not exist (ids start at 1): the foreign keys reject it.
@@ -113,9 +110,7 @@ final readonly class EntryLedger
     private function record(Entry $entry, string $fingerprint, Actor $actor): AddedEntry
     {
         try {
-            $this->revision->write(function () use ($entry, $fingerprint, $actor): void {
-                $this->pdo->prepare('INSERT INTO entry_requests (id, fingerprint, created_at) VALUES (?, ?, ?)')
-                    ->execute([$entry->id, $fingerprint, Timestamp::of($entry->createdAt)]);
+            $recordedAt = $this->idempotency->write($entry->id, $fingerprint, $entry->createdAt, function () use ($entry, $actor): void {
                 $this->pdo->prepare(
                     'INSERT INTO entries (id, person_id, drink_id, quantity, factor_id, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 )->execute([
@@ -129,12 +124,9 @@ final readonly class EntryLedger
                 ]);
                 $this->audit->record($actor, AuditOperation::Create, AuditSubjectKind::Entry, $entry->id, null, EntrySnapshots::of($this->pdo, $entry->id));
             });
-
-            return new AddedEntry($entry, true);
+        } catch (RequestConflict) {
+            throw new EntryConflict($entry->id);
         } catch (PDOException $failure) {
-            if (DatabaseError::is($failure, DatabaseError::DUPLICATE_KEY)) {
-                return $this->replay($entry, $fingerprint);
-            }
             $missing = DatabaseError::is($failure, DatabaseError::MISSING_PARENT)
                 ? self::missing(
                     $this->exists('persons', $entry->personId),
@@ -147,21 +139,10 @@ final readonly class EntryLedger
             }
             throw $failure;
         }
-    }
 
-    /** The original outcome of a known id, or a conflict for different content. */
-    private function replay(Entry $entry, string $fingerprint): AddedEntry
-    {
-        $statement = $this->pdo->prepare('SELECT fingerprint, created_at FROM entry_requests WHERE id = ?');
-        $statement->execute([$entry->id]);
-        $request = $statement->fetch(PDO::FETCH_ASSOC);
-        $recordedAt = is_array($request) ? ($request['created_at'] ?? null) : null;
-        if (!is_array($request) || $request['fingerprint'] !== $fingerprint || !is_string($recordedAt)) {
-            throw new EntryConflict($entry->id);
-        }
-        $createdAt = new DateTimeImmutable($recordedAt, new DateTimeZone('UTC'));
-
-        return new AddedEntry(new Entry($entry->id, $entry->personId, $entry->drinkId, $entry->quantity, $entry->factorId, $createdAt), false);
+        return $recordedAt === null
+            ? new AddedEntry($entry, true)
+            : new AddedEntry(new Entry($entry->id, $entry->personId, $entry->drinkId, $entry->quantity, $entry->factorId, $recordedAt), false);
     }
 
     /**
@@ -170,15 +151,10 @@ final readonly class EntryLedger
      */
     private static function fingerprint(?int $personId, ?int $drinkId, int $quantity, ?int $factorId): string
     {
-        $content = $factorId === null ? [$personId, $drinkId, $quantity] : [$personId, $drinkId, $quantity, $factorId];
-
-        return hash('sha256', json_encode($content, JSON_THROW_ON_ERROR));
-    }
-
-    private function purge(DateTimeImmutable $now): void
-    {
-        $this->pdo->prepare('DELETE FROM entry_requests WHERE created_at < ?')
-            ->execute([Timestamp::of($now->sub(new \DateInterval(self::KEEP_REQUESTS)))]);
+        return Idempotency::fingerprint(
+            Idempotency::ENTRY,
+            $factorId === null ? [$personId, $drinkId, $quantity] : [$personId, $drinkId, $quantity, $factorId],
+        );
     }
 
     private function exists(string $table, int $id): bool
