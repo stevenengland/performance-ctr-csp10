@@ -14,10 +14,11 @@ RequestHeader unset X-Accel-Internal
   RewriteCond %{HTTP_HOST} !=performance.example.test [OR]
   RewriteCond %{HTTPS} !=on
   RewriteRule ^ https://performance.example.test%{REQUEST_URI} [R=301,L]
-  RewriteRule ^api/ api/index.php [END]
+  RewriteCond %{ENV:REDIRECT_STATUS} ^$
+  RewriteRule ^api/ api/index.php [L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule ^[^.]*$ index.html [END]
+  RewriteRule ^[^.]*$ index.html [L]
 </IfModule>
 
 Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"

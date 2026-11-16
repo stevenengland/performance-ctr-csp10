@@ -54,7 +54,10 @@ describe('renderHtaccess', () => {
 
   it('sends every request below api/ to the PHP entry pointer', () => {
     expect(renderHtaccess(http)).toContain(
-      '  RewriteRule ^api/ api/index.php [END]',
+      [
+        '  RewriteCond %{ENV:REDIRECT_STATUS} ^$',
+        '  RewriteRule ^api/ api/index.php [L]',
+      ].join('\n'),
     );
   });
 
@@ -64,7 +67,7 @@ describe('renderHtaccess', () => {
       [
         '  RewriteCond %{REQUEST_FILENAME} !-f',
         '  RewriteCond %{REQUEST_FILENAME} !-d',
-        '  RewriteRule ^[^.]*$ index.html [END]',
+        '  RewriteRule ^[^.]*$ index.html [L]',
       ].join('\n'),
     );
     expect(text.indexOf('^api/')).toBeLessThan(text.indexOf('^[^.]*$'));
