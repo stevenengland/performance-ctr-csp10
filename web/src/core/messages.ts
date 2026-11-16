@@ -161,6 +161,8 @@ export const messages = {
       create: 'Angelegt',
       update: 'Geändert',
       delete: 'Gelöscht',
+      /** Another account verified a pending row (PRD #61). */
+      verify: 'bestätigt',
     },
     /** A row's subject: `Getränk Bier`. */
     subject: (kind: string, name: string) => `${kind} ${name}`,

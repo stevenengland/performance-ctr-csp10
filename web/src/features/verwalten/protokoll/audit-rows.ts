@@ -13,7 +13,7 @@ event's shape, without the API client, so the fixture preview can use them as
 they are.
 */
 
-type Operation = 'create' | 'update' | 'delete';
+type Operation = 'create' | 'update' | 'delete' | 'verify';
 type SubjectKind = keyof typeof messages.protokoll.kind;
 
 /** A subject's values as an event recorded them; a key that is missing is unknown. */
@@ -39,6 +39,8 @@ export interface AuditSnapshotView {
   /** A game's run; a restart counts it up and moves `startedAt`. */
   run?: number;
   startedAt?: string;
+  /** Whether an entry, match or result waited for verification; a verification changes only this. */
+  pending?: boolean;
 }
 
 /** What Protokoll reads of an audit event of the API. */
@@ -57,7 +59,7 @@ export interface AuditEventView {
 export interface AuditRow {
   id: number;
   operation: Operation;
-  /** The operation chip: `Angelegt`, `Geändert`, `Gelöscht`. */
+  /** The operation chip: `Angelegt`, `Geändert`, `Gelöscht`, `bestätigt`. */
   operationLabel: string;
   /** `Getränk Bier`, `Eintrag 2× Bier für Daniel`. */
   title: string;
@@ -252,7 +254,11 @@ function updates(
   ];
 }
 
-/** An update's changes; a create's or delete's values without the name the title already gives. */
+/**
+An update's changes; a create's or delete's values without the name the title
+already gives. A verification changes only `pending`, which is no shown value,
+so it shows none.
+*/
 function changes(event: DeepReadonly<AuditEventView>): string[] {
   const { before, after, subjectKind } = event;
   if (before && after) return updates(subjectKind, before, after);
