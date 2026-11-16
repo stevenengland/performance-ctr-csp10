@@ -317,7 +317,10 @@ jobs:
     # Every green push to main deploys its artifact to production. Pull
     # requests never reach the deploy workflow; the ordering rule (skip a run
     # that a newer commit's deploy overtook) lives inside it.
-    needs: [build, static, unit, deploy-proof, workflows, phpunit, preview, e2e]
+    # TEMPORARY (owner decision, 2026-11-15): `static` is left out of `needs` so
+    # the first production deploy is not blocked by PHPStan misreading `$argv`
+    # in the PHP 8.5 image (see PR #13). Put `static` back once that is fixed.
+    needs: [build, unit, deploy-proof, workflows, phpunit, preview, e2e]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
