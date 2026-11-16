@@ -10,6 +10,9 @@ import type {
   Person,
 } from '../src/core/api-client';
 import { startOfToday } from '../src/core/day-window';
+import beer from './photos/sample-beer.jpg';
+import hills from './photos/sample-hills.jpg';
+import sunset from './photos/sample-sunset.jpg';
 
 /** An account of the sample data, with the password the preview accepts for it. */
 export interface FixtureAccount {
@@ -108,7 +111,18 @@ function sample(id: number, userName: string, isAdmin = false): FixtureAccount {
   return { account: { id, userName, isAdmin }, password: SAMPLE_PASSWORD };
 }
 
-const PERSONS = ['Anna', 'Ben', 'Daniel', 'Jule', 'Mara', 'Tom'];
+/**
+The sample persons; three with an illustrated sample photo (no real people), bundled
+as hashed assets in place of the API's versioned URL, the rest show their initials.
+*/
+const PERSONS: [string, string | null][] = [
+  ['Anna', sunset],
+  ['Ben', null],
+  ['Daniel', beer],
+  ['Jule', null],
+  ['Mara', hills],
+  ['Tom', null],
+];
 const DRINKS: [string, number][] = [
   ['Aperol', 2],
   ['Bier', 1],
@@ -522,10 +536,10 @@ function sampleAudit(
 
 /** The sample evening the preview shows (marked as sample data in the preview menu). */
 export function sampleEvening(now: Date = new Date()): Fixtures {
-  const persons = PERSONS.map((name, index) => ({
+  const persons = PERSONS.map(([name, photoUrl], index) => ({
     id: index + 1,
     name,
-    photoUrl: null,
+    photoUrl,
   }));
   const drinks = DRINKS.map(([name, points], index) => ({
     id: index + 1,

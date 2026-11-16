@@ -507,3 +507,39 @@ test('the fixture preview records a change and shows it on Protokoll with the si
   // The sample log reaches back over several days.
   await expect(page.getByRole('list', { name: 'Gestern' })).toBeVisible();
 });
+
+test('the fixture preview shows sample photos for Anna, Daniel and Mara and initials for the others', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verwalten/personen');
+  const list = page.getByRole('list', { name: 'Personen' });
+  await expect(list.getByRole('listitem')).toHaveCount(6);
+
+  // Polled: the photos load after the rows are there.
+  const avatars = () =>
+    list.locator('.person-avatar').evaluateAll((spans) =>
+      spans.map((span) => {
+        const img = span.querySelector('img');
+        return img
+          ? { photo: img.complete && img.naturalWidth === 256 }
+          : {
+              initials: span
+                .querySelector('[data-initials]')
+                ?.getAttribute('data-initials'),
+            };
+      }),
+    );
+  await expect
+    .poll(avatars)
+    .toEqual([
+      { photo: true },
+      { initials: 'B' },
+      { photo: true },
+      { initials: 'J' },
+      { photo: true },
+      { initials: 'T' },
+    ]);
+  await expect(
+    list.getByRole('link', { name: 'Verlauf von Anna', exact: true }),
+  ).toHaveText('Anna');
+});

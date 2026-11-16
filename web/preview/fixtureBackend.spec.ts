@@ -386,16 +386,21 @@ describe('the fixture backend', () => {
     });
   });
 
-  it('answers the sample persons without a photo, as the API does', async () => {
+  it('answers sample photos for Anna, Daniel and Mara and none for the others', async () => {
     installFixtureBackend(sampleEvening());
 
     const persons = await listPersons();
-    const person = await getPerson(1);
+    const daniel = await getPerson(3);
 
-    expect(persons.map(({ photoUrl }) => photoUrl)).toEqual(
-      persons.map(() => null),
-    );
-    expect(person.photoUrl).toBeNull();
+    expect(persons.map(({ name, photoUrl }) => [name, photoUrl])).toEqual([
+      ['Anna', expect.stringMatching(/sample-sunset.*\.jpg$/)],
+      ['Ben', null],
+      ['Daniel', expect.stringMatching(/sample-beer.*\.jpg$/)],
+      ['Jule', null],
+      ['Mara', expect.stringMatching(/sample-hills.*\.jpg$/)],
+      ['Tom', null],
+    ]);
+    expect(daniel.photoUrl).toBe(persons[2]?.photoUrl);
   });
 
   it('answers each scoreboard row with its person’s photoUrl', async () => {
@@ -409,9 +414,9 @@ describe('the fixture backend', () => {
     const { rows } = await standings(todayFrom());
 
     expect(rows.map((row) => [row.name, row.photoUrl])).toEqual([
-      ['Daniel', null],
+      ['Daniel', fixtures.persons[2]?.photoUrl],
       ['Anna', photoUrl],
-      ['Mara', null],
+      ['Mara', fixtures.persons[4]?.photoUrl],
       ['Ben', null],
       ['Tom', null],
     ]);
@@ -522,7 +527,7 @@ describe('the fixture backend', () => {
     await expect(updatePerson(daniel.id, ' Dani ')).resolves.toEqual({
       id: daniel.id,
       name: 'Dani',
-      photoUrl: null,
+      photoUrl: daniel.photoUrl,
     });
     expect((await standings(todayFrom())).rows[0]?.name).toBe('Dani');
     const { entryCount } = await getPerson(daniel.id);
