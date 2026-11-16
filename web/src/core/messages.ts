@@ -186,8 +186,19 @@ export const messages = {
     name: 'Name',
     empty: 'Noch keine Personen.',
     /** The photo block of `Person bearbeiten` (§7i). */
+    choosePhoto: 'Foto wählen',
+    changePhoto: 'Foto ändern',
+    otherPhoto: 'Anderes Foto',
     removePhoto: 'Foto entfernen',
     keepPhoto: 'Foto behalten',
+    /** `PhotoCrop`: the canvas's name, its visible hint and its keys (both its description), the slider. */
+    crop: 'Ausschnitt des Fotos',
+    cropHint:
+      'Ziehen zum Verschieben · zoomen mit zwei Fingern oder dem Regler',
+    cropKeys: 'Pfeiltasten verschieben, Plus und Minus zoomen.',
+    zoom: 'Zoom',
+    /** A chosen file the browser cannot decode (HEIC on most desktops), or a frame it cannot encode. */
+    photoUnreadable: 'Dieses Foto lässt sich nicht öffnen.',
     /** The name committed and the photo did not; `Speichern` retries only the photo. */
     photoNotSaved: 'Person gespeichert, Foto nicht.',
   },

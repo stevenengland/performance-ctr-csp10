@@ -40,7 +40,9 @@ answer with the next given reply (or succeed, also for an `undefined` one), the 
 unless its next `lists` reply says otherwise (`undefined` reads them too), and
 reading one item adds `entryCount`. A created item gets the fields of `created`
 the request does not send (a person's `photoUrl: null`); a changed one keeps
-them. Deleting an item's `/photo` sets its `photoUrl` to `null`.
+them. Putting an item's `/photo` gives it a new `photoUrl`
+(`<path>/<id>/photo?v=<n>`, `n` counting the uploads); deleting it sets
+`photoUrl` to `null`. A reply may answer later (a promise).
 */
 export function catalogApi<T extends Item>(
   path: string,
@@ -48,12 +50,13 @@ export function catalogApi<T extends Item>(
   items: T[],
   {
     entryCount = 5,
-    replies = [] as ((() => Response) | undefined)[],
+    replies = [] as ((() => Response | Promise<Response>) | undefined)[],
     created = {} as Partial<T>,
     lists = [] as ((() => Response) | undefined)[],
   } = {},
 ) {
   const calls: Call[] = [];
+  let uploads = 0;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init: RequestInit) => {
@@ -71,6 +74,15 @@ export function catalogApi<T extends Item>(
       const index = items.findIndex((candidate) => candidate.id === id);
       if (method === 'GET') return json({ ...items[index], entryCount });
       const item = items[index];
+      if (method === 'PUT' && photo && item) {
+        uploads += 1;
+        const changed = {
+          ...item,
+          photoUrl: `${path}/${String(id)}/photo?v=${String(uploads)}`,
+        };
+        items.splice(index, 1, changed);
+        return json(changed);
+      }
       if (method === 'DELETE' && photo && item) {
         items.splice(index, 1, { ...item, photoUrl: null });
         return new Response(null, { status: 204 });
