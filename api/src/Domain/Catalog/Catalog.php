@@ -445,7 +445,7 @@ final readonly class Catalog
             AuditSubjectKind::Person => 'name',
             AuditSubjectKind::Drink => 'name, points',
             AuditSubjectKind::Factor => 'name, multiplier',
-            AuditSubjectKind::Entry, AuditSubjectKind::Game, AuditSubjectKind::Match => throw new LogicException("{$kind->value} is not a catalog item"),
+            AuditSubjectKind::Entry, AuditSubjectKind::Game, AuditSubjectKind::Match, AuditSubjectKind::Result => throw new LogicException("{$kind->value} is not a catalog item"),
         };
         $row = $this->one("SELECT {$columns} FROM " . self::table($kind) . ' WHERE id = ? FOR UPDATE', $id);
 
@@ -458,7 +458,7 @@ final readonly class Catalog
             AuditSubjectKind::Person => 'persons',
             AuditSubjectKind::Drink => 'drinks',
             AuditSubjectKind::Factor => 'factors',
-            AuditSubjectKind::Entry, AuditSubjectKind::Game, AuditSubjectKind::Match => throw new LogicException("{$kind->value} is not a catalog item"),
+            AuditSubjectKind::Entry, AuditSubjectKind::Game, AuditSubjectKind::Match, AuditSubjectKind::Result => throw new LogicException("{$kind->value} is not a catalog item"),
         };
     }
 

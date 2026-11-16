@@ -234,8 +234,11 @@ final readonly class Results implements GameDependents, PersonDependents
             'personId' => $personId === null ? self::PERSON_ERROR : null,
             'points' => $points === null || $points < self::MIN_POINTS || $points > self::MAX_POINTS ? self::POINTS_ERROR : null,
         ]);
+        if ($errors !== []) {
+            throw new ValidationFailed($errors);
+        }
 
-        return $errors === [] && $points !== null ? $points : throw new ValidationFailed($errors);
+        return $points ?? throw new LogicException('Points were checked above');
     }
 
     /**
