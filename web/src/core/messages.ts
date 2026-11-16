@@ -128,6 +128,7 @@ export const messages = {
       person: 'Person',
       drink: 'Getränk',
       factor: 'Faktor',
+      game: 'Spiel',
     },
     operation: {
       create: 'Angelegt',

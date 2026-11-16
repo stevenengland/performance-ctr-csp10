@@ -66,6 +66,16 @@ describe('the Protokoll rows', () => {
     ).toBe('Eintrag 2× Bier für Daniel');
   });
 
+  it('names a game Spiel with its name', () => {
+    expect(
+      only({
+        subjectKind: 'game',
+        operation: 'create',
+        after: { name: 'Schach' },
+      }).title,
+    ).toBe('Spiel Schach');
+  });
+
   it('labels the operation Angelegt, Geändert or Gelöscht', () => {
     const labels = (['create', 'update', 'delete'] as const).map(
       (operation) =>

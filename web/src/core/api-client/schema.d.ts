@@ -298,6 +298,78 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/games': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every game, alphabetical (ignoring case) */
+    get: operations['listGames'];
+    put?: never;
+    /**
+     * Create a game of a kind; its ranking counts from now
+     * @description The game starts in its first run, `startedAt` now. Only the kind's own setting is taken (`drawsAllowed` for a duel game, `lowerWins` for a points game); the other one is ignored and keeps its default. A name outside 1 to 40 characters (after trimming), a missing or unknown `kind`, or a setting that is not a boolean is 422; a name another game has, ignoring case, is 409 `duplicate-name`.
+     */
+    post: operations['createGame'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /** A game with the number of its matches or results of every run (for the delete dialog) */
+    get: operations['getGame'];
+    put?: never;
+    post?: never;
+    /**
+     * Delete a game with all of its matches or results, of every run
+     * @description The audit log records the game's deletion and one deletion, caused by it, for each of its matches or results.
+     */
+    delete: operations['deleteGame'];
+    options?: never;
+    head?: never;
+    /**
+     * Rename a game or change its kind's setting; the kind itself is fixed
+     * @description `name` is required; an omitted setting stays as it is, and the other kind's setting is ignored. The ranking follows a new setting at once. `kind` may be sent only as the game's own kind: another one is 422.
+     */
+    patch: operations['updateGame'];
+    trace?: never;
+  };
+  '/api/games/{id}/restart': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Start the game's next run from now; older results stay stored but are no longer shown
+     * @description Takes no fields, but like every request body it must be JSON: send `{}`. A recording that is saving while the game restarts belongs to the run it committed in, the old one if it finished first, the new one otherwise.
+     */
+    post: operations['restartGame'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/audit': {
     parameters: {
       query?: never;
@@ -307,7 +379,7 @@ export interface paths {
     };
     /**
      * A page of audit events, newest first (admins only)
-     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink or a factor, and every entry counted or deleted, recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
+     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink, a factor or a game (a restart is an update of its `run` and `startedAt`), and every entry counted or deleted, recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
      */
     get: operations['listAuditEvents'];
     put?: never;
@@ -477,6 +549,58 @@ export interface components {
       name: string;
       count: number;
     };
+    /**
+     * @description `duel`: two persons and an outcome. `points`: one person and a whole number.
+     * @enum {string}
+     */
+    GameKind: 'duel' | 'points';
+    Game: {
+      id: number;
+      name: components['schemas']['Name'];
+      kind: components['schemas']['GameKind'];
+      /** @description Duel games only (points games always say true); whether `draw` can be recorded */
+      drawsAllowed: boolean;
+      /** @description Points games only (duel games always say false); whether the lowest sum ranks first */
+      lowerWins: boolean;
+      /**
+       * Format: date-time
+       * @description When the current run began (creation or last restart), UTC; for display (`seit …`)
+       */
+      startedAt: string;
+    };
+    GameDetail: {
+      id: number;
+      name: components['schemas']['Name'];
+      kind: components['schemas']['GameKind'];
+      drawsAllowed: boolean;
+      lowerWins: boolean;
+      /** Format: date-time */
+      startedAt: string;
+      /** @description Every stored match of the game, of every run; 0 for a points game */
+      matchCount: number;
+      /** @description Every stored result of the game, of every run; 0 for a duel game */
+      resultCount: number;
+    };
+    GameList: {
+      games: components['schemas']['Game'][];
+    };
+    NewGame: {
+      name: components['schemas']['Name'];
+      kind: components['schemas']['GameKind'];
+      /** @description Duel games; default true */
+      drawsAllowed?: boolean;
+      /** @description Points games; default false */
+      lowerWins?: boolean;
+    };
+    GameChange: {
+      name: components['schemas']['Name'];
+      /** @description Optional; only the game's own kind is accepted */
+      kind?: components['schemas']['GameKind'];
+      /** @description Duel games; omitted, it stays */
+      drawsAllowed?: boolean;
+      /** @description Points games; omitted, it stays */
+      lowerWins?: boolean;
+    };
     AuditPage: {
       /** @description Newest first, by id */
       events: components['schemas']['AuditEvent'][];
@@ -495,8 +619,8 @@ export interface components {
       /** @enum {string} */
       operation: 'create' | 'update' | 'delete';
       /** @enum {string} */
-      subjectKind: 'entry' | 'person' | 'drink' | 'factor';
-      /** @description The subject's id as text (an integer for persons, drinks and factors, the UUID for entries) */
+      subjectKind: 'entry' | 'person' | 'drink' | 'factor' | 'game';
+      /** @description The subject's id as text (an integer for persons, drinks, factors and games, the UUID for entries) */
       subjectId: string;
       /** @description The account that made the change, as it was then; kept after the account is renamed or deleted */
       actor: {
@@ -512,12 +636,12 @@ export interface components {
         /** @description The causing event's id */
         id: number;
         /** @enum {string} */
-        subjectKind: 'entry' | 'person' | 'drink' | 'factor';
+        subjectKind: 'entry' | 'person' | 'drink' | 'factor' | 'game';
         /** @description The causing event's subject name, as that event recorded it */
         name: string;
       };
     };
-    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
+    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null, a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
     AuditSnapshot: {
       name?: string;
       points?: number;
@@ -525,6 +649,12 @@ export interface components {
       person?: string;
       drink?: string;
       quantity?: number;
+      kind?: string;
+      drawsAllowed?: boolean;
+      lowerWins?: boolean;
+      run?: number;
+      /** Format: date-time */
+      startedAt?: string;
       factor?:
         | null
         | ({
@@ -614,7 +744,10 @@ export interface components {
       };
     };
   };
-  parameters: never;
+  parameters: {
+    /** @description The game's id; anything but a positive integer is 404 */
+    GameId: number;
+  };
   requestBodies: never;
   headers: never;
   pathItems: never;
@@ -1361,6 +1494,165 @@ export interface operations {
       };
       401: components['responses']['Problem'];
       422: components['responses']['Problem'];
+    };
+  };
+  listGames: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The games */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['GameList'];
+        };
+      };
+      401: components['responses']['Problem'];
+    };
+  };
+  createGame: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewGame'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Game'];
+        };
+      };
+      401: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  getGame: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The game */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['GameDetail'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  deleteGame: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  updateGame: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['GameChange'];
+      };
+    };
+    responses: {
+      /** @description Changed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Game'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  restartGame: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': Record<string, never>;
+      };
+    };
+    responses: {
+      /** @description Restarted; `startedAt` is now */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Game'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      415: components['responses']['Problem'];
     };
   };
   listAuditEvents: {
