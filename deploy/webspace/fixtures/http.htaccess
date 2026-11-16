@@ -11,10 +11,11 @@ RequestHeader unset X-Accel-Internal
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
-  RewriteRule ^api/ api/index.php [END]
+  RewriteCond %{ENV:REDIRECT_STATUS} ^$
+  RewriteRule ^api/ api/index.php [L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule ^[^.]*$ index.html [END]
+  RewriteRule ^[^.]*$ index.html [L]
 </IfModule>
 
 Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"

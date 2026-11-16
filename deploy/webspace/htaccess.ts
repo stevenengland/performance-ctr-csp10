@@ -38,18 +38,22 @@ function httpsRedirect(policy: TargetPolicy): string[] {
   ];
 }
 
-// END stops the rewritten request from passing through these rules again.
+// Strato's PHP handler answers 404 to a request rewritten with [END] (host probe run
+// 43785718565), so the rules use [L]. A rewritten request passes through them again:
+// REDIRECT_STATUS is set on that second pass and keeps the API rule from matching itself,
+// and `index.html` has a dot, so the app-route rule cannot match it.
 function routing(policy: TargetPolicy): string[] {
   return [
     '<IfModule mod_rewrite.c>',
     '  RewriteEngine On',
     `  RewriteBase ${policy.base}`,
     ...httpsRedirect(policy),
-    `  RewriteRule ^api/ ${API_ENTRY} [END]`,
+    '  RewriteCond %{ENV:REDIRECT_STATUS} ^$',
+    `  RewriteRule ^api/ ${API_ENTRY} [L]`,
     // App routes have no file extension; a missing asset stays a 404 so a stale chunk fails loudly.
     `  RewriteCond ${REQUEST_FILENAME} !-f`,
     `  RewriteCond ${REQUEST_FILENAME} !-d`,
-    '  RewriteRule ^[^.]*$ index.html [END]',
+    '  RewriteRule ^[^.]*$ index.html [L]',
     '</IfModule>',
   ];
 }

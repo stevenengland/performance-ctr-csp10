@@ -16,7 +16,7 @@ pin these, by digest; [ADR 0004](adr/0004-host-runtime.md) records the decisions
 | PHP | 8.5.12, `cgi-fcgi` (FastCGI), opcache on with `validate_timestamps 1`, `revalidate_freq 0`, `open_basedir` none, `date.timezone` UTC | `php:8.5-apache@sha256:08af36df…2d46` (PHP 8.5.12) | `e2e/stack/Dockerfile` (e2e stack, deploy proof, PHPUnit, PHPStan and PHP-CS-Fixer all run on this image) |
 | Database | MariaDB 11.8.8 (InnoDB; server defaults utf8mb3, `sql_mode` empty, time zone `SYSTEM`) | `mariadb:11.8@sha256:d36f18d6…1707` (11.8.9: the image publishes no 11.8.8; same minor) | `e2e/stack/compose.yml`, `tests/support/compose.yml`, `.github/workflows/ci.yml` (`phpunit` job, `docker run`) |
 | Composer platform | — | `config.platform.php` `8.5.12`, `require.php` `~8.5.0` | `api/composer.json` |
-| Web server | Apache 2.4.71, `.htaccess` with `mod_rewrite` (`[END]` needs ≥ 2.3.9) | Apache of the PHP image | — |
+| Web server | Apache 2.4.71, `.htaccess` with `mod_rewrite`; rules use `[L]`, because the host's PHP handler answers 404 after `[END]` (probe run 43785718565) | Apache of the PHP image | — |
 
 Every stand-in starts MariaDB the way the host's answers: `--sql-mode=` (empty),
 `--character-set-server=utf8mb3` and a non-UTC `--default-time-zone`. The API never relies on

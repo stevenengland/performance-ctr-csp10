@@ -204,6 +204,31 @@ out "- \`.htaccess\` front-controller rewrite reaches PHP: **$([ "$rewrite_route
 rewrite_script=$(jq -r '.server.scriptName // "none"' <<<"$rewrite_json" 2>/dev/null || echo none)
 rewrite_path=$(jq -r '.server.requestPath // "none"' <<<"$rewrite_json" 2>/dev/null || echo none)
 out "- Rewritten request as PHP sees it: \`SCRIPT_NAME\` \`${rewrite_script//probe-$rand/probe-…}\`, \`REQUEST_URI\` path \`${rewrite_path//probe-$rand/probe-…}\` (expected \`/probe-…/index.php\` and \`/probe-…/api/hello\`)"
+
+# --- which front-controller rule form works under the host's PHP handler -------------------------
+# The deploy renders `RewriteRule ^api/ api/index.php [END]`; the check above uses `[L]` behind a
+# `!-f` condition. Try each form the renderer could use and report status and what PHP saw.
+try_rule() { # $1 = label, $2 = .htaccess body
+  printf '%b<Files "config.json">\n  Require all denied\n</Files>\n' "$2" >"$work/htaccess-variant"
+  printf 'put %s %s/.htaccess\n' "$work/htaccess-variant" "$probe_dir" >"$work/variant"
+  if ! sftp_batch "$work/variant"; then out "- Rule form $1: upload failed"; return; fi
+  sleep 2
+  local body status script
+  status=$(curl -sk -o "$work/variant.out" -w '%{http_code}' --max-time 30 "$site/probe-$rand/api/hello?t=$token" || true)
+  script=$(jq -r '.server.scriptName // "none"' <"$work/variant.out" 2>/dev/null || echo "not JSON")
+  out "- Rule form $1: HTTP \`$status\`, \`SCRIPT_NAME\` \`${script//probe-$rand/probe-…}\`"
+}
+try_rule '`^api/ index.php [END]` (as deployed)' 'RewriteEngine On\nRewriteRule ^api/ index.php [END]\n'
+try_rule '`^api/ index.php [L]` guarded by `REDIRECT_STATUS`' 'RewriteEngine On\nRewriteCond %{ENV:REDIRECT_STATUS} ^$\nRewriteRule ^api/ index.php [L]\n'
+try_rule '`^api/ index.php [L]` guarded by `!-f`' 'RewriteEngine On\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteRule ^api/ index.php [L]\n'
+
+# --- what the deployed site answers right now ------------------------------------------------------
+for path in /api/health /api/index.php /; do
+  live=$(curl -sk -D "$work/live.head" -o "$work/live.body" -w '%{http_code}' --max-time 30 "$site$path" || true)
+  ctype=$(grep -i '^content-type:' "$work/live.head" | head -1 | tr -d '\r' | cut -c1-80 || true)
+  csp=$(grep -ci '^content-security-policy:' "$work/live.head" || true)
+  out "- Live \`$path\`: HTTP \`$live\`, \`${ctype:-no content type}\`, our CSP header present: \`$([ "$csp" -gt 0 ] && echo yes || echo no)\`, body starts \`$(head -c 120 "$work/live.body" | tr -d '\n\r`' | tr -s ' ')\`"
+done
 out ""
 out "### PHP and database (probe response)"
 out ""
