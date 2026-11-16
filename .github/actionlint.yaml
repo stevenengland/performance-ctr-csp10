@@ -1,7 +1,1 @@
 # actionlint configuration (scripts/lint-workflows.sh).
-paths:
-  # The throwaway host probe of slice 1/1 is left as that slice wrote it and
-  # goes away with it; its report strings use backticks on purpose.
-  .github/workflows/host-probe.yml:
-    ignore:
-      - 'SC2016:'

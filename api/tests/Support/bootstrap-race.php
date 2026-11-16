@@ -15,8 +15,9 @@ use Performance\Http\Config;
 use Performance\Http\Database;
 
 require __DIR__ . '/../../vendor/autoload.php';
+require __DIR__ . '/cli-arguments.php';
 
-[, $startAt, $userName, $passwordHash] = $argv;
+[$startAt, $userName, $passwordHash] = cliArguments(3);
 $env = static fn(string $name): string => (string) getenv($name);
 // The API's own session setup (Database::open), as a request would have.
 $pdo = Database::open(new Config(
