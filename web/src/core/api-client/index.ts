@@ -1,0 +1,362 @@
+import type { components, paths } from './schema';
+
+export type Health = components['schemas']['Health'];
+export type Account = components['schemas']['Account'];
+export type AccountChange = components['schemas']['AccountChange'];
+export type Person = components['schemas']['Person'];
+export type PersonDetail = components['schemas']['PersonDetail'];
+export type Drink = components['schemas']['Drink'];
+export type DrinkDetail = components['schemas']['DrinkDetail'];
+export type Factor = components['schemas']['Factor'];
+export type FactorDetail = components['schemas']['FactorDetail'];
+export type Entry = components['schemas']['Entry'];
+export type NewEntry = components['schemas']['NewEntry'];
+export type HistoryEntry = components['schemas']['HistoryEntry'];
+export type Scoreboard = components['schemas']['Scoreboard'];
+export type ScoreRow = components['schemas']['ScoreRow'];
+export type ApiPath = keyof paths;
+/** Field errors of a 422 problem, keyed by the API field name. */
+export type FieldErrors = Readonly<Record<string, string>>;
+
+/** An error answer of the API: its RFC 9457 problem, or the bare status when the body was none. */
+export class ApiProblem extends Error {
+  readonly status: number;
+  readonly type: string;
+  readonly title: string;
+  readonly retryAfterSeconds: number | undefined;
+  readonly errors: FieldErrors;
+
+  constructor(
+    status: number,
+    type: string,
+    title: string,
+    retryAfterSeconds?: number,
+    errors: FieldErrors = {},
+  ) {
+    super(title);
+    this.name = 'ApiProblem';
+    this.status = status;
+    this.type = type;
+    this.title = title;
+    this.retryAfterSeconds = retryAfterSeconds;
+    this.errors = errors;
+  }
+
+  static async from(response: Response): Promise<ApiProblem> {
+    const retryAfter = Number.parseInt(
+      response.headers.get('Retry-After') ?? '',
+      10,
+    );
+    const body = await problemBody(response);
+    return new ApiProblem(
+      response.status,
+      body?.type ?? 'about:blank',
+      body?.title ?? response.statusText,
+      Number.isNaN(retryAfter) ? undefined : retryAfter,
+      body?.errors,
+    );
+  }
+}
+
+async function problemBody(
+  response: Response,
+): Promise<components['schemas']['Problem'] | undefined> {
+  if (
+    !response.headers.get('Content-Type')?.includes('application/problem+json')
+  ) {
+    return undefined;
+  }
+  return (await response.json()) as components['schemas']['Problem'];
+}
+
+type Unauthorized = () => void;
+let unauthorized: Unauthorized | undefined;
+
+/**
+Called when a request outside `/api/session` answers 401: the session ended on the
+server (signed out elsewhere, password changed, expired). The session module
+answers `/api/session` itself.
+*/
+export function onUnauthorized(listener: Unauthorized | undefined): void {
+  unauthorized = listener;
+}
+
+const NOT_MODIFIED = 304;
+
+interface RequestInit {
+  method?: string;
+  body?: unknown;
+  /** Values of the path's `{placeholders}`. */
+  params?: Record<string, string>;
+  query?: Record<string, string>;
+  /** Asks for an answer only when it differs from the one with this ETag (304 otherwise). */
+  ifNoneMatch?: string;
+}
+
+/**
+The single fetch wrapper: every HTTP call of the app goes through here. It looks
+up the global `fetch` on every call, so whatever is installed at that time answers.
+A body is sent as JSON. An error answer throws its ApiProblem; 304 passes.
+*/
+async function send(path: ApiPath, init: RequestInit = {}): Promise<Response> {
+  const resolved = path.replace(/\{(\w+)\}/g, (_, name: string) =>
+    encodeURIComponent(init.params?.[name] ?? ''),
+  );
+  const query = init.query
+    ? `?${new URLSearchParams(init.query).toString()}`
+    : '';
+  const url = `${import.meta.env.BASE_URL}${resolved.slice(1)}${query}`;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (init.ifNoneMatch !== undefined)
+    headers['If-None-Match'] = init.ifNoneMatch;
+  const response = await fetch(url, {
+    method: init.method ?? 'GET',
+    credentials: 'same-origin',
+    headers,
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+  });
+  if (!response.ok && response.status !== NOT_MODIFIED) {
+    if (response.status === 401 && path !== '/api/session') unauthorized?.();
+    throw await ApiProblem.from(response);
+  }
+  return response;
+}
+
+/** A request whose answer is JSON; 204 resolves to `undefined`. */
+async function request<T>(path: ApiPath, init: RequestInit = {}): Promise<T> {
+  const response = await send(path, init);
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
+export function getHealth(): Promise<Health> {
+  return request<Health>('/api/health');
+}
+
+export function getSession(): Promise<Account> {
+  return request<Account>('/api/session');
+}
+
+export function signIn(userName: string, password: string): Promise<Account> {
+  return request<Account>('/api/session', {
+    method: 'POST',
+    body: { userName, password },
+  });
+}
+
+export function signOut(): Promise<void> {
+  return request<undefined>('/api/session', { method: 'DELETE' });
+}
+
+export function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  return request<undefined>('/api/session/password', {
+    method: 'PUT',
+    body: { currentPassword, newPassword },
+  });
+}
+
+export async function listAccounts(): Promise<Account[]> {
+  return (await request<{ accounts: Account[] }>('/api/accounts')).accounts;
+}
+
+export function createAccount(
+  userName: string,
+  password: string,
+): Promise<Account> {
+  return request<Account>('/api/accounts', {
+    method: 'POST',
+    body: { userName, password },
+  });
+}
+
+/** Grants or revokes admin rights, or resets the password (which signs the account out everywhere). */
+export function updateAccount(
+  id: number,
+  change: AccountChange,
+): Promise<Account> {
+  return request<Account>('/api/accounts/{id}', {
+    method: 'PATCH',
+    params: { id: String(id) },
+    body: change,
+  });
+}
+
+/** Deletes the account; the entries it logged stay. */
+export function deleteAccount(id: number): Promise<void> {
+  return request<undefined>('/api/accounts/{id}', {
+    method: 'DELETE',
+    params: { id: String(id) },
+  });
+}
+
+export async function listPersons(): Promise<Person[]> {
+  return (await request<{ persons: Person[] }>('/api/persons')).persons;
+}
+
+export function createPerson(name: string): Promise<Person> {
+  return request<Person>('/api/persons', { method: 'POST', body: { name } });
+}
+
+/** A person with the number of their entries, for the delete dialog. */
+export function getPerson(id: number): Promise<PersonDetail> {
+  return request<PersonDetail>('/api/persons/{id}', {
+    params: { id: String(id) },
+  });
+}
+
+export function updatePerson(id: number, name: string): Promise<Person> {
+  return request<Person>('/api/persons/{id}', {
+    method: 'PATCH',
+    params: { id: String(id) },
+    body: { name },
+  });
+}
+
+/** Deletes the person and all of their entries. */
+export function deletePerson(id: number): Promise<void> {
+  return request<undefined>('/api/persons/{id}', {
+    method: 'DELETE',
+    params: { id: String(id) },
+  });
+}
+
+export async function listDrinks(): Promise<Drink[]> {
+  return (await request<{ drinks: Drink[] }>('/api/drinks')).drinks;
+}
+
+/** `points` is `null` when the input was no number; the API then answers with its field error. */
+export function createDrink(
+  name: string,
+  points: number | null,
+): Promise<Drink> {
+  return request<Drink>('/api/drinks', {
+    method: 'POST',
+    body: { name, points },
+  });
+}
+
+/** A drink with the number of its entries, for the delete dialog. */
+export function getDrink(id: number): Promise<DrinkDetail> {
+  return request<DrinkDetail>('/api/drinks/{id}', {
+    params: { id: String(id) },
+  });
+}
+
+/** `points` is `null` when the input was no number; the API then answers with its field error. */
+export function updateDrink(
+  id: number,
+  name: string,
+  points: number | null,
+): Promise<Drink> {
+  return request<Drink>('/api/drinks/{id}', {
+    method: 'PATCH',
+    params: { id: String(id) },
+    body: { name, points },
+  });
+}
+
+/** Deletes the drink and all of its entries. */
+export function deleteDrink(id: number): Promise<void> {
+  return request<undefined>('/api/drinks/{id}', {
+    method: 'DELETE',
+    params: { id: String(id) },
+  });
+}
+
+export async function listFactors(): Promise<Factor[]> {
+  return (await request<{ factors: Factor[] }>('/api/factors')).factors;
+}
+
+/** A factor with the number of entries that use it, for the delete dialog. */
+export function getFactor(id: number): Promise<FactorDetail> {
+  return request<FactorDetail>('/api/factors/{id}', {
+    params: { id: String(id) },
+  });
+}
+
+/** `multiplier` is `null` when the input was no number; the API then answers with its field error. */
+export function createFactor(
+  name: string,
+  multiplier: number | null,
+): Promise<Factor> {
+  return request<Factor>('/api/factors', {
+    method: 'POST',
+    body: { name, multiplier },
+  });
+}
+
+export function updateFactor(
+  id: number,
+  name: string,
+  multiplier: number | null,
+): Promise<Factor> {
+  return request<Factor>('/api/factors/{id}', {
+    method: 'PATCH',
+    params: { id: String(id) },
+    body: { name, multiplier },
+  });
+}
+
+export function deleteFactor(id: number): Promise<void> {
+  return request<undefined>('/api/factors/{id}', {
+    method: 'DELETE',
+    params: { id: String(id) },
+  });
+}
+
+/** Adds an entry under its client id: repeating it with the same id never adds a second one. */
+export function putEntry(id: string, entry: NewEntry): Promise<Entry> {
+  return request<Entry>('/api/entries/{id}', {
+    method: 'PUT',
+    params: { id },
+    body: entry,
+  });
+}
+
+/** A person's entries since `from`, the start of the viewer's day as a UTC instant, newest first. */
+export async function listEntries(
+  personId: number,
+  from: string,
+): Promise<HistoryEntry[]> {
+  return (
+    await request<{ entries: HistoryEntry[] }>('/api/entries', {
+      query: { personId: String(personId), from },
+    })
+  ).entries;
+}
+
+export function deleteEntry(id: string): Promise<void> {
+  return request<undefined>('/api/entries/{id}', {
+    method: 'DELETE',
+    params: { id },
+  });
+}
+
+/** Standings with the ETag that names them, to ask on condition of next time. */
+export interface ScoreboardAnswer {
+  board: Scoreboard;
+  etag: string | undefined;
+}
+
+/**
+Standings since `from`, the start of the viewer's day as a UTC instant. With the
+ETag of the standings already shown, `unchanged` means they still hold.
+*/
+export async function getScoreboard(
+  from: string,
+  etag?: string,
+): Promise<ScoreboardAnswer | 'unchanged'> {
+  const response = await send('/api/scoreboard', {
+    query: { from },
+    ifNoneMatch: etag,
+  });
+  if (response.status === NOT_MODIFIED) return 'unchanged';
+  return {
+    board: (await response.json()) as Scoreboard,
+    etag: response.headers.get('ETag') ?? undefined,
+  };
+}

@@ -1,0 +1,36 @@
+# Rendered by deploy/webspace/htaccess.ts from the current target policy. Do not edit on the server.
+Options -Indexes
+DirectoryIndex index.html
+
+<IfModule mod_passenger.c>
+  PassengerEnabled off
+</IfModule>
+
+RequestHeader unset X-Accel-Internal
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteCond %{HTTP_HOST} !=performance.example.test [OR]
+  RewriteCond %{HTTPS} !=on
+  RewriteRule ^ https://performance.example.test%{REQUEST_URI} [R=301,L]
+  RewriteRule ^api/ api/index.php [END]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^[^.]*$ index.html [END]
+</IfModule>
+
+Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+Header always set X-Content-Type-Options "nosniff"
+Header always set Referrer-Policy "strict-origin-when-cross-origin"
+Header always set Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+Header always set Strict-Transport-Security "max-age=31536000"
+Header always unset X-Powered-By
+Header unset X-Powered-By
+
+<FilesMatch "^(index\.html|sw\.js|manifest\.webmanifest)$">
+  Header always set Cache-Control "no-cache"
+</FilesMatch>
+<If "%{REQUEST_URI} =~ m#^/assets/#">
+  Header always set Cache-Control "public, max-age=31536000, immutable"
+</If>

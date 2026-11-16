@@ -50,6 +50,10 @@ $result = [
         'https' => ($_SERVER['HTTPS'] ?? '') !== '' && ($_SERVER['HTTPS'] ?? '') !== 'off',
         'forwardedProto' => $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? null,
         'route' => $_GET['route'] ?? null,
+        // What the API derives its base path and route from under the host's FastCGI
+        // (api/public/index.php); only the probe folder's own paths, never the token.
+        'scriptName' => $_SERVER['SCRIPT_NAME'] ?? null,
+        'requestPath' => parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH),
     ],
     'filesystem' => [
         'configAboveWebRootReadable' => $configReadable,

@@ -1,0 +1,103 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Performance\Domain;
+
+use DateTimeImmutable;
+use PDO;
+
+/**
+ * The read model and single owner of aggregation: for every person with entries
+ * since `from`, the score (Σ quantity × multiplier × points), the count
+ * (Σ quantity × multiplier) and the per-drink counters, ranked by score, ties by
+ * name. The multiplier is the factor's current one, 1 without a factor. Its version is the data
+ * revision: while that stays, the standings for any `from` stay too.
+ */
+final readonly class Scoreboard
+{
+    public function __construct(
+        private PDO $pdo,
+        private DataRevision $revision,
+    ) {}
+
+    /**
+     * Runs reads of the revision and the standings in one read-only REPEATABLE READ
+     * transaction, so they all see the same committed data: the per-drink counters add
+     * up to each person's count, and the standings belong to the revision read.
+     *
+     * @template T
+     *
+     * @param callable(): T $read
+     *
+     * @return T
+     */
+    public function snapshot(callable $read): mixed
+    {
+        $this->pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        $this->pdo->exec('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY');
+        try {
+            return $read();
+        } finally {
+            $this->pdo->exec('COMMIT');
+        }
+    }
+
+    /** Changes whenever the standings may have changed, without aggregating. */
+    public function revision(): int
+    {
+        return $this->revision->current();
+    }
+
+    /**
+     * @return list<ScoreRow>
+     */
+    public function since(DateTimeImmutable $from): array
+    {
+        $since = Timestamp::of($from);
+        $drinks = [];
+        foreach ($this->rows(
+            'SELECT e.person_id, d.id AS drink_id, d.name, SUM(e.quantity * COALESCE(f.multiplier, 1)) AS count
+             FROM entries e JOIN drinks d ON d.id = e.drink_id LEFT JOIN factors f ON f.id = e.factor_id
+             WHERE e.created_at >= ?
+             GROUP BY e.person_id, d.id, d.name
+             ORDER BY d.name, d.id',
+            $since,
+        ) as $row) {
+            $drinks[(int) $row['person_id']][] = new DrinkCount((int) $row['drink_id'], (string) $row['name'], (string) $row['count']);
+        }
+
+        return array_map(
+            static fn(array $row): ScoreRow => new ScoreRow(
+                (int) $row['id'],
+                (string) $row['name'],
+                (string) $row['score'],
+                (string) $row['count'],
+                $drinks[(int) $row['id']] ?? [],
+            ),
+            $this->rows(
+                'SELECT p.id, p.name,
+                        SUM(e.quantity * COALESCE(f.multiplier, 1) * d.points) AS score,
+                        SUM(e.quantity * COALESCE(f.multiplier, 1)) AS count
+                 FROM entries e JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
+                 LEFT JOIN factors f ON f.id = e.factor_id
+                 WHERE e.created_at >= ?
+                 GROUP BY p.id, p.name
+                 ORDER BY score DESC, p.name, p.id',
+                $since,
+            ),
+        );
+    }
+
+    /**
+     * @return list<array<string, scalar|null>>
+     */
+    private function rows(string $sql, string $since): array
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute([$since]);
+
+        /** @var list<array<string, scalar|null>> */
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
+    }
+}

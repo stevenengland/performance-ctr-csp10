@@ -1,0 +1,377 @@
+# Checks every pull request and every push to main. One job builds the
+# artifact; the e2e job and the deploy proof test those bytes. The deploy
+# proof runs the deploy CLI against SFTP + Apache/PHP + MariaDB containers; the
+# workflow linters check this folder. On a push to main, once every check is
+# green, production is deployed through _deploy.yml (the only workflow that
+# reads the deploy secrets) and the artifact is archived as a GitHub Release.
+#
+# PHP 8.5 and MariaDB 11.8 run on the images pinned by digest in e2e/stack, as
+# probed on the host (#2; docs/runbook-deploy.md, "Runtime pins"). Every PHP
+# tool runs on that image: api/composer.json requires PHP ~8.5.0, so Composer's
+# platform check refuses the runner's own PHP.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Pull requests cancel their superseded runs; main runs queue, so a push
+  # never cancels a deploy in progress, and GitHub keeps only the newest
+  # pending run: production follows the newest commit.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NPM_CONFIG_AUDIT: 'false'
+  NPM_CONFIG_FUND: 'false'
+
+jobs:
+  build:
+    name: Build artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      digest: ${{ steps.digest.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Build web root and PHP release
+        run: node scripts/build-artifact.ts
+      - id: digest
+        name: Record the digest
+        run: |
+          set -euo pipefail
+          read -r sha256 file < <(cat dist/*.tar.gz.sha256)
+          echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
+          # shellcheck disable=SC2016 # the backticks are Markdown, not a command
+          printf '### Artifact\n\n`%s`\n\nsha256 `%s`\n' "$file" "$sha256" >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: performance-artifact
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+
+  static:
+    name: Static checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: ESLint
+        run: npm run lint
+      - name: Prettier
+        run: npm run format:check
+      - name: TypeScript and vue-tsc
+        run: npm run typecheck
+      - name: OpenAPI type drift
+        run: npm run check:api-types
+      - name: Secrets
+        run: npm run lint:secrets
+      - name: Composer
+        working-directory: api
+        run: composer install --no-interaction --no-progress
+      - name: Every PHP package pinned exactly
+        run: node scripts/composer-pins.ts api
+      - name: The pinned PHP image (e2e/stack/Dockerfile)
+        run: docker build --tag performance-php e2e/stack
+      # The runner's Composer (a phar) runs the composer.json scripts on the image's PHP.
+      - name: PHPStan (max) on the pinned PHP
+        run: |
+          docker run --rm --volume "$PWD/api:/app" --workdir /app \
+            --volume "$(command -v composer):/usr/local/bin/composer:ro" --env COMPOSER_ALLOW_SUPERUSER=1 \
+            performance-php sh -c 'php -v && composer analyse -- --no-progress'
+      - name: PHP-CS-Fixer on the pinned PHP
+        run: |
+          docker run --rm --volume "$PWD/api:/app" --workdir /app \
+            --volume "$(command -v composer):/usr/local/bin/composer:ro" --env COMPOSER_ALLOW_SUPERUSER=1 \
+            performance-php composer cs
+
+  unit:
+    name: Vitest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  deploy-proof:
+    # Container proof of the deploy CLI on the built artifact's PHP release:
+    # real OpenSSH sftp against an SFTP server, Apache + PHP and MariaDB sharing
+    # the remote root (tests/support/compose.yml): activation order, config
+    # rendering, a failing migration and same-schema rollback.
+    name: Deploy proof (SFTP + Apache/PHP + MariaDB)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: performance-artifact
+          path: dist
+      - name: Verify the digest and unpack
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check --strict ./*.tar.gz.sha256
+          grep -q "^$DIGEST " ./*.tar.gz.sha256
+          mkdir artifact
+          tar -xzf ./*.tar.gz -C artifact
+      - name: Install deploy tooling
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends sshpass
+      - run: npm run test:deploy
+      - name: Container logs
+        if: failure()
+        run: docker compose -f tests/support/compose.yml logs
+
+  workflows:
+    name: Workflow linters
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint and zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/lint-workflows.sh .github/workflows
+      - name: Workflow linters reject violations
+        # A missing fixture or a script error fails too, so each run must
+        # also print the finding its fixture exists to provoke.
+        run: |
+          expect_finding() {
+            local output
+            if output=$(scripts/lint-workflows.sh --only "$1" "$2" 2>&1); then
+              echo "::error::$1 accepted a violating workflow"; exit 1
+            fi
+            if ! grep -qF -- "$3" <<<"$output"; then
+              printf '%s\n' "$output"
+              echo "::error::$1 failed without reporting: $3"; exit 1
+            fi
+          }
+          expect_finding actionlint tests/support/workflows/actionlint-violation.yml \
+            'property "missing" is not defined in object type {} [expression]'
+          expect_finding zizmor tests/support/workflows/zizmor-violation.yml \
+            'error[excessive-permissions]'
+
+  phpunit:
+    name: PHPUnit (pinned PHP + MariaDB)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Not a service container: those take no server options, and the server must
+      # start as the host's answers (empty sql_mode, utf8mb3, a non-UTC time zone),
+      # so the tests prove the API's per-connection settings. The same pin and
+      # options as e2e/stack/compose.yml and tests/support/compose.yml.
+      - name: MariaDB 11.8 started as on the host
+        run: |
+          docker run --detach --name db --publish 127.0.0.1:3306:3306 \
+            --env MARIADB_ROOT_PASSWORD=root \
+            --health-cmd 'healthcheck.sh --connect --innodb_initialized' \
+            --health-interval 2s --health-timeout 2s --health-retries 60 \
+            mariadb:11.8@sha256:d36f18d65a0459510b8b0f643b226a6d299e3206486e2b64ff20754a6d291707 \
+            --sql-mode= --character-set-server=utf8mb3 --collation-server=utf8mb3_general_ci \
+            --default-time-zone=+01:00
+      - name: Composer
+        working-directory: api
+        run: composer install --no-interaction --no-progress
+      - name: The pinned PHP image (e2e/stack/Dockerfile)
+        run: docker build --tag performance-php e2e/stack
+      - name: Wait for MariaDB
+        run: |
+          for _ in $(seq 120); do
+            [ "$(docker inspect --format '{{.State.Health.Status}}' db)" = healthy ] && exit 0
+            sleep 1
+          done
+          docker logs db
+          exit 1
+      - name: PHPUnit on the pinned PHP image
+        run: |
+          docker run --rm --network host --volume "$PWD/api:/app" --workdir /app \
+            --env DB_HOST=127.0.0.1 --env DB_PORT=3306 --env DB_USER=root --env DB_PASS=root \
+            performance-php sh -c 'php -v && php -m | grep -x pdo_mysql && vendor/bin/phpunit'
+
+  preview:
+    name: Fixture preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build:preview
+      - run: npx playwright install --with-deps chromium
+      - name: Smoke test
+        env:
+          E2E_PREVIEW: '1'
+        run: npx playwright test --project 'preview-*'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fixture-preview
+          path: web/dist-preview
+          if-no-files-found: error
+
+  e2e:
+    name: E2E and Lighthouse on the artifact
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      STACK_ROOT: ${{ github.workspace }}/stack-root
+      E2E_WEB_ROOT: dist/artifact/web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: performance-artifact
+          path: dist
+      - name: Verify the digest and unpack
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check --strict ./*.tar.gz.sha256
+          grep -q "^$DIGEST " ./*.tar.gz.sha256
+          mkdir artifact
+          tar -xzf ./*.tar.gz -C artifact
+      - name: Stage the webspace with the rendered .htaccess
+        run: e2e/stack/stage.sh dist/artifact "$STACK_ROOT" http://localhost:8080
+      - name: Start Apache + PHP + MariaDB
+        run: docker compose -f e2e/stack/compose.yml up --build --detach --wait
+      - name: Lighthouse (signed in on a sample evening, before the e2e data)
+        # Uses the runner's Google Chrome (lighthouserc.json chromePath).
+        run: npx lhci autorun
+      # Also after a Lighthouse failure, so the run still reports the e2e results;
+      # the job fails either way.
+      - name: Install Playwright's Chromium
+        if: ${{ !cancelled() }}
+        run: npx playwright install --with-deps chromium
+      - name: Playwright e2e (CSP guard)
+        if: ${{ !cancelled() }}
+        run: npx playwright test --project 'stack-*'
+      - name: Stack logs
+        if: failure()
+        run: docker compose -f e2e/stack/compose.yml logs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: e2e-report
+          path: |
+            playwright-report
+            .lighthouseci
+
+  deploy:
+    # Every green push to main deploys its artifact to production. Pull
+    # requests never reach the deploy workflow; the ordering rule (skip a run
+    # that a newer commit's deploy overtook) lives inside it.
+    # TEMPORARY (owner decision, 2026-11-15): `static` is left out of `needs` so
+    # the first production deploy is not blocked by PHPStan misreading `$argv`
+    # in the PHP 8.5 image (see PR #13). Put `static` back once that is fixed.
+    needs: [build, unit, deploy-proof, workflows, phpunit, preview, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      actions: read
+    # actionlint 1.7.12 rejects the `$/` self-repository syntax zizmor asks
+    # for; drop that ignore once actionlint accepts it.
+    uses: ./.github/workflows/_deploy.yml # zizmor: ignore[self-repository,secrets-inherit]
+    with:
+      mode: deploy
+      run-id: ${{ github.run_id }}
+      digest: ${{ needs.build.outputs.digest }}
+    secrets: inherit
+
+  archive:
+    # The rollback source: after a successful production deploy, the tested
+    # tarball (with its manifest) becomes a GitHub Release tagged
+    # release-YYYYMMDD-HHMM at the deployed commit, titled by the release id.
+    # A re-run finds the Release by its title and completes its assets.
+    needs: [build, deploy]
+    if: needs.deploy.outputs.deployed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DIGEST: ${{ needs.build.outputs.digest }}
+      RELEASE_ID: ${{ needs.deploy.outputs.release-id }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: performance-artifact
+          path: dist
+      - name: Archive the deployed artifact as a GitHub Release
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum --check --strict ./*.tar.gz.sha256 && grep -q "^$DIGEST " ./*.tar.gz.sha256)
+          [[ "$RELEASE_ID" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7}$ ]] || { echo "::error::archive: unexpected release id"; exit 1; }
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.name == \"$RELEASE_ID\") | .tag_name")
+          if [ -z "$tag" ]; then
+            tag=$(node deploy/cli.ts release-tag)
+            [[ "$tag" =~ ^release-[0-9]{8}-[0-9]{4}$ ]] || { echo "::error::archive: unexpected tag $tag"; exit 1; }
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$RELEASE_ID" \
+              --notes "Production release $RELEASE_ID of commit $GITHUB_SHA, deployed by $RUN_URL. Roll back: Actions → Rollback → tag $tag."
+          fi
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber dist/*.tar.gz dist/*.tar.gz.sha256
+          echo "archived $RELEASE_ID as $tag" >> "$GITHUB_STEP_SUMMARY"

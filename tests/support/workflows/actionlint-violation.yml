@@ -1,0 +1,8 @@
+name: actionlint violation
+on: push
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "${{ matrix.missing }}"

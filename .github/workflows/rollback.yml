@@ -1,0 +1,28 @@
+name: Rollback
+# Owner-only dispatch from main: re-activates one of the retained releases
+# (the active one and the two before it) from its GitHub Release. The deploy
+# refuses a release whose schema version differs from the live database's:
+# schema changes are fixed forward, never rolled back (docs/runbook-deploy.md).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: GitHub Release tag of a retained release (for example release-20261115-0930)
+        required: true
+        type: string
+permissions: {}
+jobs:
+  rollback:
+    # A dispatch from another ref or actor is skipped here, and so is a re-run
+    # by anyone but the owner (triggering_actor).
+    if: github.ref == 'refs/heads/main' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner
+    permissions:
+      contents: read
+      actions: read
+    # actionlint 1.7.12 rejects the `$/` self-repository syntax zizmor asks
+    # for; drop that ignore once actionlint accepts it.
+    uses: ./.github/workflows/_deploy.yml # zizmor: ignore[self-repository,secrets-inherit]
+    with:
+      mode: rollback
+      tag: ${{ inputs.tag }}
+    secrets: inherit

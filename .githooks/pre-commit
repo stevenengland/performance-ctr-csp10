@@ -1,0 +1,6 @@
+#!/bin/sh
+# Enable with: git config core.hooksPath .githooks
+set -eu
+# NUL-separated, so paths with spaces stay one argument each.
+git diff --cached --name-only -z --diff-filter=ACMR | xargs -0 -r npx secretlint --maskSecrets
+npm run check

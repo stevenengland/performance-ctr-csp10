@@ -1,0 +1,14 @@
+node_modules/
+web/dist/
+web/dist-preview/
+dist/
+api/vendor
+api/.phpunit.cache/
+api/.php-cs-fixer.cache
+test-results/
+playwright-report/
+.lighthouseci/
+/screenshots/
+.stenswf/
+.env
+.env.*

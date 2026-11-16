@@ -1,0 +1,1084 @@
+openapi: 3.1.0
+info:
+  title: Performance API
+  version: 0.1.0
+  description: >-
+    JSON API of the Performance drink counter. Fields are camelCase, timestamps
+    ISO-8601 UTC, decimals JSON numbers rounded to two places. Every error is
+    `application/problem+json` (RFC 9457) with a stable `urn:performance:problem:*`
+    type. While a migration runs, every route except health answers 503 with
+    `Retry-After`; after a failed migration it answers 503 without it.
+
+    Every route except health and sign-in requires the session cookie that
+    sign-in sets (`HttpOnly; Secure; SameSite=Strict`, 180 days, renewed on
+    every use) and answers 401 without a valid one. Request bodies must be
+    `application/json` (415 otherwise).
+servers:
+  - url: /
+security:
+  - session: []
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: Versions, schema and migration state; brings the schema up to date first
+      security: []
+      responses:
+        '200':
+          description: The installation's health
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /api/session:
+    post:
+      operationId: signIn
+      summary: Sign in; creates the bootstrap admin first when no admin exists
+      description: >-
+        Sets the session cookie. After five failed sign-ins for the same user name
+        and client address within 15 minutes, answers 429 until the window passes.
+        An unknown user name and a wrong password get the same answer.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignIn'
+      responses:
+        '200':
+          description: Signed in
+          headers:
+            Set-Cookie:
+              description: '`session=<token>; Path=/; Max-Age=15552000; HttpOnly; Secure; SameSite=Strict`'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/TooManyAttempts'
+    get:
+      operationId: getSession
+      summary: The signed-in account
+      responses:
+        '200':
+          description: The signed-in account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: signOut
+      summary: Sign out; revokes the session on the server and clears the cookie
+      responses:
+        '204':
+          description: Signed out
+        '401':
+          $ref: '#/components/responses/Problem'
+  /api/session/password:
+    put:
+      operationId: changePassword
+      summary: Change the own password; signs the account out on every other device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+      responses:
+        '204':
+          description: Changed
+        '401':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/accounts:
+    get:
+      operationId: listAccounts
+      summary: Every account, by user name (admins only)
+      responses:
+        '200':
+          description: The accounts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountList'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createAccount
+      summary: Create an account (admins only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewAccount'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/accounts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The account's id; anything but a positive integer is 404
+        schema:
+          type: integer
+          minimum: 1
+    patch:
+      operationId: updateAccount
+      summary: Grant or revoke admin rights, or reset the password (admins only)
+      description: >-
+        Only the given fields change. A password reset signs the account out on every
+        device. Demoting the last admin is refused with 409 and changes nothing;
+        concurrent demotions and deletions are serialised by the database.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountChange'
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteAccount
+      summary: Delete an account (admins only)
+      description: >-
+        Its sessions end; the entries it logged stay, without the account
+        (`accountName` null). Deleting the last admin is refused with 409.
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+  /api/persons:
+    get:
+      operationId: listPersons
+      summary: Every person, alphabetical (ignoring case)
+      responses:
+        '200':
+          description: The persons
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonList'
+        '401':
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createPerson
+      summary: Create a person
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewPerson'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Person'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/persons/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The person's id; anything but a positive integer is 404
+        schema:
+          type: integer
+          minimum: 1
+    get:
+      operationId: getPerson
+      summary: A person with the number of their entries (for the delete dialog)
+      responses:
+        '200':
+          description: The person
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonDetail'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: updatePerson
+      summary: Rename a person
+      description: >-
+        Validated like creating. Scores and lists show the new name from then on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewPerson'
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Person'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deletePerson
+      summary: Delete a person and all of their entries
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/drinks:
+    get:
+      operationId: listDrinks
+      summary: Every drink, alphabetical (ignoring case)
+      responses:
+        '200':
+          description: The drinks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DrinkList'
+        '401':
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createDrink
+      summary: Create a drink with its alcohol base points
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewDrink'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Drink'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/drinks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The drink's id; anything but a positive integer is 404
+        schema:
+          type: integer
+          minimum: 1
+    get:
+      operationId: getDrink
+      summary: A drink with the number of its entries (for the delete dialog)
+      responses:
+        '200':
+          description: The drink
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DrinkDetail'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: updateDrink
+      summary: Change a drink's name and points
+      description: >-
+        Both fields are required. Scores always use the current points, so the change applies to every entry of the drink.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewDrink'
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Drink'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteDrink
+      summary: Delete a drink and all of its entries
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/factors:
+    get:
+      operationId: listFactors
+      summary: Every factor, alphabetical (ignoring case)
+      responses:
+        '200':
+          description: The factors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactorList'
+        '401':
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createFactor
+      summary: Create a factor with its multiplier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewFactor'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Factor'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/factors/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The factor's id; anything but a positive integer is 404
+        schema:
+          type: integer
+          minimum: 1
+    get:
+      operationId: getFactor
+      summary: A factor with the number of entries that use it (for the delete dialog)
+      responses:
+        '200':
+          description: The factor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactorDetail'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: updateFactor
+      summary: Change a factor's name and multiplier
+      description: >-
+        Both fields are required. Scores always use the current multiplier, so the
+        change applies to every entry that uses the factor.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewFactor'
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Factor'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteFactor
+      summary: Delete a factor; its entries stay and count ×1 from then on
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/entries:
+    get:
+      operationId: listEntries
+      summary: A person's entries since `from`, the start of the viewer's day, newest first
+      description: >-
+        Each entry names its drink and its factor (null without one, or once the factor
+        was deleted) with their current names, and the user name of the account that
+        logged it (null once that account was deleted). A `personId` that is not a positive
+        integer is 422; a person that does not exist is 404.
+      parameters:
+        - name: personId
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: from
+          in: query
+          required: true
+          description: Local midnight of the viewer's day as an ISO-8601 instant with offset
+          schema:
+            type: string
+            format: date-time
+            examples: ['2026-11-14T23:00:00.000Z']
+      responses:
+        '200':
+          description: The entries, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntryHistory'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/entries/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The entry's client-generated UUID v4 (lower case), also the retry key
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    put:
+      operationId: addEntry
+      summary: Add an entry, idempotently on its id
+      description: >-
+        The account and the server time (UTC) are recorded with the entry. A repeated
+        request with the same id and content (factor included) answers 200 with the
+        original entry and creates nothing, even after the entry was deleted; the same
+        id with different content answers 409. An unknown factor is 422. Ids are remembered for seven days. Any other id that is not
+        a lower-case UUID v4 is 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewEntry'
+      responses:
+        '200':
+          description: Already added by an earlier request with this id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entry'
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entry'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteEntry
+      summary: Delete an entry (undo); its id stays known, so a late retry cannot bring it back
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+  /api/scoreboard:
+    get:
+      operationId: getScoreboard
+      summary: Standings since `from`, the start of the viewer's day
+      description: >-
+        Persons with entries since `from`, ranked by score (ties by name). score =
+        Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink
+        counters likewise. The multiplier is the factor's current one, 1 without a
+        factor. The ETag names the data revision, which every write of entries,
+        persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the
+        last ETag answers 304 without aggregating while the revision is unchanged.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: Local midnight of the viewer's day as an ISO-8601 instant with offset
+          schema:
+            type: string
+            format: date-time
+            examples: ['2026-11-14T23:00:00.000Z']
+        - name: If-None-Match
+          in: header
+          required: false
+          description: The ETag of the standings the client already shows
+          schema:
+            type: string
+            examples: ['"42-1763161200000"']
+      responses:
+        '200':
+          description: The standings
+          headers:
+            ETag:
+              description: Data revision and window of these standings
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scoreboard'
+        '304':
+          description: Unchanged since the standings named in `If-None-Match`
+          headers:
+            ETag:
+              description: The same ETag
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: session
+  responses:
+    Problem:
+      description: An error, described as a problem
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    TooManyAttempts:
+      description: Five failed sign-ins for this user name and address in 15 minutes
+      headers:
+        Retry-After:
+          description: Seconds until the window of the oldest failure has passed, at most
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Account:
+      type: object
+      additionalProperties: false
+      required: [id, userName, isAdmin]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        userName:
+          type: string
+          minLength: 1
+          maxLength: 40
+          examples: ['anna']
+        isAdmin:
+          type: boolean
+    AccountList:
+      type: object
+      additionalProperties: false
+      required: [accounts]
+      properties:
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Account'
+    SignIn:
+      type: object
+      required: [userName, password]
+      properties:
+        userName:
+          type: string
+        password:
+          type: string
+    PasswordChange:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+          description: At least 10 characters and at most 72 bytes in UTF-8 (bcrypt ignores the rest), no NUL character; otherwise 422 with a field error
+          minLength: 10
+    NewAccount:
+      type: object
+      required: [userName, password]
+      properties:
+        userName:
+          type: string
+          description: Trimmed; 1–40 characters; unique regardless of case
+          maxLength: 40
+        password:
+          type: string
+          description: The start password. At least 10 characters and at most 72 bytes in UTF-8 (bcrypt ignores the rest), no NUL character; otherwise 422 with a field error
+          minLength: 10
+    AccountChange:
+      type: object
+      properties:
+        isAdmin:
+          type: boolean
+          description: Grant (true) or revoke (false) admin rights
+        password:
+          type: string
+          description: The new password (a reset); signs the account out everywhere. At least 10 characters and at most 72 bytes in UTF-8 (bcrypt ignores the rest), no NUL character; otherwise 422 with a field error
+          minLength: 10
+    Name:
+      type: string
+      description: Trimmed; 1–40 characters; unique regardless of case
+      minLength: 1
+      maxLength: 40
+    Person:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+    PersonDetail:
+      type: object
+      additionalProperties: false
+      required: [id, name, entryCount]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        entryCount:
+          type: integer
+          minimum: 0
+          description: Entries of every day that are the person's
+    PersonList:
+      type: object
+      additionalProperties: false
+      required: [persons]
+      properties:
+        persons:
+          type: array
+          items:
+            $ref: '#/components/schemas/Person'
+    NewPerson:
+      type: object
+      required: [name]
+      properties:
+        name:
+          $ref: '#/components/schemas/Name'
+    Points:
+      type: number
+      description: Alcohol base points, 0–9 999.99 with at most two decimals
+      minimum: 0
+      maximum: 9999.99
+      multipleOf: 0.01
+    Drink:
+      type: object
+      additionalProperties: false
+      required: [id, name, points]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        points:
+          $ref: '#/components/schemas/Points'
+    DrinkDetail:
+      type: object
+      additionalProperties: false
+      required: [id, name, points, entryCount]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        points:
+          $ref: '#/components/schemas/Points'
+        entryCount:
+          type: integer
+          minimum: 0
+          description: Entries of every day that are of the drink
+    DrinkList:
+      type: object
+      additionalProperties: false
+      required: [drinks]
+      properties:
+        drinks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Drink'
+    NewDrink:
+      type: object
+      required: [name, points]
+      properties:
+        name:
+          $ref: '#/components/schemas/Name'
+        points:
+          $ref: '#/components/schemas/Points'
+    Multiplier:
+      type: number
+      description: Above 0 up to 99.99 with at most two decimals
+      exclusiveMinimum: 0
+      maximum: 99.99
+      multipleOf: 0.01
+    Factor:
+      type: object
+      additionalProperties: false
+      required: [id, name, multiplier]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        multiplier:
+          $ref: '#/components/schemas/Multiplier'
+    FactorDetail:
+      type: object
+      additionalProperties: false
+      required: [id, name, multiplier, entryCount]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          $ref: '#/components/schemas/Name'
+        multiplier:
+          $ref: '#/components/schemas/Multiplier'
+        entryCount:
+          type: integer
+          minimum: 0
+          description: Entries of every day that use the factor
+    FactorList:
+      type: object
+      additionalProperties: false
+      required: [factors]
+      properties:
+        factors:
+          type: array
+          items:
+            $ref: '#/components/schemas/Factor'
+    NewFactor:
+      type: object
+      required: [name, multiplier]
+      properties:
+        name:
+          $ref: '#/components/schemas/Name'
+        multiplier:
+          $ref: '#/components/schemas/Multiplier'
+    Quantity:
+      type: integer
+      minimum: 1
+      maximum: 99
+    NewEntry:
+      type: object
+      required: [personId, drinkId, quantity]
+      properties:
+        personId:
+          type: integer
+        drinkId:
+          type: integer
+        quantity:
+          $ref: '#/components/schemas/Quantity'
+        factorId:
+          type: [integer, 'null']
+          description: The chosen factor; missing or null for no factor (counts ×1)
+    Entry:
+      type: object
+      additionalProperties: false
+      required: [id, personId, drinkId, quantity, factorId, createdAt]
+      properties:
+        id:
+          type: string
+        personId:
+          type: integer
+        drinkId:
+          type: integer
+        quantity:
+          $ref: '#/components/schemas/Quantity'
+        factorId:
+          type: [integer, 'null']
+          description: The factor of the request; null for none
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the first request, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+    EntryHistory:
+      type: object
+      additionalProperties: false
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          description: Newest first
+          items:
+            $ref: '#/components/schemas/HistoryEntry'
+    HistoryEntry:
+      type: object
+      additionalProperties: false
+      required: [id, drink, quantity, factor, createdAt, accountName]
+      properties:
+        id:
+          type: string
+        drink:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        quantity:
+          $ref: '#/components/schemas/Quantity'
+        factor:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [id, name, multiplier]
+              properties:
+                id:
+                  type: integer
+                name:
+                  type: string
+                multiplier:
+                  type: number
+          description: The factor with its current multiplier; null for none or a deleted factor
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the entry, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: User name of the account that logged it; null once that account was deleted
+    Scoreboard:
+      type: object
+      additionalProperties: false
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          description: Ranked by score, ties by name; persons without entries are absent
+          items:
+            $ref: '#/components/schemas/ScoreRow'
+    ScoreRow:
+      type: object
+      additionalProperties: false
+      required: [personId, name, score, count, drinks]
+      properties:
+        personId:
+          type: integer
+        name:
+          type: string
+        score:
+          type: number
+        count:
+          type: number
+        drinks:
+          type: array
+          description: By drink name; only drinks with entries
+          items:
+            $ref: '#/components/schemas/DrinkCount'
+    DrinkCount:
+      type: object
+      additionalProperties: false
+      required: [drinkId, name, count]
+      properties:
+        drinkId:
+          type: integer
+        name:
+          type: string
+        count:
+          type: number
+    Health:
+      type: object
+      additionalProperties: false
+      required:
+        - appVersion
+        - phpVersion
+        - database
+        - schemaVersion
+        - migration
+        - minClientVersion
+      properties:
+        appVersion:
+          type: string
+          description: Version of the release that answered, `MAJOR.MINOR.PATCH` with optional build metadata
+          examples: ['0.1.0+3f2a1bc']
+        phpVersion:
+          type: string
+          examples: ['8.5.12']
+        database:
+          type: object
+          additionalProperties: false
+          required: [engine, version]
+          properties:
+            engine:
+              type: string
+              enum: [MySQL, MariaDB]
+            version:
+              type: string
+              examples: ['11.8.8']
+        schemaVersion:
+          type: integer
+          minimum: 0
+          description: Number of the newest migration up to which every migration is completed
+        migration:
+          $ref: '#/components/schemas/MigrationState'
+        minClientVersion:
+          type: string
+          description: The oldest web client version the API still serves; older clients must reload
+          examples: ['0.1.0']
+    MigrationState:
+      type: string
+      enum: [ok, running, failed]
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          enum:
+            - urn:performance:problem:bad-request
+            - urn:performance:problem:unauthenticated
+            - urn:performance:problem:invalid-credentials
+            - urn:performance:problem:forbidden
+            - urn:performance:problem:duplicate-user-name
+            - urn:performance:problem:duplicate-name
+            - urn:performance:problem:last-admin
+            - urn:performance:problem:entry-conflict
+            - urn:performance:problem:unsupported-media-type
+            - urn:performance:problem:validation
+            - urn:performance:problem:too-many-attempts
+            - urn:performance:problem:not-found
+            - urn:performance:problem:method-not-allowed
+            - urn:performance:problem:internal
+            - urn:performance:problem:maintenance
+            - urn:performance:problem:migration-failed
+        title:
+          type: string
+          description: German, shown to the user as is
+        status:
+          type: integer
+        errors:
+          type: object
+          description: Field validation errors, keyed by field name
+          additionalProperties:
+            type: string

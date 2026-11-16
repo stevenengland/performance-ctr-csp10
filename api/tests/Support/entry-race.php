@@ -1,0 +1,32 @@
+<?php
+
+declare(strict_types=1);
+
+/*
+ * One of several processes that send the same entry at the same instant:
+ *   php entry-race.php <start at (unix time)> <entry id> <person id> <drink id> <quantity> <account id>
+ * Connects with the DB_* environment of the test run.
+ */
+
+use Performance\Domain\DataRevision;
+use Performance\Domain\EntryLedger;
+use Performance\Domain\SystemClock;
+use Performance\Http\Config;
+use Performance\Http\Database;
+
+require __DIR__ . '/../../vendor/autoload.php';
+
+[, $startAt, $id, $personId, $drinkId, $quantity, $accountId] = $argv;
+$env = static fn(string $name): string => (string) getenv($name);
+// The API's own session setup (Database::open), as a request would have.
+$pdo = Database::open(new Config(
+    sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $env('DB_HOST'), $env('DB_PORT'), $env('DB_NAME')),
+    $env('DB_USER'),
+    $env('DB_PASS'),
+    'race',
+    [],
+));
+$pdo->exec("SET time_zone = '+00:00'");
+$ledger = new EntryLedger($pdo, new SystemClock(), new DataRevision($pdo));
+time_sleep_until((float) $startAt);
+$ledger->add($id, (int) $personId, (int) $drinkId, (int) $quantity, null, (int) $accountId);

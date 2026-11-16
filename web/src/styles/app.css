@@ -1,0 +1,274 @@
+/* Typography and spacing of the design spec (§3.2, §3.3); colours come from the Vuetify theme. */
+:root {
+  --font-display: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+  --font-text: 'Hanken Grotesk', system-ui, sans-serif;
+  --v-font-body: var(--font-text);
+  --v-font-heading: var(--font-display);
+  --app-margin: 16px;
+}
+
+@media (width >= 600px) {
+  :root {
+    --app-margin: 24px;
+  }
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-text);
+  font-variant-numeric: tabular-nums;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+.type-display,
+.type-title,
+.type-name-hero,
+.type-tile-name,
+.type-question {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.type-name-hero {
+  font-size: 44px;
+  font-weight: 900;
+  line-height: 42px;
+}
+
+.type-title {
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 30px;
+}
+
+.type-tile-name {
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 28px;
+  letter-spacing: 0.015em;
+}
+
+.type-question {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 26px;
+}
+
+.type-body {
+  font-family: var(--font-text);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.type-row-title {
+  font-family: var(--font-text);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.type-label {
+  font-family: var(--font-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.type-banner {
+  font-family: var(--font-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.type-support {
+  font-family: var(--font-text);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.type-caption {
+  font-family: var(--font-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.page-question {
+  padding: 14px 0 10px;
+  color: rgb(var(--v-theme-on-surface-variant));
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding-top: 16px;
+}
+
+/* No shadows anywhere (§3.3). */
+.v-btn,
+.v-card,
+.v-snackbar__wrapper {
+  box-shadow: none !important;
+}
+
+:focus-visible {
+  outline: 3px solid rgb(var(--v-theme-tertiary));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+  }
+}
+
+/* Lists (§7i): rows separated by outline-variant hairlines, primary text in row-title. */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 12px 4px;
+  border-bottom: 1px solid rgb(var(--v-theme-outline-variant));
+}
+
+.list__main {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.list__link {
+  color: rgb(var(--v-theme-on-surface));
+  text-decoration: none;
+}
+
+/* The `Admin` assist chip (§7j). */
+.admin-chip {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid rgb(var(--v-theme-outline));
+  border-radius: 8px;
+  color: rgb(var(--v-theme-on-surface-variant));
+}
+
+/* Filled dialog and form buttons: corner 10 dp (§3.3), normal case. */
+.dialog-button {
+  border-radius: 10px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.skeleton {
+  display: block;
+  width: 40%;
+  height: 16px;
+  border-radius: 4px;
+  background: rgb(var(--v-theme-surface-container-high));
+}
+
+/* Counting tiles (§6.4): the coaster — surface-container-high, corner 14 dp, 3 dp inset edge. */
+.tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 100%;
+  height: 100%;
+  min-height: 104px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: rgb(var(--v-theme-surface-container-high));
+  box-shadow: inset 0 -3px 0 rgb(var(--v-theme-outline-variant));
+  color: rgb(var(--v-theme-on-surface));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Pressed or saving: amber, edge removed. */
+.tile:active:not(:disabled),
+.tile--pressed {
+  background: rgb(var(--v-theme-primary-container));
+  box-shadow: none;
+  color: rgb(var(--v-theme-on-primary-container));
+}
+
+.tile:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (width >= 600px) {
+  .tile-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (width >= 840px) {
+  .tile-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.skeleton-tile {
+  min-height: 104px;
+  border-radius: 14px;
+  background: rgb(var(--v-theme-surface-container-low));
+}
+
+.type-numeral {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 32px;
+  font-variant-numeric: tabular-nums;
+}
+
+.list__title {
+  display: block;
+}
+
+.list__support {
+  display: block;
+  color: rgb(var(--v-theme-on-surface-variant));
+}
+
+/* Room for the FAB under the last row of a master-data list. */
+.catalog-page {
+  padding-bottom: 88px;
+}

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Enable with: git config core.hooksPath .githooks
+set -eu
+npm run check
+npm test
+# PHP static checks (no database needed); PHPUnit needs MySQL and runs in CI.
+composer --working-dir=api analyse -- --no-progress
+composer --working-dir=api cs

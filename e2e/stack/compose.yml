@@ -1,0 +1,43 @@
+# Containerised stand-in for the webspace: Apache + PHP serving the built
+# artifact with the rendered .htaccess, and MariaDB. PHP (Dockerfile) and MariaDB
+# are pinned by digest to the host's versions as probed on #2
+# (docs/runbook-deploy.md, "Runtime pins").
+#
+# STACK_ROOT is a folder laid out as on the host:
+#   site/                artifact web/ plus the rendered .htaccess
+#   app/                 artifact app/
+#   config/runtime.php   runtime configuration (see e2e/stack/config.php)
+services:
+  db:
+    # MariaDB 11.8 as on the host (11.8.8 probed; the image is 11.8.9), the same pin in
+    # e2e/stack/compose.yml, tests/support/compose.yml and ci.yml (docs/runbook-deploy.md).
+    image: mariadb:11.8@sha256:d36f18d65a0459510b8b0f643b226a6d299e3206486e2b64ff20754a6d291707
+    # Started as the host's server answers (probe of #2): empty sql_mode, utf8mb3
+    # defaults and a session time zone other than UTC. The API sets what it needs
+    # per connection (api/src/Http/Database.php), so this proves it does.
+    command:
+      - --sql-mode=
+      - --character-set-server=utf8mb3
+      - --collation-server=utf8mb3_general_ci
+      - --default-time-zone=+01:00
+    environment:
+      MARIADB_DATABASE: performance
+      MARIADB_USER: performance
+      MARIADB_PASSWORD: performance
+      # A fixed, throwaway root password: a random one is printed into the (public) CI log.
+      MARIADB_ROOT_PASSWORD: root
+    healthcheck:
+      # The image's own check: a TCP connection once the init scripts are done.
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 2s
+      timeout: 2s
+      retries: 60
+  web:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '${STACK_PORT:-8080}:8080'
+    volumes:
+      - '${STACK_ROOT:?set STACK_ROOT to the staged webspace}:/srv/performance:ro'
