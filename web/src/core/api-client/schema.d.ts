@@ -133,11 +133,14 @@ export interface paths {
       };
       cookie?: never;
     };
-    /** A person with the number of their entries (for the delete dialog) */
+    /** A person with the number of their entries and matches (for the delete dialog) */
     get: operations['getPerson'];
     put?: never;
     post?: never;
-    /** Delete a person and all of their entries */
+    /**
+     * Delete a person and all of their entries; their matches stay with that side cleared
+     * @description Every match that names the person keeps its row and outcome with the person's side cleared, so the opponent's win, draw or loss still counts; the audit log records one update per such match, caused by the person's deletion.
+     */
     delete: operations['deletePerson'];
     options?: never;
     head?: never;
@@ -480,8 +483,10 @@ export interface components {
     PersonDetail: {
       id: number;
       name: components['schemas']['Name'];
-      /** @description Entries of every day that are the person's */
+      /** @description Entries of every day that are the person's; deleting the person deletes them */
       entryCount: number;
+      /** @description Matches of every game and run that name the person on either side; deleting the person keeps them with that side cleared */
+      matchCount: number;
     };
     PersonList: {
       persons: components['schemas']['Person'][];

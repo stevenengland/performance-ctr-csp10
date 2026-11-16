@@ -254,7 +254,7 @@ paths:
           minimum: 1
     get:
       operationId: getPerson
-      summary: A person with the number of their entries (for the delete dialog)
+      summary: A person with the number of their entries and matches (for the delete dialog)
       responses:
         '200':
           description: The person
@@ -296,7 +296,11 @@ paths:
           $ref: '#/components/responses/Problem'
     delete:
       operationId: deletePerson
-      summary: Delete a person and all of their entries
+      summary: Delete a person and all of their entries; their matches stay with that side cleared
+      description: >-
+        Every match that names the person keeps its row and outcome with the person's side cleared,
+        so the opponent's win, draw or loss still counts; the audit log records one update per such
+        match, caused by the person's deletion.
       responses:
         '204':
           description: Deleted
@@ -1046,7 +1050,7 @@ components:
     PersonDetail:
       type: object
       additionalProperties: false
-      required: [id, name, entryCount]
+      required: [id, name, entryCount, matchCount]
       properties:
         id:
           type: integer
@@ -1056,7 +1060,11 @@ components:
         entryCount:
           type: integer
           minimum: 0
-          description: Entries of every day that are the person's
+          description: Entries of every day that are the person's; deleting the person deletes them
+        matchCount:
+          type: integer
+          minimum: 0
+          description: Matches of every game and run that name the person on either side; deleting the person keeps them with that side cleared
     PersonList:
       type: object
       additionalProperties: false
