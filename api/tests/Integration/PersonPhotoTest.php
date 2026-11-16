@@ -559,8 +559,12 @@ final class PersonPhotoTest extends DatabaseTestCase
     private function revision(): int
     {
         $rows = $this->rows('SELECT CAST(revision AS CHAR) AS revision FROM data_revision');
+        if ($rows === []) {
+            return 0;
+        }
+        self::assertIsNumeric($rows[0]['revision']);
 
-        return $rows === [] ? 0 : (int) $rows[0]['revision'];
+        return (int) $rows[0]['revision'];
     }
 
     private function deadlocks(): int
