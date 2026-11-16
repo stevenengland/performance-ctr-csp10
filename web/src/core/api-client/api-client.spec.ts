@@ -377,12 +377,18 @@ describe('the API client', () => {
     await expect(listResults(1)).resolves.toEqual(page);
     await listResults(1, 'WzEsIjIwMjYiXQ');
 
-    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+    [
       '/api/games/2/matches',
       '/api/games/2/matches?before=WzEsIjIwMjYiXQ',
       '/api/games/1/results',
       '/api/games/1/results?before=WzEsIjIwMjYiXQ',
-    ]);
+    ].forEach((url, index) => {
+      expect(fetch).toHaveBeenNthCalledWith(
+        index + 1,
+        url,
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
   });
 
   it('reads a factor with its entry count, edits it and deletes it at its id', async () => {
