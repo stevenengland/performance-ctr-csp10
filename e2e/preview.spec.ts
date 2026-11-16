@@ -64,6 +64,7 @@ test('the preview marker covers no control of any screen', async ({ page }) => {
     ['konto', 'Konto'],
     ['rangliste', 'Rangliste'],
     ['verwalten/personen', 'Personen'],
+    ['spiele', 'Spiele'],
     ['verwalten/konten', 'Konten'],
     ['verlauf/3', 'Daniel'],
   ] as const) {
@@ -225,6 +226,36 @@ test('the fixture preview opens another person’s Verlauf as a new screen', asy
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Jule');
   await expect(page.getByText('Heute keine Einträge.')).toBeVisible();
+});
+
+test('the fixture preview lists its sample games under Spiele and opens one', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/zaehlen');
+  await expect(
+    page.getByRole('navigation', { name: 'Hauptnavigation' }).getByRole('link'),
+  ).toHaveText(['Zählen', 'Rangliste', 'Spiele', 'Verwalten']);
+  await page
+    .getByRole('navigation', { name: 'Hauptnavigation' })
+    .getByRole('link', { name: 'Spiele' })
+    .click();
+
+  const games = page.getByRole('list', { name: 'Spiele' }).getByRole('link');
+  await expect(games).toHaveCount(3);
+  await expect(games.nth(0)).toHaveText(
+    /^Rommé\s*Punktespiel · seit heute, 00:00$/,
+  );
+  await expect(games.nth(1)).toHaveText(/^Schach\s*Duell · seit \d\d\.\d\d\.$/);
+  await games.nth(1).click();
+
+  await expect(page).toHaveURL(/#\/spiele\/2$/);
+  const bar = page.getByRole('banner');
+  await expect(bar.getByRole('heading', { level: 1 })).toHaveText('Schach');
+  await expect(bar).toContainText(/Duell · seit \d\d\.\d\d\./);
+  await expect(page.getByText('Remis möglich')).toBeVisible();
+  await expect(
+    page.getByText('Seit dem Start noch keine Partien.'),
+  ).toBeVisible();
 });
 
 /** Opens an account's menu on Konten once any other menu has closed. */

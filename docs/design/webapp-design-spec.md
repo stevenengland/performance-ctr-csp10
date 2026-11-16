@@ -39,8 +39,10 @@ connection. One or two of them are admins.
 - **One decision per screen.** The add flow asks exactly one question per step and saves on the
   last answer. No confirm button on the happy path; undo instead.
 - **Today only.** Every view covers the current day, from 00:00 in the browser's time zone. No
-  view shows other days — with one recorded exception: Protokoll (§7l), the admins' audit log,
-  covers all days, since looking up what happened yesterday or last week is its purpose.
+  view shows other days — with two recorded exceptions: Protokoll (§7l), the admins' audit log,
+  covers all days, since looking up what happened yesterday or last week is its purpose; and a
+  game (§7n, §7o) covers its current run, from its last (re)start (`seit 15.09.`), since a
+  chess ladder runs for weeks. The server owns the run; drink views keep local midnight.
 - **Honest state.** The UI never claims a save that did not happen: offline blocks saving,
   failures say so, stale data shows its age.
 - **Readable across the table.** Names and numbers are set large in a condensed display face;
@@ -206,6 +208,7 @@ All user-visible text lives in one German messages module; all formatting goes t
 | Time of an entry | `HH:mm`, browser time zone | `23:41` |
 | Last update | `Stand: HH:mm` | `Stand: 23:41` |
 | Quantity in text | `<n>×` | `2× Bier` |
+| Start of a game's run | `seit dd.MM.`, or `seit heute, HH:mm` when it lies after local midnight; browser time zone | `seit 15.09.`, `seit heute, 19:30` |
 | Day heading (Protokoll) | `Heute`, `Gestern`, else short weekday and date, browser time zone | `Sa., 14.11.2026` |
 | Changed value (Protokoll) | `<label>: <before> → <after>` | `Punkte: 1 Punkt → 0,5 Punkte` |
 
@@ -221,6 +224,8 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
 /zaehlen/:personId/:drinkId/:quantity       step 4 — Faktor (choice saves)
 /rangliste                                  today's ranking         [nav: Rangliste]
 /verlauf/:personId                          a person's entries today
+/spiele                                     the games               [nav: Spiele]
+/spiele/:gameId                             a game: its rule and its ranking since the start
 /verwalten                                  hub                     [nav: Verwalten]
 /verwalten/personen | getraenke | faktoren  master data
 /verwalten/spiele                           games: create, edit, delete (?anlegen opens create)
@@ -229,12 +234,15 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
 /konto                                      own account (top app bar)
 ```
 
-- **Navigation bar** (compact) or **navigation rail** (medium and up) with three destinations:
-  Zählen, Rangliste, Verwalten. Konto is reached from the top app bar's account icon.
+- **Navigation bar** (compact) or **navigation rail** (medium and up) with four destinations:
+  Zählen (`mdiGlassMugVariant`), Rangliste (`mdiPodium`), Spiele (`mdiCardsPlayingOutline`),
+  Verwalten (`mdiCogOutline`). Konto is reached from the top app bar's account icon. The bar
+  splits its width into four equal columns.
 - `/` redirects to `/zaehlen`. Unknown routes redirect to `/zaehlen`.
 - The add flow's steps are routes, so the system back gesture steps back one level.
 - A route parameter that no longer exists (person deleted on another phone) returns to step 1
-  with the snackbar "Nicht mehr vorhanden".
+  with the snackbar "Nicht mehr vorhanden"; a game that no longer exists returns to `/spiele`
+  the same way.
 - Not signed in: every route except `/anmelden` redirects there
   (`/anmelden?weiter=<requested route>`) and returns to the requested route after sign-in; a
   signed-in user who opens `/anmelden` goes straight on. A 401 on any later request (signed out
@@ -271,7 +279,7 @@ Rangliste the bar also shows `Stand: HH:mm` in `error` when data is stale (§6.6
 
 ### 6.2 Navigation bar / rail
 
-Three destinations (§4) on `surface-container`. The active destination's icon sits in a
+Four destinations (§4) on `surface-container`. The active destination's icon sits in a
 `secondary-container` pill and its label is `on-surface`; the others are `on-surface-variant`.
 Hidden on `/anmelden`.
 
@@ -669,6 +677,34 @@ submit on Enter.
 - `/verwalten/spiele?anlegen` opens the screen with `Spiel anlegen` already open (the target
   of the Spiele destination's empty state).
 
+### 7n. Spiele `/spiele`
+
+- The fourth navigation destination: every game (§7m) alphabetically, as the API sends them.
+  Title `Spiele` without a back button.
+- Each game is a tile (§6.4 tile, without its minimum height) linking to its page (§7o), in one
+  column on compact windows and two from 600 dp: the name (`tile-name`, one line, ellipsis)
+  with a trailing `mdiChevronRight`, and under it in `support`, `on-surface-variant`, the
+  context line — the kind and since when its ranking counts: `Duell · seit 15.09.`,
+  `Punktespiel · seit heute, 19:30` (§3.5). The tiles form the list `Spiele`.
+- Loading: three skeleton tiles. Empty: `Noch keine Spiele.` + button `Spiel anlegen` →
+  `/verwalten/spiele?anlegen` (Verwalten → Spiele with its create dialog open).
+- The list is read when the screen opens (`GET /api/games`); no polling.
+
+### 7o. Spiel `/spiele/:gameId`
+
+- Belongs to the Spiele destination (highlighted in the navigation) with a back button. Title:
+  the game's name (`Spiele` until the games have loaded); context line: as on its tile,
+  `Duell · seit 15.09.`.
+- At the top, in `label`, `on-surface-variant`, the rule that decides the ranking:
+  `Remis möglich` or `Kein Remis` for a duel, `Höchste Summe gewinnt` or
+  `Niedrigste Summe gewinnt` for a points game.
+- Below it the game's ranking since the last (re)start. Until matches and results can be
+  recorded it is empty: `Seit dem Start noch keine Partien.` for a duel,
+  `Seit dem Start noch keine Ergebnisse.` for a points game.
+- Loading: a skeleton card and three skeleton rows.
+- A game that no longer exists (deleted on another phone): back to Spiele with
+  `Nicht mehr vorhanden` (§9).
+
 ## 8. Key flows
 
 1. **Log two beers in happy hour:** Zählen → Daniel → Bier → 2 → Happy Hour ×2 → back on
@@ -732,6 +768,7 @@ submit on Enter.
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt` and `accountName` (or `null`); 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count; `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Verwalten | `GET /api/{persons,drinks,factors,games}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
+| Spiele / Spiel | `GET /api/games` | Name, kind, setting and `startedAt` from the list; a game missing from it is gone |
 | Verwalten → Spiele | `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/{id}` | Game: `id`, `name`, `kind` (`duel` \| `points`), `drawsAllowed`, `lowerWins`, `startedAt`. `POST` takes `name`, `kind` and the kind's setting; `PATCH` takes `name` and the setting (the kind is fixed); `GET …/{id}` adds `matchCount` and `resultCount` (every run) |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
 | Protokoll | `GET /api/audit?before=` | Admins only (401/403). Answer `{events, next}`, newest first; `next` is the `before` of `Ältere laden`, null on the last page. Each event: `occurredAt`, `operation`, `subjectKind`, `actor.userName`, snapshots `before`/`after` (names and values as they were), `cause` (`{id, subjectKind, name}` or null). No polling |
@@ -757,7 +794,8 @@ the shareable page a UI change is reviewed on before it reaches the host.
   preview never ages out of "today"), keeps writes in memory for the session (adds, undo,
   deletes, CRUD), and answers anything else with 503. Its games are `Rommé` (points, lowest
   sum wins, started today), `Schach` (duel with draws, two months) and `Tischtennis` (duel
-  without draws, three weeks); they are served by the API's rules (name, kind and setting
+  without draws, three weeks) — on Spiele `Punktespiel · seit heute, 00:00`, `Duell · seit …`; they
+  are served by the API's rules (name, kind and setting
   validation, the kind fixed, restart starting the next run from now).
 - **Audit log in the preview.** Protokoll starts with a seeded log that reaches back over
   several days, holds a cascade (the deletion of `Sekt` with the entries it removed) and names
