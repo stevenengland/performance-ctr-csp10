@@ -57,15 +57,21 @@ test('the preview menu offers the update prompt and the reload floor', async ({
 });
 
 test('the preview marker covers no control of any screen', async ({ page }) => {
-  for (const screen of [
-    'konto',
-    'rangliste',
-    'verwalten/personen',
-    'verwalten/konten',
-    'verlauf/3',
-  ]) {
+  // Each screen is awaited by its own title and then by a control of its own: the
+  // Rangliste has links and no buttons, so waiting for "a button" only ever passed
+  // while the previous screen was still on the page.
+  for (const [screen, title] of [
+    ['konto', 'Konto'],
+    ['rangliste', 'Rangliste'],
+    ['verwalten/personen', 'Personen'],
+    ['verwalten/konten', 'Konten'],
+    ['verlauf/3', 'Daniel'],
+  ] as const) {
     await page.goto(`/index.html#/${screen}`);
-    await expect(page.locator('main button').first()).toBeVisible();
+    await expect(
+      page.getByRole('banner').getByRole('heading', { level: 1 }),
+    ).toHaveText(title);
+    await expect(page.locator('main button, main a').first()).toBeVisible();
     const marker = await page
       .getByText('Vorschau · Beispieldaten')
       .boundingBox();
