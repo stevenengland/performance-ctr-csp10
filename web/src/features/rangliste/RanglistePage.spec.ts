@@ -58,7 +58,7 @@ function withDanielsPhoto(version: string | null): Scoreboard {
 }
 
 /** The leader's or a row's avatar. */
-function avatarIn(place: DOMWrapper<Element>) {
+function avatarIn(place: Pick<DOMWrapper<Element>, 'get'>) {
   const avatar = place.get('.person-avatar').element;
   return {
     size: avatar.getAttribute('style'),
