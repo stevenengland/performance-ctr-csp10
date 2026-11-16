@@ -1198,6 +1198,7 @@ export interface components {
         | 'urn:performance:problem:unauthenticated'
         | 'urn:performance:problem:invalid-credentials'
         | 'urn:performance:problem:forbidden'
+        | 'urn:performance:problem:own-row'
         | 'urn:performance:problem:duplicate-user-name'
         | 'urn:performance:problem:duplicate-name'
         | 'urn:performance:problem:last-admin'
