@@ -13,7 +13,7 @@ final class CleanJpeg
     private const SOI = "\xFF\xD8";
     private const EOI = 0xD9;
     private const SOS = 0xDA;
-    private const KEPT = [0xDB, 0xC4, 0xDD, 0xC0];
+    private const KEPT = [0xDB, 0xC4, 0xDD, 0xC0, 0xC1, 0xC2];
 
     public static function clean(string $bytes): string
     {
