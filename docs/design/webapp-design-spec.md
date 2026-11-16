@@ -715,7 +715,10 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   - then (`body`), when there is one: for a change the changed values as
     `Punkte: 1 Punkt → 0,5 Punkte`, several joined with ` · ` (`Name: Bier → Pils`,
     `Multiplikator: ×2 → ×1,5`, `Faktor: Happy Hour ×2 → Kein Faktor`, a game's
-    `Regel: Remis möglich → kein Remis`); a game's restart reads `Neu gestartet`, and a match
+    `Regel: Remis möglich → kein Remis`); a person's photo change reads `Foto gesetzt`,
+    `Foto geändert` or `Foto entfernt` after any name change, never the photo's version (an event
+    from before photos does not record the photo and says nothing about it); a game's restart
+    reads `Neu gestartet`, and a match
     side cleared by a person deletion reads `Ben → gelöschte Person`, under the match's title as
     it was (`Partie Ben – Anna`); for a creation or a
     deletion the values without the name: `1 Punkt` for a drink, `×2` for a factor,
@@ -1073,9 +1076,10 @@ the shareable page a UI change is reviewed on before it reaches the host.
   Verlauf is paged by the API's rules (newest first, 20 a page, a cursor that keeps its run,
   the other kind's route 404).
 - **Audit log in the preview.** Protokoll starts with a seeded log that reaches back over
-  several days, holds a cascade (the deletion of `Sekt` with the entries it removed) and names
-  an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are
-  then recorded in memory by the API's rules (game, match and result writes included, a restart as a change of
+  several days, holds a cascade (the deletion of `Sekt` with the entries it removed), a photo
+  change (`Person Anna`, `Foto gesetzt`) and names an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are
+  then recorded in memory by the API's rules (a person's photo set, change or removal as a person update, game,
+  match and result writes included, a restart as a change of
   `run` and `startedAt`, a game's or person's deletion with one caused event per match it
   deletes or clears and per result it deletes): one event per change with the signed-in account,
   the entries a deletion removes or changes as consequential events with their cause, and
