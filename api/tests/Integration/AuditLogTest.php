@@ -365,7 +365,7 @@ final class AuditLogTest extends DatabaseTestCase
 
         $events = $this->events();
         self::assertCount(AuditLog::PAGE_SIZE, $events);
-        self::assertSame(['entry'], array_values(array_unique(array_column($events, 'subjectKind'))));
+        self::assertSame(array_fill(0, AuditLog::PAGE_SIZE, 'entry'), array_column($events, 'subjectKind'));
         self::assertSame(
             array_fill(0, AuditLog::PAGE_SIZE, ['id' => 4, 'subjectKind' => 'drink', 'name' => 'Bier']),
             array_column($events, 'cause'),
