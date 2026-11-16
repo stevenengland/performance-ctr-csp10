@@ -8,6 +8,7 @@ import type {
 
 type DrinkCount = Scoreboard['rows'][number]['drinks'][number];
 import { gameBackend } from './fixtureGames';
+import { verificationBackend } from './fixtureVerification';
 import {
   type AuditSnapshot,
   type Body,
@@ -272,11 +273,12 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/matches/<uuid>`, `/api/results/<uuid>`, `/api/persons/<n>`, `/api/persons/<n>/photo`, `/api/games/<n>/standings`, `/api/games/<n>/matches`, … */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/entries/<uuid>/verification`, `/api/matches/<uuid>`, `/api/results/<uuid>`, `/api/persons/<n>`, `/api/persons/<n>/photo`, `/api/games/<n>/standings`, `/api/games/<n>/matches`, … */
 function routeOf(path: string): { route: string; id: string } {
-  const record = /^\/api\/(entries|matches|results)\/([^/]+)$/.exec(path);
+  const record =
+    /^\/api\/(entries|matches|results)\/([^/]+)(\/verification)?$/.exec(path);
   if (record?.[1] && record[2] && ENTRY_ID.test(record[2])) {
-    return { route: `/api/${record[1]}/{id}`, id: record[2] };
+    return { route: `/api/${record[1]}/{id}${record[3] ?? ''}`, id: record[2] };
   }
   const item =
     /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart|\/standings|\/matches|\/results|\/photo)?$/.exec(
@@ -366,7 +368,8 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     return event;
   };
 
-  const games = gameBackend({ fixtures, guarded, record, nextId, revision });
+  const backend = { fixtures, guarded, record, nextId, revision };
+  const games = gameBackend(backend);
 
   /**
   List, create, read (with the entry count of every day), edit and delete of one
@@ -670,6 +673,7 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       },
     ),
     ...games.routes,
+    ...verificationBackend(backend, unchanged),
     [
       'GET /api/entries',
       guarded((_me, _body, { query }) => {

@@ -57,6 +57,11 @@ export const PROBLEMS = {
     title: 'Nur für Admins',
     status: 403,
   },
+  ownRow: {
+    type: 'urn:performance:problem:own-row',
+    title: 'Das muss ein anderes Konto bestätigen.',
+    status: 403,
+  },
   duplicateUserName: {
     type: 'urn:performance:problem:duplicate-user-name',
     title: 'Benutzername ist bereits vergeben.',
