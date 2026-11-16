@@ -19,7 +19,8 @@ final class CleanJpeg
 {
     private const SIDE = 256;
     private const MAX_BYTES = 65_536;
-    private const INVALID = 'Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).';
+    /** What `image` is told when it is not a photo this app stores. */
+    public const INVALID = 'Kein gültiges Foto (JPEG, 256 × 256, höchstens 64 KB).';
 
     private const SOI = "\xFF\xD8";
     private const EOI = "\xFF\xD9";

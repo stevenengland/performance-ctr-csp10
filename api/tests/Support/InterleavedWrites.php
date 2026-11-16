@@ -15,8 +15,8 @@ trait InterleavedWrites
      * Holds the row under a shared lock, starts the first write and waits until it waits, then
      * the next and waits until it waits too, and so on, then lets go of the row.
      *
-     * @param 'matches'|'results'         $table
-     * @param list<array{string, string}> $writes each one's role and id, as concurrent-write.php takes them
+     * @param 'matches'|'results'|'persons' $table
+     * @param list<array{string, string}>  $writes each one's role and id, as concurrent-write.php takes them
      *
      * @return list<int> the exit codes, in the order given: 0 succeeded, 3 found its row gone
      */

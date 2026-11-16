@@ -1,0 +1,341 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Performance\Tests\Integration;
+
+use Performance\Domain\Catalog\CleanJpeg;
+use Performance\Http\PersonPhotoActions;
+use Performance\Tests\Support\DatabaseTestCase;
+use Performance\Tests\Support\InterleavedWrites;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Psr\Http\Message\ResponseInterface;
+use Slim\Psr7\Factory\ServerRequestFactory;
+
+/**
+ * A person's photo through HTTP: `PUT` and `DELETE /api/persons/{id}/photo`, observed through
+ * the stored row, the audit log and the scoreboard's ETag; races in their own processes.
+ */
+final class PersonPhotoTest extends DatabaseTestCase
+{
+    use InterleavedWrites;
+
+    private const MEMBER = 'daniel';
+    private const MEMBER_PASSWORD = 'daniels-passwort';
+    private const PHOTO = '/api/persons/1/photo';
+    private const SUCCEEDED = 0;
+
+    private string $admin;
+    private string $member;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->admin = $this->signIn();
+        $this->createAccount(self::MEMBER, self::MEMBER_PASSWORD);
+        $this->member = $this->signIn(self::MEMBER, self::MEMBER_PASSWORD);
+        $created = $this->send('POST', '/api/persons', ['name' => 'Anna'], $this->admin);
+        self::assertSame(201, $created->getStatusCode(), (string) $created->getBody());
+    }
+
+    /**
+     * The upload carries EXIF and GPS; what is stored, and hashed into the version, is the
+     * photo without them.
+     */
+    public function testAMembersUploadStoresTheCleanedPhotoAndRecordsOnePersonUpdate(): void
+    {
+        $tag = $this->scoreboardTag();
+
+        $response = $this->put('metadata.jpg', $this->member);
+
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(['id' => 1, 'name' => 'Anna'], $this->body($response));
+        $cleaned = self::fixture('metadata-cleaned.jpg');
+        self::assertSame([['person_id' => '1', 'jpeg' => $cleaned, 'version' => hash('sha256', $cleaned)]], $this->storedPhotos());
+        self::assertStringNotContainsString('Exif', $cleaned);
+        self::assertSame(
+            [['update', self::MEMBER, ['name' => 'Anna', 'photo' => null], ['name' => 'Anna', 'photo' => 'A']]],
+            $this->photoEvents(),
+        );
+        self::assertNotSame($tag, $this->scoreboardTag());
+    }
+
+    public function testReplacingRecordsTheOldAndTheNewVersionAndRemovingRecordsNoPhoto(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+
+        $replaced = $this->put('progressive.jpg', $this->member);
+        $removed = $this->send('DELETE', self::PHOTO, session: $this->member);
+
+        self::assertSame(200, $replaced->getStatusCode(), (string) $replaced->getBody());
+        self::assertSame(204, $removed->getStatusCode(), (string) $removed->getBody());
+        self::assertSame('', (string) $removed->getBody());
+        self::assertSame([], $this->storedPhotos());
+        self::assertSame(
+            [
+                ['update', self::MEMBER, ['name' => 'Anna', 'photo' => null], ['name' => 'Anna', 'photo' => 'A']],
+                ['update', self::MEMBER, ['name' => 'Anna', 'photo' => 'A'], ['name' => 'Anna', 'photo' => 'B']],
+                ['update', self::MEMBER, ['name' => 'Anna', 'photo' => 'B'], ['name' => 'Anna', 'photo' => null]],
+            ],
+            $this->photoEvents(),
+        );
+    }
+
+    public function testRemovingAPhotoThatIsNotThereChangesNothing(): void
+    {
+        $tag = $this->scoreboardTag();
+
+        $response = $this->send('DELETE', self::PHOTO, session: $this->member);
+
+        self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame($tag, $this->scoreboardTag(), 'no revision bump');
+        self::assertSame([], $this->photoEvents());
+    }
+
+    /** `metadata-cleaned.jpg` is what cleaning `metadata.jpg` gives: the same version. */
+    public function testUploadingTheSamePhotoAgainChangesNothing(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+        $tag = $this->scoreboardTag();
+
+        $again = $this->put('metadata-cleaned.jpg', $this->member);
+
+        self::assertSame(200, $again->getStatusCode(), (string) $again->getBody());
+        self::assertSame(['id' => 1, 'name' => 'Anna'], $this->body($again));
+        self::assertSame($tag, $this->scoreboardTag(), 'no revision bump');
+        self::assertCount(1, $this->photoEvents());
+    }
+
+    /** The second upload waits for the first's person lock and then finds its version stored. */
+    public function testParallelIdenticalUploadsBumpTheRevisionOnceAndRecordOneEvent(): void
+    {
+        $revision = $this->revision();
+
+        $exitCodes = $this->interleave('persons', '1', [['set-photo', '1'], ['set-photo', '1']]);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame($revision + 1, $this->revision());
+        self::assertSame([['update', 'race', ['name' => 'Anna', 'photo' => null], ['name' => 'Anna', 'photo' => 'B']]], $this->photoEvents());
+    }
+
+    public function testAnUnknownPersonIs404(): void
+    {
+        $put = $this->put('metadata.jpg', $this->member, '/api/persons/2/photo');
+        $delete = $this->send('DELETE', '/api/persons/2/photo', session: $this->member);
+
+        foreach ([$put, $delete] as $response) {
+            self::assertSame(404, $response->getStatusCode(), (string) $response->getBody());
+            self::assertSame('urn:performance:problem:not-found', $this->body($response)['type']);
+        }
+        self::assertSame([], $this->storedPhotos());
+    }
+
+    public function testWithoutASessionThePhotoCannotBeChanged(): void
+    {
+        $this->put('metadata.jpg', $this->member);
+
+        $put = $this->send('PUT', self::PHOTO, ['image' => base64_encode(self::fixture('progressive.jpg'))]);
+        $delete = $this->send('DELETE', self::PHOTO);
+
+        self::assertSame(401, $put->getStatusCode());
+        self::assertSame(401, $delete->getStatusCode());
+        self::assertSame(['A'], array_map(fn(array $row): string => $this->label($row['version']), $this->storedPhotos()));
+    }
+
+    public function testABodyThatIsNotJsonIs415(): void
+    {
+        $response = $this->putRaw(self::fixture('metadata.jpg'), 'image/jpeg');
+
+        self::assertSame(415, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame([], $this->storedPhotos());
+    }
+
+    /**
+     * The body is not even JSON: a 413 proves it was refused before it was parsed (a parsed
+     * one would be 400).
+     */
+    public function testABodyOverTheLimitIs413BeforeItIsParsed(): void
+    {
+        $response = $this->putRaw(str_repeat('x', PersonPhotoActions::MAX_BODY_BYTES + 1));
+
+        self::assertSame(413, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('urn:performance:problem:content-too-large', $this->body($response)['type']);
+        self::assertSame('Foto zu groß.', $this->body($response)['title']);
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
+    }
+
+    public function testADeclaredLengthOverTheLimitIs413WithoutReadingTheBody(): void
+    {
+        $body = json_encode(['image' => base64_encode(self::fixture('metadata.jpg'))], JSON_THROW_ON_ERROR);
+
+        $response = $this->putRaw($body, contentLength: (string) (PersonPhotoActions::MAX_BODY_BYTES + 1));
+
+        self::assertSame(413, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame([], $this->storedPhotos());
+    }
+
+    /** A body of exactly the limit passes the bound; its `image` is then too long. */
+    public function testABodyOfExactlyTheLimitIsParsed(): void
+    {
+        $prefix = '{"image":"';
+        $suffix = '"}';
+        $image = str_repeat('A', PersonPhotoActions::MAX_BODY_BYTES - strlen($prefix) - strlen($suffix));
+
+        $response = $this->putRaw($prefix . $image . $suffix);
+
+        self::assertSame(422, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(['image' => CleanJpeg::INVALID], $this->body($response)['errors']);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function invalidImages(): iterable
+    {
+        // 65 539 bytes are 87 388 characters of base64, the first length over the limit.
+        // Line breaks and missing padding are refused although the photo itself is valid.
+        yield 'longer than the base64 of 64 KiB' => [base64_encode(str_repeat("\xFF", 65_539))];
+        yield 'not base64' => ['kein Foto'];
+        yield 'base64 with line breaks' => [chunk_split(base64_encode(self::fixture('metadata.jpg')), 76, "\r\n")];
+        yield 'base64 without its padding' => [rtrim(base64_encode(self::fixture('metadata.jpg')), '=')];
+        yield 'missing' => [''];
+        yield 'not 256 × 256' => [base64_encode(self::fixture('not-square.jpg'))];
+        yield 'four components' => [base64_encode(self::fixture('cmyk.jpg'))];
+        yield 'over 64 KiB once cleaned' => [base64_encode(self::fixture('oversized.jpg'))];
+        yield 'no JPEG' => [base64_encode('GIF89a')];
+    }
+
+    #[DataProvider('invalidImages')]
+    public function testAnImageThatIsNotAValidPhotoIs422OnImage(string $image): void
+    {
+        $response = $this->send('PUT', self::PHOTO, ['image' => $image], $this->member);
+
+        self::assertSame(422, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(['image' => CleanJpeg::INVALID], $this->body($response)['errors']);
+        self::assertSame([], $this->storedPhotos());
+        self::assertSame([], $this->photoEvents());
+    }
+
+    private function put(string $fixture, string $session, string $path = self::PHOTO): ResponseInterface
+    {
+        return $this->send('PUT', $path, ['image' => base64_encode(self::fixture($fixture))], $session);
+    }
+
+    /** A photo `PUT` of exactly these bytes, as a client that does not send JSON could make it. */
+    private function putRaw(string $body, string $contentType = 'application/json', ?string $contentLength = null): ResponseInterface
+    {
+        $request = (new ServerRequestFactory())->createServerRequest('PUT', self::PHOTO)
+            ->withHeader('Content-Type', $contentType)
+            ->withCookieParams(['session' => $this->member]);
+        $request->getBody()->write($body);
+        if ($contentLength !== null) {
+            $request = $request->withHeader('Content-Length', $contentLength);
+        }
+
+        return $this->app()->handle($request);
+    }
+
+    private static function fixture(string $name): string
+    {
+        $bytes = file_get_contents(dirname(__DIR__) . '/Support/photos/' . $name);
+        self::assertIsString($bytes);
+
+        return $bytes;
+    }
+
+    /**
+     * The test's photos by the label the assertions use: `A` is `metadata.jpg` (stored as
+     * `metadata-cleaned.jpg`), `B` is `progressive.jpg`, the one concurrent-write.php sets.
+     */
+    private function label(mixed $version): string
+    {
+        $labels = [
+            hash('sha256', self::fixture('metadata-cleaned.jpg')) => 'A',
+            hash('sha256', CleanJpeg::clean(self::fixture('progressive.jpg'))) => 'B',
+        ];
+        self::assertIsString($version);
+        self::assertArrayHasKey($version, $labels);
+
+        return $labels[$version];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function storedPhotos(): array
+    {
+        return $this->rows('SELECT CAST(person_id AS CHAR) AS person_id, jpeg, version FROM person_photos ORDER BY person_id');
+    }
+
+    /**
+     * The person events, oldest first, as `[operation, user name, before, after]` with each
+     * snapshot's photo version shown as its label.
+     *
+     * @return list<array{string, string, array<string, mixed>|null, array<string, mixed>|null}>
+     */
+    private function personEvents(): array
+    {
+        $response = $this->send('GET', '/api/audit?limit=100', session: $this->admin);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $events = $this->body($response)['events'];
+        self::assertIsArray($events);
+        $person = [];
+        foreach (array_reverse($events) as $event) {
+            self::assertIsArray($event);
+            if ($event['subjectKind'] !== 'person') {
+                continue;
+            }
+            self::assertIsString($event['operation']);
+            self::assertIsArray($event['actor']);
+            self::assertIsString($event['actor']['userName']);
+            $person[] = [$event['operation'], $event['actor']['userName'], $this->labelled($event['before']), $this->labelled($event['after'])];
+        }
+
+        return $person;
+    }
+
+    /**
+     * The person events that changed the photo and nothing else.
+     *
+     * @return list<array{string, string, array<string, mixed>|null, array<string, mixed>|null}>
+     */
+    private function photoEvents(): array
+    {
+        return array_values(array_filter(
+            $this->personEvents(),
+            static fn(array $event): bool => $event[0] === 'update' && $event[2] !== null && $event[3] !== null && $event[2]['name'] === $event[3]['name'],
+        ));
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function labelled(mixed $snapshot): ?array
+    {
+        if ($snapshot === null) {
+            return null;
+        }
+        self::assertIsArray($snapshot);
+        $labelled = [];
+        foreach ($snapshot as $key => $value) {
+            $labelled[(string) $key] = $key === 'photo' && $value !== null ? $this->label($value) : $value;
+        }
+
+        return $labelled;
+    }
+
+    private function scoreboardTag(): string
+    {
+        $response = $this->send('GET', '/api/scoreboard?from=' . rawurlencode('2026-11-13T23:00:00.000Z'), session: $this->admin);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+
+        return $response->getHeaderLine('ETag');
+    }
+
+    private function revision(): int
+    {
+        $rows = $this->rows('SELECT CAST(revision AS CHAR) AS revision FROM data_revision');
+
+        return $rows === [] ? 0 : (int) $rows[0]['revision'];
+    }
+}

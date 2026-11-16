@@ -169,9 +169,11 @@ final readonly class CatalogActions
     }
 
     /**
+     * A person as every answer that names one shows them.
+     *
      * @return array{id: int, name: string}
      */
-    private static function person(Person $person): array
+    public static function person(Person $person): array
     {
         return ['id' => $person->id, 'name' => $person->name];
     }

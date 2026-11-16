@@ -8,6 +8,7 @@ use PDO;
 use Performance\Domain\Accounts;
 use Performance\Domain\AuditLog;
 use Performance\Domain\Catalog\Catalog;
+use Performance\Domain\Catalog\PersonPhotos;
 use Performance\Domain\Clock;
 use Performance\Domain\CompositeGameDependents;
 use Performance\Domain\CompositePersonDependents;
@@ -34,6 +35,7 @@ final class Database
     private ?Accounts $accounts = null;
     private ?Sessions $sessions = null;
     private ?Catalog $catalog = null;
+    private ?PersonPhotos $personPhotos = null;
     private ?EntryLedger $entries = null;
     private ?Scoreboard $scoreboard = null;
     private ?DataRevision $revision = null;
@@ -72,6 +74,11 @@ final class Database
     public function catalog(): Catalog
     {
         return $this->catalog ??= new Catalog($this->pdo(), $this->clock, $this->revision(), $this->audit(), new CompositePersonDependents($this->matches(), $this->results()));
+    }
+
+    public function personPhotos(): PersonPhotos
+    {
+        return $this->personPhotos ??= new PersonPhotos($this->pdo(), $this->clock, $this->revision(), $this->audit());
     }
 
     public function entries(): EntryLedger

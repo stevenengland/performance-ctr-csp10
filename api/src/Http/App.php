@@ -12,6 +12,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 use Slim\App as SlimApp;
 use Slim\Interfaces\RouteInterface;
 use Slim\Psr7\Factory\ResponseFactory;
+use Slim\Psr7\Factory\StreamFactory;
 
 /**
  * The composition root: constructs and wires every module of the API.
@@ -28,14 +29,24 @@ final class App
         $signedIn = new SessionAuth($database, $responses, $problems);
         $adminOnly = new AdminOnly($responses);
         $jsonBody = new JsonBody($responses);
-        // Route middleware added last runs first: SessionAuth, then AdminOnly, then
-        // JsonBody, so a request without a session is 401 before its body is looked at.
-        // Unknown routes and methods stay 404/405 whatever their body.
-        $member = static fn(RouteInterface $route): RouteInterface => $route->add($jsonBody)->add($signedIn);
+        $photoBody = new BodyLimit($responses, new StreamFactory(), PersonPhotoActions::MAX_BODY_BYTES);
+        // Route middleware added last runs first: SessionAuth, then AdminOnly or a route's
+        // BodyLimit, then JsonBody, so a request without a session is 401 before its body is
+        // looked at, and a bounded body is 413 before it is parsed. Unknown routes and methods
+        // stay 404/405 whatever their body.
+        $member = static function (RouteInterface $route, ?BodyLimit $limit = null) use ($jsonBody, $signedIn): RouteInterface {
+            $route->add($jsonBody);
+            if ($limit !== null) {
+                $route->add($limit);
+            }
+
+            return $route->add($signedIn);
+        };
         $admin = static fn(RouteInterface $route): RouteInterface => $route->add($jsonBody)->add($adminOnly)->add($signedIn);
         $session = new SessionActions($database, $config->bootstrapAdmin);
         $accounts = new AccountActions($database);
         $catalog = new CatalogActions($database);
+        $photos = new PersonPhotoActions($database);
         $entries = new EntryActions($database);
         $audit = new AuditActions($database);
         $games = new GameActions($database);
@@ -62,6 +73,8 @@ final class App
         $member($app->get($person, $catalog->readPerson(...)));
         $member($app->patch($person, $catalog->updatePerson(...)));
         $member($app->delete($person, $catalog->deletePerson(...)));
+        $member($app->put($person . '/photo', $photos->put(...)), $photoBody);
+        $member($app->delete($person . '/photo', $photos->remove(...)));
         $drink = '/api/drinks/{id:' . CatalogActions::ID_PATTERN . '}';
         $member($app->get($drink, $catalog->readDrink(...)));
         $member($app->patch($drink, $catalog->updateDrink(...)));

@@ -6,7 +6,9 @@ declare(strict_types=1);
  * One write in its own process, as a request running beside others would make it:
  *   php concurrent-write.php <role> <id> <account id>
  * Role `delete-person`, `delete-drink`, `delete-factor` or `delete-game` deletes that row;
- * `undo-entry`, `undo-match` and `undo-result` delete that entry, match or result. Exits 0 when the write succeeded and 3 when its row was not found
+ * `undo-entry`, `undo-match` and `undo-result` delete that entry, match or result;
+ * `rename-person` renames that person to `Berta`, `set-photo` sets their photo to
+ * photos/progressive.jpg and `remove-photo` removes it. Exits 0 when the write succeeded and 3 when its row was not found
  * (gone already); any other failure ends the process with its message and a non-zero code.
  * Connects with the DB_* environment of the test run.
  */
@@ -64,6 +66,15 @@ try {
             break;
         case 'undo-result':
             (new Database($config, $clock))->results()->delete($actor, $id);
+            break;
+        case 'rename-person':
+            $catalog->updatePerson($actor, (int) $id, 'Berta');
+            break;
+        case 'set-photo':
+            (new Database($config, $clock))->personPhotos()->set($actor, (int) $id, (string) file_get_contents(__DIR__ . '/photos/progressive.jpg'));
+            break;
+        case 'remove-photo':
+            (new Database($config, $clock))->personPhotos()->remove($actor, (int) $id);
             break;
         case 'undo-entry':
             (new EntryLedger($pdo, $clock, $revision, $audit, new Idempotency($pdo, $revision)))->delete($actor, $id);

@@ -74,6 +74,12 @@ final readonly class Problem
         return new self('unsupported-media-type', 'Nur JSON wird angenommen', 415);
     }
 
+    /** A request body over its route's limit; only the photo upload has one. */
+    public static function contentTooLarge(): self
+    {
+        return new self('content-too-large', 'Foto zu groß.', 413);
+    }
+
     /**
      * @param array<string, string> $errors
      */
