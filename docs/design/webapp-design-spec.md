@@ -6,7 +6,7 @@
 > written back here in the same pull request. Design follows spec.
 >
 > **Source of truth.** Product rules come from PRD #1 (user stories, scoring, delete semantics,
-> day window) and PRD #14 (the audit log). The API contract is `api/openapi.yaml`. This document surfaces those rules; it
+> day window), PRD #14 (the audit log) and PRD #61 (the four-eyes rule). The API contract is `api/openapi.yaml`. This document surfaces those rules; it
 > never invents domain rules.
 >
 > **Review surface.** The fixture preview (§12) — the real app on canned answers, published as
@@ -27,10 +27,19 @@ connection. One or two of them are admins.
 **Top jobs.**
 
 1. *Log a drink fast* — name, drink, quantity, factor: four taps, no typing.
-2. *See who leads tonight* — one glance at the ranking, current to within seconds.
+2. *See who leads tonight* — one glance at the ranking, which counts verified rows only and
+   follows a verification within seconds.
 3. *Fix a mistake* — undo immediately, or delete a single entry later the same day.
 4. *Set up the evening* — add a person, a drink with its points, or a "Happy Hour ×2" factor in
    a few seconds.
+
+**Four-eyes rule (PRD #61).** Every new entry, match and result starts as `offen` (pending):
+it is saved and shown, marked, and does not count until an account other than the one that
+recorded it verifies it (`Bestätigen`) or rejects it (`Ablehnen`). Recording stays four taps;
+the saved snackbar says the row waits. Vocabulary: the state `offen`; the actions
+`Bestätigen`, `Ablehnen`; a person's pending rows `+n offen`; snackbar suffix
+`· wartet auf Bestätigung`; Protokoll `bestätigt`, `abgelehnt`. Rows that existed before the
+rule count as verified.
 
 **Principles.**
 
@@ -301,7 +310,7 @@ an older one.
 
 | Trigger | Text | Action |
 |---|---|---|
-| Entry saved | `2× Bier · Happy Hour ×2 · Daniel` (factor part omitted for "Kein Faktor") | `Rückgängig` |
+| Entry saved | `2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung` (factor part omitted for "Kein Faktor") | `Rückgängig` |
 | Match saved (§7p) | `Anna – Ben · Anna gewinnt`, `Ben – Carla · Remis` | `Rückgängig` |
 | Result saved (§7q) | `Daniel · −20 Punkte`, `Anna · 1 Punkt` | `Rückgängig` |
 | Entry, match or result undone | `Rückgängig gemacht` | — |
@@ -331,7 +340,7 @@ left-aligned. Pressed or saving: `primary-container` / `on-primary-container`, e
   generic `leading` slot, which sits left of the name; the tile knows nothing about photos.
   The avatar adds nothing to the accessible name (`Daniel, 13,5 Punkte heute`).
 - **Drink tile:** top row — name left, today's counter for the chosen person right (`numeral`,
-  omitted at 0); bottom row — points in `support` (`1 Punkt`, `3 Punkte`, `0,5 Punkte`) left,
+  omitted at 0; everything recorded today, entries that wait for verification included); bottom row — points in `support` (`1 Punkt`, `3 Punkte`, `0,5 Punkte`) left,
   tally (18 dp) right.
 - **Quantity stepper** (step 3, replaces fixed quantity tiles — owner decision 2026-11-15): a
   row of a `−` tile (88 dp square), the count in the display face (128 dp) with the caption
@@ -486,8 +495,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 - Title bar: `Daniel` with the context line `Bier`; step indicator at 3. Question `Wie viele?`.
 - **Quantity stepper** (§6.4), replacing the 1–5 buttons and `Andere Anzahl` named in PRD #1
   and the slice issues (owner decision 2026-11-15; this section wins). The count starts at
-  what is already booked today for this person and drink (the counter from the scoreboard
-  feed, factors applied); `+` adds one new drink, `−` takes one new drink back. `−` is
+  what is already booked today for this person and drink (the recorded counter from the
+  scoreboard feed, `recordedCount`: factors applied, entries that wait for verification
+  included, so the number matches what was logged); `+` adds one new drink, `−` takes one new drink back. `−` is
   disabled at the booked count — booked drinks are corrected with `Rückgängig` or in the
   Verlauf — and `+` stops at 99 new drinks. The button reads `Weiter` (or `Speichern` when
   no factors exist, in which case it saves) and is disabled until at least one drink is new
@@ -524,7 +534,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 ### 7f. Rangliste `/rangliste`
 
 - Title `Rangliste` with the context line `Heute`.
-- Persons with entries today, ranked by score (ties by name):
+- Persons with verified entries today, ranked by score (ties by name); score, total count and
+  per-drink counters count verified entries only:
   - **Rank 1 — leader card:** `primary-container`, corner 18 dp. On the left the avatar
     (§6.12, 64 dp, with a 3 dp ring in `on-primary-container`), under it the name
     (`name-hero`) and the tally of the total count (26 dp); score (`score-hero`) on the right;
@@ -536,17 +547,32 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     per-drink counters beneath (`support`), and on the right the score (`numeral`) with the
     total count beneath (12 dp, Text 400, `on-surface-variant`, as in the mockup).
   - The rank is the position in the API's order (score, ties by name); tied persons get
-    consecutive ranks. Per-drink counters are listed alphabetically, as the API sends them.
-    A total count of one reads `1 Getränk`.
+    consecutive ranks. Per-drink counters are listed alphabetically, as the API sends them,
+    without drinks whose verified counter is 0. A total count of one reads `1 Getränk`.
+  - **`+n offen`:** while some of a person's entries of today wait for verification
+    (`pendingCount` > 0), an assist chip `+2 offen` (§7j's `Admin` chip) sits on the card
+    beside the total count and in a row under the total count. It counts entries (rows), not
+    drinks.
+- **Unranked group** `Noch nicht gewertet`: persons whose entries of today all wait for
+  verification (the API's `unranked`), below the ranked places under a `label` heading in
+  `on-surface-variant`, by name. Each is a row like ranks 2+ with an empty rank column, the
+  avatar, the name with the recorded per-drink counters beneath, and on the right only the
+  `+2 offen` chip — no score, no count. They have no rank and never take the leader card,
+  even when nobody else has entries. Accessible name `Jule, Aperol 1 · Bier 2, +2 offen`; the
+  row opens the person's Verlauf.
 - Card and rows form one ordered list `Rangliste`; each place has the accessible name
-  `Platz 1, Daniel, 13,5 Punkte, 9 Getränke` (avatars are decorative, §10). The card and each row are links with that name
+  `Platz 1, Daniel, 13,5 Punkte, 9 Getränke` (avatars are decorative, §10), followed by
+  `, +2 offen` while entries wait. The card and each row are links with that name
   (inside their list items) and open `/verlauf/:personId`.
 - Loading: a skeleton card and three skeleton rows.
 - Persons without entries today are not listed.
+- Zählen's person tiles (§7b) show the verified score too, so a person whose entries all wait
+  reads `noch nichts` there.
 - Photos come from versioned URLs the browser caches, so a running app keeps showing the photos
   it has loaded when the connection drops (best effort; reopening the app offline is not
   promised). A photo changed on another phone shows with the next refresh.
-- Empty: `Heute noch keine Getränke.` + button `Zählen` → `/zaehlen`.
+- Empty (no ranked and no unranked person): `Heute noch keine Getränke.` + button `Zählen` →
+  `/zaehlen`.
 - Stale indicator (§6.6) in the top app bar.
 
 ### 7g. Verlauf `/verlauf/:personId`
@@ -561,7 +587,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   `outline-variant` hairlines: primary `2× Bier` (`row-title`), secondary
   `Happy Hour ×2 · 23:41 · anna` (`support`; the factor with its current multiplier,
   `Kein Faktor` when none or deleted; the local time; the account's user name, or
-  `gelöschtes Konto` when the account is gone); trailing delete icon button named
+  `gelöschtes Konto` when the account is gone); an entry that waits for verification carries
+  the assist chip `offen` (§7j's `Admin` chip) before the delete button; trailing delete icon
+  button named
   `2× Bier um 23:41 löschen`, opening the confirmation dialog (§6.9).
 - After `Löschen`: the snackbar `Eintrag gelöscht`, the list is read again and the scoreboard
   feed refreshes at once, so counters and the Rangliste follow. An entry already deleted on
@@ -1021,11 +1049,11 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 | Konto | `GET /api/session`, `PUT /api/session/password`, `DELETE /api/session`, `GET /api/health` | |
 | Namen | `GET /api/persons`, scoreboard feed | Scores from the feed |
 | Getränk | `GET /api/drinks`, scoreboard feed | Counters from the feed |
-| Anzahl | scoreboard feed, `PUT /api/entries/{uuid}` | Booked count from the feed; saves while no factors exist |
+| Anzahl | scoreboard feed, `PUT /api/entries/{uuid}` | Booked count from the feed (`recordedCount`, pending entries included); saves while no factors exist |
 | Faktor | `GET /api/factors`, `PUT /api/entries/{uuid}` | Choice saves |
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
-| Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window |
-| Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt` and `accountName` (or `null`); 404 → person gone; after a delete the scoreboard feed refreshes |
+| Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window. `rows` rank verified entries (`score`, `count`, each drink's `count`) with `pendingCount`; each drink also has `recordedCount`; `unranked` lists persons whose entries all wait |
+| Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt`, `accountName` (or `null`) and `pending`; 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count (a person also `matchCount` and `resultCount`); `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Personen (photo) | `PUT /api/persons/{id}/photo`, `DELETE /api/persons/{id}/photo` | Any member, any person; never a field of the person `PATCH`. `PUT` body `{image}`: base64 of a 256 × 256 JPEG of at most 64 KiB; answers the person (200). A body over 96 KiB is 413 `Foto zu groß.`, an invalid photo 422 on `image`. `DELETE` is 204, also without a photo. The same photo again and removing none change nothing |
 | Photo display | `GET /api/persons/{id}/photo?v=<version>` | Loaded by `<img>`, outside the fetch wrapper. 200 `image/jpeg` with `Cache-Control: private, max-age=31536000, immutable` only while `v` is the stored version; a missing, malformed or stale `v`, no photo and an unknown person are 404, every error `no-store`. The client never builds this URL |
@@ -1060,7 +1088,9 @@ the shareable page a UI change is reviewed on before it reaches the host.
   (marked as sample data: persons, drinks, factors and entries timed relative to now, so the
   preview never ages out of "today"; Anna, Daniel and Mara have illustrated sample photos — no
   real people — bundled as hashed assets in place of the API's versioned photo URL, the others
-  show their initials), keeps writes in memory for the session (adds, undo,
+  show their initials; its last three entries wait for verification — one of Mara's, shown as
+  `+1 offen`, and Jule's only two, so she is listed under `Noch nicht gewertet` — and every
+  entry the viewer adds waits too), keeps writes in memory for the session (adds, undo,
   deletes, CRUD; an uploaded photo is kept as a `data:` URL in place of the versioned URL —
   the artifact host allows `data:` images, the production CSP never sees them — and checked
   only for base64 that starts like a JPEG), and answers anything else with 503. Its games are `Rommé` (points, lowest
