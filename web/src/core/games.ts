@@ -33,6 +33,12 @@ export async function deleteGame(id: number): Promise<void> {
   await loadGames();
 }
 
+/** Starts the game's next run: its new start and its ranking, empty until the next match or result, are read again. */
+export async function restartGame(id: number): Promise<void> {
+  await api.restartGame(id);
+  await Promise.all([loadGames(), refreshStandings(id)]);
+}
+
 /** One polled ranking per game, created when a screen first needs it. */
 const rankings = createPolledResources<number, Standings>(
   (gameId) => async (etag) => {

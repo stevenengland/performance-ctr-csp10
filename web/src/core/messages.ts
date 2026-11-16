@@ -319,6 +319,11 @@ export const messages = {
     save: 'Speichern',
     /** A game's Verlauf: its matches or results since the start (§7r). */
     history: 'Verlauf',
+    restart: 'Neu starten',
+    restartTitle: (name: string) => `${name} neu starten?`,
+    restartBody:
+      'Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.',
+    restarted: (name: string) => `${name} neu gestartet`,
     /** The Verlauf's context line: `Schach · seit 15.09.`. */
     historyContext: (game: string, since: string) => `${game} · ${since}`,
     /** A side of a match whose person was deleted. */

@@ -24,6 +24,7 @@ import {
   putEntry,
   putMatch,
   putResult,
+  restartGame,
   signOut,
   updateAccount,
   updateDrink,
@@ -493,6 +494,33 @@ describe('the API client', () => {
     expect(remove).toHaveBeenCalledWith(
       '/api/drinks/4',
       expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('restarts a game with an empty JSON body and returns it with its new start', async () => {
+    const game = {
+      id: 2,
+      name: 'Schach',
+      kind: 'duel',
+      drawsAllowed: true,
+      lowerWins: false,
+      startedAt: '2026-11-15T18:30:00.000Z',
+    };
+    const fetch = respond(game, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(restartGame(2)).resolves.toEqual(game);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/games/2/restart',
+      expect.objectContaining({
+        method: 'POST',
+        body: '{}',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+        }),
+      }),
     );
   });
 

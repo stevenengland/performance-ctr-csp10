@@ -12,7 +12,14 @@ import type { Game, Standings } from '../../core/api-client';
 import { refreshStandings } from '../../core/games';
 import { dismissSnackbar, useSnackbar } from '../../core/snackbar';
 import { createAppVuetify } from '../../theme';
-import { json, problem } from '../verwalten/manage-page-harness';
+import {
+  buttonIn,
+  click,
+  dialog,
+  json,
+  problem,
+  stubDialogEnvironment,
+} from '../verwalten/manage-page-harness';
 
 /** A 503 while a migration runs, to be retried after `Retry-After`. */
 function maintenance(): Response {
@@ -275,9 +282,11 @@ describe('a game’s page', () => {
       .find((candidate) => candidate.text() === 'Verlauf');
     expect(link?.attributes('href')).toBe('/spiele/1/verlauf');
     await link?.trigger('click');
-    await flushPromises();
 
-    expect(router.currentRoute.value.path).toBe('/spiele/1/verlauf');
+    // The page's dialog lets a navigation through one timer tick later.
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.path).toBe('/spiele/1/verlauf');
+    });
   });
 
   it('leads back to Spiele with “Nicht mehr vorhanden” when the game no longer exists', async () => {
@@ -285,7 +294,9 @@ describe('a game’s page', () => {
 
     wrapper = await spiel(7);
 
-    expect(router.currentRoute.value.path).toBe('/spiele');
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.path).toBe('/spiele');
+    });
     expect(useSnackbar().value?.text).toBe('Nicht mehr vorhanden');
   });
 });
@@ -388,9 +399,151 @@ describe('keeping a game’s page current', () => {
     );
     wrapper = await spiel(23);
 
-    await router.push('/spiele');
+    // The page's dialog lets a navigation through one timer tick later.
+    const left = router.push('/spiele');
     await vi.advanceTimersByTimeAsync(60_000);
+    await left;
 
     expect(asked).toHaveLength(1);
+  });
+});
+
+describe('restarting a game', () => {
+  const zone = process.env.TZ;
+  let wrapper: VueWrapper | undefined;
+
+  beforeEach(() => {
+    process.env.TZ = 'Europe/Berlin';
+    // 19:30 in Berlin.
+    vi.useFakeTimers({
+      now: new Date('2026-11-15T18:30:00Z'),
+      toFake: ['Date'],
+    });
+    dismissSnackbar();
+    stubDialogEnvironment();
+  });
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    document.body.innerHTML = '';
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    process.env.TZ = zone;
+  });
+
+  interface Call {
+    method: string;
+    url: string;
+    body?: unknown;
+  }
+
+  /**
+  The API with one duel: its ranking holds SCHACH until a restart starts the next
+  run from now, after which it is empty; `restart` answers the restart instead.
+  */
+  function restartable(subject: Game, restart?: () => Response) {
+    const calls: Call[] = [];
+    let current = { ...subject };
+    let restarted = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        const method = init.method ?? 'GET';
+        calls.push({
+          method,
+          url,
+          ...(typeof init.body === 'string'
+            ? { body: JSON.parse(init.body) as unknown }
+            : {}),
+        });
+        if (url === '/api/games') return json({ games: [current] });
+        if (url === `/api/games/${String(subject.id)}/standings`) {
+          return json(
+            restarted
+              ? { kind: 'duel', startedAt: current.startedAt, rows: [] }
+              : SCHACH,
+          );
+        }
+        if (
+          method === 'POST' &&
+          url === `/api/games/${String(subject.id)}/restart`
+        ) {
+          if (restart) return restart();
+          restarted = true;
+          current = { ...current, startedAt: new Date().toISOString() };
+          return json(current);
+        }
+        throw new Error(`unexpected ${method} ${url}`);
+      }),
+    );
+    return calls;
+  }
+
+  it('asks before restarting, then restarts the game and says so', async () => {
+    const calls = restartable(game(31, 'Schach', 'duel'));
+    wrapper = await spiel(31);
+
+    await click(buttonIn(document, 'Neu starten'));
+
+    expect(dialog().querySelector('h2')?.textContent).toBe(
+      'Schach neu starten?',
+    );
+    expect(dialog().textContent).toContain(
+      'Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.',
+    );
+    expect(calls.some(({ method }) => method === 'POST')).toBe(false);
+
+    await click(buttonIn(dialog(), 'Neu starten'));
+
+    expect(calls).toContainEqual({
+      method: 'POST',
+      url: '/api/games/31/restart',
+      body: {},
+    });
+    expect(useSnackbar().value?.text).toBe('Schach neu gestartet');
+    expect(document.querySelector('.v-overlay--active')).toBeNull();
+  });
+
+  it('restarts nothing when the question is cancelled', async () => {
+    const calls = restartable(game(32, 'Schach', 'duel'));
+    wrapper = await spiel(32);
+
+    await click(buttonIn(document, 'Neu starten'));
+    await click(buttonIn(dialog(), 'Abbrechen'));
+
+    expect(calls.some(({ method }) => method === 'POST')).toBe(false);
+    expect(wrapper.get('.game-leader').text()).toContain('Anna');
+  });
+
+  it('shows the new run after a restart: an empty ranking since today', async () => {
+    restartable(game(33, 'Schach', 'duel'));
+    wrapper = await spiel(33);
+    expect(wrapper.get('.game-leader').text()).toContain('Anna');
+    expect(wrapper.get('.top-bar__context').text()).toBe('Duell · seit 15.09.');
+
+    await click(buttonIn(document, 'Neu starten'));
+    await click(buttonIn(dialog(), 'Neu starten'));
+
+    expect(wrapper.find('.game-leader').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Seit dem Start noch keine Partien.');
+    expect(wrapper.get('.top-bar__context').text()).toBe(
+      'Duell · seit heute, 19:30',
+    );
+  });
+
+  it('keeps the ranking and shows the problem when the restart fails', async () => {
+    restartable(game(34, 'Schach', 'duel'), () =>
+      problem(503, { title: 'Wird aktualisiert – gleich wieder da' }),
+    );
+    wrapper = await spiel(34);
+
+    await click(buttonIn(document, 'Neu starten'));
+    await click(buttonIn(dialog(), 'Neu starten'));
+
+    expect(useSnackbar().value?.text).toBe(
+      'Wird aktualisiert – gleich wieder da',
+    );
+    expect(wrapper.get('.game-leader').text()).toContain('Anna');
+    expect(wrapper.get('.top-bar__context').text()).toBe('Duell · seit 15.09.');
   });
 });

@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { mdiHistory } from '@mdi/js';
-import { computed, onMounted } from 'vue';
+import { mdiHistory, mdiRestart } from '@mdi/js';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import AppFab from '../../components/AppFab.vue';
+import ConfirmDialog from '../../components/ConfirmDialog.vue';
 import { formatTime } from '../../core/format';
-import { loadGames, useGames, useStandings } from '../../core/games';
+import {
+  loadGames,
+  restartGame,
+  useGames,
+  useStandings,
+} from '../../core/games';
 import { messages } from '../../core/messages';
-import { showProblem } from '../../core/snackbar';
+import { showProblem, showSnackbar } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
 import GameStandingList from './GameStandingList.vue';
 import { leaveGone } from './game-flow';
@@ -24,7 +30,8 @@ decides its ranking, and the ranking since the last (re)start, shaped like the
 Rangliste and kept current like it: polled while the page is open, at once on
 focus and after the device's own writes; while its latest refresh failed, the top
 bar shows when the ranking was last confirmed (§6.6). The FAB opens the recording flow: `Partie eintragen` on a duel (§7p), `Ergebnis eintragen` on a points game (§7q);
-`Verlauf` under the ranking opens the game's Verlauf (§7r).
+`Verlauf` under the ranking opens the game's Verlauf (§7r); `Neu starten` beside it
+starts the game's next run after a confirmation.
 */
 const props = defineProps<{ gameId: string }>();
 const SKELETON_ROWS = 3;
@@ -40,6 +47,9 @@ const standings = computed(() =>
   ranking.value.value ? gameStandings(ranking.value.value) : undefined,
 );
 
+const confirming = ref(false);
+const restarting = ref(false);
+
 provideTopBar(() => {
   const { stale, updatedAt } = ranking.value;
   return {
@@ -49,6 +59,21 @@ provideTopBar(() => {
       stale && updatedAt ? messages.stand(formatTime(updatedAt)) : undefined,
   };
 });
+
+async function restart() {
+  const current = game.value;
+  if (!current || restarting.value) return;
+  restarting.value = true;
+  try {
+    await restartGame(current.id);
+    confirming.value = false;
+    showSnackbar({ text: messages.spiele.restarted(current.name) });
+  } catch (failure) {
+    showProblem(failure);
+  } finally {
+    restarting.value = false;
+  }
+}
 
 onMounted(async () => {
   try {
@@ -92,6 +117,14 @@ onMounted(async () => {
       >
         {{ messages.spiele.history }}
       </v-btn>
+      <v-btn
+        :prepend-icon="mdiRestart"
+        variant="text"
+        class="type-row-title"
+        @click="confirming = true"
+      >
+        {{ messages.spiele.restart }}
+      </v-btn>
     </div>
     <AppFab
       v-if="game"
@@ -101,6 +134,14 @@ onMounted(async () => {
           : messages.spiele.recordResult
       "
       @click="router.push(recordPath(game))"
+    />
+    <ConfirmDialog
+      v-model="confirming"
+      :title="messages.spiele.restartTitle(game?.name ?? '')"
+      :body="messages.spiele.restartBody"
+      :action="messages.spiele.restart"
+      :busy="restarting"
+      @confirm="restart"
     />
   </section>
 </template>

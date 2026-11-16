@@ -359,6 +359,15 @@ export function deleteGame(id: number): Promise<void> {
   });
 }
 
+/** Starts the game's next run from now; the API takes an empty JSON object as its body. */
+export function restartGame(id: number): Promise<Game> {
+  return request<Game>('/api/games/{id}/restart', {
+    method: 'POST',
+    params: { id: String(id) },
+    body: {},
+  });
+}
+
 /** A game's ranking with the ETag that names it, to ask on condition of next time. */
 export interface StandingsAnswer {
   standings: Standings;
