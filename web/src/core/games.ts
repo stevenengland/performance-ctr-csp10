@@ -29,7 +29,7 @@ export async function updateGame(
 
 export async function deleteGame(id: number): Promise<void> {
   await api.deleteGame(id);
-  rankings.forget(id);
+  forgetStandings(id);
   await loadGames();
 }
 
@@ -60,6 +60,11 @@ export function useStandings(gameId: number) {
 /** A game's ranking as last read, without polling it (the Spiele list reads on open and on focus). */
 export function viewStandings(gameId: number) {
   return rankings.of(gameId).state;
+}
+
+/** Drops a game's ranking once the game is gone, so a game of that id would start empty. */
+export function forgetStandings(gameId: number): void {
+  rankings.forget(gameId);
 }
 
 /**

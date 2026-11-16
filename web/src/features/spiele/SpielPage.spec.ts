@@ -393,6 +393,36 @@ describe('keeping a game’s page current', () => {
     expect(wrapper.text()).not.toContain('Stand');
   });
 
+  it('leads back to Spiele with “Nicht mehr vorhanden” once the game is deleted on another device', async () => {
+    let deleted = false;
+    const asked = serve(game(24, 'Schach', 'duel'), () =>
+      deleted
+        ? new Response(
+            JSON.stringify({
+              type: 'urn:performance:problem:not-found',
+              title: 'Nicht gefunden',
+              status: 404,
+            }),
+            {
+              status: 404,
+              headers: { 'Content-Type': 'application/problem+json' },
+            },
+          )
+        : tagged(SCHACH, '"1"'),
+    );
+    wrapper = await spiel(24);
+
+    deleted = true;
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.path).toBe('/spiele');
+    });
+    expect(useSnackbar().value?.text).toBe('Nicht mehr vorhanden');
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(asked).toHaveLength(2);
+  });
+
   it('stops asking once the page is left', async () => {
     const asked = serve(game(23, 'Schach', 'duel'), () =>
       tagged(SCHACH, '"1"'),

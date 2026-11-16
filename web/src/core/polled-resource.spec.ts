@@ -208,6 +208,28 @@ describe('a polled resource', () => {
     expect(resource.state.value.value).toBe('b');
   });
 
+  it('marks the value gone on 404 and stops polling, keeping the last value', async () => {
+    const notFound: Reply = () =>
+      Promise.reject(
+        new ApiProblem(
+          404,
+          'urn:performance:problem:not-found',
+          'Nicht gefunden',
+        ),
+      );
+    const { fetch, etags } = server(value('a'), notFound);
+    resource = createPolledResource(fetch);
+    resource.start();
+    await settle();
+    expect(resource.state.value.gone).toBeFalsy();
+
+    await wait(10);
+    expect(resource.state.value).toMatchObject({ value: 'a', gone: true });
+    await wait(120);
+
+    expect(etags).toHaveLength(2);
+  });
+
   it('runs while any screen needs it and stops polling and listening when the last one closes', async () => {
     const { fetch, etags } = server(value('a'));
     resource = createPolledResource(fetch);

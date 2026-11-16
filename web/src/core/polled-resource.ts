@@ -20,6 +20,8 @@ export interface PolledState<T> {
   updatedAt?: Date;
   /** The latest refresh failed: the value shown is that of `updatedAt`. */
   stale: boolean;
+  /** The server answered 404: the subject no longer exists, and polling stopped. */
+  gone?: true;
 }
 
 /** One request on condition of the last ETag: the new value with its ETag, or `unchanged` (304). */
@@ -57,7 +59,8 @@ is visible, it asks every 10 s on condition of the last ETag, and at once on
 focus and after the device's own writes; an answer a newer request overtook is
 dropped. A failed refresh keeps the last value, marked stale, and retries with
 backoff up to 60 s; a 503 with `Retry-After` shows the maintenance snackbar and
-retries after that delay. Without a screen, `refresh` reads once and never polls.
+retries after that delay. A 404 marks the value gone and stops polling, so the
+screen can leave. Without a screen, `refresh` reads once and never polls.
 */
 export function createPolledResource<T>(
   fetch: ConditionalFetch<T>,
@@ -98,6 +101,11 @@ export function createPolledResource<T>(
       schedule(POLL_INTERVAL_MS);
     } catch (failure) {
       if (request !== latest) return;
+      if (failure instanceof ApiProblem && failure.status === 404) {
+        state.value = { ...state.value, gone: true };
+        cancel();
+        return;
+      }
       failures += 1;
       state.value = { ...state.value, stale: true };
       const maintenance = maintenanceDelay(failure);

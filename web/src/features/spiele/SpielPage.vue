@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { mdiHistory, mdiRestart } from '@mdi/js';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppFab from '../../components/AppFab.vue';
 import ConfirmDialog from '../../components/ConfirmDialog.vue';
 import { formatTime } from '../../core/format';
 import {
+  forgetStandings,
   loadGames,
   restartGame,
   useGames,
@@ -31,7 +32,8 @@ Rangliste and kept current like it: polled while the page is open, at once on
 focus and after the device's own writes; while its latest refresh failed, the top
 bar shows when the ranking was last confirmed (§6.6). The FAB opens the recording flow: `Partie eintragen` on a duel (§7p), `Ergebnis eintragen` on a points game (§7q);
 `Verlauf` under the ranking opens the game's Verlauf (§7r); `Neu starten` beside it
-starts the game's next run after a confirmation.
+starts the game's next run after a confirmation. A game deleted meanwhile, found
+on open or by the ranking's poll, leads back to Spiele.
 */
 const props = defineProps<{ gameId: string }>();
 const SKELETON_ROWS = 3;
@@ -74,6 +76,15 @@ async function restart() {
     restarting.value = false;
   }
 }
+
+watch(
+  () => ranking.value.gone,
+  (gone) => {
+    if (!gone) return;
+    forgetStandings(gameId.value);
+    leaveGone(router);
+  },
+);
 
 onMounted(async () => {
   try {

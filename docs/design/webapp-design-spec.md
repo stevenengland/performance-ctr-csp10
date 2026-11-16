@@ -775,8 +775,9 @@ submit on Enter.
   A failed restart shows the problem title, keeps the dialog open and the ranking as it was.
   Every signed-in account may restart a game; nothing recorded is deleted.
 - Loading: a skeleton card and three skeleton rows.
-- A game that no longer exists (deleted on another phone): back to Spiele with
-  `Nicht mehr vorhanden` (§9).
+- A game that no longer exists (deleted on another phone), found on open or when the
+  ranking's poll answers 404 while the page is open: back to Spiele with
+  `Nicht mehr vorhanden` (§9); the ranking stops polling.
 
 ### 7p. Partie eintragen `/spiele/:gameId/partie[/:firstId[/:secondId]]`
 
