@@ -83,7 +83,7 @@ final readonly class Results implements GameDependents, PersonDependents
         $fingerprint = Idempotency::fingerprint(self::KIND, [$result->gameId, $result->personId, $result->points]);
         try {
             $recordedAt = $this->idempotency->write($id, $fingerprint, $result->createdAt, function () use ($result, $actor): void {
-                $run = $this->lockGameForRecording($result->gameId);
+                $run = $this->rows()->lockGame($result->gameId, GameKind::Points)['run'];
                 $this->pdo->prepare(
                     'INSERT INTO results (id, game_id, person_id, points, run, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 )->execute([
@@ -95,7 +95,7 @@ final readonly class Results implements GameDependents, PersonDependents
                     $actor->accountId,
                     Timestamp::of($result->createdAt),
                 ]);
-                $this->audit->record($actor, AuditOperation::Create, AuditSubjectKind::Result, $result->id, null, $this->snapshot($result->id));
+                $this->audit->record($actor, AuditOperation::Create, AuditSubjectKind::Result, $result->id, null, $this->rows()->snapshot($result->id));
             });
         } catch (PDOException $failure) {
             // The game is locked, so a missing parent is the person.
@@ -110,25 +110,14 @@ final readonly class Results implements GameDependents, PersonDependents
 
     /**
      * Deletes a result (undo). Its UUID stays known, so a late retry of its recording replays
-     * instead of recording it again.
-     *
-     * The result is locked before its game and person, which a game's or a person's deletion
-     * lock before their results; when the two deadlock, DataRevision runs the loser again,
-     * which then finds the other's result.
+     * instead of recording it again. The result is locked before its game and person; see
+     * RecordedRows::undo for how that meets a game's or a person's deletion.
      *
      * @throws NotFound when there is no such result
      */
     public function delete(Actor $actor, string $id): void
     {
-        $this->revision->write(function () use ($actor, $id): void {
-            $locked = $this->pdo->prepare('SELECT id FROM results WHERE id = ? FOR UPDATE');
-            $locked->execute([$id]);
-            if ($locked->fetchColumn() === false) {
-                throw new NotFound($id);
-            }
-            $this->audit->record($actor, AuditOperation::Delete, AuditSubjectKind::Result, $id, $this->snapshot($id), null);
-            $this->pdo->prepare('DELETE FROM results WHERE id = ?')->execute([$id]);
-        });
+        $this->rows()->undo($actor, $id);
     }
 
     /**
@@ -198,7 +187,7 @@ final readonly class Results implements GameDependents, PersonDependents
      */
     public function recordRemoval(Actor $actor, int $gameId, int $cause): void
     {
-        $this->recordDeletionOf($actor, $cause, 'results_game', 'game_id', $gameId);
+        $this->rows()->recordDeletions($actor, $cause, 'results_game', 'game_id', $gameId);
     }
 
     /** How many results the person has, in every game and run; read without locks, for the delete dialog. */
@@ -217,35 +206,7 @@ final readonly class Results implements GameDependents, PersonDependents
      */
     public function recordPersonDeletion(Actor $actor, int $personId, int $cause): void
     {
-        $this->recordDeletionOf($actor, $cause, 'results_person', 'person_id', $personId);
-    }
-
-    /**
-     * Locks the results whose `$column` is `$id` through `$index`, then records one delete per
-     * result in result id order, caused by `$cause`. The index is forced so the locks cover
-     * exactly those results, whatever the optimizer would pick on a small table.
-     *
-     * @param 'results_game'|'results_person' $index
-     * @param 'game_id'|'person_id'           $column
-     */
-    private function recordDeletionOf(Actor $actor, int $cause, string $index, string $column, int $id): void
-    {
-        $locked = $this->pdo->prepare("SELECT id FROM results FORCE INDEX ({$index}) WHERE {$column} = ? FOR UPDATE");
-        $locked->execute([$id]);
-        if ($locked->fetchAll(PDO::FETCH_COLUMN) === []) {
-            return;
-        }
-        $statement = $this->pdo->prepare(sprintf(self::SNAPSHOT, $index) . " WHERE r.{$column} = ? ORDER BY r.id LOCK IN SHARE MODE");
-        $statement->execute([$id]);
-        /** @var list<array<string, scalar|null>> $rows */
-        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
-        $this->audit->recordCaused(
-            $actor,
-            $cause,
-            AuditOperation::Delete,
-            AuditSubjectKind::Result,
-            array_map(static fn(array $row): array => [(string) $row['id'], self::snapshotOf($row), null], $rows),
-        );
+        $this->rows()->recordDeletions($actor, $cause, 'results_person', 'person_id', $personId);
     }
 
     /**
@@ -267,46 +228,13 @@ final readonly class Results implements GameDependents, PersonDependents
     }
 
     /**
-     * Locks the game row for share for the rest of the recording and checks that it is a
-     * points game.
+     * The mechanics results share with matches, over the results table.
      *
-     * @return int the game's current run
-     *
-     * @throws NotFound when there is no such game
-     * @throws ValidationFailed for a game of another kind
+     * @return RecordedRows<ResultSnapshot>
      */
-    private function lockGameForRecording(int $gameId): int
+    private function rows(): RecordedRows
     {
-        $statement = $this->pdo->prepare('SELECT kind, run FROM games WHERE id = ? LOCK IN SHARE MODE');
-        $statement->execute([$gameId]);
-        /** @var array{kind: string, run: int|string}|false $game */
-        $game = $statement->fetch(PDO::FETCH_ASSOC);
-        if ($game === false) {
-            throw new NotFound((string) $gameId);
-        }
-        if ($game['kind'] !== GameKind::Points->value) {
-            throw new ValidationFailed(['gameId' => 'Kein Punktespiel.']);
-        }
-
-        return (int) $game['run'];
-    }
-
-    /**
-     * One result the transaction holds already, as the audit log keeps it.
-     *
-     * @return ResultSnapshot
-     */
-    private function snapshot(string $id): array
-    {
-        $statement = $this->pdo->prepare(sprintf(self::SNAPSHOT, 'PRIMARY') . ' WHERE r.id = ? LOCK IN SHARE MODE');
-        $statement->execute([$id]);
-        /** @var array<string, scalar|null>|false $row */
-        $row = $statement->fetch(PDO::FETCH_ASSOC);
-        if ($row === false) {
-            throw new LogicException("Result {$id} is not there to be recorded");
-        }
-
-        return self::snapshotOf($row);
+        return new RecordedRows($this->pdo, $this->revision, $this->audit, AuditSubjectKind::Result, 'results', self::SNAPSHOT, 'r', self::snapshotOf(...));
     }
 
     /**

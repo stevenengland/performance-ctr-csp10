@@ -26,7 +26,9 @@ final readonly class ScoreboardAction
         $from = Instant::parse('from', is_string($query['from'] ?? null) ? $query['from'] : '');
         $scoreboard = $this->database->scoreboard();
 
-        return $scoreboard->snapshot(static fn(): ResponseInterface => ConditionalGet::respond(
+        // The revision and the standings are read in one Snapshot, so they see the same
+        // committed data: the per-drink counters add up to each person's count.
+        return $this->database->snapshot()->read(static fn(): ResponseInterface => ConditionalGet::respond(
             $request,
             $response,
             self::tag($scoreboard->revision(), $from),

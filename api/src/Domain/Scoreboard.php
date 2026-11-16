@@ -21,22 +21,6 @@ final readonly class Scoreboard
         private DataRevision $revision,
     ) {}
 
-    /**
-     * Runs reads of the revision and the standings in one Snapshot, so they all see the same
-     * committed data: the per-drink counters add up to each person's count, and the standings
-     * belong to the revision read.
-     *
-     * @template T
-     *
-     * @param callable(): T $read
-     *
-     * @return T
-     */
-    public function snapshot(callable $read): mixed
-    {
-        return (new Snapshot($this->pdo))->read($read);
-    }
-
     /** Changes whenever the standings may have changed, without aggregating. */
     public function revision(): int
     {

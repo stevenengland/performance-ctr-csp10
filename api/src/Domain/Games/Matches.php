@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Performance\Domain\Games;
 
-use LogicException;
 use PDO;
 use PDOException;
 use Performance\Domain\Actor;
@@ -89,7 +88,10 @@ final readonly class Matches implements GameDependents, PersonDependents
         $fingerprint = Idempotency::fingerprint(self::KIND, [$match->gameId, $match->firstPersonId, $match->secondPersonId, $match->outcome->value]);
         try {
             $recordedAt = $this->idempotency->write($id, $fingerprint, $match->createdAt, function () use ($match, $actor): void {
-                $run = $this->lockGameForRecording($match->gameId, $match->outcome);
+                $game = $this->rows()->lockGame($match->gameId, GameKind::Duel);
+                if ($match->outcome === Outcome::Draw && !$game['drawsAllowed']) {
+                    throw new ValidationFailed(['outcome' => 'Remis ist in diesem Spiel nicht möglich.']);
+                }
                 $this->pdo->prepare(
                     'INSERT INTO matches (id, game_id, first_person_id, second_person_id, outcome, run, account_id, created_at)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -99,11 +101,11 @@ final readonly class Matches implements GameDependents, PersonDependents
                     $match->firstPersonId,
                     $match->secondPersonId,
                     $match->outcome->value,
-                    $run,
+                    $game['run'],
                     $actor->accountId,
                     Timestamp::of($match->createdAt),
                 ]);
-                $this->audit->record($actor, AuditOperation::Create, AuditSubjectKind::Match, $match->id, null, $this->snapshot($match->id));
+                $this->audit->record($actor, AuditOperation::Create, AuditSubjectKind::Match, $match->id, null, $this->rows()->snapshot($match->id));
             });
         } catch (PDOException $failure) {
             throw DatabaseError::is($failure, DatabaseError::MISSING_PARENT) ? $this->missingPersons($match, $failure) : $failure;
@@ -119,25 +121,14 @@ final readonly class Matches implements GameDependents, PersonDependents
 
     /**
      * Deletes a match (undo). Its UUID stays known, so a late retry of its recording replays
-     * instead of recording it again.
-     *
-     * The match is locked before its game and persons, which a game deletion locks before its
-     * matches; when the two deadlock, DataRevision runs the loser again, which then finds the
-     * other's result.
+     * instead of recording it again. The match is locked before its game and persons; see
+     * RecordedRows::undo for how that meets a game's or a person's deletion.
      *
      * @throws NotFound when there is no such match
      */
     public function delete(Actor $actor, string $id): void
     {
-        $this->revision->write(function () use ($actor, $id): void {
-            $locked = $this->pdo->prepare('SELECT id FROM matches WHERE id = ? FOR UPDATE');
-            $locked->execute([$id]);
-            if ($locked->fetchColumn() === false) {
-                throw new NotFound($id);
-            }
-            $this->audit->record($actor, AuditOperation::Delete, AuditSubjectKind::Match, $id, $this->snapshot($id), null);
-            $this->pdo->prepare('DELETE FROM matches WHERE id = ?')->execute([$id]);
-        });
+        $this->rows()->undo($actor, $id);
     }
 
     /**
@@ -228,24 +219,7 @@ final readonly class Matches implements GameDependents, PersonDependents
      */
     public function recordRemoval(Actor $actor, int $gameId, int $cause): void
     {
-        // The index is forced so the locks cover exactly the game's matches, whatever the
-        // optimizer would pick on a small table.
-        $locked = $this->pdo->prepare('SELECT id FROM matches FORCE INDEX (matches_game) WHERE game_id = ? FOR UPDATE');
-        $locked->execute([$gameId]);
-        if ($locked->fetchAll(PDO::FETCH_COLUMN) === []) {
-            return;
-        }
-        $statement = $this->pdo->prepare(sprintf(self::SNAPSHOT, 'matches_game') . ' WHERE m.game_id = ? ORDER BY m.id LOCK IN SHARE MODE');
-        $statement->execute([$gameId]);
-        /** @var list<array<string, scalar|null>> $rows */
-        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
-        $this->audit->recordCaused(
-            $actor,
-            $cause,
-            AuditOperation::Delete,
-            AuditSubjectKind::Match,
-            array_map(static fn(array $row): array => [(string) $row['id'], self::snapshotOf($row), null], $rows),
-        );
+        $this->rows()->recordDeletions($actor, $cause, 'matches_game', 'game_id', $gameId);
     }
 
     /** How many matches name the person on either side; read without locks, for the delete dialog. */
@@ -266,18 +240,14 @@ final readonly class Matches implements GameDependents, PersonDependents
     public function recordPersonDeletion(Actor $actor, int $personId, int $cause): void
     {
         // Each side through its own index, so the locks cover exactly the person's matches.
+        $rows = $this->rows();
         foreach (self::SIDES as $side => $index) {
-            $this->pdo->prepare("SELECT id FROM matches FORCE INDEX ({$index}) WHERE {$side}_person_id = ? FOR UPDATE")->execute([$personId]);
+            $rows->lock($index, "{$side}_person_id", $personId);
         }
         $changes = [];
         foreach (self::SIDES as $side => $index) {
-            $statement = $this->pdo->prepare(sprintf(self::SNAPSHOT, $index) . " WHERE m.{$side}_person_id = ? LOCK IN SHARE MODE");
-            $statement->execute([$personId]);
-            /** @var list<array<string, scalar|null>> $rows */
-            $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($rows as $row) {
-                $before = self::snapshotOf($row);
-                $changes[(string) $row['id']] = [(string) $row['id'], $before, [...$before, $side => null]];
+            foreach ($rows->snapshots($index, "{$side}_person_id", $personId) as [$id, $before]) {
+                $changes[$id] = [$id, $before, [...$before, $side => null]];
             }
         }
         ksort($changes, SORT_STRING);
@@ -304,49 +274,13 @@ final readonly class Matches implements GameDependents, PersonDependents
     }
 
     /**
-     * Locks the game row for share for the rest of the recording and checks that the match
-     * fits it.
+     * The mechanics matches share with results, over the matches table.
      *
-     * @return int the game's current run
-     *
-     * @throws NotFound when there is no such game
-     * @throws ValidationFailed for a game of another kind, or a draw while the game allows none
+     * @return RecordedRows<MatchSnapshot>
      */
-    private function lockGameForRecording(int $gameId, Outcome $outcome): int
+    private function rows(): RecordedRows
     {
-        $statement = $this->pdo->prepare('SELECT kind, draws_allowed, run FROM games WHERE id = ? LOCK IN SHARE MODE');
-        $statement->execute([$gameId]);
-        /** @var array{kind: string, draws_allowed: int|string, run: int|string}|false $game */
-        $game = $statement->fetch(PDO::FETCH_ASSOC);
-        if ($game === false) {
-            throw new NotFound((string) $gameId);
-        }
-        if ($game['kind'] !== GameKind::Duel->value) {
-            throw new ValidationFailed(['gameId' => 'Kein Duell.']);
-        }
-        if ($outcome === Outcome::Draw && !(bool) $game['draws_allowed']) {
-            throw new ValidationFailed(['outcome' => 'Remis ist in diesem Spiel nicht möglich.']);
-        }
-
-        return (int) $game['run'];
-    }
-
-    /**
-     * One match the transaction holds already, as the audit log keeps it.
-     *
-     * @return MatchSnapshot
-     */
-    private function snapshot(string $id): array
-    {
-        $statement = $this->pdo->prepare(sprintf(self::SNAPSHOT, 'PRIMARY') . ' WHERE m.id = ? LOCK IN SHARE MODE');
-        $statement->execute([$id]);
-        /** @var array<string, scalar|null>|false $row */
-        $row = $statement->fetch(PDO::FETCH_ASSOC);
-        if ($row === false) {
-            throw new LogicException("Match {$id} is not there to be recorded");
-        }
-
-        return self::snapshotOf($row);
+        return new RecordedRows($this->pdo, $this->revision, $this->audit, AuditSubjectKind::Match, 'matches', self::SNAPSHOT, 'm', self::snapshotOf(...));
     }
 
     /**
