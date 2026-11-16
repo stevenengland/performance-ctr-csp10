@@ -16,6 +16,7 @@ import {
   type FixtureEntry,
   type FixtureGame,
   type FixtureMatch,
+  type FixtureResult,
   type Fixtures,
 } from './fixtures';
 
@@ -599,11 +600,41 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
   };
   const byId = (a: { id: string }, b: { id: string }) =>
     a.id.localeCompare(b.id);
+  /**
+  Like the foreign keys, the results that `goes` picks are deleted; like the
+  API, each one's deletion is recorded first, in id order, caused by `cause`,
+  with its game's and its person's names. `deleted` names the game or the
+  person whose deletion is being recorded.
+  */
+  const removeResults = (
+    me: FixtureAccount,
+    goes: (result: FixtureResult) => boolean,
+    cause: AuditEvent | undefined,
+    deleted: { game?: string; person?: string },
+  ) => {
+    const nameOf = (rows: { id: number; name: string }[], id: number) =>
+      rows.find((row) => row.id === id)?.name ?? '';
+    for (const result of fixtures.results.filter(goes).sort(byId)) {
+      record(
+        me,
+        'delete',
+        ['result', result.id],
+        {
+          game: deleted.game ?? nameOf(fixtures.games, result.gameId),
+          person: deleted.person ?? nameOf(fixtures.persons, result.personId),
+          points: result.points,
+        },
+        null,
+        cause,
+      );
+    }
+    fixtures.results = fixtures.results.filter((result) => !goes(result));
+  };
 
   /**
   Like the API's person deletion: the person's matches stay with that side
-  cleared, one caused update each; their results go with them (results are not
-  audited before the API records them).
+  cleared, one caused update each; their results go with them, one caused
+  deletion each.
   */
   const clearPerson = (
     me: FixtureAccount,
@@ -629,9 +660,9 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         cause,
       );
     }
-    fixtures.results = fixtures.results.filter(
-      ({ personId }) => personId !== person.id,
-    );
+    removeResults(me, ({ personId }) => personId === person.id, cause, {
+      person: person.name,
+    });
   };
   const matchCountOf = (personId: number) =>
     fixtures.matches.filter(
@@ -760,9 +791,9 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
           fixtures.matches = fixtures.matches.filter(
             ({ gameId }) => gameId !== game.id,
           );
-          fixtures.results = fixtures.results.filter(
-            ({ gameId }) => gameId !== game.id,
-          );
+          removeResults(me, ({ gameId }) => gameId === game.id, cause, {
+            game: game.name,
+          });
           return new Response(null, { status: 204 });
         }),
       ],
@@ -912,7 +943,12 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
           (fixtures.entries = fixtures.entries.filter(
             (entry) => entry.personId !== person.id,
           )),
-        counts: (person) => ({ matchCount: matchCountOf(person.id) }),
+        counts: (person) => ({
+          matchCount: matchCountOf(person.id),
+          resultCount: fixtures.results.filter(
+            ({ personId }) => personId === person.id,
+          ).length,
+        }),
         cascade: clearPerson,
       },
     ),

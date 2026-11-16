@@ -736,15 +736,17 @@ describe('the fixture backend’s audit log', () => {
     const entriesOf = (personId: number) =>
       fixtures.entries.filter((entry) => entry.personId === personId).length;
     const danielsEntries = entriesOf(3);
-    // Daniel's matches stay with his side cleared; their events come last.
-    const danielsMatches = fixtures.matches.filter(
-      (match) => match.firstPersonId === 3 || match.secondPersonId === 3,
-    ).length;
+    // Daniel's matches stay with his side cleared and his results go; their events come last.
+    const danielsMatchesAndResults =
+      fixtures.matches.filter(
+        (match) => match.firstPersonId === 3 || match.secondPersonId === 3,
+      ).length +
+      fixtures.results.filter((result) => result.personId === 3).length;
 
     await deletePerson(3);
     const personEvents = (
-      await newest(danielsMatches + danielsEntries + 1)
-    ).slice(danielsMatches);
+      await newest(danielsMatchesAndResults + danielsEntries + 1)
+    ).slice(danielsMatchesAndResults);
     const deletion = personEvents.at(-1);
     expect(deletion).toMatchObject({
       operation: 'delete',
@@ -1235,6 +1237,59 @@ describe('the fixture backend’s games', () => {
     ).toEqual([]);
   });
 
+  it('deletes a game’s results with it, one caused event per result', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const romme = await gameId('Rommé');
+
+    await deleteGame(romme);
+
+    const events = (await newest(9)).map(told).reverse();
+    expect(events[0]).toMatchObject({ subjectKind: 'game', cause: null });
+    expect(events.slice(1)).toHaveLength(8);
+    expect(events[1]).toEqual({
+      operation: 'delete',
+      subjectKind: 'result',
+      subjectId: '00000000-0000-4000-b000-000000000001',
+      userName: 'anna',
+      before: { game: 'Rommé', person: 'Anna', points: 35 },
+      after: null,
+      cause: { subjectKind: 'game', name: 'Rommé' },
+    });
+    expect(fixtures.results).toEqual([]);
+  });
+
+  it('counts a person’s results and deletes them with the person, one caused event each', async () => {
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
+    const daniel = (await listPersons()).find(({ name }) => name === 'Daniel');
+    if (!daniel) throw new Error('no Daniel');
+    await expect(getPerson(daniel.id)).resolves.toMatchObject({
+      resultCount: 2,
+    });
+
+    await deletePerson(daniel.id);
+
+    const removed = (await newest(2)).map(told).reverse();
+    expect(removed).toEqual(
+      [
+        ['00000000-0000-4000-b000-000000000003', -20],
+        ['00000000-0000-4000-b000-000000000007', 9],
+      ].map(([id, points]) => ({
+        operation: 'delete',
+        subjectKind: 'result',
+        subjectId: id,
+        userName: 'anna',
+        before: { game: 'Rommé', person: 'Daniel', points },
+        after: null,
+        cause: { subjectKind: 'person', name: 'Daniel' },
+      })),
+    );
+    expect(
+      fixtures.results.filter(({ personId }) => personId === daniel.id),
+    ).toEqual([]);
+  });
+
   it('keeps a deleted person’s matches with that side cleared, so the others keep their record', async () => {
     const fixtures = sampleEvening();
     installFixtureBackend(fixtures);
@@ -1254,7 +1309,8 @@ describe('the fixture backend’s games', () => {
       'Anna 15 (2)',
       'Mara 79 (2)',
     ]);
-    const updates = (await newest(5)).map(told).reverse();
+    // Ben's five match updates, then his two results' deletions.
+    const updates = (await newest(7)).map(told).reverse().slice(0, 5);
     expect(updates[0]).toMatchObject({
       operation: 'update',
       subjectKind: 'match',
