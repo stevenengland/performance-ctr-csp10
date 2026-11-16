@@ -99,6 +99,7 @@ export const messages = {
     drinks: 'Getränke',
     factors: 'Faktoren',
     accounts: 'Konten',
+    games: 'Spiele',
     /** The counts on the hub (§7h); `formatted` is the count in `de-DE`. */
     personCount: (formatted: string, count: number) =>
       `${formatted} ${count === 1 ? 'Person' : 'Personen'}`,
@@ -106,6 +107,8 @@ export const messages = {
       `${formatted} ${count === 1 ? 'Getränk' : 'Getränke'}`,
     factorCount: (formatted: string, count: number) =>
       `${formatted} ${count === 1 ? 'Faktor' : 'Faktoren'}`,
+    gameCount: (formatted: string, count: number) =>
+      `${formatted} ${count === 1 ? 'Spiel' : 'Spiele'}`,
     accountCount: (formatted: string, count: number) =>
       `${formatted} ${count === 1 ? 'Konto' : 'Konten'}`,
     audit: 'Protokoll',

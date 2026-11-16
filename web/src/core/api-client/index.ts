@@ -16,6 +16,11 @@ export type Scoreboard = components['schemas']['Scoreboard'];
 export type ScoreRow = components['schemas']['ScoreRow'];
 export type AuditPage = components['schemas']['AuditPage'];
 export type AuditEvent = components['schemas']['AuditEvent'];
+export type GameKind = components['schemas']['GameKind'];
+export type Game = components['schemas']['Game'];
+export type GameDetail = components['schemas']['GameDetail'];
+export type NewGame = components['schemas']['NewGame'];
+export type GameChange = components['schemas']['GameChange'];
 export type ApiPath = keyof paths;
 /** Field errors of a 422 problem, keyed by the API field name. */
 export type FieldErrors = Readonly<Record<string, string>>;
@@ -305,6 +310,38 @@ export function updateFactor(
 
 export function deleteFactor(id: number): Promise<void> {
   return request<undefined>('/api/factors/{id}', {
+    method: 'DELETE',
+    params: { id: String(id) },
+  });
+}
+
+export async function listGames(): Promise<Game[]> {
+  return (await request<{ games: Game[] }>('/api/games')).games;
+}
+
+export function createGame(game: NewGame): Promise<Game> {
+  return request<Game>('/api/games', { method: 'POST', body: game });
+}
+
+/** A game with the number of its stored matches or results, for the delete dialog. */
+export function getGame(id: number): Promise<GameDetail> {
+  return request<GameDetail>('/api/games/{id}', {
+    params: { id: String(id) },
+  });
+}
+
+/** Renames the game or changes its kind's setting; the kind itself is fixed. */
+export function updateGame(id: number, change: GameChange): Promise<Game> {
+  return request<Game>('/api/games/{id}', {
+    method: 'PATCH',
+    params: { id: String(id) },
+    body: change,
+  });
+}
+
+/** Deletes the game and all of its matches or results. */
+export function deleteGame(id: number): Promise<void> {
+  return request<undefined>('/api/games/{id}', {
     method: 'DELETE',
     params: { id: String(id) },
   });
