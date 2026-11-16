@@ -304,6 +304,55 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
         self::assertSame([['personId' => 1, 'name' => 'Anna', 'sum' => 30, 'results' => 1, 'pendingCount' => 1]], $standings['rows']);
     }
 
+    /**
+     * Rows the previous release inserts without `pending` are confirmed rows, of every kind: no
+     * other account is asked to verify them, and rejecting one is refused as already confirmed.
+     * The rows this release records next to them wait in that account's queue.
+     */
+    public function testRowsThePreviousReleaseInsertsOfEveryKindWaitForNobody(): void
+    {
+        $session = $this->signIn();
+        foreach (['Anna', 'Ben'] as $name) {
+            $this->send('POST', '/api/persons', ['name' => $name], $session);
+        }
+        $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $session);
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $session);
+        $this->send('POST', '/api/games', ['name' => 'Wizard', 'kind' => 'points'], $session);
+        $at = Timestamp::of($this->clock->now());
+        $previous = [
+            'entries' => ['a1000000-0000-4000-8000-000000000001', 'INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at) VALUES (?, 1, 1, 1, 1, ?)'],
+            'matches' => ['a1000000-0000-4000-8000-000000000002', "INSERT INTO matches (id, game_id, first_person_id, second_person_id, outcome, run, account_id, created_at) VALUES (?, 1, 1, 2, 'draw', 1, 1, ?)"],
+            'results' => ['a1000000-0000-4000-8000-000000000003', 'INSERT INTO results (id, game_id, person_id, points, run, account_id, created_at) VALUES (?, 2, 1, 12, 1, 1, ?)'],
+        ];
+        foreach ($previous as [$id, $insert]) {
+            $this->otherSession()->prepare($insert)->execute([$id, $at]);
+        }
+        $current = [
+            'entries' => ['b2000000-0000-4000-8000-000000000001', ['personId' => 1, 'drinkId' => 1, 'quantity' => 1]],
+            'matches' => ['b2000000-0000-4000-8000-000000000002', ['gameId' => 1, 'firstPersonId' => 1, 'secondPersonId' => 2, 'outcome' => 'draw']],
+            'results' => ['b2000000-0000-4000-8000-000000000003', ['gameId' => 2, 'personId' => 2, 'points' => 4]],
+        ];
+        foreach ($current as $rows => [$id, $row]) {
+            $recorded = $this->send('PUT', "/api/{$rows}/{$id}", $row, $session);
+            self::assertSame(201, $recorded->getStatusCode(), (string) $recorded->getBody());
+        }
+        $this->createAccount('anna', 'annas-startpasswort');
+        $anna = $this->signIn('anna', 'annas-startpasswort');
+
+        $queue = $this->body($this->send('GET', '/api/pending', session: $anna));
+
+        self::assertIsList($queue['items']);
+        self::assertSame(
+            array_column($current, 0),
+            array_column($queue['items'], 'id'),
+        );
+        self::assertSame(3, $queue['count']);
+        foreach ($previous as $rows => [$id]) {
+            $rejected = $this->send('DELETE', "/api/{$rows}/{$id}/verification", session: $anna);
+            self::assertSame(409, $rejected->getStatusCode(), "the previous release's {$rows} row is confirmed");
+        }
+    }
+
     private function previousReleaseReserves(): void
     {
         $this->otherSession()->prepare(self::PREVIOUS_RESERVATION)->execute([self::ADMIN, self::ADDRESS, Timestamp::of($this->clock->now())]);
