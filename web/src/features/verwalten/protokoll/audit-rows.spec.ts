@@ -165,7 +165,7 @@ describe('the Protokoll rows', () => {
       subjectKind: 'entry',
       operation: 'delete',
       before: { ...beer, factor: null },
-      cause: { id: 7, subjectKind: 'drink', name: 'Wein' },
+      cause: { name: 'Wein' },
     });
     const direct = only({
       operation: 'create',
