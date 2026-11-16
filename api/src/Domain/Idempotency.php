@@ -19,10 +19,8 @@ use PDOException;
  * conflict. Keys are kept seven days and purged on a later write; after that the key is
  * forgotten. One store serves every kind, so a key is unique across them.
  *
- * The store is `idempotency_keys`. Entry keys recorded before it existed, and those the
- * previous release records during a rollout, are in `entry_requests` (ADR 0006: expand, then
- * contract), so a key is looked up there too and purged from both. A release after this one
- * has been live for seven days drops that table and the fallback.
+ * The store is `idempotency_keys`. The retired `entry_requests` is neither read nor purged
+ * any more; a later release drops it (ADR 0006, pending contract step from PRD #27).
  */
 final readonly class Idempotency
 {
@@ -30,8 +28,6 @@ final readonly class Idempotency
     public const ENTRY = 'entry';
     private const KEEP = 'P7D';
     private const TABLE = 'idempotency_keys';
-    /** The previous release's entry keys; read and purged until the contract step drops it. */
-    private const PREVIOUS_TABLE = 'entry_requests';
 
     public function __construct(
         private PDO $pdo,
@@ -64,12 +60,6 @@ final readonly class Idempotency
     public function write(string $key, string $fingerprint, DateTimeImmutable $now, callable $write): ?DateTimeImmutable
     {
         $this->purge($now);
-        // The new table's primary key cannot see a key of the previous release, and the row it
-        // answered for may be gone (an undone entry), so such a key is answered before writing.
-        $previous = $this->recorded(self::PREVIOUS_TABLE, $key);
-        if ($previous !== null) {
-            return self::answer($key, $fingerprint, $previous);
-        }
         try {
             $this->revision->write(function () use ($key, $fingerprint, $now, $write): void {
                 $this->pdo->prepare('INSERT INTO ' . self::TABLE . ' (id, fingerprint, created_at) VALUES (?, ?, ?)')
@@ -80,19 +70,10 @@ final readonly class Idempotency
             return null;
         } catch (PDOException $failure) {
             if (DatabaseError::is($failure, DatabaseError::DUPLICATE_KEY)) {
-                return $this->replay($key, $fingerprint);
+                return self::answer($key, $fingerprint, $this->recorded($key));
             }
             throw $failure;
         }
-    }
-
-    /**
-     * The duplicate is this store's key, or a key the previous release recorded meanwhile
-     * together with the same entry id.
-     */
-    private function replay(string $key, string $fingerprint): DateTimeImmutable
-    {
-        return self::answer($key, $fingerprint, $this->recorded(self::TABLE, $key) ?? $this->recorded(self::PREVIOUS_TABLE, $key));
     }
 
     /**
@@ -112,9 +93,9 @@ final readonly class Idempotency
     /**
      * @return array{fingerprint: string, createdAt: string}|null
      */
-    private function recorded(string $table, string $key): ?array
+    private function recorded(string $key): ?array
     {
-        $statement = $this->pdo->prepare("SELECT fingerprint, created_at FROM {$table} WHERE id = ?");
+        $statement = $this->pdo->prepare('SELECT fingerprint, created_at FROM ' . self::TABLE . ' WHERE id = ?');
         $statement->execute([$key]);
         $row = $statement->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row) || !is_string($row['fingerprint'] ?? null) || !is_string($row['created_at'] ?? null)) {
@@ -127,8 +108,6 @@ final readonly class Idempotency
     private function purge(DateTimeImmutable $now): void
     {
         $before = Timestamp::of($now->sub(new DateInterval(self::KEEP)));
-        foreach ([self::TABLE, self::PREVIOUS_TABLE] as $table) {
-            $this->pdo->prepare("DELETE FROM {$table} WHERE created_at < ?")->execute([$before]);
-        }
+        $this->pdo->prepare('DELETE FROM ' . self::TABLE . ' WHERE created_at < ?')->execute([$before]);
     }
 }

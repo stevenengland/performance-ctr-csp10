@@ -29,6 +29,12 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
             before_json, after_json, snapshot_version, cause_id)
         VALUES (?, 'create', 'person', '1', 1, 'chef', NULL, '{\"name\":\"Daniel\"}', 1, NULL)";
 
+    /** The previous release's fallback lookup of a retry key (Idempotency before the contract step). */
+    private const PREVIOUS_LEGACY_LOOKUP = 'SELECT fingerprint, created_at FROM entry_requests WHERE id = ?';
+
+    /** The previous release's purge of expired retry keys from the retired table. */
+    private const PREVIOUS_LEGACY_PURGE = 'DELETE FROM entry_requests WHERE created_at < ?';
+
     public function testAttemptsThePreviousReleaseRecordedCountAsFailuresAndASuccessForgetsThem(): void
     {
         $this->signIn();
@@ -69,31 +75,26 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
     }
 
     /**
-     * The previous release keeps recording entry ids in `entry_requests` while this one records
-     * them in `idempotency_keys`: a retry that reaches this release still replays, never adds
-     * the entry again, and answers a conflict for other content.
+     * The previous release still looks a key up in `entry_requests` and purges that table on
+     * every client-UUID write; this release does neither, but keeps the table, so those
+     * statements still run while the previous release's requests finish. Dropping the table
+     * is a later release's step (ADR 0006, decision 1).
      */
-    public function testAnEntryThePreviousReleaseRecordedReplaysOnThisRelease(): void
+    public function testThePreviousReleasesLookupAndPurgeOfEntryRequestsStillRun(): void
     {
         $session = $this->signIn();
         $this->send('POST', '/api/persons', ['name' => 'Daniel'], $session);
         $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $session);
         $other = $this->otherSession();
-        $recordedAt = Timestamp::of($this->clock->now());
-        $other->prepare('INSERT INTO entry_requests (id, fingerprint, created_at) VALUES (?, ?, ?)')
-            ->execute([self::ENTRY, hash('sha256', '[1,1,2]'), $recordedAt]);
-        $other->prepare('INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at) VALUES (?, 1, 1, 2, 1, ?)')
-            ->execute([self::ENTRY, $recordedAt]);
-        $this->clock->advance('PT30S');
 
-        $retry = $this->send('PUT', '/api/entries/' . self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2], $session);
-        $changed = $this->send('PUT', '/api/entries/' . self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 3], $session);
+        $created = $this->send('PUT', '/api/entries/' . self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2], $session);
+        $other->prepare(self::PREVIOUS_LEGACY_PURGE)->execute([Timestamp::of($this->clock->now()->sub(new DateInterval('P7D')))]);
+        $lookup = $other->prepare(self::PREVIOUS_LEGACY_LOOKUP);
+        $lookup->execute([self::ENTRY]);
 
-        self::assertSame(200, $retry->getStatusCode());
-        self::assertSame('2026-11-14T20:00:00.000Z', $this->body($retry)['createdAt']);
-        self::assertSame(409, $changed->getStatusCode());
-        self::assertSame([['id' => self::ENTRY, 'quantity' => 2]], $this->rows('SELECT id, quantity FROM entries'));
-        self::assertSame([], $this->rows('SELECT id FROM idempotency_keys'));
+        self::assertSame(201, $created->getStatusCode());
+        self::assertFalse($lookup->fetch(), 'no key there: the previous release goes on to idempotency_keys');
+        self::assertSame([['id' => self::ENTRY]], $this->rows('SELECT id FROM idempotency_keys'));
     }
 
     /**

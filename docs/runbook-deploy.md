@@ -192,11 +192,16 @@ its own API's floor and ask to reload forever.
 
 **Pending contract steps** (ADR 0006, decision 1), each due in a later release:
 
-- `entry_requests` (since PRD #27, `idempotency_keys` holds the retry keys): not before seven
-  days after the PRD #27 release is live, drop the table and remove
-  `Idempotency::PREVIOUS_TABLE` with its fallback read and purge in the same release, and
-  update `RolloutCompatibilityTest`. Dropping only the table makes every entry, match and
-  result write fail.
+- `entry_requests` (since PRD #27, `idempotency_keys` holds the retry keys), in two releases
+  (ADR 0006, "Consequences"):
+  1. **Retire** (no migration): `Idempotency` no longer reads or purges the table. Deploy it
+     only once the PRD #27 release has been live for at least seven days: until then the
+     table may hold keys a retry still needs. Count the seven days from that release's tag
+     (`release-YYYYMMDD-HHMM`, archived after it went live).
+  2. **Drop** (pending): a migration drops `entry_requests`. Deploy it only after the retiring
+     release is live; never in the same release as step 1 or before it, since the PRD #27
+     release reads and purges the table on every entry, match and result write, and would
+     fail them while its requests finish during the rollout.
 
 ## When a deploy fails
 

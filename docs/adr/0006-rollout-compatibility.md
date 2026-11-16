@@ -107,10 +107,17 @@ is the only way past a schema change.
   deploy (design spec §6.7). That is accepted as a transient, cosmetic effect, and
   `MIN_CLIENT_VERSION` stays. Protokoll now names an event of a kind it does not know by its
   name only, so the next new kind degrades cleanly.
-- **Pending contract step from PRD #27:** retry keys moved from `entry_requests` to
-  `idempotency_keys` by expansion; `Idempotency` still reads and purges `entry_requests` for
-  the previous release's keys. Not before seven days after that release is live, a later
-  release drops `entry_requests`, removes `Idempotency::PREVIOUS_TABLE` with its fallback read
-  and purge, and updates `RolloutCompatibilityTest`. Both go together: dropping the table while
-  the fallback still reads it makes every entry, match and result write fail. Runbook,
-  "Breaking API changes", lists it until it is done.
+- **Contract step from PRD #27, in two releases:** retry keys moved from `entry_requests` to
+  `idempotency_keys` by expansion, and the PRD #27 release still reads and purges
+  `entry_requests` for the keys the release before it recorded. That fallback and the table
+  cannot go in one release: while it rolls out, the PRD #27 release is the previous release,
+  and its requests still read and purge the table (decision 1; dropping it would be an unsafe
+  migration under decision 2). So:
+  1. *Done (retire):* once the PRD #27 release has been live for seven days, every key in
+     `entry_requests` has expired, and a release removes `Idempotency::PREVIOUS_TABLE` with its
+     fallback read and purge. It changes code only, keeps the table, and needs no migration;
+     `RolloutCompatibilityTest` runs the PRD #27 release's lookup and purge against it.
+  2. *Pending (drop):* a later release, deployed only after the retiring release is live (it is
+     then the previous release and no longer touches the table), drops `entry_requests` with a
+     guarded migration and a `RolloutCompatibilityTest` case for the retiring release. The
+     runbook, "Breaking API changes", lists it until it is done.
