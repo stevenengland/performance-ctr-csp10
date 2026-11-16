@@ -206,6 +206,29 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
         self::assertSame([['person_id' => '1']], $this->rows('SELECT CAST(person_id AS CHAR) AS person_id FROM person_photos'));
     }
 
+    /**
+     * The verification migrations add `pending` with the default 0 (PRD #61). An entry the
+     * previous release still inserts names no `pending`, so it counts at once, as it did there;
+     * an entry this release records waits for verification next to it.
+     */
+    public function testAnEntryThePreviousReleaseInsertsCountsNextToAPendingOne(): void
+    {
+        $session = $this->signIn();
+        $this->send('POST', '/api/persons', ['name' => 'Daniel'], $session);
+        $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $session);
+        $this->otherSession()->prepare('INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at) VALUES (?, 1, 1, 2, 1, ?)')
+            ->execute([self::ENTRY, Timestamp::of($this->clock->now())]);
+        $recorded = $this->send('PUT', '/api/entries/0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b', ['personId' => 1, 'drinkId' => 1, 'quantity' => 3], $session);
+        self::assertSame(201, $recorded->getStatusCode(), (string) $recorded->getBody());
+
+        $board = $this->body($this->send('GET', '/api/scoreboard?from=2026-11-14T00:00:00Z', session: $session));
+
+        self::assertIsList($board['rows']);
+        self::assertCount(1, $board['rows']);
+        self::assertIsArray($board['rows'][0]);
+        self::assertSame(['score' => 2, 'count' => 2], array_intersect_key($board['rows'][0], ['score' => 0, 'count' => 0]));
+    }
+
     private function previousReleaseReserves(): void
     {
         $this->otherSession()->prepare(self::PREVIOUS_RESERVATION)->execute([self::ADMIN, self::ADDRESS, Timestamp::of($this->clock->now())]);
