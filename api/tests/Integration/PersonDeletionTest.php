@@ -47,7 +47,7 @@ final class PersonDeletionTest extends DatabaseTestCase
                 [self::CARLA_BEATS_ANNA, (string) self::CARLA, (string) self::ANNA, 'first'],
                 [self::ANNA_BEATS_BEN, (string) self::ANNA, null, 'first'],
             ],
-            $this->matches(),
+            $this->storedMatches(),
         );
         self::assertSame(['Carla', 'Anna'], array_column($this->standings(), 'name'), 'Ben ranks nowhere');
     }
@@ -77,7 +77,7 @@ final class PersonDeletionTest extends DatabaseTestCase
         $this->send('DELETE', '/api/persons/' . self::ANNA, session: $this->session);
         $this->send('DELETE', '/api/persons/' . self::BEN, session: $this->session);
 
-        self::assertContains([self::ANNA_BEATS_BEN, null, null, 'first'], $this->matches());
+        self::assertContains([self::ANNA_BEATS_BEN, null, null, 'first'], $this->storedMatches());
         self::assertSame(
             [['personId' => self::CARLA, 'points' => 1.5]],
             array_map(static fn(array $row): array => ['personId' => $row['personId'], 'points' => $row['points']], $this->standings()),
@@ -178,7 +178,7 @@ final class PersonDeletionTest extends DatabaseTestCase
      *
      * @return list<list<mixed>>
      */
-    private function matches(): array
+    private function storedMatches(): array
     {
         return array_map(
             static fn(array $row): array => array_values($row),
