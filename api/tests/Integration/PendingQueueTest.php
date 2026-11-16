@@ -251,6 +251,39 @@ final class PendingQueueTest extends DatabaseTestCase
         self::assertSame(21, $second['count']);
     }
 
+    /**
+     * The order holds across kinds and instants: a page that ends on the last entry of an
+     * instant goes on with that instant's match and result, then older rows of every kind. The
+     * account's own rows and rows already verified are in neither the pages nor the count.
+     */
+    public function testPagesFollowOneOrderAcrossKindsAndInstantsAndCountTheEligibleRowsOfEveryKind(): void
+    {
+        $this->send('POST', '/api/persons', ['name' => 'Erik'], $this->chef);
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $this->chef);
+        $this->send('POST', '/api/games', ['name' => 'Wizard', 'kind' => 'points'], $this->chef);
+        $older = [$this->recordResult($this->chef, 1, 5, 2), $this->recordMatch($this->chef, 1, 2, 'draw'), $this->record($this->chef)];
+        $this->verify($this->record($this->chef), $this->anna);
+        $this->verify($this->recordMatch($this->chef, 1, 2, 'first'), $this->anna, 'matches');
+        $this->verify($this->recordResult($this->chef, 2, 3, 2), $this->anna, 'results');
+        $this->clock->advance('PT1M');
+        $result = $this->recordResult($this->chef, 1, -4, 2);
+        $match = $this->recordMatch($this->chef, 2, 1, 'second');
+        $entries = array_map(fn(): string => $this->record($this->chef), range(1, 20));
+        $this->record($this->anna);
+        $this->recordMatch($this->anna, 1, 2, 'first');
+        $this->recordResult($this->anna, 1, 9, 2);
+
+        $first = $this->body($this->pending($this->anna));
+        self::assertIsString($first['next']);
+        $second = $this->body($this->pending($this->anna, $first['next']));
+
+        self::assertSame($entries, $this->idsIn($first));
+        self::assertSame([$match, $result, $older[2], $older[1], $older[0]], $this->idsIn($second));
+        self::assertNull($second['next']);
+        self::assertSame(25, $first['count']);
+        self::assertSame(25, $second['count']);
+    }
+
     public function testACursorThatNamesNoPositionIs422(): void
     {
         $response = $this->send('GET', '/api/pending?cursor=nonsense', session: $this->anna);
@@ -345,9 +378,10 @@ final class PendingQueueTest extends DatabaseTestCase
         return $id;
     }
 
-    private function verify(string $entry, string $session): void
+    /** Verifies an entry, or a match or result when their route is named. */
+    private function verify(string $row, string $session, string $rows = 'entries'): void
     {
-        $response = $this->send('PUT', "/api/entries/{$entry}/verification", [], $session);
+        $response = $this->send('PUT', "/api/{$rows}/{$row}/verification", [], $session);
         self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
     }
 
