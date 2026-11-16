@@ -10,8 +10,27 @@ const persons = shallowRef<Person[]>();
 const drinks = shallowRef<Drink[]>();
 const factors = shallowRef<Factor[]>();
 
+/**
+Counts every persons read started and every person write acknowledged. A read's
+answer replaces the list only if nothing counted since it started: a newer
+read answers fresher data, and an acknowledged write is already in the list,
+which an older answer would undo. A save does not wait for its reload, so two
+saves' reloads can answer in either order.
+*/
+let personsChanges = 0;
+
 export async function loadPersons(): Promise<void> {
-  persons.value = await api.listPersons();
+  const started = (personsChanges += 1);
+  const answer = await api.listPersons();
+  if (started === personsChanges || persons.value === undefined) {
+    persons.value = answer;
+  }
+}
+
+/** Puts an acknowledged write into the list and supersedes the reads still running. */
+function acknowledged(change: (list: Person[]) => Person[]): void {
+  personsChanges += 1;
+  if (persons.value) persons.value = change(persons.value);
 }
 
 export async function loadDrinks(): Promise<void> {
@@ -26,9 +45,11 @@ created person.
 */
 export async function createPerson(name: string): Promise<Person> {
   const person = await api.createPerson(name);
-  persons.value = persons.value
-    ?.concat(person)
-    .sort((a, b) => a.name.localeCompare(b.name, 'de') || a.id - b.id);
+  acknowledged((list) =>
+    list
+      .concat(person)
+      .sort((a, b) => a.name.localeCompare(b.name, 'de') || a.id - b.id),
+  );
   return person;
 }
 
@@ -64,13 +85,16 @@ export async function putPersonPhoto(
 /** Removes a person's photo; once acknowledged the list shows their initials. Does not reload. */
 export async function deletePersonPhoto(id: number): Promise<void> {
   await api.deletePersonPhoto(id);
-  const person = persons.value?.find((candidate) => candidate.id === id);
-  if (person) replacePerson({ ...person, photoUrl: null });
+  acknowledged((list) =>
+    list.map((candidate) =>
+      candidate.id === id ? { ...candidate, photoUrl: null } : candidate,
+    ),
+  );
 }
 
 function replacePerson(person: Person): void {
-  persons.value = persons.value?.map((candidate) =>
-    candidate.id === person.id ? person : candidate,
+  acknowledged((list) =>
+    list.map((candidate) => (candidate.id === person.id ? person : candidate)),
   );
 }
 
