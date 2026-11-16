@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig, devices, type Project } from '@playwright/test';
 
 /** The containerised stack (e2e/stack) serving the built artifact. */
@@ -11,6 +12,16 @@ const channel = process.env.PW_CHANNEL;
  * (the CI e2e job has none) and the preview projects cannot connect.
  */
 const servePreview = process.env.E2E_PREVIEW === '1';
+
+/**
+The app version the stack's web client sends in `X-Client-Version`. The tests'
+own API calls (`request`, `page.request`) send it too, so the API's client floor
+(ClientVersionGate) does not refuse them as header-less clients once it passes
+0.1.0. The pages' own requests carry the same version either way.
+*/
+const clientVersion = (
+  JSON.parse(readFileSync('web/package.json', 'utf8')) as { version: string }
+).version;
 
 const windows = {
   compact: { width: 390, height: 844 },
@@ -33,6 +44,7 @@ function project(
       isMobile: window === 'compact',
       hasTouch: window === 'compact',
       baseURL,
+      extraHTTPHeaders: { 'X-Client-Version': clientVersion },
     },
   };
 }

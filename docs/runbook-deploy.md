@@ -190,8 +190,17 @@ the route runs, on every route but `/api/health`. So an app that starts after th
 changed nothing (a refused write is not booked; the user enters it again after reloading).
 Apps before 0.2.0 send no header: a request without it counts as
 `Compatibility::LAST_VERSION_WITHOUT_HEADER` (0.1.0), so it is served while the floor is 0.1.0
-and refused once the floor is raised. Anything else that calls the API besides health (a
-script, a manual `curl`) must then send the header as well.
+and refused once the floor is raised. Other callers, checked for this release:
+
+- The deploy (`deploy/io/http-smoke.ts`), the deploy proof in CI and the weekly
+  `live-check.yml` read only `/api/health`, which is never refused. `scripts/host-probe`
+  calls its own probe script, not the app.
+- The stack e2e tests call the API through Playwright's `request` and `page.request`;
+  `playwright.config.ts` sends the `web/package.json` version as `X-Client-Version` for them
+  (`e2e/pwa-update.spec.ts` turns that off, so only the client's own header counts there).
+- The fixture preview answers the app in the browser and has no floor.
+- Anything else, such as a manual `curl` to a route other than health, must send
+  `X-Client-Version: <version at or above the floor>` once the floor passes 0.1.0.
 
 Bump the `version` in `web/package.json` to at least the new floor in the same pull request:
 the artifact build and `scripts/artifact.test.ts` fail otherwise, because the freshly deployed

@@ -109,6 +109,8 @@ function entryScript(root: string): string {
 
 test.describe('the reload floor across a real update', () => {
   test.describe.configure({ timeout: 180_000 });
+  // Only the web client's own X-Client-Version may reach the canned API here.
+  test.use({ extraHTTPHeaders: {} });
 
   let scratch: string;
   let first: Release;
