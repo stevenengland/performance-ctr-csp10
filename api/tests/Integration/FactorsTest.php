@@ -252,17 +252,23 @@ final class FactorsTest extends DatabaseTestCase
         $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => $points], $this->session);
     }
 
+    /** Records an entry and, once it is recorded, lets it count. */
     private function add(int $personId, int $drinkId, int $quantity, ?int $factorId = null): ResponseInterface
     {
         ++$this->entries;
         $id = sprintf('00000000-0000-4000-8000-%012d', $this->entries);
 
-        return $this->send(
+        $response = $this->send(
             'PUT',
             "/api/entries/{$id}",
             ['personId' => $personId, 'drinkId' => $drinkId, 'quantity' => $quantity, 'factorId' => $factorId],
             $this->session,
         );
+        if ($response->getStatusCode() === 201) {
+            $this->verifyDirectly('entries', $id);
+        }
+
+        return $response;
     }
 
     /**

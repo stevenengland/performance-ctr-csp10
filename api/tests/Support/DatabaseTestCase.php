@@ -163,6 +163,17 @@ abstract class DatabaseTestCase extends TestCase
     }
 
     /**
+     * Lets a recorded entry, match or result count, as another account's verification does
+     * (PRD #61). Set directly, by another session, until the API can verify.
+     *
+     * @param 'entries'|'matches'|'results' $table
+     */
+    protected function verifyDirectly(string $table, string $id): void
+    {
+        $this->otherSession()->prepare("UPDATE {$table} SET pending = 0 WHERE id = ?")->execute([$id]);
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     protected function rows(string $sql): array

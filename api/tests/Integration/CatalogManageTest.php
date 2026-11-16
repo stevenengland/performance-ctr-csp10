@@ -234,12 +234,14 @@ final class CatalogManageTest extends DatabaseTestCase
         $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1.5], $this->session);
     }
 
+    /** Records an entry and lets it count. */
     private function add(int $personId, int $drinkId, int $quantity): ResponseInterface
     {
         ++$this->entries;
         $id = sprintf('00000000-0000-4000-8000-%012d', $this->entries);
         $response = $this->send('PUT', "/api/entries/{$id}", ['personId' => $personId, 'drinkId' => $drinkId, 'quantity' => $quantity], $this->session);
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        $this->verifyDirectly('entries', $id);
 
         return $response;
     }

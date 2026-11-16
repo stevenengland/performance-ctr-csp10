@@ -38,7 +38,7 @@ final readonly class Scoreboard
         foreach ($this->rows(
             'SELECT e.person_id, d.id AS drink_id, d.name, SUM(e.quantity * COALESCE(f.multiplier, 1)) AS count
              FROM entries e JOIN drinks d ON d.id = e.drink_id LEFT JOIN factors f ON f.id = e.factor_id
-             WHERE e.created_at >= ?
+             WHERE e.created_at >= ? AND e.pending = 0
              GROUP BY e.person_id, d.id, d.name
              ORDER BY d.name, d.id',
             $since,
@@ -62,7 +62,7 @@ final readonly class Scoreboard
                  FROM entries e JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
                  LEFT JOIN factors f ON f.id = e.factor_id
                  LEFT JOIN person_photos ph ON ph.person_id = p.id
-                 WHERE e.created_at >= ?
+                 WHERE e.created_at >= ? AND e.pending = 0
                  GROUP BY p.id, p.name, ph.version
                  ORDER BY score DESC, p.name, p.id',
                 $since,

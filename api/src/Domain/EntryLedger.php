@@ -112,7 +112,7 @@ final readonly class EntryLedger
         try {
             $recordedAt = $this->idempotency->write($entry->id, $fingerprint, $entry->createdAt, function () use ($entry, $actor): void {
                 $this->pdo->prepare(
-                    'INSERT INTO entries (id, person_id, drink_id, quantity, factor_id, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO entries (id, person_id, drink_id, quantity, factor_id, account_id, created_at, pending) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
                 )->execute([
                     $entry->id,
                     $entry->personId,

@@ -57,6 +57,18 @@ final class ScoreboardTest extends DatabaseTestCase
         );
     }
 
+    public function testARecordedEntryWaitsForVerificationAndCountsNeitherInScoreNorCount(): void
+    {
+        $this->add(1, 1, 2);
+        $this->record(1, 1, 3);
+        $this->record(1, 2, 1);
+
+        $rows = $this->rowsOf($this->scoreboard());
+
+        self::assertSame([[1, 2, 2]], array_map(static fn(array $row): array => [$row['personId'], $row['score'], $row['count']], $rows));
+        self::assertSame([[1, 2]], array_map(static fn(array $drink): array => [$drink['drinkId'], $drink['count']], self::listOf($rows[0]['drinks'])));
+    }
+
     public function testTheRevisionAndBothAggregationsReadOneSnapshot(): void
     {
         $this->add(1, 1, 2);
@@ -283,11 +295,32 @@ final class ScoreboardTest extends DatabaseTestCase
         return $rows;
     }
 
-    private function add(int $personId, int $drinkId, int $quantity): string
+    /** Records an entry and lets it count. */
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function listOf(mixed $list): array
+    {
+        self::assertIsList($list);
+
+        /** @var list<array<string, mixed>> */
+        return $list;
+    }
+
+    private function add(int $personId, int $drinkId, int $quantity, ?int $factorId = null): string
+    {
+        $id = $this->record($personId, $drinkId, $quantity, $factorId);
+        $this->verifyDirectly('entries', $id);
+
+        return $id;
+    }
+
+    /** Records an entry, which waits for verification. */
+    private function record(int $personId, int $drinkId, int $quantity, ?int $factorId = null): string
     {
         ++$this->entries;
         $id = sprintf('00000000-0000-4000-8000-%012d', $this->entries);
-        $response = $this->send('PUT', "/api/entries/{$id}", ['personId' => $personId, 'drinkId' => $drinkId, 'quantity' => $quantity], $this->session);
+        $response = $this->send('PUT', "/api/entries/{$id}", ['personId' => $personId, 'drinkId' => $drinkId, 'quantity' => $quantity, 'factorId' => $factorId], $this->session);
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
 
         return $id;
