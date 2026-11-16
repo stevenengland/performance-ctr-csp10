@@ -98,6 +98,20 @@ describe('the route guard', () => {
     });
   });
 
+  it('opens Spiele under Verwalten for every signed-in account', async () => {
+    signedInAs({ id: 2, userName: 'anna', isAdmin: false });
+
+    const spiele = await open('/verwalten/spiele?anlegen');
+
+    expect(spiele.path).toBe('/verwalten/spiele');
+    expect(spiele.query).toHaveProperty('anlegen');
+    expect(spiele.meta).toMatchObject({
+      title: 'Spiele',
+      destination: 'verwalten',
+      child: true,
+    });
+  });
+
   it('sends a signed-in user away from Anmelden to where they wanted to go', async () => {
     signedInAs({ id: 2, userName: 'anna', isAdmin: false });
 

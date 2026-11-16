@@ -133,6 +133,16 @@ export const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/verwalten/spiele',
+    component: () =>
+      import('./features/verwalten/spiele/SpieleVerwaltenPage.vue'),
+    meta: {
+      title: messages.spiele.title,
+      destination: 'verwalten',
+      child: true,
+    },
+  },
+  {
     path: '/verwalten/konten',
     component: () => import('./features/verwalten/konten/KontenPage.vue'),
     meta: {

@@ -202,6 +202,34 @@ export const messages = {
       return `${String(entries)} Einträge zählen danach ×1.`;
     },
   },
+  /** Verwalten → Spiele (§7m). */
+  spiele: {
+    title: 'Spiele',
+    empty: 'Noch keine Spiele.',
+    create: 'Spiel anlegen',
+    edit: 'Spiel bearbeiten',
+    name: 'Name',
+    kind: 'Art',
+    kindFixed: 'Die Art bleibt nach dem Anlegen fest.',
+    duel: 'Duell',
+    points: 'Punktespiel',
+    duelHint: 'Zwei Personen, eine gewinnt – oder Remis',
+    pointsHint: 'Eine Person, eine Punktzahl',
+    drawsAllowed: 'Remis möglich',
+    noDraws: 'kein Remis',
+    higherWins: 'Höchste Summe gewinnt',
+    lowerWins: 'Niedrigste Summe gewinnt',
+    /** A game's setting in the list: `Duell · Remis möglich`. */
+    setting: (kind: string, setting: string) => `${kind} · ${setting}`,
+    /** A deleted game's matches or results go with it. */
+    removeBody: (name: string, kind: 'duel' | 'points', count: number) => {
+      if (count === 0) return `${name} wird gelöscht.`;
+      const [one, many] =
+        kind === 'duel' ? ['Partie', 'Partien'] : ['Ergebnis', 'Ergebnisse'];
+      const counted = count === 1 ? `1 ${one}` : `${String(count)} ${many}`;
+      return `${name} und ${counted} werden gelöscht.`;
+    },
+  },
   anmelden: {
     title: 'Anmelden',
     /** The app name on Anmelden, set in two lines at the soft hyphen (§7a). */
