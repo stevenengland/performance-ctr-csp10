@@ -636,21 +636,23 @@ submit on Enter.
 - Rows on `outline-variant` hairlines, without actions:
   - primary (`row-title`): the subject with its kind, `Getränk Bier`, `Person Daniel`,
     `Faktor Happy Hour`, `Eintrag 2× Bier für Daniel`, `Spiel Schach`, `Partie Anna – Ben`
-    (`gelöschte Person` for a side already cleared) — the names as the event recorded them,
+    (`gelöschte Person` for a side already cleared), `Ergebnis Daniel` — the names as the event recorded them,
     so the log stays readable after a rename or a deletion;
   - then (`body`), when there is one: for a change the changed values as
     `Punkte: 1 Punkt → 0,5 Punkte`, several joined with ` · ` (`Name: Bier → Pils`,
     `Multiplikator: ×2 → ×1,5`, `Faktor: Happy Hour ×2 → Kein Faktor`); for a creation or a
     deletion the values without the name: `1 Punkt` for a drink, `×2` for a factor,
     `1 Punkt · Happy Hour ×2` for an entry (the drink's points, and the factor unless none),
-    `Schach · Anna gewinnt` or `Schach · Remis` for a match (its game and outcome);
+    `Schach · Anna gewinnt` or `Schach · Remis` for a match (its game and outcome),
+    `Rommé · −20 Punkte` for a result (its game and its points, with a real minus sign);
     a value the event does not hold is left out;
   - then (`support`): the local time and the user name the event recorded, `23:41 · anna`
     (kept after the account is deleted);
   - trailing, an outlined assist chip (corner 8 dp, `caption`) with the operation: `Angelegt`,
     `Geändert`, or `Gelöscht` in `error`.
 - A consequential event — an entry removed by the deletion of its person or drink, or an entry
-  that lost its factor when the factor was deleted — is indented by 20 dp and its supporting
+  that lost its factor when the factor was deleted, a match or result removed with its game, a
+  match side cleared or a result removed with its person — is indented by 20 dp and its supporting
   line ends with its cause, `23:41 · anna · durch Löschen von Wein`. The cause comes with the
   event itself, so it shows even when the deletion is on another page.
 - Pages of 20: below the list the tonal button `Ältere laden` appends the next older page; on
@@ -887,7 +889,7 @@ the shareable page a UI change is reviewed on before it reaches the host.
   an account that no longer exists (`jonas`). The viewer's own catalog and entry writes are
   then recorded in memory by the API's rules (game and match writes included, a restart as a change of
   `run` and `startedAt`, a game's or person's deletion with one caused event per match it
-  deletes or clears): one event per change with the signed-in account,
+  deletes or clears and per result it deletes): one event per change with the signed-in account,
   the entries a deletion removes or changes as consequential events with their cause, and
   nothing for a save that changes nothing, a write that fails, a replayed or conflicting entry
   or match request, or an account change.

@@ -133,13 +133,13 @@ export interface paths {
       };
       cookie?: never;
     };
-    /** A person with the number of their entries and matches (for the delete dialog) */
+    /** A person with the number of their entries, matches and results (for the delete dialog) */
     get: operations['getPerson'];
     put?: never;
     post?: never;
     /**
-     * Delete a person and all of their entries; their matches stay with that side cleared
-     * @description Every match that names the person keeps its row and outcome with the person's side cleared, so the opponent's win, draw or loss still counts; the audit log records one update per such match, caused by the person's deletion.
+     * Delete a person with all of their entries and results; their matches stay with that side cleared
+     * @description Every match that names the person keeps its row and outcome with the person's side cleared, so the opponent's win, draw or loss still counts; the audit log records one update per such match, caused by the person's deletion. The person's results of every game and run are deleted with them; the audit log records one deletion per result, caused by the person's.
      */
     delete: operations['deletePerson'];
     options?: never;
@@ -385,7 +385,7 @@ export interface paths {
     };
     /**
      * The game's ranking in its current run, tagged with the game's kind
-     * @description Duel game: every person with a match in the current run, by points (win 1, draw ½, loss 0), then wins, then name. Rankings are computed from the stored outcome, so a deleted person's side counts for no one and never changes the other side's result. Points game: no rows until results can be recorded. The ETag is the data revision, read in the same snapshot as the ranking; every game and match write bumps it, so `If-None-Match` with the last ETag answers 304 without ranking while nothing changed.
+     * @description Duel game: every person with a match in the current run, by points (win 1, draw ½, loss 0), then wins, then name. Rankings are computed from the stored outcome, so a deleted person's side counts for no one and never changes the other side's result. Points game: every person with a result in the current run, by the sum of their points, the lowest first when `lowerWins` is on and the highest otherwise, then name; a changed `lowerWins` re-ranks at once. The ETag is the data revision, read in the same snapshot as the ranking; every game, match and result write bumps it, so `If-None-Match` with the last ETag answers 304 without ranking while nothing changed.
      */
     get: operations['getStandings'];
     put?: never;
@@ -401,7 +401,7 @@ export interface paths {
       query?: never;
       header?: never;
       path: {
-        /** @description The client-generated UUID v4 (lower case) of a match, also its retry key; unique across entries and matches. Anything else is 404. */
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
         id: components['parameters']['ClientId'];
       };
       cookie?: never;
@@ -420,6 +420,30 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/results/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Record one person's points in a points game, idempotently on its id
+     * @description The result is recorded in the game's current run, with the account and the server time (UTC). Replays and conflicts as for matches: a repeated request with the same id and content answers 200 with the original result and records nothing, even after the result was deleted or its game deleted; the same id with other content, or an id already used for an entry or a match, answers 409 `request-conflict`. Ids are remembered for seven days. An unknown game is 404; points that are not a whole number from −9 999 to 9 999, a missing or unknown person, or a duel game is 422.
+     */
+    put: operations['recordResult'];
+    post?: never;
+    /** Delete a result (undo); its id stays known, so a late retry cannot bring it back */
+    delete: operations['deleteResult'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/audit': {
     parameters: {
       query?: never;
@@ -429,7 +453,7 @@ export interface paths {
     };
     /**
      * A page of audit events, newest first (admins only)
-     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink, a factor or a game (a restart is an update of its `run` and `startedAt`), and every entry counted or deleted and every match recorded or deleted (a game's deletion records one for each of its matches, caused by it), recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry or match request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
+     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink, a factor or a game (a restart is an update of its `run` and `startedAt`), and every entry counted or deleted and every match or result recorded or deleted (a game's deletion records one for each of its matches or results, caused by it; a person's deletion one for each of their results), recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry, match or result request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
      */
     get: operations['listAuditEvents'];
     put?: never;
@@ -487,6 +511,8 @@ export interface components {
       entryCount: number;
       /** @description Matches of every game and run that name the person on either side; deleting the person keeps them with that side cleared */
       matchCount: number;
+      /** @description Results of every game and run that are the person's; deleting the person deletes them */
+      resultCount: number;
     };
     PersonList: {
       persons: components['schemas']['Person'][];
@@ -678,6 +704,25 @@ export interface components {
        */
       createdAt: string;
     };
+    /** @description One result's points, a whole number */
+    GamePoints: number;
+    NewResult: {
+      gameId: number;
+      personId: number;
+      points: components['schemas']['GamePoints'];
+    };
+    Result: {
+      id: string;
+      gameId: number;
+      personId: number;
+      points: components['schemas']['GamePoints'];
+      /**
+       * Format: date-time
+       * @description Server time of the first request, UTC
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+    };
     Standings:
       | components['schemas']['DuelStandings']
       | components['schemas']['PointsStandings'];
@@ -717,13 +762,15 @@ export interface components {
        */
       startedAt: string;
       lowerWins: boolean;
-      /** @description Ranked by the sum in the game's direction, then name; empty until results can be recorded */
+      /** @description Ranked by the sum in the game's direction, then name; persons without a result in the run are absent */
       rows: components['schemas']['PointsRow'][];
     };
     PointsRow: {
       personId: number;
       name: string;
+      /** @description The sum of the person's points in the run */
       sum: number;
+      /** @description How many results make up the sum */
       results: number;
     };
     AuditPage: {
@@ -744,8 +791,9 @@ export interface components {
       /** @enum {string} */
       operation: 'create' | 'update' | 'delete';
       /** @enum {string} */
-      subjectKind: 'entry' | 'person' | 'drink' | 'factor' | 'game' | 'match';
-      /** @description The subject's id as text (an integer for persons, drinks, factors and games, the UUID for entries) */
+      subjectKind:
+        'entry' | 'person' | 'drink' | 'factor' | 'game' | 'match' | 'result';
+      /** @description The subject's id as text (an integer for persons, drinks, factors and games, the UUID for entries, matches and results) */
       subjectId: string;
       /** @description The account that made the change, as it was then; kept after the account is renamed or deleted */
       actor: {
@@ -761,12 +809,13 @@ export interface components {
         /** @description The causing event's id */
         id: number;
         /** @enum {string} */
-        subjectKind: 'entry' | 'person' | 'drink' | 'factor' | 'game' | 'match';
+        subjectKind:
+          'entry' | 'person' | 'drink' | 'factor' | 'game' | 'match' | 'result';
         /** @description The causing event's subject name, as that event recorded it */
         name: string;
       };
     };
-    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null, a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome}` with the game's and both persons' names (a person deleted before is null). Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
+    /** @description The subject's values as they were, with referenced names resolved then: a person `{name}`, a drink `{name, points}`, a factor `{name, multiplier}`, an entry `{person, drink, points, quantity, factor}` with the person's and the drink's names, the drink's points, and the factor `{name, multiplier}` or null, a game `{name, kind, drawsAllowed, run, startedAt}` for a duel game and `{name, kind, lowerWins, run, startedAt}` for a points game, a match `{game, first, second, outcome}` with the game's and both persons' names (a person deleted before is null), a result `{game, person, points}` with the game's and the person's names. Keys are only ever added, never renamed, removed or given a new meaning; a reader treats a key it does not know, or a missing one, as unknown. */
     AuditSnapshot: {
       name?: string;
       points?: number;
@@ -877,7 +926,7 @@ export interface components {
   parameters: {
     /** @description The game's id; anything but a positive integer is 404 */
     GameId: number;
-    /** @description The client-generated UUID v4 (lower case) of a match, also its retry key; unique across entries and matches. Anything else is 404. */
+    /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
     ClientId: string;
   };
   requestBodies: never;
@@ -1831,7 +1880,7 @@ export interface operations {
       query?: never;
       header?: never;
       path: {
-        /** @description The client-generated UUID v4 (lower case) of a match, also its retry key; unique across entries and matches. Anything else is 404. */
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
         id: components['parameters']['ClientId'];
       };
       cookie?: never;
@@ -1872,7 +1921,71 @@ export interface operations {
       query?: never;
       header?: never;
       path: {
-        /** @description The client-generated UUID v4 (lower case) of a match, also its retry key; unique across entries and matches. Anything else is 404. */
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  recordResult: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
+        id: components['parameters']['ClientId'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewResult'];
+      };
+    };
+    responses: {
+      /** @description Already recorded by an earlier request with this id */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Result'];
+        };
+      };
+      /** @description Recorded */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Result'];
+        };
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      409: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  deleteResult: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
         id: components['parameters']['ClientId'];
       };
       cookie?: never;

@@ -2,6 +2,7 @@ import type { DeepReadonly } from 'vue';
 import {
   formatMultiplier,
   formatPoints,
+  formatSigned,
   formatTime,
 } from '../../../core/format';
 import { messages } from '../../../core/messages';
@@ -109,9 +110,10 @@ function outcomeText({ outcome, first, second }: Snapshot): string {
   return outcome === undefined || winner === '' ? '' : text.wins(winner);
 }
 
-/** A person's, drink's, factor's or game's name, an entry's `2× Bier für Daniel`, a match's `Anna – Ben`; empty when unknown. */
+/** A person's, drink's, factor's or game's name, an entry's `2× Bier für Daniel`, a match's `Anna – Ben`, a result's person; empty when unknown. */
 function subjectName(kind: SubjectKind, snapshot: Snapshot): string {
   if (kind === 'entry') return entryName(snapshot);
+  if (kind === 'result') return snapshot.person ?? '';
   if (kind === 'match') {
     return text.match(sideName(snapshot.first), sideName(snapshot.second));
   }
@@ -124,8 +126,22 @@ function title(kind: SubjectKind, snapshot: Snapshot): string {
   return name === '' ? text.kind[kind] : text.subject(text.kind[kind], name);
 }
 
+/** A result's known values: its game, then its points as a game shows them (`−20 Punkte`). */
+function resultFields({ game, points }: Snapshot): Field[] {
+  const known: Field[] = [];
+  if (game !== undefined) known.push([text.game, game]);
+  if (points !== undefined) {
+    known.push([
+      text.points,
+      messages.spiele.gamePoints(formatSigned(points), points),
+    ]);
+  }
+  return known;
+}
+
 /** The snapshot's known values, labelled and formatted. */
-function fields(snapshot: Snapshot): Field[] {
+function fields(kind: SubjectKind, snapshot: Snapshot): Field[] {
+  if (kind === 'result') return resultFields(snapshot);
   const known: Field[] = [];
   if (snapshot.name !== undefined) known.push([text.name, snapshot.name]);
   if (snapshot.person !== undefined) {
@@ -149,16 +165,16 @@ function fields(snapshot: Snapshot): Field[] {
 
 /** An update's changed values as before → after; a create's or delete's values without the name the title already gives. */
 function changes(event: DeepReadonly<AuditEventView>): string[] {
-  const { before, after } = event;
+  const { before, after, subjectKind } = event;
   if (before && after) {
-    const was = new Map(fields(before));
-    return fields(after)
+    const was = new Map(fields(subjectKind, before));
+    return fields(subjectKind, after)
       .filter(([label, value]) => was.has(label) && was.get(label) !== value)
       .map(([label, value]) => text.change(label, was.get(label) ?? '', value));
   }
   const snapshot = after ?? before;
   if (!snapshot) return [];
-  return fields(snapshot)
+  return fields(subjectKind, snapshot)
     .filter(
       ([label, value]) =>
         label !== text.name &&

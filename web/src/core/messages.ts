@@ -134,6 +134,7 @@ export const messages = {
       factor: 'Faktor',
       game: 'Spiel',
       match: 'Partie',
+      result: 'Ergebnis',
     },
     operation: {
       create: 'Angelegt',

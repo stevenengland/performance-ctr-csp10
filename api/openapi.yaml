@@ -254,7 +254,7 @@ paths:
           minimum: 1
     get:
       operationId: getPerson
-      summary: A person with the number of their entries and matches (for the delete dialog)
+      summary: A person with the number of their entries, matches and results (for the delete dialog)
       responses:
         '200':
           description: The person
@@ -296,11 +296,12 @@ paths:
           $ref: '#/components/responses/Problem'
     delete:
       operationId: deletePerson
-      summary: Delete a person and all of their entries; their matches stay with that side cleared
+      summary: Delete a person with all of their entries and results; their matches stay with that side cleared
       description: >-
         Every match that names the person keeps its row and outcome with the person's side cleared,
         so the opponent's win, draw or loss still counts; the audit log records one update per such
-        match, caused by the person's deletion.
+        match, caused by the person's deletion. The person's results of every game and run are
+        deleted with them; the audit log records one deletion per result, caused by the person's.
       responses:
         '204':
           description: Deleted
@@ -791,8 +792,10 @@ paths:
         Duel game: every person with a match in the current run, by points (win 1, draw ½,
         loss 0), then wins, then name. Rankings are computed from the stored outcome, so a
         deleted person's side counts for no one and never changes the other side's result.
-        Points game: no rows until results can be recorded. The ETag is the data revision,
-        read in the same snapshot as the ranking; every game and match write bumps it, so
+        Points game: every person with a result in the current run, by the sum of their
+        points, the lowest first when `lowerWins` is on and the highest otherwise, then name;
+        a changed `lowerWins` re-ranks at once. The ETag is the data revision, read in the
+        same snapshot as the ranking; every game, match and result write bumps it, so
         `If-None-Match` with the last ETag answers 304 without ranking while nothing changed.
       parameters:
         - name: If-None-Match
@@ -878,6 +881,59 @@ paths:
           $ref: '#/components/responses/Problem'
         '404':
           $ref: '#/components/responses/Problem'
+  /api/results/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ClientId'
+    put:
+      operationId: recordResult
+      summary: Record one person's points in a points game, idempotently on its id
+      description: >-
+        The result is recorded in the game's current run, with the account and the server time
+        (UTC). Replays and conflicts as for matches: a repeated request with the same id and
+        content answers 200 with the original result and records nothing, even after the result
+        was deleted or its game deleted; the same id with other content, or an id already used
+        for an entry or a match, answers 409 `request-conflict`. Ids are remembered for seven
+        days. An unknown game is 404; points that are not a whole number from −9 999 to 9 999,
+        a missing or unknown person, or a duel game is 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewResult'
+      responses:
+        '200':
+          description: Already recorded by an earlier request with this id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+        '201':
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: deleteResult
+      summary: Delete a result (undo); its id stays known, so a late retry cannot bring it back
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
   /api/audit:
     get:
       operationId: listAuditEvents
@@ -885,10 +941,11 @@ paths:
       description: >-
         The audit log is application-level append-only history: every create, update and
         delete of a person, a drink, a factor or a game (a restart is an update of its `run`
-        and `startedAt`), and every entry counted or deleted and every match recorded or
-        deleted (a game's deletion records one for each of its matches, caused by it), recorded
-        in the transaction of the change with the acting account and the values before and
-        after. A write that fails, a replayed entry or match request, and an update that changes no
+        and `startedAt`), and every entry counted or deleted and every match or result recorded
+        or deleted (a game's deletion records one for each of its matches or results, caused by
+        it; a person's deletion one for each of their results), recorded in the transaction of
+        the change with the acting account and the values before and after. A write that fails,
+        a replayed entry, match or result request, and an update that changes no
         value record nothing. No route changes or deletes an event (other methods on this
         path answer 405), and reading the log does not change the data revision. Pages run
         newest first by event id: `before` reads only older events, `limit` sets the page size,
@@ -944,8 +1001,8 @@ components:
       in: path
       required: true
       description: >-
-        The client-generated UUID v4 (lower case) of a match, also its retry key; unique across
-        entries and matches. Anything else is 404.
+        The client-generated UUID v4 (lower case) of a match or a result, also its retry key;
+        unique across entries, matches and results. Anything else is 404.
       schema:
         type: string
         pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
@@ -1050,7 +1107,7 @@ components:
     PersonDetail:
       type: object
       additionalProperties: false
-      required: [id, name, entryCount, matchCount]
+      required: [id, name, entryCount, matchCount, resultCount]
       properties:
         id:
           type: integer
@@ -1065,6 +1122,10 @@ components:
           type: integer
           minimum: 0
           description: Matches of every game and run that name the person on either side; deleting the person keeps them with that side cleared
+        resultCount:
+          type: integer
+          minimum: 0
+          description: Results of every game and run that are the person's; deleting the person deletes them
     PersonList:
       type: object
       additionalProperties: false
@@ -1447,6 +1508,39 @@ components:
           format: date-time
           description: Server time of the first request, UTC
           examples: ['2026-11-14T22:41:07.123Z']
+    GamePoints:
+      type: integer
+      minimum: -9999
+      maximum: 9999
+      description: One result's points, a whole number
+    NewResult:
+      type: object
+      required: [gameId, personId, points]
+      properties:
+        gameId:
+          type: integer
+        personId:
+          type: integer
+        points:
+          $ref: '#/components/schemas/GamePoints'
+    Result:
+      type: object
+      additionalProperties: false
+      required: [id, gameId, personId, points, createdAt]
+      properties:
+        id:
+          type: string
+        gameId:
+          type: integer
+        personId:
+          type: integer
+        points:
+          $ref: '#/components/schemas/GamePoints'
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the first request, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
     Standings:
       oneOf:
         - $ref: '#/components/schemas/DuelStandings'
@@ -1509,7 +1603,7 @@ components:
           type: boolean
         rows:
           type: array
-          description: Ranked by the sum in the game's direction, then name; empty until results can be recorded
+          description: Ranked by the sum in the game's direction, then name; persons without a result in the run are absent
           items:
             $ref: '#/components/schemas/PointsRow'
     PointsRow:
@@ -1523,8 +1617,10 @@ components:
           type: string
         sum:
           type: integer
+          description: The sum of the person's points in the run
         results:
           type: integer
+          description: How many results make up the sum
     AuditPage:
       type: object
       additionalProperties: false
@@ -1571,10 +1667,10 @@ components:
           enum: [create, update, delete]
         subjectKind:
           type: string
-          enum: [entry, person, drink, factor, game, match]
+          enum: [entry, person, drink, factor, game, match, result]
         subjectId:
           type: string
-          description: The subject's id as text (an integer for persons, drinks, factors and games, the UUID for entries)
+          description: The subject's id as text (an integer for persons, drinks, factors and games, the UUID for entries, matches and results)
         actor:
           type: object
           additionalProperties: false
@@ -1611,7 +1707,7 @@ components:
                   description: The causing event's id
                 subjectKind:
                   type: string
-                  enum: [entry, person, drink, factor, game, match]
+                  enum: [entry, person, drink, factor, game, match, result]
                 name:
                   type: string
                   description: The causing event's subject name, as that event recorded it
@@ -1625,7 +1721,8 @@ components:
         `{name, kind, drawsAllowed, run, startedAt}` for a duel game and
         `{name, kind, lowerWins, run, startedAt}` for a points game, a match
         `{game, first, second, outcome}` with the game's and both persons' names (a person
-        deleted before is null). Keys are only ever
+        deleted before is null), a result `{game, person, points}` with the game's and the
+        person's names. Keys are only ever
         added, never renamed, removed or given a new meaning; a reader treats a key it does
         not know, or a missing one, as unknown.
       additionalProperties: true

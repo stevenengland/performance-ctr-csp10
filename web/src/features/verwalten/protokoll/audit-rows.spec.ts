@@ -98,6 +98,28 @@ describe('the Protokoll rows', () => {
     ]);
   });
 
+  it('names a result Ergebnis with its person, and shows its game and signed points', () => {
+    const recorded = only({
+      subjectKind: 'result',
+      operation: 'create',
+      after: { game: 'Rommé', person: 'Daniel', points: -20 },
+    });
+    const removed = only({
+      subjectKind: 'result',
+      operation: 'delete',
+      before: { game: 'Kniffel', person: 'Anna', points: 1 },
+    });
+
+    expect([recorded.title, recorded.changes]).toEqual([
+      'Ergebnis Daniel',
+      'Rommé · −20 Punkte',
+    ]);
+    expect([removed.title, removed.changes]).toEqual([
+      'Ergebnis Anna',
+      'Kniffel · 1 Punkt',
+    ]);
+  });
+
   it('labels the operation Angelegt, Geändert or Gelöscht', () => {
     const labels = (['create', 'update', 'delete'] as const).map(
       (operation) =>
