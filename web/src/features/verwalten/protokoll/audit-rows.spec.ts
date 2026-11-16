@@ -76,6 +76,81 @@ describe('the Protokoll rows', () => {
     ).toBe('Spiel Schach');
   });
 
+  const schach = {
+    name: 'Schach',
+    kind: 'duel',
+    drawsAllowed: true,
+    run: 1,
+    startedAt: '2026-09-15T18:00:00.000Z',
+  } as const;
+  const romme = {
+    name: 'Rommé',
+    kind: 'points',
+    lowerWins: false,
+    run: 1,
+    startedAt: '2026-09-15T18:00:00.000Z',
+  } as const;
+
+  it('shows a created or deleted game with its kind and rule', () => {
+    expect(
+      only({ subjectKind: 'game', operation: 'create', after: schach }).changes,
+    ).toBe('Duell · Remis möglich');
+    expect(
+      only({
+        subjectKind: 'game',
+        operation: 'delete',
+        before: { ...romme, lowerWins: true },
+      }).changes,
+    ).toBe('Punktespiel · Niedrigste Summe gewinnt');
+  });
+
+  it('shows a changed rule of a game as before → after', () => {
+    expect(
+      only({
+        subjectKind: 'game',
+        before: schach,
+        after: { ...schach, drawsAllowed: false },
+      }).changes,
+    ).toBe('Regel: Remis möglich → kein Remis');
+    expect(
+      only({
+        subjectKind: 'game',
+        before: romme,
+        after: { ...romme, lowerWins: true },
+      }).changes,
+    ).toBe('Regel: Höchste Summe gewinnt → Niedrigste Summe gewinnt');
+  });
+
+  it('shows a restarted game as Neu gestartet, apart from a change of its rule', () => {
+    const restarted = only({
+      subjectKind: 'game',
+      before: romme,
+      after: { ...romme, run: 2, startedAt: '2026-11-15T18:30:00.000Z' },
+    });
+
+    expect([restarted.title, restarted.changes]).toEqual([
+      'Spiel Rommé',
+      'Neu gestartet',
+    ]);
+  });
+
+  it('shows a match side cleared by a person deletion as that change, the same for every outcome', () => {
+    const cleared = (outcome: 'first' | 'second' | 'draw') =>
+      only({
+        subjectKind: 'match',
+        before: { game: 'Schach', first: 'Ben', second: 'Anna', outcome },
+        after: { game: 'Schach', first: null, second: 'Anna', outcome },
+        cause: { name: 'Ben' },
+      });
+
+    for (const outcome of ['first', 'second', 'draw'] as const) {
+      expect([cleared(outcome).title, cleared(outcome).changes]).toEqual([
+        'Partie Ben – Anna',
+        'Ben → gelöschte Person',
+      ]);
+    }
+  });
+
   it('names a match Partie with both persons, and shows its game and outcome', () => {
     const recorded = only({
       subjectKind: 'match',

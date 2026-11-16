@@ -160,6 +160,12 @@ export const messages = {
     wins: (name: string) => `${name} gewinnt`,
     draw: 'Remis',
     game: 'Spiel',
+    /** A game's setting: `Regel: Remis möglich → kein Remis`. */
+    rule: 'Regel',
+    /** A game's restart, which begins a new run. */
+    restarted: 'Neu gestartet',
+    /** A match side cleared by a person deletion: `Ben → gelöschte Person`. */
+    replaced: (before: string, after: string) => `${before} → ${after}`,
     outcome: 'Ergebnis',
     /** A changed value: `Punkte: 1 Punkt → 0,5 Punkte`. */
     change: (label: string, before: string, after: string) =>

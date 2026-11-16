@@ -649,8 +649,12 @@ submit on Enter.
     so the log stays readable after a rename or a deletion;
   - then (`body`), when there is one: for a change the changed values as
     `Punkte: 1 Punkt → 0,5 Punkte`, several joined with ` · ` (`Name: Bier → Pils`,
-    `Multiplikator: ×2 → ×1,5`, `Faktor: Happy Hour ×2 → Kein Faktor`); for a creation or a
+    `Multiplikator: ×2 → ×1,5`, `Faktor: Happy Hour ×2 → Kein Faktor`, a game's
+    `Regel: Remis möglich → kein Remis`); a game's restart reads `Neu gestartet`, and a match
+    side cleared by a person deletion reads `Ben → gelöschte Person`, under the match's title as
+    it was (`Partie Ben – Anna`); for a creation or a
     deletion the values without the name: `1 Punkt` for a drink, `×2` for a factor,
+    `Duell · Remis möglich` or `Punktespiel · Niedrigste Summe gewinnt` for a game (its kind and rule),
     `1 Punkt · Happy Hour ×2` for an entry (the drink's points, and the factor unless none),
     `Schach · Anna gewinnt` or `Schach · Remis` for a match (its game and outcome),
     `Rommé · −20 Punkte` for a result (its game and its points, with a real minus sign);

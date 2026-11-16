@@ -30,6 +30,13 @@ export interface AuditSnapshotView {
   first?: string | null;
   second?: string | null;
   outcome?: 'first' | 'second' | 'draw';
+  /** A game's kind and the setting of that kind. */
+  kind?: string;
+  drawsAllowed?: boolean;
+  lowerWins?: boolean;
+  /** A game's run; a restart counts it up and moves `startedAt`. */
+  run?: number;
+  startedAt?: string;
 }
 
 /** What Protokoll reads of an audit event of the API. */
@@ -110,6 +117,33 @@ function outcomeText({ outcome, first, second }: Snapshot): string {
   return outcome === undefined || winner === '' ? '' : text.wins(winner);
 }
 
+/** A game's rule: `Remis möglich`, `Niedrigste Summe gewinnt`; empty when unknown. */
+function ruleText({ kind, drawsAllowed, lowerWins }: Snapshot): string {
+  const spiele = messages.spiele;
+  if (kind === 'duel' && drawsAllowed !== undefined) {
+    return drawsAllowed ? spiele.drawsAllowed : spiele.noDraws;
+  }
+  if (kind === 'points' && lowerWins !== undefined) {
+    return lowerWins ? spiele.lowerWins : spiele.higherWins;
+  }
+  return '';
+}
+
+/** A game's known values: its kind (`Duell`) and its rule. */
+function gameFields(snapshot: Snapshot): Field[] {
+  const known: Field[] = [];
+  if (snapshot.name !== undefined) known.push([text.name, snapshot.name]);
+  if (snapshot.kind !== undefined) {
+    known.push([
+      messages.spiele.kind,
+      snapshot.kind === 'duel' ? messages.spiele.duel : messages.spiele.points,
+    ]);
+  }
+  const rule = ruleText(snapshot);
+  if (rule !== '') known.push([text.rule, rule]);
+  return known;
+}
+
 /** A person's, drink's, factor's or game's name, an entry's `2× Bier für Daniel`, a match's `Anna – Ben`, a result's person; empty when unknown. */
 function subjectName(kind: SubjectKind, snapshot: Snapshot): string {
   if (kind === 'entry') return entryName(snapshot);
@@ -142,6 +176,7 @@ function resultFields({ game, points }: Snapshot): Field[] {
 /** The snapshot's known values, labelled and formatted. */
 function fields(kind: SubjectKind, snapshot: Snapshot): Field[] {
   if (kind === 'result') return resultFields(snapshot);
+  if (kind === 'game') return gameFields(snapshot);
   const known: Field[] = [];
   if (snapshot.name !== undefined) known.push([text.name, snapshot.name]);
   if (snapshot.person !== undefined) {
@@ -163,15 +198,44 @@ function fields(kind: SubjectKind, snapshot: Snapshot): Field[] {
   return known;
 }
 
-/** An update's changed values as before → after; a create's or delete's values without the name the title already gives. */
+/**
+A match update only ever clears a side, when its person is deleted: `Ben →
+gelöschte Person`. The outcome is fixed, so it is not compared.
+*/
+function clearedSides(before: Snapshot, after: Snapshot): string[] {
+  return (['first', 'second'] as const)
+    .filter((side) => side in before && side in after)
+    .filter((side) => before[side] !== after[side])
+    .map((side) =>
+      text.replaced(sideName(before[side]), sideName(after[side])),
+    );
+}
+
+/** An update's changed values as before → after; `Neu gestartet` first for a game's restart. */
+function updates(
+  kind: SubjectKind,
+  before: Snapshot,
+  after: Snapshot,
+): string[] {
+  if (kind === 'match') return clearedSides(before, after);
+  const restarted =
+    kind === 'game' &&
+    before.run !== undefined &&
+    after.run !== undefined &&
+    before.run !== after.run;
+  const was = new Map(fields(kind, before));
+  return [
+    ...(restarted ? [text.restarted] : []),
+    ...fields(kind, after)
+      .filter(([label, value]) => was.has(label) && was.get(label) !== value)
+      .map(([label, value]) => text.change(label, was.get(label) ?? '', value)),
+  ];
+}
+
+/** An update's changes; a create's or delete's values without the name the title already gives. */
 function changes(event: DeepReadonly<AuditEventView>): string[] {
   const { before, after, subjectKind } = event;
-  if (before && after) {
-    const was = new Map(fields(subjectKind, before));
-    return fields(subjectKind, after)
-      .filter(([label, value]) => was.has(label) && was.get(label) !== value)
-      .map(([label, value]) => text.change(label, was.get(label) ?? '', value));
-  }
+  if (before && after) return updates(subjectKind, before, after);
   const snapshot = after ?? before;
   if (!snapshot) return [];
   return fields(subjectKind, snapshot)
@@ -215,7 +279,11 @@ function auditRow(
   instant: Date,
   timeZone?: string,
 ): AuditRow {
-  const snapshot = event.after ?? event.before ?? {};
+  // A match is named as it was before the change: an update only clears a side.
+  const snapshot =
+    (event.subjectKind === 'match'
+      ? (event.before ?? event.after)
+      : (event.after ?? event.before)) ?? {};
   return {
     id: event.id,
     operation: event.operation,
