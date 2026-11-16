@@ -105,7 +105,7 @@ export interface paths {
     post?: never;
     /**
      * Delete an account (admins only)
-     * @description Its sessions end; the entries it logged stay, without the account (`accountName` null). Deleting the last admin is refused with 409.
+     * @description Its sessions end; the entries it logged stay, without the account (`accountName` null), and so do the entries it verified, which keep counting. The deletion bumps the data revision, since the pending queue names recorders. Deleting the last admin is refused with 409.
      */
     delete: operations['deleteAccount'];
     options?: never;
@@ -351,6 +351,55 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/entries/{id}/verification': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The entry's UUID; anything that is not a lower-case UUID v4 is 404 */
+        id: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Verify a pending entry, so that it counts (four-eyes rule)
+     * @description Any signed-in account other than the one that recorded the entry may verify it; admin rights give no extra right. An entry whose recording account was deleted may be verified by any account. The recording account is refused with 403 `own-row` and the entry stays pending. Verifying an entry that counts already succeeds again without an audit event and without changing the data revision; the first verification records a `verify` event with the entry before and after and bumps the revision. An entry that no longer exists (deleted, or never recorded) is 404. The body is an empty JSON object.
+     */
+    put: operations['verifyEntry'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/pending': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * A page of the rows the signed-in account may verify, and how many there are
+     * @description Every pending row the account may verify: recorded by another account, or by one deleted since. All days, newest first by recording instant, then by kind, then by id, 20 per page. `next` is the `cursor` of the next page (null on the last one); a page goes on after the last row of the one before, so rows verified, rejected or deleted meanwhile never make later rows unreachable. `count` is the number of all eligible rows, whatever the page: the badge of `Offen`. The first page answers conditionally: its ETag names the data revision and the account, since every account has its own queue, and `If-None-Match` with it answers 304 while both are unchanged. The revision, the items and the count are read in one snapshot. A `cursor` that names no position is 422.
+     */
+    get: operations['listPending'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/scoreboard': {
     parameters: {
       query?: never;
@@ -363,7 +412,7 @@ export interface paths {
     };
     /**
      * Standings since `from`, the start of the viewer's day
-     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. Only verified entries count: a recorded entry waits for verification by another account, and until then it counts in `recordedCount` and `pendingCount` only. A person whose entries since `from` all wait is listed in `unranked`. The ETag names the data revision, which every write of entries, persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
+     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. Only verified entries count: a recorded entry waits for verification by another account, and until then it counts in `recordedCount` and `pendingCount` only. A person whose entries since `from` all wait is listed in `unranked`. The ETag names the data revision, which every write of entries, persons, drinks and factors, every verification and every account deletion bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
      */
     get: operations['getScoreboard'];
     put?: never;
@@ -599,7 +648,7 @@ export interface paths {
     };
     /**
      * A page of audit events, newest first (admins only)
-     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink, a factor or a game (a restart is an update of its `run` and `startedAt`), and every entry counted or deleted and every match or result recorded or deleted (a game's deletion records one for each of its matches or results, caused by it; a person's deletion one for each of their results), recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry, match or result request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
+     * @description The audit log is application-level append-only history: every create, update and delete of a person, a drink, a factor or a game (a restart is an update of its `run` and `startedAt`), and every entry counted or deleted and every match or result recorded or deleted (a game's deletion records one for each of its matches or results, caused by it; a person's deletion one for each of their results), and every entry verified by another account (`verify`, with the entry before and after), recorded in the transaction of the change with the acting account and the values before and after. A write that fails, a replayed entry, match or result request, and an update that changes no value record nothing. No route changes or deletes an event (other methods on this path answer 405), and reading the log does not change the data revision. Pages run newest first by event id: `before` reads only older events, `limit` sets the page size, and `next` is the `before` of the next older page. A `before` that is not a positive integer, or a `limit` outside 1 to 100, is 422.
      */
     get: operations['listAuditEvents'];
     put?: never;
@@ -768,6 +817,47 @@ export interface components {
       accountName: string | null;
       /** @description Whether the entry still waits for verification by another account; a pending entry does not count */
       pending: boolean;
+    };
+    PendingPage: {
+      /** @description Newest first by recording instant, then by kind, then by id */
+      items: components['schemas']['PendingItem'][];
+      /** @description The `cursor` of the next page; null on the last page */
+      next: string | null;
+      /** @description How many rows the account may verify in all, whatever the page */
+      count: number;
+    };
+    /** @description A row the account may verify, tagged with its kind */
+    PendingItem: components['schemas']['PendingEntry'];
+    PendingEntry: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      kind: 'entry';
+      id: string;
+      /**
+       * Format: date-time
+       * @description Server time of the recording, UTC
+       * @example 2026-11-14T22:41:07.123Z
+       */
+      createdAt: string;
+      /** @description User name of the account that recorded it; null once that account was deleted */
+      accountName: string | null;
+      person: {
+        id: number;
+        name: string;
+      };
+      drink: {
+        id: number;
+        name: string;
+      };
+      quantity: components['schemas']['Quantity'];
+      /** @description The factor with its current multiplier; null for none or a deleted factor */
+      factor: null | {
+        id: number;
+        name: string;
+        multiplier: number;
+      };
     };
     Scoreboard: {
       /** @description Persons with at least one verified entry since `from`, ranked by score, ties by name; persons without entries are absent */
@@ -1009,8 +1099,11 @@ export interface components {
        * @example 2026-11-14T22:41:07.123Z
        */
       occurredAt: string;
-      /** @enum {string} */
-      operation: 'create' | 'update' | 'delete';
+      /**
+       * @description `verify`: another account let a pending row count; `before` and `after` are the row with `pending` true and false
+       * @enum {string}
+       */
+      operation: 'create' | 'update' | 'delete' | 'verify';
       /** @enum {string} */
       subjectKind:
         'entry' | 'person' | 'drink' | 'factor' | 'game' | 'match' | 'result';
@@ -2041,6 +2134,79 @@ export interface operations {
       };
       401: components['responses']['Problem'];
       404: components['responses']['Problem'];
+    };
+  };
+  verifyEntry: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The entry's UUID; anything that is not a lower-case UUID v4 is 404 */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': Record<string, never>;
+      };
+    };
+    responses: {
+      /** @description The entry counts */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      403: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      415: components['responses']['Problem'];
+    };
+  };
+  listPending: {
+    parameters: {
+      query?: {
+        /** @description The `next` of the previous page, unchanged; omitted for the first page */
+        cursor?: string;
+      };
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+        /** @description The ETag of the first page the client already shows */
+        'If-None-Match'?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A page of the queue */
+      200: {
+        headers: {
+          /** @description Data revision and account of the first page; a later page has none */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PendingPage'];
+        };
+      };
+      /** @description The first page is unchanged since the one named in `If-None-Match` */
+      304: {
+        headers: {
+          /** @description The same ETag */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      422: components['responses']['Problem'];
     };
   };
   getScoreboard: {

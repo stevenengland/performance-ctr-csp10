@@ -14,8 +14,8 @@ info:
     with 400 `client-outdated` before it processes anything; the client then
     shows `Bitte neu laden`. A request without the header counts as version
     0.1.0, the last client that sent none, so it is refused once the floor
-    passes 0.1.0. (Not 426: that status requires an `Upgrade` protocol, and an
-    app version is none.)
+    passes 0.1.0, as it has since 0.3.0. (Not 426: that status requires an
+    `Upgrade` protocol, and an app version is none.)
 
     Every route except health and sign-in requires the session cookie that
     sign-in sets (`HttpOnly; Secure; SameSite=Strict`, 180 days, renewed on
@@ -212,7 +212,9 @@ paths:
       summary: Delete an account (admins only)
       description: >-
         Its sessions end; the entries it logged stay, without the account
-        (`accountName` null). Deleting the last admin is refused with 409.
+        (`accountName` null), and so do the entries it verified, which keep counting.
+        The deletion bumps the data revision, since the pending queue names recorders.
+        Deleting the last admin is refused with 409.
       responses:
         '204':
           description: Deleted
@@ -730,6 +732,100 @@ paths:
           $ref: '#/components/responses/Problem'
         '404':
           $ref: '#/components/responses/Problem'
+  /api/entries/{id}/verification:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - name: id
+        in: path
+        required: true
+        description: The entry's UUID; anything that is not a lower-case UUID v4 is 404
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    put:
+      operationId: verifyEntry
+      summary: Verify a pending entry, so that it counts (four-eyes rule)
+      description: >-
+        Any signed-in account other than the one that recorded the entry may verify it;
+        admin rights give no extra right. An entry whose recording account was deleted may
+        be verified by any account. The recording account is refused with 403 `own-row` and
+        the entry stays pending. Verifying an entry that counts already succeeds again
+        without an audit event and without changing the data revision; the first
+        verification records a `verify` event with the entry before and after and bumps
+        the revision. An entry that no longer exists (deleted, or never recorded) is 404.
+        The body is an empty JSON object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '204':
+          description: The entry counts
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+  /api/pending:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+    get:
+      operationId: listPending
+      summary: A page of the rows the signed-in account may verify, and how many there are
+      description: >-
+        Every pending row the account may verify: recorded by another account, or by one
+        deleted since. All days, newest first by recording instant, then by kind, then by id,
+        20 per page. `next` is the `cursor` of the next page (null on the last one); a page
+        goes on after the last row of the one before, so rows verified, rejected or deleted
+        meanwhile never make later rows unreachable. `count` is the number of all eligible
+        rows, whatever the page: the badge of `Offen`. The first page answers
+        conditionally: its ETag names the data revision and the account, since every
+        account has its own queue, and `If-None-Match` with it answers 304 while both are
+        unchanged. The revision, the items and the count are read in one snapshot. A
+        `cursor` that names no position is 422.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: The `next` of the previous page, unchanged; omitted for the first page
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          required: false
+          description: The ETag of the first page the client already shows
+          schema:
+            type: string
+            examples: ['"42-3"']
+      responses:
+        '200':
+          description: A page of the queue
+          headers:
+            ETag:
+              description: Data revision and account of the first page; a later page has none
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingPage'
+        '304':
+          description: The first page is unchanged since the one named in `If-None-Match`
+          headers:
+            ETag:
+              description: The same ETag
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
   /api/scoreboard:
     parameters:
       - $ref: '#/components/parameters/ClientVersion'
@@ -744,7 +840,8 @@ paths:
         by another account, and until then it counts in `recordedCount` and
         `pendingCount` only. A person whose entries since `from` all wait is listed in
         `unranked`. The ETag names the data revision, which every write of entries,
-        persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the
+        persons, drinks and factors, every verification and every account deletion bumps
+        in its own transaction, and the window: `If-None-Match` with the
         last ETag answers 304 without aggregating while the revision is unchanged.
         Each row names the person's photo by `photoUrl`; a photo write that changes it
         bumps the revision too, so the next conditional request gets the new URL.
@@ -1148,7 +1245,8 @@ paths:
         delete of a person, a drink, a factor or a game (a restart is an update of its `run`
         and `startedAt`), and every entry counted or deleted and every match or result recorded
         or deleted (a game's deletion records one for each of its matches or results, caused by
-        it; a person's deletion one for each of their results), recorded in the transaction of
+        it; a person's deletion one for each of their results), and every entry verified by
+        another account (`verify`, with the entry before and after), recorded in the transaction of
         the change with the acting account and the values before and after. A write that fails,
         a replayed entry, match or result request, and an update that changes no
         value record nothing. No route changes or deletes an event (other methods on this
@@ -1204,7 +1302,7 @@ components:
         as 0.1.0.
       schema:
         type: string
-        examples: ['0.2.0+3f2a1bc']
+        examples: ['0.3.0+3f2a1bc']
     GameId:
       name: id
       in: path
@@ -1590,6 +1688,83 @@ components:
         pending:
           type: boolean
           description: Whether the entry still waits for verification by another account; a pending entry does not count
+    PendingPage:
+      type: object
+      additionalProperties: false
+      required: [items, next, count]
+      properties:
+        items:
+          type: array
+          description: Newest first by recording instant, then by kind, then by id
+          items:
+            $ref: '#/components/schemas/PendingItem'
+        next:
+          type: [string, 'null']
+          description: The `cursor` of the next page; null on the last page
+        count:
+          type: integer
+          minimum: 0
+          description: How many rows the account may verify in all, whatever the page
+    PendingItem:
+      description: A row the account may verify, tagged with its kind
+      oneOf:
+        - $ref: '#/components/schemas/PendingEntry'
+      discriminator:
+        propertyName: kind
+        mapping:
+          entry: '#/components/schemas/PendingEntry'
+    PendingEntry:
+      type: object
+      additionalProperties: false
+      required: [kind, id, createdAt, accountName, person, drink, quantity, factor]
+      properties:
+        kind:
+          type: string
+          const: entry
+        id:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the recording, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: User name of the account that recorded it; null once that account was deleted
+        person:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        drink:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        quantity:
+          $ref: '#/components/schemas/Quantity'
+        factor:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [id, name, multiplier]
+              properties:
+                id:
+                  type: integer
+                name:
+                  type: string
+                multiplier:
+                  type: number
+          description: The factor with its current multiplier; null for none or a deleted factor
     Scoreboard:
       type: object
       additionalProperties: false
@@ -2049,7 +2224,10 @@ components:
           examples: ['2026-11-14T22:41:07.123Z']
         operation:
           type: string
-          enum: [create, update, delete]
+          enum: [create, update, delete, verify]
+          description: >-
+            `verify`: another account let a pending row count; `before` and `after` are the
+            row with `pending` true and false
         subjectKind:
           type: string
           enum: [entry, person, drink, factor, game, match, result]
