@@ -10,8 +10,9 @@ use Performance\Tests\Support\DatabaseTestCase;
 use Psr\Http\Message\ResponseInterface;
 
 /**
- * `GET /api/pending`: the rows the acting account may verify, across all days, newest first, a
- * bounded page at a time, with the count of all of them (PRD #61).
+ * `GET /api/pending`: the rows the acting account may verify, entries and matches, across all
+ * days and game runs, newest first, a bounded page at a time, with the count of all of them
+ * (PRD #61).
  */
 final class PendingQueueTest extends DatabaseTestCase
 {
@@ -119,6 +120,74 @@ final class PendingQueueTest extends DatabaseTestCase
         self::assertSame(19, $second['count'], 'the count covers every page');
     }
 
+    /**
+     * A pending match is listed with its game, both players, its outcome and its recorder, and
+     * marked when it belongs to an earlier run of its game; a cleared side is null.
+     */
+    public function testListsPendingMatchesWithGamePlayersOutcomeAndRecorderAndMarksAnEarlierRun(): void
+    {
+        $this->send('POST', '/api/persons', ['name' => 'Erik'], $this->chef);
+        $this->send('POST', '/api/persons', ['name' => 'Fritz'], $this->chef);
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $this->chef);
+        $earlier = $this->recordMatch($this->chef, 1, 2, 'first');
+        $this->send('POST', '/api/games/1/restart', [], $this->chef);
+        $this->clock->advance('PT1M');
+        $current = $this->recordMatch($this->chef, 3, 2, 'draw');
+        $this->send('DELETE', '/api/persons/3', session: $this->chef);
+
+        $queue = $this->body($this->pending($this->anna));
+
+        self::assertSame(2, $queue['count']);
+        self::assertSame(
+            [
+                [
+                    'kind' => 'match',
+                    'id' => $current,
+                    'createdAt' => '2026-11-14T20:01:00.000Z',
+                    'accountName' => self::ADMIN,
+                    'game' => ['id' => 1, 'name' => 'Schach'],
+                    'earlierRun' => false,
+                    'first' => null,
+                    'second' => ['id' => 2, 'name' => 'Erik'],
+                    'outcome' => 'draw',
+                ],
+                [
+                    'kind' => 'match',
+                    'id' => $earlier,
+                    'createdAt' => '2026-11-14T20:00:00.000Z',
+                    'accountName' => self::ADMIN,
+                    'game' => ['id' => 1, 'name' => 'Schach'],
+                    'earlierRun' => true,
+                    'first' => ['id' => 1, 'name' => 'Daniel'],
+                    'second' => ['id' => 2, 'name' => 'Erik'],
+                    'outcome' => 'first',
+                ],
+            ],
+            $queue['items'],
+        );
+        self::assertSame(0, $this->body($this->pending($this->chef))['count'], 'the recorder may verify none of them');
+    }
+
+    /**
+     * Rows of one instant follow by kind (`entry` before `match`), then by id, and a page that
+     * ends on one kind goes on with the rest of both.
+     */
+    public function testRowsOfOneInstantFollowByKindThenIdAcrossPages(): void
+    {
+        $this->send('POST', '/api/persons', ['name' => 'Erik'], $this->chef);
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $this->chef);
+        $matches = array_map(fn(): string => $this->recordMatch($this->chef, 1, 2, 'first'), range(1, 19));
+        $entries = [$this->record($this->chef), $this->record($this->chef)];
+
+        $first = $this->body($this->pending($this->anna));
+        self::assertIsString($first['next']);
+        $second = $this->body($this->pending($this->anna, $first['next']));
+
+        self::assertSame([...$entries, ...array_slice($matches, 0, 18)], $this->idsIn($first));
+        self::assertSame([$matches[18]], $this->idsIn($second));
+        self::assertSame(21, $second['count']);
+    }
+
     public function testACursorThatNamesNoPositionIs422(): void
     {
         $response = $this->send('GET', '/api/pending?cursor=nonsense', session: $this->anna);
@@ -186,6 +255,17 @@ final class PendingQueueTest extends DatabaseTestCase
         ++$this->entries;
         $id = sprintf('00000000-0000-4000-8000-%012d', $this->entries);
         $response = $this->send('PUT', "/api/entries/{$id}", ['personId' => 1, 'drinkId' => 1, 'quantity' => $quantity, 'factorId' => $factorId], $session);
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+
+        return $id;
+    }
+
+    /** Records a match in Schach, numbered with the entries; it waits for verification. */
+    private function recordMatch(string $session, int $first, int $second, string $outcome): string
+    {
+        ++$this->entries;
+        $id = sprintf('00000000-0000-4000-8000-%012d', $this->entries);
+        $response = $this->send('PUT', "/api/matches/{$id}", ['gameId' => 1, 'firstPersonId' => $first, 'secondPersonId' => $second, 'outcome' => $outcome], $session);
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
 
         return $id;

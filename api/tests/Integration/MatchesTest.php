@@ -108,6 +108,47 @@ final class MatchesTest extends DatabaseTestCase
         self::assertSame([], $this->rows('SELECT id FROM matches'));
     }
 
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function decisions(): iterable
+    {
+        yield 'rejected by another account' => ['reject'];
+        yield 'verified by another account' => ['verify'];
+    }
+
+    /**
+     * Within seven days of the recording a replay answers as the recording did, whatever
+     * another account decided since: a rejected match stays gone, a verified one stays the only
+     * one and keeps counting.
+     */
+    #[DataProvider('decisions')]
+    public function testAReplayWithinSevenDaysAnswersTheOriginalWhateverAnotherAccountDecided(string $decision): void
+    {
+        $first = $this->put(self::ANNA_WINS);
+        $this->decide($decision);
+        $this->clock->advance('P7D');
+
+        $replay = $this->put(self::ANNA_WINS);
+
+        self::assertSame(200, $replay->getStatusCode(), (string) $replay->getBody());
+        self::assertSame($this->body($first), $this->body($replay));
+        self::assertSame($decision === 'verify' ? [[self::MATCH, false]] : [], $this->history());
+    }
+
+    /** After the seven days the id is forgotten, so the same request records a rejected match again, pending as every new one. */
+    public function testAReplayAfterSevenDaysRecordsARejectedMatchAgainAsPending(): void
+    {
+        $this->put(self::ANNA_WINS);
+        $this->decide('reject');
+        $this->clock->advance('P7DT1S');
+
+        $afterTheWindow = $this->put(self::ANNA_WINS);
+
+        self::assertSame(201, $afterTheWindow->getStatusCode(), (string) $afterTheWindow->getBody());
+        self::assertSame([[self::MATCH, true]], $this->history());
+    }
+
     public function testAReplayAfterTheGameWasDeletedAnswersTheOriginalAndRecreatesNothing(): void
     {
         $first = $this->put(self::ANNA_WINS);
@@ -193,11 +234,11 @@ final class MatchesTest extends DatabaseTestCase
         $this->put(['gameId' => 1, 'firstPersonId' => 3, 'secondPersonId' => 2, 'outcome' => 'draw'], self::OTHER_MATCH, $member);
         $this->send('DELETE', '/api/matches/' . self::MATCH, session: $member);
 
-        $annaWins = ['game' => 'Schach', 'first' => 'Anna', 'second' => 'Ben', 'outcome' => 'first'];
+        $annaWins = ['game' => 'Schach', 'first' => 'Anna', 'second' => 'Ben', 'outcome' => 'first', 'pending' => true];
         self::assertSame(
             [
                 ['delete', self::MATCH, $annaWins, null],
-                ['create', self::OTHER_MATCH, null, ['game' => 'Schach', 'first' => 'Daniel', 'second' => 'Ben', 'outcome' => 'draw']],
+                ['create', self::OTHER_MATCH, null, ['game' => 'Schach', 'first' => 'Daniel', 'second' => 'Ben', 'outcome' => 'draw', 'pending' => true]],
                 ['create', self::MATCH, null, $annaWins],
             ],
             array_map(
@@ -248,8 +289,8 @@ final class MatchesTest extends DatabaseTestCase
         self::assertSame(
             [
                 ['game', '1', null, null],
-                ['match', self::OTHER_MATCH, ['game' => 'Schach', 'first' => null, 'second' => 'Ben', 'outcome' => 'draw'], ['game', '1']],
-                ['match', self::MATCH, ['game' => 'Schach', 'first' => 'Anna', 'second' => 'Ben', 'outcome' => 'first'], ['game', '1']],
+                ['match', self::OTHER_MATCH, ['game' => 'Schach', 'first' => null, 'second' => 'Ben', 'outcome' => 'draw', 'pending' => true], ['game', '1']],
+                ['match', self::MATCH, ['game' => 'Schach', 'first' => 'Anna', 'second' => 'Ben', 'outcome' => 'first', 'pending' => true], ['game', '1']],
             ],
             array_map(
                 static fn(array $event): array => [
@@ -276,6 +317,33 @@ final class MatchesTest extends DatabaseTestCase
 
         /** @var list<array<string, mixed>> */
         return array_values(array_filter($events, static fn(mixed $event): bool => is_array($event) && $event['subjectKind'] === 'match'));
+    }
+
+    /** Anna, another account, rejects or verifies the match. */
+    private function decide(string $decision): void
+    {
+        $this->createAccount('anna', 'annas-startpasswort');
+        $anna = $this->signIn('anna', 'annas-startpasswort');
+        $path = '/api/matches/' . self::MATCH . '/verification';
+        $response = $decision === 'reject' ? $this->send('DELETE', $path, session: $anna) : $this->send('PUT', $path, [], $anna);
+        self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+    }
+
+    /**
+     * Schach's matches as its Verlauf lists them: id and whether it waits.
+     *
+     * @return list<array{mixed, mixed}>
+     */
+    private function history(): array
+    {
+        $items = $this->body($this->send('GET', '/api/games/1/matches', session: $this->session))['items'];
+        self::assertIsList($items);
+
+        return array_map(static function (mixed $item): array {
+            self::assertIsArray($item);
+
+            return [$item['id'], $item['pending']];
+        }, $items);
     }
 
     /**

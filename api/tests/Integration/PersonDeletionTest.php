@@ -71,8 +71,8 @@ final class PersonDeletionTest extends DatabaseTestCase
         self::assertSame($before, $this->standings());
         self::assertSame(
             [
-                ['personId' => self::CARLA, 'points' => 1.5, 'wins' => 1, 'draws' => 1, 'losses' => 0, 'played' => 2],
-                ['personId' => self::ANNA, 'points' => 1, 'wins' => 1, 'draws' => 0, 'losses' => 1, 'played' => 2],
+                ['personId' => self::CARLA, 'points' => 1.5, 'wins' => 1, 'draws' => 1, 'losses' => 0, 'played' => 2, 'pendingCount' => 0],
+                ['personId' => self::ANNA, 'points' => 1, 'wins' => 1, 'draws' => 0, 'losses' => 1, 'played' => 2, 'pendingCount' => 0],
             ],
             array_map(static fn(array $row): array => array_diff_key($row, ['name' => true]), $this->standings()),
         );
@@ -193,16 +193,16 @@ final class PersonDeletionTest extends DatabaseTestCase
                     'match',
                     self::BEN_DRAWS_CARLA,
                     'update',
-                    ['game' => 'Schach', 'first' => 'Ben', 'second' => 'Carla', 'outcome' => 'draw'],
-                    ['game' => 'Schach', 'first' => null, 'second' => 'Carla', 'outcome' => 'draw'],
+                    ['game' => 'Schach', 'first' => 'Ben', 'second' => 'Carla', 'outcome' => 'draw', 'pending' => false],
+                    ['game' => 'Schach', 'first' => null, 'second' => 'Carla', 'outcome' => 'draw', 'pending' => false],
                     $cause,
                 ],
                 [
                     'match',
                     self::ANNA_BEATS_BEN,
                     'update',
-                    ['game' => 'Schach', 'first' => 'Anna', 'second' => 'Ben', 'outcome' => 'first'],
-                    ['game' => 'Schach', 'first' => 'Anna', 'second' => null, 'outcome' => 'first'],
+                    ['game' => 'Schach', 'first' => 'Anna', 'second' => 'Ben', 'outcome' => 'first', 'pending' => false],
+                    ['game' => 'Schach', 'first' => 'Anna', 'second' => null, 'outcome' => 'first', 'pending' => false],
                     $cause,
                 ],
             ],
@@ -272,6 +272,8 @@ final class PersonDeletionTest extends DatabaseTestCase
             $session ?? $this->session,
         );
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        // Verified, so it counts: these tests are about deletions, not about the four-eyes rule.
+        $this->verifyDirectly('matches', $id);
     }
 
     /**

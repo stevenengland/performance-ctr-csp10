@@ -6,7 +6,8 @@ namespace Performance\Domain\Games;
 
 /**
  * A person's standing in a duel game's run: points (win 1, draw ½, loss 0) as an exact
- * decimal string, e.g. `2.5`, and the matches won, drawn, lost and played.
+ * decimal string, e.g. `2.5`, and the verified matches won, drawn, lost and played, and how
+ * many of the person's matches in the run still wait for verification.
  */
 final readonly class DuelRow
 {
@@ -18,5 +19,6 @@ final readonly class DuelRow
         public int $draws,
         public int $losses,
         public int $played,
+        public int $pendingCount,
     ) {}
 }

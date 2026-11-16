@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Performance\Domain\Games;
 
 use Closure;
+use DateTimeImmutable;
+use DateTimeZone;
 use LogicException;
 use PDO;
 use Performance\Domain\Actor;
@@ -13,7 +15,12 @@ use Performance\Domain\AuditOperation;
 use Performance\Domain\AuditSubjectKind;
 use Performance\Domain\DataRevision;
 use Performance\Domain\NotFound;
+use Performance\Domain\PendingBound;
+use Performance\Domain\PendingItem;
+use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
+use Performance\Domain\VerifiableRow;
+use Performance\Domain\VerifiableRows;
 
 /**
  * What matches and results share as rows recorded in a game's run: locking the game for a
@@ -21,12 +28,16 @@ use Performance\Domain\ValidationFailed;
  * game's or a person's deletion brings about. Each module keeps its own table, snapshot and
  * rules; this holds the lock order and the audit protocol, so both follow them the same way.
  *
+ * As VerifiableRows it lets Verification decide on a pending row inside Verification's
+ * transaction (PRD #61): it locks the row as an undo does, before the game and the persons the
+ * snapshot reads, and never commits, bumps the revision or records an event itself.
+ *
  * Every read in a write locks what it reads (ADR 0004); referenced rows only under a shared
  * lock, which an insert also takes for its foreign key checks.
  *
  * @template TSnapshot of array<string, mixed>
  */
-final readonly class RecordedRows
+final readonly class RecordedRows implements VerifiableRows
 {
     /**
      * @param 'matches'|'results'                            $table
@@ -36,6 +47,8 @@ final readonly class RecordedRows
      *                                                                       the rows the transaction holds already
      * @param 'm'|'r'                                        $alias          the table's alias in `$snapshotSelect`
      * @param Closure(array<string, scalar|null>): TSnapshot $snapshotOf     one row of `$snapshotSelect` as the audit log keeps it
+     * @param PendingRead|null                               $pendingRead    how the rows read for the pending queue; null while the table
+     *                                                                       has no pending rows
      */
     public function __construct(
         private PDO $pdo,
@@ -46,6 +59,7 @@ final readonly class RecordedRows
         private string $snapshotSelect,
         private string $alias,
         private Closure $snapshotOf,
+        private ?PendingRead $pendingRead = null,
     ) {}
 
     /**
@@ -97,6 +111,75 @@ final readonly class RecordedRows
         });
     }
 
+    /** Locked first, like an undo, so the snapshot is of the row the decision is about. */
+    public function lock(string $id): ?VerifiableRow
+    {
+        $locked = $this->pdo->prepare("SELECT account_id, pending FROM {$this->table} WHERE id = ? FOR UPDATE");
+        $locked->execute([$id]);
+        /** @var array{account_id: int|string|null, pending: int|string}|false $row */
+        $row = $locked->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return null;
+        }
+
+        return new VerifiableRow($row['account_id'] === null ? null : (int) $row['account_id'], (int) $row['pending'] === 1, $this->snapshot($id));
+    }
+
+    public function markVerified(string $id, int $accountId, DateTimeImmutable $at): array
+    {
+        // The account under a shared lock, which its deletion waits for; gone already, it is null.
+        $this->pdo->prepare(
+            "UPDATE {$this->table} SET pending = 0, verified_at = ?,
+                    verified_by_account_id = (SELECT a.id FROM accounts a WHERE a.id = ? LOCK IN SHARE MODE)
+              WHERE id = ?",
+        )->execute([Timestamp::of($at), $accountId, $id]);
+
+        return $this->snapshot($id);
+    }
+
+    public function remove(string $id): void
+    {
+        $this->pdo->prepare("DELETE FROM {$this->table} WHERE id = ?")->execute([$id]);
+    }
+
+    public function pending(int $accountId, ?PendingBound $bound, int $limit): array
+    {
+        $read = $this->pendingRead ?? throw new LogicException("The {$this->table} have no pending rows to list");
+        $statement = $this->pdo->prepare(
+            $read->select . ' WHERE ' . $this->mayVerify()
+            . match (true) {
+                $bound === null => '',
+                $bound->afterId === null => " AND {$this->alias}.created_at < ?",
+                default => " AND ({$this->alias}.created_at < ? OR ({$this->alias}.created_at = ? AND {$this->alias}.id > ?))",
+            }
+            . " ORDER BY {$this->alias}.created_at DESC, {$this->alias}.id LIMIT {$limit}",
+        );
+        $at = $bound === null ? null : Timestamp::of($bound->createdAt);
+        $statement->execute(match (true) {
+            $bound === null => [$accountId],
+            $bound->afterId === null => [$accountId, $at],
+            default => [$accountId, $at, $at, $bound->afterId],
+        });
+        /** @var list<array<string, scalar|null>> $rows */
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        return array_map(static fn(array $row): PendingItem => new PendingItem(
+            $read->kind,
+            (string) $row['id'],
+            new DateTimeImmutable((string) $row['created_at'], new DateTimeZone('UTC')),
+            $row['account_name'] === null ? null : (string) $row['account_name'],
+            ($read->details)($row),
+        ), $rows);
+    }
+
+    public function countPending(int $accountId): int
+    {
+        $statement = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->table} {$this->alias} WHERE " . $this->mayVerify());
+        $statement->execute([$accountId]);
+
+        return (int) $statement->fetchColumn();
+    }
+
     /**
      * One row the transaction holds already, as the audit log keeps it.
      *
@@ -121,7 +204,7 @@ final readonly class RecordedRows
      *
      * @return bool whether there are any
      */
-    public function lock(string $index, string $column, int $id): bool
+    public function lockReferencing(string $index, string $column, int $id): bool
     {
         $locked = $this->pdo->prepare("SELECT id FROM {$this->table} FORCE INDEX ({$index}) WHERE {$column} = ? FOR UPDATE");
         $locked->execute([$id]);
@@ -130,7 +213,7 @@ final readonly class RecordedRows
     }
 
     /**
-     * The rows whose `$column` is `$id`, locked by `lock()` already, each with its snapshot, in
+     * The rows whose `$column` is `$id`, locked by `lockReferencing()` already, each with its snapshot, in
      * id order.
      *
      * @return list<array{string, TSnapshot}>
@@ -153,7 +236,7 @@ final readonly class RecordedRows
      */
     public function recordDeletions(Actor $actor, int $cause, string $index, string $column, int $id): void
     {
-        if (!$this->lock($index, $column, $id)) {
+        if (!$this->lockReferencing($index, $column, $id)) {
             return;
         }
         $this->audit->recordCaused(
@@ -163,5 +246,11 @@ final readonly class RecordedRows
             $this->subjectKind,
             array_map(static fn(array $row): array => [$row[0], $row[1], null], $this->snapshots($index, $column, $id)),
         );
+    }
+
+    /** The pending rows an account (the parameter) may verify: those another account or one deleted since recorded. */
+    private function mayVerify(): string
+    {
+        return "{$this->alias}.pending = 1 AND ({$this->alias}.account_id IS NULL OR {$this->alias}.account_id <> ?)";
     }
 }

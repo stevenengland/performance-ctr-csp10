@@ -109,6 +109,8 @@ final class App
         $match = '/api/matches/{id:' . EntryActions::ID_PATTERN . '}';
         $member($app->put($match, $matches->put(...)));
         $member($app->delete($match, $matches->delete(...)));
+        $member($app->put($match . '/verification', $verification->verifyMatch(...)));
+        $member($app->delete($match . '/verification', $verification->rejectMatch(...)));
         $result = '/api/results/{id:' . EntryActions::ID_PATTERN . '}';
         $member($app->put($result, $results->put(...)));
         $member($app->delete($result, $results->delete(...)));

@@ -254,6 +254,34 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
         self::assertSame(['score' => 2, 'count' => 2], array_intersect_key($board['rows'][0], ['score' => 0, 'count' => 0]));
     }
 
+    /**
+     * The verification migrations add `pending` to matches with the default 0 (PRD #61). A match
+     * the previous release still inserts names no `pending`, so it counts at once, as it did
+     * there; a match this release records waits for verification next to it and counts for
+     * neither player.
+     */
+    public function testAMatchThePreviousReleaseInsertsCountsNextToAPendingOne(): void
+    {
+        $session = $this->signIn();
+        foreach (['Anna', 'Ben'] as $name) {
+            $this->send('POST', '/api/persons', ['name' => $name], $session);
+        }
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $session);
+        $this->otherSession()->prepare(
+            "INSERT INTO matches (id, game_id, first_person_id, second_person_id, outcome, run, account_id, created_at) VALUES (?, 1, 1, 2, 'first', 1, 1, ?)",
+        )->execute([self::ENTRY, Timestamp::of($this->clock->now())]);
+        $recorded = $this->send('PUT', '/api/matches/0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b', ['gameId' => 1, 'firstPersonId' => 1, 'secondPersonId' => 2, 'outcome' => 'second'], $session);
+        self::assertSame(201, $recorded->getStatusCode(), (string) $recorded->getBody());
+
+        $standings = $this->body($this->send('GET', '/api/games/1/standings', session: $session));
+
+        self::assertIsList($standings['rows']);
+        self::assertSame(
+            [['name' => 'Anna', 'points' => 1, 'played' => 1, 'pendingCount' => 1], ['name' => 'Ben', 'points' => 0, 'played' => 1, 'pendingCount' => 1]],
+            array_map(static fn(mixed $row): array => is_array($row) ? array_intersect_key($row, ['name' => 0, 'points' => 0, 'played' => 0, 'pendingCount' => 0]) : [], $standings['rows']),
+        );
+    }
+
     private function previousReleaseReserves(): void
     {
         $this->otherSession()->prepare(self::PREVIOUS_RESERVATION)->execute([self::ADMIN, self::ADDRESS, Timestamp::of($this->clock->now())]);

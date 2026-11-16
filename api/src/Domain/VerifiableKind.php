@@ -11,12 +11,14 @@ namespace Performance\Domain;
 enum VerifiableKind: string
 {
     case Entry = 'entry';
+    case Match = 'match';
 
     /** How the audit log names a row of the kind. */
     public function subjectKind(): AuditSubjectKind
     {
         return match ($this) {
             self::Entry => AuditSubjectKind::Entry,
+            self::Match => AuditSubjectKind::Match,
         };
     }
 }
