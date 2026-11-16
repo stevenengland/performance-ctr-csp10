@@ -839,7 +839,9 @@ submit on Enter.
     clears the sign.
   - A keyboard works too: digits, `-` for the sign, Backspace and Enter (`Speichern`) —
     unless a control has focus: Enter on a focused button or link activates that control (e.g.
-    `±` changes the sign), and a focused text field keeps every key.
+    `±` changes the sign), and a focused text field keeps every key. A key held with Ctrl,
+    Cmd or Alt (zoom, switching tabs) and a key an input method is composing stay the
+    browser's.
   - Full-width filled `Speichern` (`primary`, as the dialogs' buttons) below the pad, disabled
     until a digit is typed and while offline (§6.5).
 - `Speichern` saves (`PUT /api/results/{uuid}`, the button shows its spinner); then the app

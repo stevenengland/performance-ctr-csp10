@@ -116,9 +116,14 @@ function focusedHandles(event: KeyboardEvent): boolean {
   );
 }
 
-/** A keyboard works too: digits, `-` for the sign, Backspace and Enter — unless the focused control takes the key. */
+/** A shortcut (Ctrl, Cmd, Alt: zoom, switching tabs) or a key an input method is composing is not typing. Shift is: some layouts need it for digits. */
+function isTyping(event: KeyboardEvent): boolean {
+  return !(event.ctrlKey || event.metaKey || event.altKey || event.isComposing);
+}
+
+/** A keyboard works too: digits, `-` for the sign, Backspace and Enter — unless the focused control takes the key or it is a shortcut. */
 function onKey(event: KeyboardEvent) {
-  if (focusedHandles(event)) return;
+  if (!isTyping(event) || focusedHandles(event)) return;
   if (/^\d$/.test(event.key)) type(Number(event.key));
   else if (event.key === '-') toggleSign();
   else if (event.key === 'Backspace') erase();

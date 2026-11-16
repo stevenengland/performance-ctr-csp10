@@ -179,6 +179,33 @@ describe('the points of a result', () => {
     expect(results).toEqual([]);
   });
 
+  it.each([
+    ['Ctrl+- (zoom out)', { key: '-', ctrlKey: true }],
+    ['Cmd+- (zoom out)', { key: '-', metaKey: true }],
+    ['Ctrl+3 (switch tab)', { key: '3', ctrlKey: true }],
+    ['Cmd+3 (switch tab)', { key: '3', metaKey: true }],
+    ['Alt+Backspace', { key: 'Backspace', altKey: true }],
+    ['Ctrl+Enter', { key: 'Enter', ctrlKey: true }],
+    ['a key during IME composition', { key: '5', isComposing: true }],
+  ])('leaves %s to the browser and keeps the points', async (_case, init) => {
+    const { results } = gameApi();
+    wrapper = (await openFlow('/spiele/2/ergebnis/2', '/spiele/2')).wrapper;
+    press('2');
+    await flushPromises();
+
+    const shortcut = new KeyboardEvent('keydown', {
+      ...init,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(shortcut);
+    await flushPromises();
+
+    expect(shortcut.defaultPrevented).toBe(false);
+    expect(shown(wrapper)).toBe('2');
+    expect(results).toEqual([]);
+  });
+
   it('says that a person without a result has none yet', async () => {
     gameApi();
     wrapper = (await openFlow('/spiele/2/ergebnis/1', '/spiele/2')).wrapper;
