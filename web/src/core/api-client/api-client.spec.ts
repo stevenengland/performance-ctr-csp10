@@ -18,6 +18,8 @@ import {
   getSession,
   listAuditEvents,
   listEntries,
+  listMatches,
+  listResults,
   onUnauthorized,
   putEntry,
   putMatch,
@@ -361,6 +363,26 @@ describe('the API client', () => {
       '/api/audit?before=41',
       expect.objectContaining({ method: 'GET' }),
     );
+  });
+
+  it('reads the newest page of a game’s matches or results, and an older one before a cursor', async () => {
+    const page = { items: [], next: null };
+    const fetch = respond(page, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(listMatches(2)).resolves.toEqual(page);
+    await listMatches(2, 'WzEsIjIwMjYiXQ');
+    await expect(listResults(1)).resolves.toEqual(page);
+    await listResults(1, 'WzEsIjIwMjYiXQ');
+
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      '/api/games/2/matches',
+      '/api/games/2/matches?before=WzEsIjIwMjYiXQ',
+      '/api/games/1/results',
+      '/api/games/1/results?before=WzEsIjIwMjYiXQ',
+    ]);
   });
 
   it('reads a factor with its entry count, edits it and deletes it at its id', async () => {

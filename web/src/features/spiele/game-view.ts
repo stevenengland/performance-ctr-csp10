@@ -1,5 +1,11 @@
 import type { DeepReadonly } from 'vue';
-import type { Game, Outcome, Standings } from '../../core/api-client';
+import type {
+  Game,
+  MatchItem,
+  Outcome,
+  ResultItem,
+  Standings,
+} from '../../core/api-client';
 import { startOfToday } from '../../core/day-window';
 import {
   formatDay,
@@ -17,6 +23,9 @@ export const resultPath = (gameId: number) => `${gamePath(gameId)}/ergebnis`;
 /** The first step of a game's recording flow, by its kind. */
 export const recordPath = (game: Readonly<Pick<Game, 'id' | 'kind'>>) =>
   game.kind === 'duel' ? matchPath(game.id) : resultPath(game.id);
+/** The game's Verlauf: its matches or results since the start. */
+export const gameHistoryPath = (gameId: number) =>
+  `${gamePath(gameId)}/verlauf`;
 
 function kindLabel(kind: Game['kind']): string {
   return kind === 'duel' ? messages.spiele.duel : messages.spiele.points;
@@ -35,6 +44,17 @@ export function contextLine(game: DeepReadonly<Game>): string {
   return messages.spiele.context(
     kindLabel(game.kind),
     sinceLabel(game.startedAt),
+  );
+}
+
+/** The Verlauf's context line in the top bar: `Schach · seit 15.09.`. */
+export function historyContextLine(
+  game: DeepReadonly<Game>,
+  now: Date = new Date(),
+): string {
+  return messages.spiele.historyContext(
+    game.name,
+    sinceLabel(game.startedAt, now),
   );
 }
 
@@ -147,4 +167,68 @@ export function resultText(name: string, points: number): string {
     name,
     messages.spiele.gamePoints(formatSigned(points), points),
   );
+}
+
+/** One match or result of a game's Verlauf, formatted for display and deletion. */
+export interface GameHistoryRow {
+  id: string;
+  /** `Anna – Ben`, or `Daniel · −20 Punkte`. */
+  title: string;
+  /** `Anna gewinnt · 15.11., 21:00 · anna`, or `15.11., 22:12 · anna`. */
+  details: string;
+  /** The delete button's accessible name: `Anna – Ben vom 15.11. löschen`. */
+  removeLabel: string;
+  /** What the confirmation dialog names: `Anna – Ben · Anna gewinnt am 15.11. um 21:00`. */
+  removeBody: string;
+}
+
+function historyRow(
+  id: string,
+  title: string,
+  what: string,
+  { createdAt, accountName }: { createdAt: string; accountName: string | null },
+  outcome?: string,
+): GameHistoryRow {
+  const at = new Date(createdAt);
+  const day = formatDay(at);
+  const time = formatTime(at);
+  const details = messages.spiele.details(
+    day,
+    time,
+    accountName ?? messages.verlauf.deletedAccount,
+  );
+  return {
+    id,
+    title,
+    details: outcome === undefined ? details : `${outcome} · ${details}`,
+    removeLabel: messages.spiele.removeRecorded(title, day),
+    removeBody: messages.spiele.removeRecordedBody(what, day, time),
+  };
+}
+
+/** A duel's matches as its Verlauf shows them, in the API's order (newest first). */
+export function matchRows(items: DeepReadonly<MatchItem[]>): GameHistoryRow[] {
+  return items.map((item) => {
+    const first = item.first?.name ?? messages.spiele.deletedPerson;
+    const second = item.second?.name ?? messages.spiele.deletedPerson;
+    const pairing = messages.spiele.pairing(first, second);
+    const outcome = outcomeText(item.outcome, first, second);
+    return historyRow(
+      item.id,
+      pairing,
+      messages.spiele.savedMatch(pairing, outcome),
+      item,
+      outcome,
+    );
+  });
+}
+
+/** A points game's results as its Verlauf shows them, in the API's order (newest first). */
+export function resultRows(
+  items: DeepReadonly<ResultItem[]>,
+): GameHistoryRow[] {
+  return items.map((item) => {
+    const title = resultText(item.person.name, item.points);
+    return historyRow(item.id, title, title, item);
+  });
 }

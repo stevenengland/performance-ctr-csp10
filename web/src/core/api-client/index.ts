@@ -29,6 +29,10 @@ export type Result = components['schemas']['Result'];
 export type Standings = components['schemas']['Standings'];
 export type DuelRow = components['schemas']['DuelRow'];
 export type PointsRow = components['schemas']['PointsRow'];
+export type MatchItem = components['schemas']['MatchItem'];
+export type MatchPage = components['schemas']['MatchPage'];
+export type ResultItem = components['schemas']['ResultItem'];
+export type ResultPage = components['schemas']['ResultPage'];
 export type ApiPath = keyof paths;
 /** Field errors of a 422 problem, keyed by the API field name. */
 export type FieldErrors = Readonly<Record<string, string>>;
@@ -378,6 +382,28 @@ export async function getStandings(
     standings: (await response.json()) as Standings,
     etag: response.headers.get('ETag') ?? undefined,
   };
+}
+
+/** A page of a duel's matches since its last restart, newest first; `before` (the previous page's `next`) reads older ones. */
+export function listMatches(
+  gameId: number,
+  before?: string,
+): Promise<MatchPage> {
+  return request<MatchPage>('/api/games/{id}/matches', {
+    params: { id: String(gameId) },
+    query: before === undefined ? undefined : { before },
+  });
+}
+
+/** A page of a points game's results since its last restart, newest first; `before` (the previous page's `next`) reads older ones. */
+export function listResults(
+  gameId: number,
+  before?: string,
+): Promise<ResultPage> {
+  return request<ResultPage>('/api/games/{id}/results', {
+    params: { id: String(gameId) },
+    query: before === undefined ? undefined : { before },
+  });
 }
 
 /** Records a match under its client id: repeating it with the same id never records a second one. */

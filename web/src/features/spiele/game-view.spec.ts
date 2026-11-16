@@ -1,11 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { DuelRow, Game, PointsRow } from '../../core/api-client';
+import type {
+  DuelRow,
+  Game,
+  MatchItem,
+  PointsRow,
+  ResultItem,
+} from '../../core/api-client';
 import {
   contextLine,
+  gameHistoryPath,
   gameStandings,
+  historyContextLine,
   leaderLine,
+  matchRows,
   outcomeText,
   recordPath,
+  resultRows,
   resultText,
   ruleLine,
   settingLine,
@@ -200,5 +210,118 @@ describe('a game’s ranking in words', () => {
   it('starts a duel’s recording at Wer spielt? and a points game’s at Für wen?', () => {
     expect(recordPath(game('duel'))).toBe('/spiele/1/partie');
     expect(recordPath(game('points'))).toBe('/spiele/1/ergebnis');
+  });
+});
+
+describe('a game’s Verlauf in words', () => {
+  const zone = process.env.TZ;
+
+  beforeEach(() => {
+    process.env.TZ = 'Europe/Berlin';
+  });
+  afterEach(() => {
+    process.env.TZ = zone;
+  });
+
+  const anna = { id: 1, name: 'Anna' };
+  const ben = { id: 2, name: 'Ben' };
+
+  it('opens at the game’s Verlauf, titled with the game and its start', () => {
+    expect(gameHistoryPath(2)).toBe('/spiele/2/verlauf');
+    expect(
+      historyContextLine(game('duel'), new Date('2026-11-15T22:45:00Z')),
+    ).toBe('Schach · seit 15.09.');
+  });
+
+  it('shows a match as its pairing with outcome, local date and time and account', () => {
+    const items: MatchItem[] = [
+      {
+        id: 'm2',
+        first: anna,
+        second: ben,
+        outcome: 'first',
+        createdAt: '2026-11-15T20:00:00.000Z',
+        accountName: 'anna',
+      },
+      {
+        id: 'm1',
+        first: ben,
+        second: anna,
+        outcome: 'draw',
+        createdAt: '2026-11-08T20:30:00.000Z',
+        accountName: 'ben',
+      },
+    ];
+
+    expect(matchRows(items)).toEqual([
+      {
+        id: 'm2',
+        title: 'Anna – Ben',
+        details: 'Anna gewinnt · 15.11., 21:00 · anna',
+        removeLabel: 'Anna – Ben vom 15.11. löschen',
+        removeBody: 'Anna – Ben · Anna gewinnt am 15.11. um 21:00',
+      },
+      {
+        id: 'm1',
+        title: 'Ben – Anna',
+        details: 'Remis · 08.11., 21:30 · ben',
+        removeLabel: 'Ben – Anna vom 08.11. löschen',
+        removeBody: 'Ben – Anna · Remis am 08.11. um 21:30',
+      },
+    ]);
+  });
+
+  it('names a deleted side “gelöschte Person” and a deleted account “gelöschtes Konto”', () => {
+    const [row] = matchRows([
+      {
+        id: 'm1',
+        first: null,
+        second: ben,
+        outcome: 'first',
+        createdAt: '2026-11-15T20:00:00.000Z',
+        accountName: null,
+      },
+    ]);
+
+    expect(row?.title).toBe('gelöschte Person – Ben');
+    expect(row?.details).toBe(
+      'gelöschte Person gewinnt · 15.11., 21:00 · gelöschtes Konto',
+    );
+  });
+
+  it('shows a result as person and points with a real minus sign, local date and time and account', () => {
+    const items: ResultItem[] = [
+      {
+        id: 'r2',
+        person: { id: 3, name: 'Daniel' },
+        points: -20,
+        createdAt: '2026-11-15T21:12:00.000Z',
+        accountName: 'anna',
+      },
+      {
+        id: 'r1',
+        person: anna,
+        points: 1,
+        createdAt: '2026-11-15T20:05:00.000Z',
+        accountName: null,
+      },
+    ];
+
+    expect(resultRows(items)).toEqual([
+      {
+        id: 'r2',
+        title: 'Daniel · −20 Punkte',
+        details: '15.11., 22:12 · anna',
+        removeLabel: 'Daniel · −20 Punkte vom 15.11. löschen',
+        removeBody: 'Daniel · −20 Punkte am 15.11. um 22:12',
+      },
+      {
+        id: 'r1',
+        title: 'Anna · 1 Punkt',
+        details: '15.11., 21:05 · gelöschtes Konto',
+        removeLabel: 'Anna · 1 Punkt vom 15.11. löschen',
+        removeBody: 'Anna · 1 Punkt am 15.11. um 21:05',
+      },
+    ]);
   });
 });

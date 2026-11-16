@@ -317,6 +317,25 @@ export const messages = {
     sign: 'Vorzeichen wechseln',
     erase: 'Letzte Ziffer löschen',
     save: 'Speichern',
+    /** A game's Verlauf: its matches or results since the start (§7r). */
+    history: 'Verlauf',
+    /** The Verlauf's context line: `Schach · seit 15.09.`. */
+    historyContext: (game: string, since: string) => `${game} · ${since}`,
+    /** A side of a match whose person was deleted. */
+    deletedPerson: 'gelöschte Person',
+    /** A Verlauf row's supporting line: `15.11., 21:00 · anna`. */
+    details: (day: string, time: string, account: string) =>
+      `${day}, ${time} · ${account}`,
+    /** The delete icon button of a Verlauf row: `Anna – Ben vom 15.11. löschen`. */
+    removeRecorded: (what: string, day: string) => `${what} vom ${day} löschen`,
+    removeMatchTitle: 'Partie löschen?',
+    removeResultTitle: 'Ergebnis löschen?',
+    /** The dialog body (§6.9): `Anna – Ben · Anna gewinnt am 15.11. um 21:00`. */
+    removeRecordedBody: (what: string, day: string, time: string) =>
+      `${what} am ${day} um ${time}`,
+    removedMatch: 'Partie gelöscht',
+    removedResult: 'Ergebnis gelöscht',
+    more: 'Ältere laden',
     /** A deleted game's matches or results go with it. */
     removeBody: (name: string, kind: 'duel' | 'points', count: number) => {
       if (count === 0) return `${name} wird gelöscht.`;
