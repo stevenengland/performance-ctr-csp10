@@ -33,10 +33,21 @@ export async function deleteGame(id: number): Promise<void> {
   await loadGames();
 }
 
-/** Starts the game's next run: its new start and its ranking, empty until the next match or result, are read again. */
+/** Puts a game read from the server in place of the one shown. */
+function show(game: Game): void {
+  games.value = games.value?.map((shown) =>
+    shown.id === game.id ? game : shown,
+  );
+}
+
+/**
+Starts the game's next run. Done once the server answers: the answer is the game
+with its new start, and its ranking, empty until the next match or result, is
+read again — a failed read only marks it stale, so nobody restarts twice.
+*/
 export async function restartGame(id: number): Promise<void> {
-  await api.restartGame(id);
-  await Promise.all([loadGames(), refreshStandings(id)]);
+  show(await api.restartGame(id));
+  await refreshStandings(id);
 }
 
 /** One polled ranking per game, created when a screen first needs it. */

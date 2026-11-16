@@ -772,8 +772,10 @@ submit on Enter.
   the confirmation dialog (§6.9) `Schach neu starten?` – `Die Rangliste beginnt wieder bei null.
   Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.` with `Abbrechen`
   and `Neu starten`. Confirming (`POST /api/games/{id}/restart`) starts the game's next run
-  from now: the snackbar `Schach neu gestartet`, the games and the ranking are read again at
-  once, so the page shows the empty state and the context line `Duell · seit heute, 19:30`.
+  from now: once the server answers, the restart is done — the dialog closes, the snackbar
+  says `Schach neu gestartet`, the game takes the answer's new start and the ranking is read
+  again at once, so the page shows the empty state and the context line `Duell · seit heute,
+  19:30`. A failed read after it only marks the ranking stale (never invites a second restart).
   A failed restart shows the problem title, keeps the dialog open and the ranking as it was.
   Every signed-in account may restart a game; nothing recorded is deleted.
 - Loading: a skeleton card and three skeleton rows.
