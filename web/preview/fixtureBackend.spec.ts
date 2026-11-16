@@ -12,6 +12,7 @@ import {
   deleteEntry,
   deleteFactor,
   deletePerson,
+  deletePersonPhoto,
   getDrink,
   getFactor,
   getPerson,
@@ -420,6 +421,22 @@ describe('the fixture backend', () => {
       ['Ben', null],
       ['Tom', null],
     ]);
+  });
+
+  it('removes a person’s photo, also when there is none, and refuses an unknown person', async () => {
+    installFixtureBackend(sampleEvening());
+    const anna = (await listPersons()).find(({ name }) => name === 'Anna');
+    if (!anna) throw new Error('no Anna');
+
+    await deletePersonPhoto(anna.id);
+    await deletePersonPhoto(anna.id);
+
+    expect((await getPerson(anna.id)).photoUrl).toBeNull();
+    const { rows } = await standings(todayFrom());
+    expect(rows.find(({ name }) => name === 'Anna')?.photoUrl).toBeNull();
+    await expect(deletePersonPhoto(99)).rejects.toMatchObject({
+      status: 404,
+    });
   });
 
   it('creates persons and drinks with the API’s validation', async () => {

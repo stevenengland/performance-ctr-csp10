@@ -543,3 +543,28 @@ test('the fixture preview shows sample photos for Anna, Daniel and Mara and init
     list.getByRole('link', { name: 'Verlauf von Anna', exact: true }),
   ).toHaveText('Anna');
 });
+
+test('the fixture preview removes a person’s photo in Person bearbeiten', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verwalten/personen');
+  const anna = page
+    .getByRole('list', { name: 'Personen' })
+    .getByRole('listitem')
+    .first();
+  await expect(anna.locator('.person-avatar img')).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Anna bearbeiten' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.locator('.person-avatar')).toHaveCSS('width', '112px');
+  await dialog.getByRole('button', { name: 'Foto entfernen' }).click();
+  await expect(dialog.locator('[data-initials="A"]')).toHaveCount(1);
+  await dialog.getByRole('button', { name: 'Speichern' }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect(anna.locator('.person-avatar img')).toHaveCount(0);
+  await expect(anna.locator('[data-initials]')).toHaveAttribute(
+    'data-initials',
+    'A',
+  );
+});
