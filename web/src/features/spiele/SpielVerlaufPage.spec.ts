@@ -425,3 +425,92 @@ describe('a game’s Verlauf', () => {
     expect(useSnackbar().value?.text).toBe('Nicht mehr vorhanden');
   });
 });
+
+describe('a game’s Verlauf across a restart', () => {
+  const zone = process.env.TZ;
+  let wrapper: VueWrapper | undefined;
+
+  beforeEach(() => {
+    process.env.TZ = 'Europe/Berlin';
+    // 19:30 in Berlin.
+    vi.useFakeTimers({
+      now: new Date('2026-11-15T18:30:00Z'),
+      toFake: ['Date'],
+    });
+    dismissSnackbar();
+    stubDialogEnvironment();
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    document.body.innerHTML = '';
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    process.env.TZ = zone;
+  });
+
+  /**
+  A fake API whose Schach has runs, as the real one: the first page reads the
+  current run, a cursor (`<run>-<index>`) keeps the run it was given in, and
+  `restart()` starts the next run, empty, from now.
+  */
+  function runsApi(firstRun: MatchItem[], size: number) {
+    let schachGame = games.find(({ id }) => id === 2) as Game;
+    const runs: MatchItem[][] = [firstRun];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url === '/api/games') return json({ games: [schachGame] });
+        const listed =
+          /^\/api\/games\/2\/matches(?:\?before=(\d+)-(\d+))?$/.exec(url);
+        if (!listed) throw new Error(`unexpected ${url}`);
+        const run = listed[1] === undefined ? runs.length : Number(listed[1]);
+        const start = Number(listed[2] ?? 0);
+        const items = runs[run - 1] ?? [];
+        const end = start + size;
+        return json({
+          items: items.slice(start, end),
+          next: end < items.length ? `${String(run)}-${String(end)}` : null,
+        });
+      }),
+    );
+    return {
+      restart() {
+        runs.push([]);
+        schachGame = { ...schachGame, startedAt: new Date().toISOString() };
+      },
+    };
+  }
+
+  it('keeps paging in the run it opened with when the game restarts meanwhile', async () => {
+    const schachRuns = runsApi(schach(), 2);
+    wrapper = await verlauf(2);
+    expect(rows(wrapper)).toHaveLength(2);
+
+    schachRuns.restart();
+    await olderButton(wrapper)?.trigger('click');
+    await flushPromises();
+
+    expect(rows(wrapper)).toEqual([
+      'Anna – BenAnna gewinnt · 15.11., 21:00 · anna',
+      'gelöschte Person – BenRemis · 08.11., 21:00 · gelöschtes Konto',
+      'Daniel – AnnaAnna gewinnt · 01.11., 21:00 · daniel',
+    ]);
+  });
+
+  it('shows the new run, empty since today, when reopened after a restart', async () => {
+    const schachRuns = runsApi(schach(), 2);
+    wrapper = await verlauf(2);
+    wrapper.unmount();
+
+    schachRuns.restart();
+    wrapper = await verlauf(2);
+
+    expect(wrapper.get('.top-bar__context').text()).toBe(
+      'Schach · seit heute, 19:30',
+    );
+    expect(rows(wrapper)).toEqual([]);
+    expect(wrapper.text()).toContain('Seit dem Start noch keine Partien.');
+  });
+});
