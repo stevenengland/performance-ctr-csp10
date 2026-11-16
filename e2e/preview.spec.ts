@@ -621,3 +621,44 @@ test('the fixture preview sets and replaces a person’s photo in Person bearbei
     ]),
   ).toEqual(['red', 'blue']);
 });
+
+test('the fixture preview creates a person with a photo in Person anlegen', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/verwalten/personen');
+  const list = page.getByRole('list', { name: 'Personen' });
+  await expect(list.getByRole('listitem')).toHaveCount(6);
+  const dialog = page.getByRole('dialog');
+
+  await page.getByRole('button', { name: 'Person anlegen' }).click();
+  await dialog.getByLabel('Name').fill('Lea');
+  await expect(dialog.locator('[data-initials="L"]')).toHaveCount(1);
+  await pickWith(
+    page,
+    dialog.getByRole('button', { name: 'Foto wählen' }),
+    PICTURES.halves,
+  );
+  await expect(
+    dialog.getByRole('img', { name: 'Ausschnitt des Fotos' }),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Speichern' }).click();
+  await expect(dialog).toBeHidden();
+
+  const lea = list.getByRole('listitem').filter({ hasText: 'Lea' });
+  const photo = lea.locator('.person-avatar img');
+  await expect(list.getByRole('listitem')).toHaveCount(7);
+  await expect(photo).toHaveAttribute('src', /^data:image\/jpeg;base64,/);
+  await expect
+    .poll(() =>
+      photo.evaluate(
+        (img: HTMLImageElement) => img.complete && img.naturalWidth,
+      ),
+    )
+    .toBe(256);
+  expect(
+    await coloursAt(photo, [
+      [0.3, 0.5],
+      [0.7, 0.5],
+    ]),
+  ).toEqual(['red', 'blue']);
+});
