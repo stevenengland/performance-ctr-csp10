@@ -17,7 +17,8 @@ import { showProblem } from '../../core/snackbar';
 
 /**
 Verwalten (§7h): Personen, Getränke, Faktoren and, for admins, Konten, each with
-its count; a count stays away until its list has loaded.
+its count as supporting line (absent until its list has loaded), and, for admins,
+Protokoll with a fixed one (the hub does not load the log).
 */
 type Count = (formatted: string, count: number) => string;
 
@@ -34,24 +35,29 @@ const sections = computed(() => [
   {
     label: messages.verwalten.persons,
     to: '/verwalten/personen',
-    count: counted(persons.value?.length, messages.verwalten.personCount),
+    support: counted(persons.value?.length, messages.verwalten.personCount),
   },
   {
     label: messages.verwalten.drinks,
     to: '/verwalten/getraenke',
-    count: counted(drinks.value?.length, messages.verwalten.drinkCount),
+    support: counted(drinks.value?.length, messages.verwalten.drinkCount),
   },
   {
     label: messages.verwalten.factors,
     to: '/verwalten/faktoren',
-    count: counted(factors.value?.length, messages.verwalten.factorCount),
+    support: counted(factors.value?.length, messages.verwalten.factorCount),
   },
   ...(account.value?.isAdmin
     ? [
         {
           label: messages.verwalten.accounts,
           to: '/verwalten/konten',
-          count: counted(accounts.value, messages.verwalten.accountCount),
+          support: counted(accounts.value, messages.verwalten.accountCount),
+        },
+        {
+          label: messages.verwalten.audit,
+          to: '/verwalten/protokoll',
+          support: messages.verwalten.auditSupport,
         },
       ]
     : []),
@@ -75,8 +81,8 @@ onMounted(() => {
       <RouterLink :to="section.to" class="list__row list__link">
         <span class="list__main">
           <span class="type-row-title list__title">{{ section.label }}</span>
-          <span v-if="section.count" class="type-support list__support">{{
-            section.count
+          <span v-if="section.support" class="type-support list__support">{{
+            section.support
           }}</span>
         </span>
         <v-icon :icon="mdiChevronRight" size="24" />

@@ -70,8 +70,8 @@ describe('Verwalten', () => {
     vi.unstubAllGlobals();
   });
 
-  it('lists Personen, Getränke, Faktoren and, for admins, Konten with their counts', async () => {
-    server(
+  it('lists Personen, Getränke, Faktoren and, for admins, Konten with their counts and Protokoll without one', async () => {
+    const asked = server(
       { id: 1, userName: 'anna', isAdmin: true },
       { persons: 6, drinks: 1, factors: 2, accounts: 4 },
     );
@@ -83,7 +83,10 @@ describe('Verwalten', () => {
       'Getränke1 Getränk',
       'Faktoren2 Faktoren',
       'Konten4 Konten',
+      'ProtokollWer hat was geändert',
     ]);
+    expect(asked.some((url) => url.startsWith('/api/audit'))).toBe(false);
+    expect(wrapper.find('a[href="/verwalten/protokoll"]').exists()).toBe(true);
   });
 
   it('names one of each in the singular', async () => {
@@ -99,10 +102,11 @@ describe('Verwalten', () => {
       'Getränke1 Getränk',
       'Faktoren1 Faktor',
       'Konten1 Konto',
+      'ProtokollWer hat was geändert',
     ]);
   });
 
-  it('leaves out Konten for others and never asks for accounts', async () => {
+  it('leaves out Konten and Protokoll for others and never asks for accounts', async () => {
     const asked = server(
       { id: 2, userName: 'ben', isAdmin: false },
       { persons: 0, drinks: 3, factors: 0 },

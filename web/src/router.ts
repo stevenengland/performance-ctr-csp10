@@ -143,6 +143,16 @@ export const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/verwalten/protokoll',
+    component: () => import('./features/verwalten/protokoll/ProtokollPage.vue'),
+    meta: {
+      title: messages.protokoll.title,
+      destination: 'verwalten',
+      child: true,
+      admin: true,
+    },
+  },
+  {
     path: '/konto',
     component: () => import('./features/mein-konto/KontoPage.vue'),
     meta: { title: messages.konto.title },
