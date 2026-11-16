@@ -1167,8 +1167,10 @@ components:
           oneOf:
             - type: 'null'
             - type: object
-              additionalProperties: false
-              required: [name, multiplier]
+              description: >-
+                The factor's values, under the same rule as the snapshot: keys are only ever
+                added, and a missing one is unknown.
+              additionalProperties: true
               properties:
                 name:
                   type: string

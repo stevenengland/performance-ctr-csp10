@@ -525,10 +525,14 @@ export interface components {
       person?: string;
       drink?: string;
       quantity?: number;
-      factor?: null | {
-        name: string;
-        multiplier: number;
-      };
+      factor?:
+        | null
+        | ({
+            name?: string;
+            multiplier?: number;
+          } & {
+            [key: string]: unknown;
+          });
     } & {
       [key: string]: unknown;
     };

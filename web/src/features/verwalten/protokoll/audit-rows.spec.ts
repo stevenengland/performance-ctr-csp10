@@ -149,6 +149,46 @@ describe('the Protokoll rows', () => {
     expect(row.changes).toBe('');
   });
 
+  it('names a created or deleted subject from the keys it gets only, never with a made-up quantity or an empty name', () => {
+    const entry = (snapshot: AuditEventView['before']) =>
+      only({ subjectKind: 'entry', operation: 'delete', before: snapshot })
+        .title;
+    const person = (snapshot: AuditEventView['before']) =>
+      only({ subjectKind: 'person', operation: 'delete', before: snapshot })
+        .title;
+
+    expect(entry({ person: 'Daniel', drink: 'Bier' })).toBe(
+      'Eintrag Bier für Daniel',
+    );
+    expect(entry({ quantity: 2 })).toBe('Eintrag 2×');
+    expect(entry({ quantity: 2, person: 'Daniel' })).toBe(
+      'Eintrag 2× für Daniel',
+    );
+    expect(entry({ drink: 'Bier', quantity: 2 })).toBe('Eintrag 2× Bier');
+    expect(entry({})).toBe('Eintrag');
+    expect(person({})).toBe('Person');
+    expect(
+      only({ subjectKind: 'drink', operation: 'create', after: { points: 1 } }),
+    ).toMatchObject({ title: 'Getränk', changes: '1 Punkt' });
+  });
+
+  it('shows a factor of an entry with the factor keys it gets only', () => {
+    expect(
+      only({
+        subjectKind: 'entry',
+        operation: 'create',
+        after: { ...beer, factor: { name: 'Happy Hour' } },
+      }).changes,
+    ).toBe('1 Punkt · Happy Hour');
+    expect(
+      only({
+        subjectKind: 'entry',
+        operation: 'create',
+        after: { ...beer, factor: {} },
+      }).changes,
+    ).toBe('1 Punkt');
+  });
+
   it('gives the local time and the user name the event recorded', () => {
     expect(
       only({

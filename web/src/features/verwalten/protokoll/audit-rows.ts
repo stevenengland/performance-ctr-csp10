@@ -23,7 +23,7 @@ export interface AuditSnapshotView {
   person?: string;
   drink?: string;
   quantity?: number;
-  factor?: { name: string; multiplier: number } | null;
+  factor?: { name?: string; multiplier?: number } | null;
 }
 
 /** What Protokoll reads of an audit event of the API. */
@@ -67,18 +67,41 @@ type Field = readonly [label: string, value: string];
 const MS_PER_DAY = 86_400_000;
 const text = messages.protokoll;
 
+/** `Happy Hour ×2`, from the keys the factor has; `Kein Faktor` for none. */
 const factorText = (factor: Snapshot['factor']) =>
   factor
-    ? `${factor.name} ${formatMultiplier(factor.multiplier)}`
+    ? [
+        factor.name,
+        factor.multiplier === undefined
+          ? undefined
+          : formatMultiplier(factor.multiplier),
+      ]
+        .filter((part) => part !== undefined)
+        .join(' ')
     : messages.zaehlen.noFactor;
 
-/** A person's, drink's or factor's name; an entry's `2× Bier für Daniel`. */
-function subjectName(snapshot: Snapshot): string {
-  if (snapshot.name !== undefined) return snapshot.name;
-  return text.entry(
-    messages.zaehlen.quantityOf(snapshot.quantity ?? 0, snapshot.drink ?? ''),
-    snapshot.person ?? '',
-  );
+/**
+An entry's `2× Bier für Daniel`, from the parts the snapshot has: a missing key
+is unknown, so it is left out (`Bier für Daniel`), never shown as 0 or blank.
+*/
+function entryName({ quantity, drink, person }: Snapshot): string {
+  const what =
+    quantity === undefined
+      ? drink
+      : messages.zaehlen.quantityOf(quantity, drink ?? '').trimEnd();
+  if (person === undefined) return what ?? '';
+  return text.entry(what ?? '', person).trimStart();
+}
+
+/** A person's, drink's or factor's name, an entry's `2× Bier für Daniel`; empty when unknown. */
+function subjectName(kind: SubjectKind, snapshot: Snapshot): string {
+  return kind === 'entry' ? entryName(snapshot) : (snapshot.name ?? '');
+}
+
+/** `Getränk Bier`, or only the kind when the name is unknown. */
+function title(kind: SubjectKind, snapshot: Snapshot): string {
+  const name = subjectName(kind, snapshot);
+  return name === '' ? text.kind[kind] : text.subject(text.kind[kind], name);
 }
 
 /** The snapshot's known values, labelled and formatted. */
@@ -86,7 +109,7 @@ function fields(snapshot: Snapshot): Field[] {
   const known: Field[] = [];
   if (snapshot.name !== undefined) known.push([text.name, snapshot.name]);
   if (snapshot.person !== undefined) {
-    known.push([text.kind.entry, subjectName(snapshot)]);
+    known.push([text.kind.entry, entryName(snapshot)]);
   }
   if (snapshot.points !== undefined) {
     known.push([text.points, formatPoints(snapshot.points)]);
@@ -116,6 +139,7 @@ function changes(event: DeepReadonly<AuditEventView>): string[] {
       ([label, value]) =>
         label !== text.name &&
         label !== text.kind.entry &&
+        value !== '' &&
         value !== messages.zaehlen.noFactor,
     )
     .map(([, value]) => value);
@@ -156,7 +180,7 @@ function auditRow(
     id: event.id,
     operation: event.operation,
     operationLabel: text.operation[event.operation],
-    title: text.subject(text.kind[event.subjectKind], subjectName(snapshot)),
+    title: title(event.subjectKind, snapshot),
     changes: changes(event).join(' · '),
     by: text.by(formatTime(instant, timeZone), event.actor.userName),
     cause: event.cause ? text.causedBy(event.cause.name) : undefined,
