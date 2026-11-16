@@ -147,7 +147,8 @@ onMounted(loadPage);
   margin-top: 2px;
 }
 
-.protokoll__operation--delete {
+.protokoll__operation--delete,
+.protokoll__operation--reject {
   border-color: rgb(var(--v-theme-error));
   color: rgb(var(--v-theme-error));
 }

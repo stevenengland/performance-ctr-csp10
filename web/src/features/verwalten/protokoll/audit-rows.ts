@@ -13,7 +13,7 @@ event's shape, without the API client, so the fixture preview can use them as
 they are.
 */
 
-type Operation = 'create' | 'update' | 'delete' | 'verify';
+type Operation = 'create' | 'update' | 'delete' | 'verify' | 'reject';
 type SubjectKind = keyof typeof messages.protokoll.kind;
 
 /** A subject's values as an event recorded them; a key that is missing is unknown. */
@@ -59,7 +59,7 @@ export interface AuditEventView {
 export interface AuditRow {
   id: number;
   operation: Operation;
-  /** The operation chip: `Angelegt`, `Geändert`, `Gelöscht`, `bestätigt`. */
+  /** The operation chip: `Angelegt`, `Geändert`, `Gelöscht`, `bestätigt`, `abgelehnt`. */
   operationLabel: string;
   /** `Getränk Bier`, `Eintrag 2× Bier für Daniel`. */
   title: string;
@@ -257,7 +257,7 @@ function updates(
 /**
 An update's changes; a create's or delete's values without the name the title
 already gives. A verification changes only `pending`, which is no shown value,
-so it shows none.
+so it shows none; a rejection shows the row's values as a delete does.
 */
 function changes(event: DeepReadonly<AuditEventView>): string[] {
   const { before, after, subjectKind } = event;

@@ -236,6 +236,23 @@ describe('the Protokoll rows', () => {
     });
   });
 
+  it('shows a rejection as abgelehnt by the acting account, with the entry as it was', () => {
+    const row = only({
+      operation: 'reject',
+      subjectKind: 'entry',
+      actor: { userName: 'ben' },
+      before: { ...beer, factor: null, pending: true },
+      after: null,
+    });
+
+    expect(row).toMatchObject({
+      operation: 'reject',
+      operationLabel: 'abgelehnt',
+      title: 'Eintrag 2× Bier für Daniel',
+      by: '23:41 · ben',
+    });
+  });
+
   it('shows each changed value of an update as before → after, in German number format', () => {
     expect(
       only({

@@ -184,6 +184,8 @@ export const messages = {
       delete: 'Gelöscht',
       /** Another account verified a pending row (PRD #61). */
       verify: 'bestätigt',
+      /** Another account rejected a pending row, which removed it (PRD #61). */
+      reject: 'abgelehnt',
     },
     /** A row's subject: `Getränk Bier`. */
     subject: (kind: string, name: string) => `${kind} ${name}`,
