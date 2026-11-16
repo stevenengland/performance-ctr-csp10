@@ -219,8 +219,8 @@ try_rule() { # $1 = label, $2 = .htaccess body
   out "- Rule form $1: HTTP \`$status\`, \`SCRIPT_NAME\` \`${script//probe-$rand/probe-…}\`"
 }
 try_rule '`^api/ index.php [END]` (as deployed)' 'RewriteEngine On\nRewriteRule ^api/ index.php [END]\n'
-try_rule '`^api/ index.php [L]` guarded by `REDIRECT_STATUS`' 'RewriteEngine On\nRewriteCond %%{ENV:REDIRECT_STATUS} ^$\nRewriteRule ^api/ index.php [L]\n'
-try_rule '`^api/ index.php [L]` guarded by `!-f`' 'RewriteEngine On\nRewriteCond %%{REQUEST_FILENAME} !-f\nRewriteRule ^api/ index.php [L]\n'
+try_rule '`^api/ index.php [L]` guarded by `REDIRECT_STATUS`' 'RewriteEngine On\nRewriteCond %{ENV:REDIRECT_STATUS} ^$\nRewriteRule ^api/ index.php [L]\n'
+try_rule '`^api/ index.php [L]` guarded by `!-f`' 'RewriteEngine On\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteRule ^api/ index.php [L]\n'
 
 # --- what the deployed site answers right now ------------------------------------------------------
 for path in /api/health /api/index.php /; do
