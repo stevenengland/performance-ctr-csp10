@@ -134,6 +134,20 @@ describe('the route guard', () => {
     expect(notAnId.path).toBe('/zaehlen');
   });
 
+  it('opens a game’s Verlauf below the game under Spiele', async () => {
+    signedInAs({ id: 2, userName: 'anna', isAdmin: false });
+
+    const verlauf = await open('/spiele/3/verlauf');
+
+    expect(verlauf.path).toBe('/spiele/3/verlauf');
+    expect(verlauf.params.gameId).toBe('3');
+    expect(verlauf.meta).toMatchObject({
+      title: 'Verlauf',
+      destination: 'spiele',
+      child: true,
+    });
+  });
+
   it('sends a signed-in user away from Anmelden to where they wanted to go', async () => {
     signedInAs({ id: 2, userName: 'anna', isAdmin: false });
 

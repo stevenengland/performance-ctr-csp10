@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { mdiHistory } from '@mdi/js';
 import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import AppFab from '../../components/AppFab.vue';
@@ -9,14 +10,21 @@ import { showProblem } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
 import GameStandingList from './GameStandingList.vue';
 import { leaveGone } from './game-flow';
-import { contextLine, gameStandings, recordPath, ruleLine } from './game-view';
+import {
+  contextLine,
+  gameHistoryPath,
+  gameStandings,
+  recordPath,
+  ruleLine,
+} from './game-view';
 
 /**
 A game's page (§7o): its name and context line in the top bar, the rule that
 decides its ranking, and the ranking since the last (re)start, shaped like the
 Rangliste and kept current like it: polled while the page is open, at once on
 focus and after the device's own writes; while its latest refresh failed, the top
-bar shows when the ranking was last confirmed (§6.6). The FAB opens the recording flow: `Partie eintragen` on a duel (§7p), `Ergebnis eintragen` on a points game (§7q).
+bar shows when the ranking was last confirmed (§6.6). The FAB opens the recording flow: `Partie eintragen` on a duel (§7p), `Ergebnis eintragen` on a points game (§7q);
+`Verlauf` under the ranking opens the game's Verlauf (§7r).
 */
 const props = defineProps<{ gameId: string }>();
 const SKELETON_ROWS = 3;
@@ -75,6 +83,16 @@ onMounted(async () => {
       :standings="standings"
       :label="game?.name ?? messages.spiele.title"
     />
+    <div v-if="game" class="spiel__actions">
+      <v-btn
+        :to="gameHistoryPath(game.id)"
+        :prepend-icon="mdiHistory"
+        variant="text"
+        class="type-row-title"
+      >
+        {{ messages.spiele.history }}
+      </v-btn>
+    </div>
     <AppFab
       v-if="game"
       :label="
@@ -97,6 +115,18 @@ onMounted(async () => {
 .spiel__rule {
   margin-bottom: 10px;
   color: rgb(var(--v-theme-on-surface-variant));
+}
+
+.spiel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.spiel__actions .v-btn {
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .spiel__skeleton-card {

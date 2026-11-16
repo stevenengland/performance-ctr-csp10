@@ -112,6 +112,11 @@ async function spiel(gameId: number): Promise<VueWrapper> {
         meta: { title: 'Spiele', destination: 'spiele', child: true },
       },
       {
+        path: '/spiele/:gameId(\\d+)/verlauf',
+        component: blank,
+        meta: { title: 'Verlauf', destination: 'spiele', child: true },
+      },
+      {
         path: '/spiele',
         component: blank,
         meta: { title: 'Spiele', destination: 'spiele' },
@@ -259,6 +264,20 @@ describe('a game’s page', () => {
     await flushPromises();
 
     expect(wrapper.get('.game-leader').text()).toContain('Anna');
+  });
+
+  it('opens the game’s Verlauf from “Verlauf” under the ranking', async () => {
+    api([game(1, 'Schach', 'duel')], { 1: SCHACH });
+    wrapper = await spiel(1);
+
+    const link = wrapper
+      .findAll('a')
+      .find((candidate) => candidate.text() === 'Verlauf');
+    expect(link?.attributes('href')).toBe('/spiele/1/verlauf');
+    await link?.trigger('click');
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe('/spiele/1/verlauf');
   });
 
   it('leads back to Spiele with “Nicht mehr vorhanden” when the game no longer exists', async () => {

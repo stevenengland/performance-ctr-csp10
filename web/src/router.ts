@@ -174,6 +174,16 @@ export const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/spiele/:gameId(\\d+)/verlauf',
+    component: () => import('./features/spiele/SpielVerlaufPage.vue'),
+    props: true,
+    meta: {
+      title: messages.spiele.history,
+      destination: 'spiele',
+      child: true,
+    },
+  },
+  {
     path: '/verwalten',
     component: () => import('./features/verwalten/VerwaltenPage.vue'),
     meta: { title: messages.navigation.verwalten, destination: 'verwalten' },
