@@ -43,9 +43,11 @@ final class EntrySnapshots
     }
 
     /**
-     * Locks the entries that reference a person, drink or factor for update, in id order, and
-     * reads them. The parent's row must be locked first: then no entry can be added to it or
-     * taken from it until the transaction ends.
+     * Locks the entries that reference a person, drink or factor for update, in the order of the
+     * parent's index (a person's by time, a drink's and a factor's by id), and reads them in id
+     * order. The parent's row must be locked first: then no entry can be added to it or taken
+     * from it until the transaction ends. Deletions run one at a time (Catalog), so the order in
+     * which two of them lock shared entries never matters.
      *
      * @return list<array{string, EntrySnapshot}> each entry's id and snapshot, in id order
      */
@@ -63,7 +65,7 @@ final class EntrySnapshots
         // Two statements: the entries for update, then their references under a shared lock.
         // Locking the references for update too would wait for an insert that holds them shared
         // while it waits for the parent: a deadlock.
-        $pdo->prepare("SELECT id FROM entries FORCE INDEX ({$index}) WHERE {$column} = ? ORDER BY id FOR UPDATE")
+        $pdo->prepare("SELECT id FROM entries FORCE INDEX ({$index}) WHERE {$column} = ? FOR UPDATE")
             ->execute([$parentId]);
         $statement = $pdo->prepare(
             sprintf(self::SELECT, "FORCE INDEX ({$index})") . " WHERE e.{$column} = ? ORDER BY e.id LOCK IN SHARE MODE",

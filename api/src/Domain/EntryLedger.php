@@ -23,7 +23,6 @@ final readonly class EntryLedger
 {
     public const MAX_QUANTITY = 99;
     private const KEEP_REQUESTS = 'P7D';
-    private const ATTEMPTS = 3;
 
     public function __construct(
         private PDO $pdo,
@@ -47,17 +46,8 @@ final readonly class EntryLedger
         $this->purge($now);
         $fingerprint = self::fingerprint($personId, $drinkId, $quantity, $factorId);
 
-        for ($attempt = 1; ; ++$attempt) {
-            try {
-                // A missing id is a row that does not exist (ids start at 1): the foreign keys reject it.
-                return $this->record(new Entry($id, $personId ?? 0, $drinkId ?? 0, $quantity, $factorId, $now), $fingerprint, $actor);
-            } catch (PDOException $failure) {
-                // A deadlock between duplicates whose first request rolled back: try again.
-                if ($attempt === self::ATTEMPTS || !DatabaseError::is($failure, DatabaseError::DEADLOCK)) {
-                    throw $failure;
-                }
-            }
-        }
+        // A missing id is a row that does not exist (ids start at 1): the foreign keys reject it.
+        return $this->record(new Entry($id, $personId ?? 0, $drinkId ?? 0, $quantity, $factorId, $now), $fingerprint, $actor);
     }
 
     /**
