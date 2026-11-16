@@ -22,8 +22,14 @@ final class EntrySnapshots
 {
     /** Entries read per statement by `each`: few statements, and one chunk is a few megabytes at most. */
     private const CHUNK_SIZE = 2000;
-    private const SELECT = 'SELECT e.id, p.name AS person, d.name AS drink, d.points, e.quantity, f.name AS factor, f.multiplier
-        FROM entries e %s JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
+    /**
+     * Entries by primary key, then their person, drink and factor, in exactly that order: a
+     * locking read locks every row it scans, so a plan that started from the (small) persons
+     * table and reached the entries through the person's index would lock, and wait for, entries
+     * other requests are inserting at that moment, while they wait for a row this one holds.
+     */
+    private const SELECT = 'SELECT STRAIGHT_JOIN e.id, p.name AS person, d.name AS drink, d.points, e.quantity, f.name AS factor, f.multiplier
+        FROM entries e FORCE INDEX (PRIMARY) JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
         LEFT JOIN factors f ON f.id = e.factor_id';
 
     /**
@@ -33,7 +39,7 @@ final class EntrySnapshots
      */
     public static function of(PDO $pdo, string $id): array
     {
-        $statement = $pdo->prepare(sprintf(self::SELECT, '') . ' WHERE e.id = ? LOCK IN SHARE MODE');
+        $statement = $pdo->prepare(self::SELECT . ' WHERE e.id = ? LOCK IN SHARE MODE');
         $statement->execute([$id]);
         /** @var array<string, scalar|null>|false $row */
         $row = $statement->fetch(PDO::FETCH_ASSOC);
@@ -90,7 +96,7 @@ final class EntrySnapshots
     {
         foreach (array_chunk($ids, self::CHUNK_SIZE) as $chunk) {
             $statement = $pdo->prepare(
-                sprintf(self::SELECT, '') . ' WHERE e.id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') ORDER BY e.id LOCK IN SHARE MODE',
+                self::SELECT . ' WHERE e.id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') ORDER BY e.id LOCK IN SHARE MODE',
             );
             $statement->execute($chunk);
             /** @var array<string, scalar|null> $row */
