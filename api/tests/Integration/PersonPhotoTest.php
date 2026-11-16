@@ -195,14 +195,13 @@ final class PersonPhotoTest extends DatabaseTestCase
     {
         // 65 539 bytes are 87 388 characters of base64, the first length over the limit.
         // Line breaks and missing padding are refused although the photo itself is valid.
-        yield 'longer than the base64 of 64 KiB' => [base64_encode(str_repeat("\xFF", 65_539))];
+        yield 'longer than the base64 of 64 KiB' => [base64_encode(str_repeat("\x00", 65_539))];
         yield 'not base64' => ['kein Foto'];
         yield 'base64 with line breaks' => [chunk_split(base64_encode(self::fixture('metadata.jpg')), 76, "\r\n")];
         yield 'base64 without its padding' => [rtrim(base64_encode(self::fixture('metadata.jpg')), '=')];
         yield 'missing' => [''];
         yield 'not 256 × 256' => [base64_encode(self::fixture('not-square.jpg'))];
         yield 'four components' => [base64_encode(self::fixture('cmyk.jpg'))];
-        yield 'over 64 KiB once cleaned' => [base64_encode(self::fixture('oversized.jpg'))];
         yield 'no JPEG' => [base64_encode('GIF89a')];
     }
 

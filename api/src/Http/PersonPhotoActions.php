@@ -18,7 +18,7 @@ final readonly class PersonPhotoActions
     /** The largest photo `PUT` body (96 KiB); BodyLimit refuses a larger one before it is parsed. */
     public const MAX_BODY_BYTES = 98_304;
     /** The base64 of the largest photo, 65 536 bytes; a longer `image` is refused before it is decoded. */
-    public const MAX_IMAGE_LENGTH = 87_384;
+    private const MAX_IMAGE_LENGTH = 87_384;
 
     public function __construct(private Database $database) {}
 
