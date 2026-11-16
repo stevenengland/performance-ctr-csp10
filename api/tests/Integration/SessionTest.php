@@ -160,6 +160,33 @@ final class SessionTest extends DatabaseTestCase
         );
     }
 
+    /**
+     * A route that fails (here 422) after its request renewed the session still renews the
+     * cookie, or the browser would drop it at the old expiry while the session lives on and the
+     * next renewal is a day away.
+     */
+    public function testAFailingRouteStillRenewsTheCookieOfARenewedSession(): void
+    {
+        $session = $this->signIn();
+        $this->clock->advance('P179DT23H30M');
+
+        $refused = $this->send('PUT', '/api/session/password', [
+            'currentPassword' => self::ADMIN_PASSWORD,
+            'newPassword' => 'kurz',
+        ], $session);
+
+        self::assertSame(422, $refused->getStatusCode());
+        self::assertSame('application/problem+json', $refused->getHeaderLine('Content-Type'));
+        self::assertStringContainsString('Max-Age=' . Sessions::lifetimeSeconds(), $refused->getHeaderLine('Set-Cookie'));
+
+        $this->clock->advance('PT1M');
+        $next = $this->send('GET', '/api/session', session: $session);
+        self::assertSame(200, $next->getStatusCode());
+        self::assertSame('', $next->getHeaderLine('Set-Cookie'), 'renewed once, by the failed request');
+        $this->clock->advance('PT1H');
+        self::assertSame(200, $this->send('GET', '/api/session', session: $session)->getStatusCode(), 'past the old expiry');
+    }
+
     /** A session used only within the day of its sign-in ends 180 days after the sign-in. */
     public function testUseThatRenewsNothingDoesNotPostponeTheExpiry(): void
     {

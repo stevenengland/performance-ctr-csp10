@@ -24,7 +24,8 @@ final class App
         $database = new Database($config, $clock ?? new SystemClock());
         $app = new SlimApp($responses);
         $app->setBasePath($basePath);
-        $signedIn = new SessionAuth($database, $responses);
+        $problems = new ProblemDetailsHandler($responses);
+        $signedIn = new SessionAuth($database, $responses, $problems);
         $adminOnly = new AdminOnly($responses);
         $jsonBody = new JsonBody($responses);
         // Route middleware added last runs first: SessionAuth, then AdminOnly, then
@@ -97,7 +98,7 @@ final class App
         $app->addRoutingMiddleware();
         $app->add(new MigrationGate($database, $responses, $basePath . '/api/health'));
         $app->addErrorMiddleware(false, false, false)
-            ->setDefaultErrorHandler(new ProblemDetailsHandler($responses));
+            ->setDefaultErrorHandler($problems);
         // Outermost, so problem responses carry it too.
         $app->add(static function (ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface {
             return $handler->handle($request)->withHeader('Cache-Control', 'no-store');
