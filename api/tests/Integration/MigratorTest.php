@@ -198,6 +198,20 @@ final class MigratorTest extends DatabaseTestCase
         self::assertSame([['name' => 'Schach', 'run' => '1']], $this->rows('SELECT name, CAST(run AS CHAR) AS run FROM games'), 'the table is kept as it was');
     }
 
+    public function testTheAuditOperationCheckDropRunsAgainAfterACrashBeforeItsBookkeeping(): void
+    {
+        $this->get('/api/health');
+        // A crash between the DDL and its bookkeeping: the check is gone, the row says started.
+        $this->otherSession()->exec(
+            "UPDATE schema_migrations SET state = 'started', completed_at = NULL WHERE version = '0023_drop_audit_events_operation_check'",
+        );
+
+        $health = $this->body($this->get('/api/health'));
+
+        self::assertSame('ok', $health['migration']);
+        self::assertSame('completed', array_column($this->bookkeeping(), 'state', 'version')['0023_drop_audit_events_operation_check']);
+    }
+
     public function testTheMatchesMigrationRunsAgainAfterACrashBeforeItsBookkeepingWithoutChangingAnything(): void
     {
         $this->get('/api/health');

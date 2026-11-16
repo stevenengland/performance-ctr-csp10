@@ -15,9 +15,10 @@ use PDOException;
  * undone entry; different content under a known id is a conflict. It also lists a person's
  * entries of a day. Adding and deleting name their actor and are recorded in the audit log in
  * their own transaction, with the entry as it is then; a replay, a conflict or a failure
- * records nothing.
+ * records nothing. A new entry waits for verification; as VerifiableRows it lets Verification
+ * decide on one inside Verification's transaction.
  */
-final readonly class EntryLedger
+final readonly class EntryLedger implements VerifiableRows
 {
     public const MAX_QUANTITY = 99;
 
@@ -62,6 +63,39 @@ final readonly class EntryLedger
             $this->audit->record($actor, AuditOperation::Delete, AuditSubjectKind::Entry, $id, EntrySnapshots::of($this->pdo, $id), null);
             $this->pdo->prepare('DELETE FROM entries WHERE id = ?')->execute([$id]);
         });
+    }
+
+    /**
+     * Locked first, like an undo, so the values recorded are the ones the decision is about;
+     * the snapshot then reads the entry's person, drink and factor under a shared lock.
+     */
+    public function lock(string $id): ?VerifiableRow
+    {
+        $locked = $this->pdo->prepare('SELECT account_id, pending FROM entries WHERE id = ? FOR UPDATE');
+        $locked->execute([$id]);
+        /** @var array{account_id: int|string|null, pending: int|string}|false $row */
+        $row = $locked->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return null;
+        }
+
+        return new VerifiableRow(
+            $row['account_id'] === null ? null : (int) $row['account_id'],
+            (int) $row['pending'] === 1,
+            EntrySnapshots::of($this->pdo, $id),
+        );
+    }
+
+    public function markVerified(string $id, int $accountId, DateTimeImmutable $at): array
+    {
+        // The account under a shared lock, which its deletion waits for; gone already, it is null.
+        $this->pdo->prepare(
+            'UPDATE entries SET pending = 0, verified_at = ?,
+                    verified_by_account_id = (SELECT a.id FROM accounts a WHERE a.id = ? LOCK IN SHARE MODE)
+              WHERE id = ?',
+        )->execute([Timestamp::of($at), $accountId, $id]);
+
+        return EntrySnapshots::of($this->pdo, $id);
     }
 
     /**

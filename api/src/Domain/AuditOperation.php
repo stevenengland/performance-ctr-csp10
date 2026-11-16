@@ -10,4 +10,6 @@ enum AuditOperation: string
     case Create = 'create';
     case Update = 'update';
     case Delete = 'delete';
+    /** Another account let a pending row count (PRD #61). */
+    case Verify = 'verify';
 }

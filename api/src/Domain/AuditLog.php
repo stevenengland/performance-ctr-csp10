@@ -184,7 +184,7 @@ final readonly class AuditLog
     {
         $fits = match ($operation) {
             AuditOperation::Create => $before === null && $after !== null,
-            AuditOperation::Update => $before !== null && $after !== null,
+            AuditOperation::Update, AuditOperation::Verify => $before !== null && $after !== null,
             AuditOperation::Delete => $before !== null && $after === null,
         };
         if (!$fits) {

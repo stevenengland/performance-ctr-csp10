@@ -119,6 +119,31 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
     }
 
     /**
+     * The four-eyes release drops the check that limited audit operations to create, update and
+     * delete (PRD #61). The previous release keeps recording its events as before, and a reader
+     * of the log gets them next to this release's verifications.
+     */
+    public function testThePreviousReleaseKeepsRecordingItsEventsNextToVerifications(): void
+    {
+        $session = $this->signIn();
+        $this->send('POST', '/api/persons', ['name' => 'Daniel'], $session);
+        $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $session);
+        $this->send('PUT', '/api/entries/' . self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 1], $session);
+        $this->createAccount('anna', 'annas-startpasswort');
+        $verified = $this->send('PUT', '/api/entries/' . self::ENTRY . '/verification', [], $this->signIn('anna', 'annas-startpasswort'));
+        self::assertSame(204, $verified->getStatusCode(), (string) $verified->getBody());
+        $this->otherSession()->prepare(self::PREVIOUS_AUDIT_EVENT)->execute([Timestamp::of($this->clock->now())]);
+
+        /** @var list<array<string, mixed>> $events */
+        $events = $this->body($this->send('GET', '/api/audit?limit=2', session: $session))['events'];
+
+        self::assertSame(
+            [['person', 'create'], ['entry', 'verify']],
+            array_map(static fn(array $event): array => [$event['subjectKind'], $event['operation']], $events),
+        );
+    }
+
+    /**
      * The matches migration adds a table the previous release does not know. Its foreign keys
      * still act when the previous release deletes a person or an account: the match stays,
      * with that side and the recording account cleared, and nothing the previous release does
