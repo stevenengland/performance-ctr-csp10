@@ -207,6 +207,21 @@ and refused once the floor is raised. Other callers, checked for this release:
 - Anything else, such as a manual `curl` to a route other than health, must send
   `X-Client-Version: <version at or above the floor>` once the floor passes 0.1.0.
 
+**Floor raises so far:**
+
+- **0.3.0 — four-eyes rule (PRD #61).** Every new entry, match and result waits for
+  verification by another account, and every ranking counts verified rows only, so a client
+  before 0.3.0 would tell its user that a saved row counts. `MIN_CLIENT_VERSION` and the
+  `web/package.json` version are 0.3.0: every app that is open across the deploy shows
+  `Bitte neu laden` on its next request (a refused write is not booked), and header-less
+  clients (before 0.2.0) are refused from now on. Request and response bodies of recording
+  are unchanged; the release adds `PUT /api/entries/{id}/verification` and `GET /api/pending`.
+  Callers checked: the deploy and `live-check.yml` read only health; the stack e2e tests send
+  the version from every request context, the extra browser contexts of the specs included;
+  a manual `curl` needs `X-Client-Version: 0.3.0`. A request that is already executing the
+  previous release when the new one goes live inserts its row without the pending flag, so
+  that row counts at once (the column default); that is accepted.
+
 Bump the `version` in `web/package.json` to at least the new floor in the same pull request:
 the artifact build and `scripts/artifact.test.ts` fail otherwise, because the freshly deployed
 client would be below its own API's floor and be refused on every request. A break makes every
