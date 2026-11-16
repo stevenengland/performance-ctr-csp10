@@ -24,7 +24,10 @@ export interface paths {
   '/api/session': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -46,7 +49,10 @@ export interface paths {
   '/api/session/password': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -63,7 +69,10 @@ export interface paths {
   '/api/accounts': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -81,7 +90,10 @@ export interface paths {
   '/api/accounts/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The account's id; anything but a positive integer is 404 */
         id: number;
@@ -108,7 +120,10 @@ export interface paths {
   '/api/persons': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -126,7 +141,10 @@ export interface paths {
   '/api/persons/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The person's id; anything but a positive integer is 404 */
         id: number;
@@ -154,7 +172,10 @@ export interface paths {
   '/api/drinks': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -172,7 +193,10 @@ export interface paths {
   '/api/drinks/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The drink's id; anything but a positive integer is 404 */
         id: number;
@@ -197,7 +221,10 @@ export interface paths {
   '/api/factors': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -215,7 +242,10 @@ export interface paths {
   '/api/factors/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The factor's id; anything but a positive integer is 404 */
         id: number;
@@ -240,7 +270,10 @@ export interface paths {
   '/api/entries': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -260,7 +293,10 @@ export interface paths {
   '/api/entries/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The entry's client-generated UUID v4 (lower case), also the retry key */
         id: string;
@@ -284,7 +320,10 @@ export interface paths {
   '/api/scoreboard': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -304,7 +343,10 @@ export interface paths {
   '/api/games': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -325,7 +367,10 @@ export interface paths {
   '/api/games/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The game's id; anything but a positive integer is 404 */
         id: components['parameters']['GameId'];
@@ -353,7 +398,10 @@ export interface paths {
   '/api/games/{id}/restart': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The game's id; anything but a positive integer is 404 */
         id: components['parameters']['GameId'];
@@ -376,7 +424,10 @@ export interface paths {
   '/api/games/{id}/standings': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The game's id; anything but a positive integer is 404 */
         id: components['parameters']['GameId'];
@@ -399,7 +450,10 @@ export interface paths {
   '/api/games/{id}/matches': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The game's id; anything but a positive integer is 404 */
         id: components['parameters']['GameId'];
@@ -422,7 +476,10 @@ export interface paths {
   '/api/games/{id}/results': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The game's id; anything but a positive integer is 404 */
         id: components['parameters']['GameId'];
@@ -445,7 +502,10 @@ export interface paths {
   '/api/matches/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
         id: components['parameters']['ClientId'];
@@ -469,7 +529,10 @@ export interface paths {
   '/api/results/{id}': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
         id: components['parameters']['ClientId'];
@@ -493,7 +556,10 @@ export interface paths {
   '/api/audit': {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -965,6 +1031,7 @@ export interface components {
        */
       type:
         | 'urn:performance:problem:bad-request'
+        | 'urn:performance:problem:client-outdated'
         | 'urn:performance:problem:unauthenticated'
         | 'urn:performance:problem:invalid-credentials'
         | 'urn:performance:problem:forbidden'
@@ -1013,6 +1080,8 @@ export interface components {
     };
   };
   parameters: {
+    /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+    ClientVersion: string;
     /** @description The game's id; anything but a positive integer is 404 */
     GameId: number;
     /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
@@ -1052,7 +1121,10 @@ export interface operations {
   getSession: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1073,7 +1145,10 @@ export interface operations {
   signIn: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1103,7 +1178,10 @@ export interface operations {
   signOut: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1122,7 +1200,10 @@ export interface operations {
   changePassword: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1147,7 +1228,10 @@ export interface operations {
   listAccounts: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1169,7 +1253,10 @@ export interface operations {
   createAccount: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1198,7 +1285,10 @@ export interface operations {
   deleteAccount: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The account's id; anything but a positive integer is 404 */
         id: number;
@@ -1223,7 +1313,10 @@ export interface operations {
   updateAccount: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The account's id; anything but a positive integer is 404 */
         id: number;
@@ -1256,7 +1349,10 @@ export interface operations {
   listPersons: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1277,7 +1373,10 @@ export interface operations {
   createPerson: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1305,7 +1404,10 @@ export interface operations {
   getPerson: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The person's id; anything but a positive integer is 404 */
         id: number;
@@ -1330,7 +1432,10 @@ export interface operations {
   deletePerson: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The person's id; anything but a positive integer is 404 */
         id: number;
@@ -1353,7 +1458,10 @@ export interface operations {
   updatePerson: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The person's id; anything but a positive integer is 404 */
         id: number;
@@ -1385,7 +1493,10 @@ export interface operations {
   listDrinks: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1406,7 +1517,10 @@ export interface operations {
   createDrink: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1434,7 +1548,10 @@ export interface operations {
   getDrink: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The drink's id; anything but a positive integer is 404 */
         id: number;
@@ -1459,7 +1576,10 @@ export interface operations {
   deleteDrink: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The drink's id; anything but a positive integer is 404 */
         id: number;
@@ -1482,7 +1602,10 @@ export interface operations {
   updateDrink: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The drink's id; anything but a positive integer is 404 */
         id: number;
@@ -1514,7 +1637,10 @@ export interface operations {
   listFactors: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1535,7 +1661,10 @@ export interface operations {
   createFactor: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1563,7 +1692,10 @@ export interface operations {
   getFactor: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The factor's id; anything but a positive integer is 404 */
         id: number;
@@ -1588,7 +1720,10 @@ export interface operations {
   deleteFactor: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The factor's id; anything but a positive integer is 404 */
         id: number;
@@ -1611,7 +1746,10 @@ export interface operations {
   updateFactor: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The factor's id; anything but a positive integer is 404 */
         id: number;
@@ -1647,7 +1785,10 @@ export interface operations {
         /** @description Local midnight of the viewer's day as an ISO-8601 instant with offset */
         from: string;
       };
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1670,7 +1811,10 @@ export interface operations {
   addEntry: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The entry's client-generated UUID v4 (lower case), also the retry key */
         id: string;
@@ -1711,7 +1855,10 @@ export interface operations {
   deleteEntry: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The entry's client-generated UUID v4 (lower case), also the retry key */
         id: string;
@@ -1738,6 +1885,8 @@ export interface operations {
         from: string;
       };
       header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
         /** @description The ETag of the standings the client already shows */
         'If-None-Match'?: string;
       };
@@ -1773,7 +1922,10 @@ export interface operations {
   listGames: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1794,7 +1946,10 @@ export interface operations {
   createGame: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };
@@ -1822,7 +1977,10 @@ export interface operations {
   getGame: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The game's id; anything but a positive integer is 404 */
         id: components['parameters']['GameId'];
@@ -1847,7 +2005,10 @@ export interface operations {
   deleteGame: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The game's id; anything but a positive integer is 404 */
         id: components['parameters']['GameId'];
@@ -1870,7 +2031,10 @@ export interface operations {
   updateGame: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The game's id; anything but a positive integer is 404 */
         id: components['parameters']['GameId'];
@@ -1902,7 +2066,10 @@ export interface operations {
   restartGame: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The game's id; anything but a positive integer is 404 */
         id: components['parameters']['GameId'];
@@ -1933,6 +2100,8 @@ export interface operations {
     parameters: {
       query?: never;
       header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
         /** @description The ETag of the ranking the client already shows */
         'If-None-Match'?: string;
       };
@@ -1976,7 +2145,10 @@ export interface operations {
         /** @description Rows per page */
         limit?: components['parameters']['HistoryLimit'];
       };
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The game's id; anything but a positive integer is 404 */
         id: components['parameters']['GameId'];
@@ -2007,7 +2179,10 @@ export interface operations {
         /** @description Rows per page */
         limit?: components['parameters']['HistoryLimit'];
       };
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The game's id; anything but a positive integer is 404 */
         id: components['parameters']['GameId'];
@@ -2033,7 +2208,10 @@ export interface operations {
   recordMatch: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
         id: components['parameters']['ClientId'];
@@ -2074,7 +2252,10 @@ export interface operations {
   deleteMatch: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
         id: components['parameters']['ClientId'];
@@ -2097,7 +2278,10 @@ export interface operations {
   recordResult: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
         id: components['parameters']['ClientId'];
@@ -2138,7 +2322,10 @@ export interface operations {
   deleteResult: {
     parameters: {
       query?: never;
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path: {
         /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
         id: components['parameters']['ClientId'];
@@ -2166,7 +2353,10 @@ export interface operations {
         /** @description Events per page */
         limit?: number;
       };
-      header?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
       path?: never;
       cookie?: never;
     };

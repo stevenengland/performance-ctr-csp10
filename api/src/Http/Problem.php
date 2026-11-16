@@ -87,6 +87,16 @@ final readonly class Problem
         return new self('too-many-attempts', 'Zu viele Versuche. Bitte später erneut.', 429);
     }
 
+    /**
+     * The web client is below MIN_CLIENT_VERSION and must reload. 400, not 426: 426 obliges
+     * the server to name a protocol in `Upgrade`, and an app version is no protocol (HTTP/2
+     * does not even carry that header). The type tells the client what to do.
+     */
+    public static function clientOutdated(): self
+    {
+        return new self('client-outdated', 'Diese Version ist veraltet. Bitte neu laden.', 400);
+    }
+
     public static function notFound(): self
     {
         return new self('not-found', 'Nicht gefunden', 404);

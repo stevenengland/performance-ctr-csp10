@@ -1,13 +1,21 @@
 openapi: 3.1.0
 info:
   title: Performance API
-  version: 0.1.0
+  version: 0.2.0
   description: >-
     JSON API of the Performance drink counter. Fields are camelCase, timestamps
     ISO-8601 UTC, decimals JSON numbers rounded to two places. Every error is
     `application/problem+json` (RFC 9457) with a stable `urn:performance:problem:*`
     type. While a migration runs, every route except health answers 503 with
     `Retry-After`; after a failed migration it answers 503 without it.
+
+    The web client names its app version in `X-Client-Version` on every request.
+    Every route except health refuses a client below health's `minClientVersion`
+    with 400 `client-outdated` before it processes anything; the client then
+    shows `Bitte neu laden`. A request without the header counts as version
+    0.1.0, the last client that sent none, so it is refused once the floor
+    passes 0.1.0. (Not 426: that status requires an `Upgrade` protocol, and an
+    app version is none.)
 
     Every route except health and sign-in requires the session cookie that
     sign-in sets (`HttpOnly; Secure; SameSite=Strict`, 180 days, renewed on
@@ -34,6 +42,8 @@ paths:
         '500':
           $ref: '#/components/responses/Problem'
   /api/session:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     post:
       operationId: signIn
       summary: Sign in; creates the bootstrap admin first when no admin exists
@@ -89,6 +99,8 @@ paths:
         '401':
           $ref: '#/components/responses/Problem'
   /api/session/password:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     put:
       operationId: changePassword
       summary: Change the own password; signs the account out on every other device
@@ -108,6 +120,8 @@ paths:
         '422':
           $ref: '#/components/responses/Problem'
   /api/accounts:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listAccounts
       summary: Every account, by user name (admins only)
@@ -150,6 +164,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/accounts/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - name: id
         in: path
         required: true
@@ -207,6 +222,8 @@ paths:
         '409':
           $ref: '#/components/responses/Problem'
   /api/persons:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listPersons
       summary: Every person, alphabetical (ignoring case)
@@ -245,6 +262,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/persons/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - name: id
         in: path
         required: true
@@ -310,6 +328,8 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
   /api/drinks:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listDrinks
       summary: Every drink, alphabetical (ignoring case)
@@ -348,6 +368,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/drinks/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - name: id
         in: path
         required: true
@@ -408,6 +429,8 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
   /api/factors:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listFactors
       summary: Every factor, alphabetical (ignoring case)
@@ -446,6 +469,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/factors/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - name: id
         in: path
         required: true
@@ -507,6 +531,8 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
   /api/entries:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listEntries
       summary: A person's entries since `from`, the start of the viewer's day, newest first
@@ -545,6 +571,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/entries/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - name: id
         in: path
         required: true
@@ -601,6 +628,8 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
   /api/scoreboard:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: getScoreboard
       summary: Standings since `from`, the start of the viewer's day
@@ -651,6 +680,8 @@ paths:
         '422':
           $ref: '#/components/responses/Problem'
   /api/games:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listGames
       summary: Every game, alphabetical (ignoring case)
@@ -695,6 +726,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/games/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - $ref: '#/components/parameters/GameId'
     get:
       operationId: getGame
@@ -755,6 +787,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/games/{id}/restart:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - $ref: '#/components/parameters/GameId'
     post:
       operationId: restartGame
@@ -784,6 +817,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/games/{id}/standings:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - $ref: '#/components/parameters/GameId'
     get:
       operationId: getStandings
@@ -830,6 +864,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/games/{id}/matches:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - $ref: '#/components/parameters/GameId'
     get:
       operationId: listMatches
@@ -859,6 +894,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/games/{id}/results:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - $ref: '#/components/parameters/GameId'
     get:
       operationId: listResults
@@ -887,6 +923,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/matches/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - $ref: '#/components/parameters/ClientId'
     put:
       operationId: recordMatch
@@ -940,6 +977,7 @@ paths:
           $ref: '#/components/responses/Problem'
   /api/results/{id}:
     parameters:
+      - $ref: '#/components/parameters/ClientVersion'
       - $ref: '#/components/parameters/ClientId'
     put:
       operationId: recordResult
@@ -992,6 +1030,8 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
   /api/audit:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listAuditEvents
       summary: A page of audit events, newest first (admins only)
@@ -1045,6 +1085,18 @@ components:
       in: cookie
       name: session
   parameters:
+    ClientVersion:
+      name: X-Client-Version
+      in: header
+      required: false
+      description: >-
+        The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`).
+        Below health's `minClientVersion` the request is refused with 400
+        `client-outdated` and nothing is processed; without the header it counts
+        as 0.1.0.
+      schema:
+        type: string
+        examples: ['0.2.0+3f2a1bc']
     GameId:
       name: id
       in: path
@@ -1979,6 +2031,7 @@ components:
           format: uri
           enum:
             - urn:performance:problem:bad-request
+            - urn:performance:problem:client-outdated
             - urn:performance:problem:unauthenticated
             - urn:performance:problem:invalid-credentials
             - urn:performance:problem:forbidden
