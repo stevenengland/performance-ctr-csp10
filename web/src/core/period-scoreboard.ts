@@ -1,39 +1,25 @@
 import type { MaybeRefOrGetter } from 'vue';
 import { getScoreboard, type Scoreboard } from './api-client';
-import {
-  calendarDateOf,
-  isLive,
-  type Period,
-  periodKey,
-  queryOf,
-} from './period';
+import { calendarDateOf, isLive, type Period, periodKey } from './period';
 import {
   createPeriodResource,
   type PeriodResource,
   usePeriodResource,
+  windowedRead,
 } from './period-resource';
 import type { ConditionalFetch } from './polled-resource';
 
 /** The periods the drinks scoreboard ranks. */
 export type DrinksPeriod = Extract<Period, { kind: 'day' | 'week' | 'all' }>;
 
-/**
-The scoreboard of a period, its window built from the period's calendar date for
-each request; an answer for a window that changed while it was on its way (the
-time zone changed) is dropped for one for the rebuilt window.
-*/
+/** The scoreboard of a period, its window built anew for each request. */
 function scoreboardOf(period: DrinksPeriod): ConditionalFetch<Scoreboard> {
-  const read: ConditionalFetch<Scoreboard> = async (etag) => {
-    const selection = queryOf(period);
+  return windowedRead(period, async (selection, etag) => {
     const answer = await getScoreboard(selection, etag);
-    if (JSON.stringify(queryOf(period)) !== JSON.stringify(selection)) {
-      return read(etag);
-    }
     return answer === 'unchanged'
       ? 'unchanged'
       : { value: answer.board, etag: answer.etag };
-  };
-  return read;
+  });
 }
 
 /**

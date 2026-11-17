@@ -8,6 +8,8 @@ import {
   type MaybeRefOrGetter,
   type Ref,
 } from 'vue';
+import type { ScoreboardSelection } from './api-client';
+import { type Period, queryOf } from './period';
 import {
   createPolledResource,
   type ConditionalFetch,
@@ -86,6 +88,30 @@ export function createPeriodResource<S, T>(
       if (screens === 0) shown.value?.resource.stop();
     },
   };
+}
+
+/**
+The conditional read of a period with a window or all time, the window built from
+the period's calendar date for each request; an answer for a window that changed
+while it was on its way (the time zone changed) is dropped for one for the rebuilt
+window.
+*/
+export function windowedRead<T>(
+  period: Exclude<Period, { kind: 'run' }>,
+  read: (
+    selection: ScoreboardSelection,
+    etag: string | undefined,
+  ) => ReturnType<ConditionalFetch<T>>,
+): ConditionalFetch<T> {
+  const conditional: ConditionalFetch<T> = async (etag) => {
+    const selection = queryOf(period);
+    const answer = await read(selection, etag);
+    if (JSON.stringify(queryOf(period)) !== JSON.stringify(selection)) {
+      return conditional(etag);
+    }
+    return answer;
+  };
+  return conditional;
 }
 
 /** Shows what the calling screen selects and runs the resource while the screen is open. */
