@@ -18,11 +18,13 @@ import {
   verifyResult,
   type PendingItem,
 } from '../../core/api-client';
+import { formatTime } from '../../core/format';
 import { messages } from '../../core/messages';
 import { useOnline } from '../../core/online';
 import { refreshPending, usePendingQueue } from '../../core/pending-queue';
 import { refreshScoreboard } from '../../core/scoreboard-feed';
 import { showProblem, showSnackbar } from '../../core/snackbar';
+import { provideTopBar } from '../../core/top-bar';
 import { pendingRows, type PendingRow } from './pending-rows';
 
 /**
@@ -33,7 +35,8 @@ rows again from where it ends, so they stay shown. `Bestätigen`
 and `Ablehnen` remove the row; one that is gone already (404), or verified
 already when rejecting it (409), counts as handled; a refusal (403) or any
 other failure is shown and the row stays. Offline, nothing can be verified or
-rejected, like saving.
+rejected, like saving. While the latest refresh of the queue failed, the top
+bar shows when it was last confirmed (§6.6).
 */
 const SKELETON_ROWS = 3;
 
@@ -82,6 +85,14 @@ const rows = computed(() => {
   if (!first.value) return undefined;
   const items = [...first.value.items, ...older.value];
   return pendingRows(items.filter(({ id }) => !handled.has(id)));
+});
+
+provideTopBar(() => {
+  const { stale, updatedAt } = queue.value;
+  return {
+    stale:
+      stale && updatedAt ? messages.stand(formatTime(updatedAt)) : undefined,
+  };
 });
 
 /** Forgets the handled rows that neither list shows any more. */

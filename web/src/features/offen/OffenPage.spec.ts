@@ -1,4 +1,4 @@
-import { flushPromises, type VueWrapper } from '@vue/test-utils';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PendingItem } from '../../core/api-client';
 import { dismissSnackbar, useSnackbar } from '../../core/snackbar';
@@ -10,7 +10,11 @@ import {
   problem,
   rows,
 } from '../verwalten/manage-page-harness';
+import { defineComponent, h } from 'vue';
+import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
+import AppTopBar from '../../components/AppTopBar.vue';
 import { refreshPending } from '../../core/pending-queue';
+import { createAppVuetify } from '../../theme';
 import OffenPage from './OffenPage.vue';
 
 const OWN_ROW = {
@@ -151,6 +155,28 @@ function api(
 }
 
 const snackbar = useSnackbar();
+
+/** Offen below the shell's top bar, as the app shows it. */
+async function offenInTheShell() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      {
+        path: '/offen',
+        component: OffenPage,
+        meta: { title: 'Offen', destination: 'offen' },
+      },
+    ],
+  });
+  await router.push('/offen');
+  const shell = defineComponent(() => () => [h(AppTopBar), h(RouterView)]);
+  const wrapper = mount(shell, {
+    global: { plugins: [router, createAppVuetify()] },
+    attachTo: document.body,
+  });
+  await flushPromises();
+  return wrapper;
+}
 
 function buttonsNamed(name: string): HTMLButtonElement[] {
   return [
@@ -507,5 +533,19 @@ describe('Offen', () => {
 
     expect(rows(wrapper)).toHaveLength(4);
     expect(snackbar.value).toBeUndefined();
+  });
+
+  it('shows “Stand: hh:mm” in the top bar while the queue cannot be read', async () => {
+    const reads: (Reply | undefined)[] = [];
+    api([entry(2), entry(1)], { reads });
+    wrapper = await offenInTheShell();
+    expect(wrapper.get('.top-bar').text()).not.toContain('Stand');
+
+    reads.push(() => Promise.reject(new TypeError('Failed to fetch')));
+    await refreshPending();
+    await flushPromises();
+
+    expect(rows(wrapper)).toHaveLength(2);
+    expect(wrapper.get('.top-bar').text()).toMatch(/Stand: \d\d:\d\d/);
   });
 });

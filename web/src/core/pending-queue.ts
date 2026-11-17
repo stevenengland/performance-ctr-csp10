@@ -12,7 +12,9 @@ import { useSession } from './session';
 export interface PendingQueueState {
   /** The first page of the queue with the count of all rows; undefined until the first answer. */
   page?: PendingPage;
-  /** The latest refresh failed: the page shown is that of the last success. */
+  /** When the page was last confirmed by the server. */
+  updatedAt?: Date;
+  /** The latest refresh failed: the page shown is that of `updatedAt`. */
   stale: boolean;
 }
 
@@ -56,8 +58,8 @@ export function createPendingQueue(
     { flush: 'sync' },
   );
   const state = computed(() => {
-    const { value, stale } = resource.state.value;
-    return { page: value, stale };
+    const { value, updatedAt, stale } = resource.state.value;
+    return { page: value, updatedAt, stale };
   });
   return {
     state,

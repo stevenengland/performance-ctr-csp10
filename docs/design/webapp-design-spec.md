@@ -296,8 +296,8 @@ steps 2–4 the bar also shows, right-aligned before the account icon, the chose
 total score for today — all drinks, factors applied, verified entries only (§7f) — as a
 numeral (`title`) over the caption `Punkte heute` (from the scoreboard feed; `0` when no entry
 of today counts yet). On the
-Rangliste and a game's page (§7o) the bar also shows `Stand: HH:mm` in `error` when data is
-stale (§6.6).
+Rangliste, a game's page (§7o) and Offen (§7s) the bar also shows `Stand: HH:mm` in `error`
+when data is stale (§6.6).
 
 ### 6.2 Navigation bar / rail
 
@@ -1070,6 +1070,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   decision here or any write elsewhere) reads the appended rows again from where it ends, about
   as many as were shown: rows handled meanwhile leave, the others stay. If that read fails, the
   rows shown stay until the next one.
+- While the latest refresh of the queue failed, the top bar shows `Stand: HH:mm`, when the list
+  was last confirmed, as the Rangliste does (§6.6).
 - Loading: three skeleton rows. Empty: `Nichts zu bestätigen.`
 
 ## 8. Key flows
