@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Performance\Domain\Games;
 
+use DateTimeImmutable;
 use PDO;
 use PDOException;
 use Performance\Domain\Actor;
@@ -19,6 +20,7 @@ use Performance\Domain\NotFound;
 use Performance\Domain\PendingMatch;
 use Performance\Domain\PersonDependentCounts;
 use Performance\Domain\PersonDependents;
+use Performance\Domain\QuarterHours;
 use Performance\Domain\RequestConflict;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
@@ -160,15 +162,7 @@ final readonly class Matches implements GameDependents, PersonDependents
                     SUM(IF(r.pending = 0, CASE r.result WHEN 'win' THEN 1 WHEN 'draw' THEN 0.5 ELSE 0 END, 0)) AS points,
                     SUM(r.pending = 0 AND r.result = 'win') AS wins, SUM(r.pending = 0 AND r.result = 'draw') AS draws,
                     SUM(r.pending = 0 AND r.result = 'loss') AS losses, SUM(r.pending = 0) AS played, SUM(r.pending = 1) AS pending_matches
-             FROM (
-                 SELECT first_person_id AS person_id, pending,
-                        CASE outcome WHEN 'first' THEN 'win' WHEN 'second' THEN 'loss' ELSE 'draw' END AS result
-                 FROM matches WHERE game_id = ? AND run = ? AND first_person_id IS NOT NULL
-                 UNION ALL
-                 SELECT second_person_id, pending,
-                        CASE outcome WHEN 'second' THEN 'win' WHEN 'first' THEN 'loss' ELSE 'draw' END
-                 FROM matches WHERE game_id = ? AND run = ? AND second_person_id IS NOT NULL
-             ) r JOIN persons p ON p.id = r.person_id
+             FROM " . self::sides('game_id = ? AND run = ?') . "
              GROUP BY p.id, p.name
              ORDER BY SUM(r.pending = 0) = 0, points DESC, wins DESC, p.name, p.id",
         );
@@ -195,6 +189,19 @@ final readonly class Matches implements GameDependents, PersonDependents
         }
 
         return new Standings($ranked, $unranked);
+    }
+
+    /**
+     * The days the duel game was played: the start instants, ascending, of the 15-minute UTC
+     * buckets with a verified match of any run, by its recording instant. A match counts once,
+     * whether one or both of its sides still name a person; once neither does, it counts for
+     * no one, as in the ranking.
+     *
+     * @return list<DateTimeImmutable>
+     */
+    public function days(int $gameId): array
+    {
+        return QuarterHours::of($this->pdo, self::sides('game_id = ?'), 'r.created_at', 'r.pending = 0', [$gameId, $gameId]);
     }
 
     /**
@@ -274,6 +281,26 @@ final readonly class Matches implements GameDependents, PersonDependents
         }
         ksort($changes, SORT_STRING);
         $this->audit->recordCaused($actor, $cause, AuditOperation::Update, AuditSubjectKind::Match, array_values($changes));
+    }
+
+    /**
+     * The selected matches as the ranking counts them, `r` joined with its person `p`: one row
+     * per side that names a person, with that side's result (`win`, `draw`, `loss`), whether
+     * the match waits and its recording instant. `$selection` filters the matches, without
+     * `WHERE`; its placeholders are bound twice, once per side. The ranking and the days read
+     * both start here, so they cannot drift apart.
+     */
+    private static function sides(string $selection): string
+    {
+        return "(
+                 SELECT first_person_id AS person_id, pending, created_at,
+                        CASE outcome WHEN 'first' THEN 'win' WHEN 'second' THEN 'loss' ELSE 'draw' END AS result
+                 FROM matches WHERE {$selection} AND first_person_id IS NOT NULL
+                 UNION ALL
+                 SELECT second_person_id, pending, created_at,
+                        CASE outcome WHEN 'second' THEN 'win' WHEN 'first' THEN 'loss' ELSE 'draw' END
+                 FROM matches WHERE {$selection} AND second_person_id IS NOT NULL
+             ) r JOIN persons p ON p.id = r.person_id";
     }
 
     /**

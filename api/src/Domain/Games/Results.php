@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Performance\Domain\Games;
 
+use DateTimeImmutable;
 use LogicException;
 use PDO;
 use PDOException;
@@ -20,6 +21,7 @@ use Performance\Domain\NotFound;
 use Performance\Domain\PendingResult;
 use Performance\Domain\PersonDependentCounts;
 use Performance\Domain\PersonDependents;
+use Performance\Domain\QuarterHours;
 use Performance\Domain\RequestConflict;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
@@ -53,6 +55,11 @@ final readonly class Results implements GameDependents, PersonDependents
     private const MAX_POINTS = 9999;
     private const PERSON_ERROR = 'Person nicht gefunden.';
     private const POINTS_ERROR = 'Ganze Zahl von −9.999 bis 9.999.';
+    /**
+     * The results that can count, `r` of a person `p` who exists: the ranking and the days read
+     * both start here, so they cannot drift apart.
+     */
+    private const RANKED = 'results r JOIN persons p ON p.id = r.person_id';
     /**
      * Results with their game's and their person's names, as the audit log keeps them, read
      * through the index given (`%s`) and then their references, in exactly that order: a
@@ -145,7 +152,7 @@ final readonly class Results implements GameDependents, PersonDependents
         $direction = $lowerWins ? 'ASC' : 'DESC';
         $statement = $this->pdo->prepare(
             "SELECT p.id, p.name, SUM(IF(r.pending = 0, r.points, 0)) AS total, SUM(r.pending = 0) AS results, SUM(r.pending = 1) AS pending_results
-             FROM results r JOIN persons p ON p.id = r.person_id
+             FROM " . self::RANKED . "
              WHERE r.game_id = ? AND r.run = ?
              GROUP BY p.id, p.name
              ORDER BY SUM(r.pending = 0) = 0, SUM(IF(r.pending = 0, r.points, 0)) {$direction}, p.name, p.id",
@@ -164,6 +171,17 @@ final readonly class Results implements GameDependents, PersonDependents
         }
 
         return new Standings($ranked, $unranked);
+    }
+
+    /**
+     * The days the points game was played: the start instants, ascending, of the 15-minute UTC
+     * buckets with a verified result of any run, by its recording instant.
+     *
+     * @return list<DateTimeImmutable>
+     */
+    public function days(int $gameId): array
+    {
+        return QuarterHours::of($this->pdo, self::RANKED, 'r.created_at', 'r.game_id = ? AND r.pending = 0', [$gameId]);
     }
 
     /**

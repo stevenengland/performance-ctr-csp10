@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Performance\Http;
 
 use DateTimeImmutable;
+use Performance\Domain\Games\GameKind;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -30,6 +31,23 @@ final readonly class DaysActions
             $database,
             static fn(): array => $database->scoreboard()->days(),
         ));
+    }
+
+    /**
+     * @param array{id: string} $arguments the game's id
+     */
+    public function game(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
+    {
+        $database = $this->database;
+
+        return $database->snapshot()->read(static function () use ($request, $response, $database, $arguments): ResponseInterface {
+            $game = $database->games()->game((int) $arguments['id']);
+
+            return self::respond($request, $response, $database, static fn(): array => match ($game->kind) {
+                GameKind::Duel => $database->matches()->days($game->id),
+                GameKind::Points => $database->results()->days($game->id),
+            });
+        });
     }
 
     /**
