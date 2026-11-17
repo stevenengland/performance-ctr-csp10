@@ -12,6 +12,7 @@ import {
   queryOf,
   sameDate,
   step,
+  weekOf,
 } from './period';
 
 const date = (year: number, month: number, day: number): CalendarDate => ({
@@ -98,6 +99,58 @@ describe('the period module', () => {
     expect(periodKey(day)).toBe('day-2026-11-14');
   });
 
+  it.each([
+    // Any day of a week chooses that week, held as its Monday.
+    [date(2026, 11, 16), date(2026, 11, 16)],
+    [date(2026, 11, 19), date(2026, 11, 16)],
+    [date(2026, 11, 22), date(2026, 11, 16)],
+    [date(2026, 11, 23), date(2026, 11, 23)],
+    // Across a month and a year end.
+    [date(2026, 3, 1), date(2026, 2, 23)],
+    [date(2026, 1, 1), date(2025, 12, 29)],
+  ])('holds the week of %o as its Monday %o', (day, monday) => {
+    expect(weekOf(day)).toEqual({ kind: 'week', date: monday });
+  });
+
+  it('sends a week as its local Monday midnight up to the next Monday’s', () => {
+    expect(queryOf(weekOf(date(2026, 11, 18)))).toEqual({
+      from: '2026-11-15T23:00:00.000Z',
+      to: '2026-11-22T23:00:00.000Z',
+    });
+  });
+
+  it.each([
+    // The clocks go back on Sunday 25.10.2026: the week has 169 hours.
+    [
+      date(2026, 10, 19),
+      '2026-10-18T22:00:00.000Z',
+      '2026-10-25T23:00:00.000Z',
+      169,
+    ],
+    // The clocks go forward on Sunday 29.03.2026: the week has 167 hours.
+    [
+      date(2026, 3, 23),
+      '2026-03-22T23:00:00.000Z',
+      '2026-03-29T22:00:00.000Z',
+      167,
+    ],
+    // Across the year end.
+    [
+      date(2025, 12, 29),
+      '2025-12-28T23:00:00.000Z',
+      '2026-01-04T23:00:00.000Z',
+      168,
+    ],
+  ])(
+    'builds a week’s window by calendar addition, its full local Monday to Sunday (%o)',
+    (monday, from, to, hours) => {
+      const window = queryOf(weekOf(monday));
+
+      expect(window).toEqual({ from, to });
+      expect((Date.parse(to) - Date.parse(from)) / 3_600_000).toBe(hours);
+    },
+  );
+
   it('sends all time as scope=all, never a sentinel date, and the current run without any window', () => {
     expect(queryOf({ kind: 'all' })).toEqual({ scope: 'all' });
     expect(queryOf({ kind: 'run' })).toEqual({});
@@ -108,10 +161,17 @@ describe('the period module', () => {
       [
         { kind: 'day', date: date(2026, 11, 14) },
         { kind: 'day', date: date(2026, 11, 4) },
+        weekOf(date(2026, 11, 4)),
         { kind: 'all' },
         { kind: 'run' },
       ].map((period) => periodKey(period as never)),
-    ).toEqual(['day-2026-11-14', 'day-2026-11-04', 'all', 'run']);
+    ).toEqual([
+      'day-2026-11-14',
+      'day-2026-11-04',
+      'week-2026-11-02',
+      'all',
+      'run',
+    ]);
   });
 
   it('labels the bar Heute, Gestern or the short weekday and date', () => {
@@ -129,6 +189,40 @@ describe('the period module', () => {
     );
   });
 
+  it('labels the bar Diese Woche, Letzte Woche or the week number and its days', () => {
+    const today = date(2026, 11, 17);
+
+    expect(barLabel(weekOf(today), today)).toBe('Diese Woche');
+    expect(barLabel(weekOf(date(2026, 11, 10)), today)).toBe('Letzte Woche');
+    expect(barLabel(weekOf(date(2026, 11, 2)), today)).toBe(
+      'KW 45 · 02.11.–08.11.',
+    );
+  });
+
+  it('names a week in the top bar by its number and days, the current one too', () => {
+    const today = date(2026, 11, 17);
+
+    expect(contextLine(weekOf(today), today)).toBe('KW 47 · 16.11.–22.11.');
+    expect(contextLine(weekOf(date(2026, 11, 10)), today)).toBe(
+      'KW 46 · 09.11.–15.11.',
+    );
+  });
+
+  it.each([
+    // The Thursday rule: a week belongs to the year its Thursday lies in.
+    [date(2025, 12, 29), 'KW 1 · 29.12.–04.01.'],
+    [date(2026, 1, 1), 'KW 1 · 29.12.–04.01.'],
+    [date(2026, 12, 31), 'KW 53 · 28.12.–03.01.'],
+    [date(2027, 1, 3), 'KW 53 · 28.12.–03.01.'],
+    [date(2027, 1, 4), 'KW 1 · 04.01.–10.01.'],
+    [date(2021, 1, 1), 'KW 53 · 28.12.–03.01.'],
+    // Weeks with a daylight-saving change.
+    [date(2026, 3, 29), 'KW 13 · 23.03.–29.03.'],
+    [date(2026, 10, 25), 'KW 43 · 19.10.–25.10.'],
+  ])('numbers the week of %o by ISO 8601: %s', (day, line) => {
+    expect(contextLine(weekOf(day), date(2027, 6, 1))).toBe(line);
+  });
+
   it('names the period in the top bar: Heute, the full date, Gesamt or Aktuell', () => {
     const today = date(2026, 11, 17);
 
@@ -142,8 +236,8 @@ describe('the period module', () => {
 
   it('names the kinds as the switch shows them', () => {
     expect(
-      ['day', 'all', 'run'].map((kind) => kindLabel(kind as never)),
-    ).toEqual(['Tag', 'Gesamt', 'Aktuell']);
+      ['day', 'week', 'all', 'run'].map((kind) => kindLabel(kind as never)),
+    ).toEqual(['Tag', 'Woche', 'Gesamt', 'Aktuell']);
   });
 
   it('steps a day back and forward but never past today', () => {
@@ -162,6 +256,19 @@ describe('the period module', () => {
     expect(step({ kind: 'all' }, -1, today)).toEqual({ kind: 'all' });
   });
 
+  it('steps a week back and forward but never past the current week', () => {
+    const today = date(2026, 11, 17);
+    const lastWeek = weekOf(date(2026, 11, 9));
+
+    expect(step(lastWeek, -1, today)).toEqual(weekOf(date(2026, 11, 2)));
+    expect(step(lastWeek, -3, today)).toEqual(weekOf(date(2026, 10, 19)));
+    expect(step(lastWeek, 1, today)).toEqual(weekOf(today));
+    expect(step(weekOf(today), 1, today)).toEqual(weekOf(today));
+    expect(step(weekOf(date(2026, 1, 1)), -1, today)).toEqual(
+      weekOf(date(2025, 12, 22)),
+    );
+  });
+
   it('keeps only the periods that contain the present live', () => {
     const today = date(2026, 11, 16);
 
@@ -169,6 +276,8 @@ describe('the period module', () => {
     expect(isLive({ kind: 'day', date: date(2026, 11, 15) }, today)).toBe(
       false,
     );
+    expect(isLive(weekOf(date(2026, 11, 22)), today)).toBe(true);
+    expect(isLive(weekOf(date(2026, 11, 15)), today)).toBe(false);
     expect(isLive({ kind: 'all' }, today)).toBe(true);
     expect(isLive({ kind: 'run' }, today)).toBe(true);
   });

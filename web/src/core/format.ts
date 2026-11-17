@@ -38,6 +38,11 @@ export function formatDay(instant: Date, timeZone?: string): string {
   }).format(instant);
 }
 
+/** A span of days without the year: `02.11.–08.11.`, in the browser's time zone. */
+export function formatDayRange(first: Date, last: Date): string {
+  return `${formatDay(first)}–${formatDay(last)}`;
+}
+
 /** A day with its short weekday, without the year: `Sa., 14.11.`, in the browser's time zone unless one is given. */
 export function formatWeekdayDay(instant: Date, timeZone?: string): string {
   return new Intl.DateTimeFormat('de-DE', {

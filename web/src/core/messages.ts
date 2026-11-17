@@ -85,11 +85,17 @@ export const messages = {
   period: {
     /** The switch's accessible name. */
     label: 'Zeitraum',
-    kinds: { day: 'Tag', all: 'Gesamt', run: 'Aktuell' },
+    kinds: { day: 'Tag', week: 'Woche', all: 'Gesamt', run: 'Aktuell' },
     today: 'Heute',
     yesterday: 'Gestern',
     previousDay: 'Vorheriger Tag',
     nextDay: 'Nächster Tag',
+    thisWeek: 'Diese Woche',
+    lastWeek: 'Letzte Woche',
+    previousWeek: 'Vorherige Woche',
+    nextWeek: 'Nächste Woche',
+    /** An ISO calendar week by its number and days: `KW 45 · 02.11.–08.11.`. */
+    week: (number: number, days: string) => `KW ${String(number)} · ${days}`,
   },
   rangliste: {
     noDrinks: 'Heute noch keine Getränke.',
