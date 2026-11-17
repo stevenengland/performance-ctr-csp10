@@ -202,6 +202,43 @@ describe('PeriodPicker', () => {
     expect(chosen(wrapper)).toEqual([[week(16)]]);
   });
 
+  it.each([
+    ['Tag', [day(23)]],
+    ['Woche', [week(23)]],
+  ])(
+    'shows the new today under %s when today was shown and the page stayed open into a later week',
+    async (kind, shown) => {
+      const wrapper = picker(day(16), ALL_KINDS);
+      await option(wrapper, 'Gesamt')?.trigger('click');
+
+      await wrapper.setProps({ today: { year: 2026, month: 11, day: 23 } });
+      await option(wrapper, kind)?.trigger('click');
+
+      expect(chosen(wrapper)?.slice(1)).toEqual([shown]);
+    },
+  );
+
+  it('shows the new current week under Woche, and then today under Tag, when the current week was shown and midnight passed', async () => {
+    const wrapper = picker(week(16), ALL_KINDS);
+    await option(wrapper, 'Gesamt')?.trigger('click');
+
+    await wrapper.setProps({ today: { year: 2026, month: 11, day: 23 } });
+    await option(wrapper, 'Woche')?.trigger('click');
+    await option(wrapper, 'Tag')?.trigger('click');
+
+    expect(chosen(wrapper)?.slice(1)).toEqual([[week(23)], [day(23)]]);
+  });
+
+  it('keeps a past day it showed when midnight passes', async () => {
+    const wrapper = picker(day(14), ALL_KINDS);
+    await option(wrapper, 'Gesamt')?.trigger('click');
+
+    await wrapper.setProps({ today: { year: 2026, month: 11, day: 17 } });
+    await option(wrapper, 'Tag')?.trigger('click');
+
+    expect(chosen(wrapper)?.slice(1)).toEqual([[day(14)]]);
+  });
+
   describe('the calendar Tag wählen', () => {
     let opened: Picker | undefined;
 

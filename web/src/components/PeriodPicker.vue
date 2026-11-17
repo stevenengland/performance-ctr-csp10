@@ -44,21 +44,33 @@ const props = defineProps<{
 }>();
 const period = defineModel<Period>({ required: true });
 
-/** The day `Tag` and `Woche` show, kept while another kind is shown; until one is shown, today. */
+/**
+The day `Tag` and `Woche` show, kept while another kind is shown; `undefined` is
+today, so a page left open over midnight shows the new today (and its week).
+*/
 const shownDate = shallowRef<CalendarDate>();
 watch(
   period,
   (shown) => {
-    if (shown.kind === 'day') shownDate.value = shown.date;
-    if (shown.kind === 'week' && !inWeek(shownDate.value, shown.date)) {
-      shownDate.value = shown.date;
+    if (shown.kind === 'day') remember(shown.date);
+    if (shown.kind === 'week' && !inWeek(dateShown(), shown.date)) {
+      remember(isLive(shown, props.today) ? props.today : shown.date);
     }
   },
   { immediate: true },
 );
 
-function inWeek(date: CalendarDate | undefined, monday: CalendarDate) {
-  return date !== undefined && sameDate(weekOf(date).date, monday);
+/** Keeps a day for `Tag` and `Woche`; today is kept as today, which moves on. */
+function remember(date: CalendarDate) {
+  shownDate.value = sameDate(date, props.today) ? undefined : date;
+}
+
+function dateShown(): CalendarDate {
+  return shownDate.value ?? props.today;
+}
+
+function inWeek(date: CalendarDate, monday: CalendarDate) {
+  return sameDate(weekOf(date).date, monday);
 }
 
 /** The day or week the bar names, if one is shown. */
@@ -75,7 +87,7 @@ const stepNames = computed(() =>
 
 function choose(kind: PeriodKind) {
   if (kind === period.value.kind) return;
-  const date = shownDate.value ?? props.today;
+  const date = dateShown();
   if (kind === 'day') period.value = { kind, date };
   else if (kind === 'week') period.value = weekOf(date);
   else period.value = { kind };
@@ -96,7 +108,7 @@ function openCalendar() {
 
 /** Shows the picked day, or its week under `Woche`, and closes the calendar. */
 function pick(date: CalendarDate) {
-  shownDate.value = date;
+  remember(date);
   period.value =
     period.value.kind === 'week' ? weekOf(date) : { kind: 'day', date };
   calendarOpen.value = false;
@@ -190,7 +202,7 @@ const allLine = computed(() => {
   >
     <DayCalendar
       :key="openings"
-      :selected="shownDate ?? today"
+      :selected="dateShown()"
       :today="today"
       :marked="markedDays"
       @pick="pick"

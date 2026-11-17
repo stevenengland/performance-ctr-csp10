@@ -897,6 +897,26 @@ describe('the Rangliste’s periods', () => {
     expect(asked.at(-1)?.[0]).toBe('?from=2026-11-16T23:00:00.000Z');
   });
 
+  it('shows the new today under Woche and Tag after midnight passed on Gesamt chosen from Heute', async () => {
+    scoreboards({ [TODAY]: evening });
+    await open();
+    expect(bar()?.text()).toBe('Heute');
+    await choose('Gesamt');
+
+    await vi.advanceTimersByTimeAsync(20 * 60_000);
+    window.dispatchEvent(new Event('focus'));
+    await flushPromises();
+    await choose('Woche');
+    const weekBar = bar()?.text();
+    await choose('Tag');
+
+    expect([weekBar, bar()?.text(), context()]).toEqual([
+      'Diese Woche',
+      'Heute',
+      'Heute',
+    ]);
+  });
+
   it('keeps the chosen calendar day with a window rebuilt for a new time zone', async () => {
     const asked = scoreboards({
       [TODAY]: evening,
