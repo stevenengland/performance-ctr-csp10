@@ -94,12 +94,19 @@ function place(page: Page, name: string) {
   });
 }
 
-/** The next scoreboard request the page sends. */
-/** The next scoreboard read; the days read beside it is another resource. */
-function scoreboardRequests(page: Page) {
-  return page.waitForRequest((request) =>
-    new URL(request.url()).pathname.endsWith('/api/scoreboard'),
-  );
+/**
+The next scoreboard read of a period: today (`from` alone, today's feed, polled
+every 10 s), a window with its end (a day or a week), or all time. The feed and a
+period's read share the path, and the days read beside them is another resource,
+so the query tells them apart.
+*/
+function scoreboardRequests(page: Page, period: 'today' | 'window' | 'all') {
+  return page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    if (!url.pathname.endsWith('/api/scoreboard')) return false;
+    if (period === 'all') return url.search === '?scope=all';
+    return url.searchParams.has('to') === (period === 'window');
+  });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -338,12 +345,12 @@ test('the Rangliste polls every 10 s on condition, keeps its standings with “S
   });
   await addEntry(page.request, personId, drinkId, 1);
   await page.clock.install();
-  const first = scoreboardRequests(page);
+  const first = scoreboardRequests(page, 'today');
   await page.goto('/rangliste');
   await first;
   await expect(place(page, person)).toBeVisible();
 
-  const polled = scoreboardRequests(page);
+  const polled = scoreboardRequests(page, 'today');
   await page.clock.runFor(POLL_MS);
   const conditional = await polled;
   expect(conditional.headers()['if-none-match']).toMatch(/^"\d+-\d+"$/);
@@ -405,7 +412,7 @@ test('the Rangliste reads yesterday with its window and Gesamt with scope=all, a
   await page.goto('/rangliste');
   await expect(place(page, anna)).toBeVisible();
 
-  const yesterday = scoreboardRequests(page);
+  const yesterday = scoreboardRequests(page, 'window');
   await page.getByRole('button', { name: 'Vorheriger Tag' }).click();
   const window = new URL((await yesterday).url()).searchParams;
   expect(
@@ -414,7 +421,7 @@ test('the Rangliste reads yesterday with its window and Gesamt with scope=all, a
   await expect(page.getByText('Gestern', { exact: true })).toBeVisible();
   await expect(place(page, anna)).toHaveCount(0);
 
-  const allTime = scoreboardRequests(page);
+  const allTime = scoreboardRequests(page, 'all');
   await page
     .getByRole('group', { name: 'Zeitraum' })
     .getByRole('button', { name: 'Gesamt' })
@@ -453,7 +460,7 @@ test('the Rangliste reads this week from Monday’s to next Monday’s local mid
   await page.goto('/rangliste');
   await expect(place(page, anna)).toBeVisible();
 
-  const thisWeek = scoreboardRequests(page);
+  const thisWeek = scoreboardRequests(page, 'window');
   await page
     .getByRole('group', { name: 'Zeitraum' })
     .getByRole('button', { name: 'Woche' })
