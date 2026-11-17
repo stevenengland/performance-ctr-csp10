@@ -14,8 +14,12 @@ use PDO;
  *
  * - The columns: `pending` (default 0, so every existing row and every insert of the previous
  *   release counts as verified), `verified_at` and `verified_by_account_id`, both null. INSTANT.
- * - The pending index `<table>_pending (pending, created_at)`, which serves the pending-queue
- *   read (newest first). INPLACE, LOCK=NONE.
+ * - The pending index `<table>_pending (pending, created_at DESC, id, account_id)`, which
+ *   serves the pending queue (PendingQuery): its order is the queue's (newest first, then id),
+ *   so a page reads only as many entries as it shows plus the reader's own rows it skips, and
+ *   `account_id` lets both the page and the count leave those out inside the index; a count
+ *   reads the index alone. Without `id` and `account_id`, a fifth of rows pending made MariaDB
+ *   scan the whole table (PendingQueuePlanTest). INPLACE, LOCK=NONE.
  * - The verifier foreign key `<table>_verifier`, cleared when its account is deleted. MariaDB
  *   adds a foreign key in place only with foreign key checks off; that is safe here because
  *   every value of the new column is null at that moment. INPLACE, LOCK=NONE.
@@ -58,7 +62,7 @@ final class VerificationSchema
 
     public static function addPendingIndex(PDO $pdo, string $table): void
     {
-        $pdo->exec("ALTER TABLE {$table} ADD KEY {$table}_pending (pending, created_at), ALGORITHM=INPLACE, LOCK=NONE");
+        $pdo->exec("ALTER TABLE {$table} ADD KEY {$table}_pending (pending, created_at DESC, id, account_id), ALGORITHM=INPLACE, LOCK=NONE");
     }
 
     public static function hasVerifierForeignKey(PDO $pdo, string $table): bool

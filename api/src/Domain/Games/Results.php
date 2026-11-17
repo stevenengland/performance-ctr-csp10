@@ -62,7 +62,7 @@ final readonly class Results implements GameDependents, PersonDependents
     private const SNAPSHOT = 'SELECT STRAIGHT_JOIN r.id, g.name AS game, p.name AS person, r.points, r.pending
         FROM results r FORCE INDEX (%s) JOIN games g ON g.id = r.game_id JOIN persons p ON p.id = r.person_id';
     /** Pending results as the pending queue lists them: their game, its run, the person, the points and the recorder, names as they are now. */
-    private const PENDING = 'SELECT r.id, r.created_at, a.user_name AS account_name, r.game_id, g.name AS game_name, r.run < g.run AS earlier_run,
+    private const PENDING = 'r.id, r.created_at, a.user_name AS account_name, r.game_id, g.name AS game_name, r.run < g.run AS earlier_run,
                 r.person_id, p.name AS person_name, r.points
         FROM results r JOIN games g ON g.id = r.game_id JOIN persons p ON p.id = r.person_id
         LEFT JOIN accounts a ON a.id = r.account_id';

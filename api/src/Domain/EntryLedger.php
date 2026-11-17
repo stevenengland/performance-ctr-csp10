@@ -106,13 +106,14 @@ final readonly class EntryLedger implements VerifiableRows
     public function pending(int $accountId, ?PendingBound $bound, int $limit): array
     {
         $query = new PendingQuery($accountId, $bound);
-        $statement = $this->pdo->prepare(
-            'SELECT e.id, e.created_at, a.user_name AS account_name, e.person_id, p.name AS person_name, e.drink_id,
+        $statement = $this->pdo->prepare($query->page(
+            'e.id, e.created_at, a.user_name AS account_name, e.person_id, p.name AS person_name, e.drink_id,
                     d.name AS drink_name, e.quantity, e.factor_id, f.name AS factor_name, f.multiplier
                FROM entries e JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
-               LEFT JOIN factors f ON f.id = e.factor_id LEFT JOIN accounts a ON a.id = e.account_id
-              WHERE ' . $query->where('e') . $query->orderBy('e', $limit),
-        );
+               LEFT JOIN factors f ON f.id = e.factor_id LEFT JOIN accounts a ON a.id = e.account_id',
+            'e',
+            $limit,
+        ));
         $statement->execute($query->parameters());
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
@@ -123,7 +124,7 @@ final readonly class EntryLedger implements VerifiableRows
     public function countPending(int $accountId): int
     {
         $query = new PendingQuery($accountId);
-        $statement = $this->pdo->prepare('SELECT COUNT(*) FROM entries e WHERE ' . $query->where('e'));
+        $statement = $this->pdo->prepare($query->count('entries', 'e'));
         $statement->execute($query->parameters());
 
         return (int) $statement->fetchColumn();

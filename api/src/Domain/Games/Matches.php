@@ -61,7 +61,7 @@ final readonly class Matches implements GameDependents, PersonDependents
         FROM matches m FORCE INDEX (%s) JOIN games g ON g.id = m.game_id
         LEFT JOIN persons f ON f.id = m.first_person_id LEFT JOIN persons s ON s.id = m.second_person_id';
     /** Pending matches as the pending queue lists them: their game, its run, both sides and the recorder, names as they are now. */
-    private const PENDING = 'SELECT m.id, m.created_at, a.user_name AS account_name, m.game_id, g.name AS game_name, m.run < g.run AS earlier_run,
+    private const PENDING = 'm.id, m.created_at, a.user_name AS account_name, m.game_id, g.name AS game_name, m.run < g.run AS earlier_run,
                 m.first_person_id, f.name AS first_name, m.second_person_id, s.name AS second_name, m.outcome
         FROM matches m JOIN games g ON g.id = m.game_id
         LEFT JOIN persons f ON f.id = m.first_person_id LEFT JOIN persons s ON s.id = m.second_person_id

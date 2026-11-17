@@ -146,9 +146,7 @@ final readonly class RecordedRows implements VerifiableRows
     {
         $read = $this->pendingRead;
         $query = new PendingQuery($accountId, $bound);
-        $statement = $this->pdo->prepare(
-            $read->select . ' WHERE ' . $query->where($this->alias) . $query->orderBy($this->alias, $limit),
-        );
+        $statement = $this->pdo->prepare($query->page($read->from, $this->alias, $limit));
         $statement->execute($query->parameters());
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
@@ -165,7 +163,7 @@ final readonly class RecordedRows implements VerifiableRows
     public function countPending(int $accountId): int
     {
         $query = new PendingQuery($accountId);
-        $statement = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->table} {$this->alias} WHERE " . $query->where($this->alias));
+        $statement = $this->pdo->prepare($query->count($this->table, $this->alias));
         $statement->execute($query->parameters());
 
         return (int) $statement->fetchColumn();
