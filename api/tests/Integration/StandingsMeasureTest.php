@@ -104,6 +104,33 @@ final class StandingsMeasureTest extends DatabaseTestCase
     }
 
     /**
+     * Where the highest sum wins, the sum ranks highest first over a window and all time
+     * across a restart; Ben's and Anna's equal sums break by name although Ben scored first.
+     */
+    public function testTheSumRanksHighestFirstWhereTheHighestWinsAndTiesBreakByName(): void
+    {
+        $this->score(self::DARTS, 2, 9);
+        $this->score(self::DARTS, 1, 4);
+        $this->score(self::DARTS, 1, 5);
+        $this->score(self::DARTS, 3, 3);
+        $this->score(self::DARTS, 4, 5);
+        $this->clock->advance('PT1H');
+        $this->send('POST', '/api/games/' . self::DARTS . '/restart', [], $this->session);
+        $this->score(self::DARTS, 3, -1);
+        $this->score(self::DARTS, 4, 7);
+        $bySum = [
+            self::pointsRow(4, 'Daniel', 12, 6, 2),
+            self::pointsRow(1, 'Anna', 9, 4.5, 2),
+            self::pointsRow(2, 'Ben', 9, 9, 1),
+            self::pointsRow(3, 'Carla', 2, 1, 2),
+        ];
+
+        foreach (['scope=all', self::WINDOW, 'scope=all&measure=sum', self::WINDOW . '&measure=sum'] as $selection) {
+            self::assertSame($bySum, $this->body($this->standings(self::DARTS, $selection))['rows'], $selection);
+        }
+    }
+
+    /**
      * The exact average decides, never one rounded by the database: Ben's 13 / 4 = 3.25 is
      * below Anna's 10 / 3 = 3.33… although both show 3.3, and Daniel's 320 / 107 = 2.99065…
      * is below Carla's 323 / 108 = 2.99074… although MariaDB's own `AVG()` makes both 2.9907,
