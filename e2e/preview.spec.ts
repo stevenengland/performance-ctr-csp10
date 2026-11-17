@@ -161,7 +161,7 @@ test('the fixture preview renames a drink and deletes a person with their entrie
   await page.goto('/index.html#/verwalten/personen');
   await page.getByRole('button', { name: 'Daniel löschen' }).click();
   await expect(dialog).toContainText(
-    'Daniel, 5 Einträge und 3 Ergebnisse werden gelöscht.',
+    'Daniel, 9 Einträge und 3 Ergebnisse werden gelöscht.',
   );
   await dialog.getByRole('button', { name: 'Löschen' }).click();
   await expect(page.getByText('Daniel gelöscht')).toBeVisible();
