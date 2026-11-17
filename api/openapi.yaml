@@ -1177,7 +1177,13 @@ paths:
           description: The ETag of the ranking the client already shows
           schema:
             type: string
-            examples: ['"42"', '"42-1763161200000-1763247600000"', '"42-all"', '"42-all-average"']
+            examples:
+              [
+                '"42"',
+                '"42-1763161200000-1763247600000"',
+                '"42-all"',
+                '"42-all-average"',
+              ]
       responses:
         '200':
           description: The ranking
