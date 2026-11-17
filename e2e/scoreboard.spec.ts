@@ -523,6 +523,8 @@ test('Tag wählen dots today once an entry counts and picks yesterday; Gesamt sa
   const first = daysRead();
   await page.getByRole('button', { name: 'Tag wählen: Heute' }).click();
   expect((await first).status()).toBe(200);
+  const firstEtag = (await first).headers().etag;
+  expect(firstEtag).toMatch(/^"\d+"$/);
   const todayInCalendar = dialog.getByRole('button', {
     name: today?.name,
     exact: true,
@@ -543,7 +545,12 @@ test('Tag wählen dots today once an entry counts and picks yesterday; Gesamt sa
     .getByRole('group', { name: 'Zeitraum' })
     .getByRole('button', { name: 'Gesamt' })
     .click();
-  expect((await again).status()).toBe(304);
+  // Other tests write to the same stack in parallel, so the revision may have moved
+  // on: the read is conditional on the first answer, whatever the server says.
+  expect(await (await again).request().headerValue('if-none-match')).toBe(
+    firstEtag,
+  );
+  expect([200, 304]).toContain((await again).status());
   await expect(
     page.getByText(/^Alle Tage seit \d{2}\.\d{2}\.\d{4} · \d+ Abende?$/),
   ).toBeVisible();
