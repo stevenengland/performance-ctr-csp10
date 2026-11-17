@@ -98,6 +98,45 @@ final class VerificationMigrationsTest extends DatabaseTestCase
         self::assertSame([['id' => self::ROW, 'verified_by_account_id' => null]], $this->rows("SELECT id, verified_by_account_id FROM {$table}"));
     }
 
+    /**
+     * @param 'entries'|'matches'|'results' $table
+     */
+    #[DataProvider('tables')]
+    public function testTheForeignKeyMigrationSetsAVerifierThatNamesNoAccountToNull(string $table): void
+    {
+        $this->migrateUpTo(self::MIGRATIONS[$table][1]);
+        $this->previousReleaseRecords($table);
+        // A verifier written before the key existed, naming an account that never existed.
+        $this->otherSession()->exec("UPDATE {$table} SET verified_at = UTC_TIMESTAMP(3), verified_by_account_id = 999 WHERE id = '" . self::ROW . "'");
+
+        $health = $this->body($this->get('/api/health'));
+
+        self::assertSame('ok', $health['migration']);
+        self::assertSame([['id' => self::ROW, 'verified_by_account_id' => null]], $this->rows("SELECT id, verified_by_account_id FROM {$table}"));
+        self::assertCount(1, $this->rows("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = '{$table}_verifier'"));
+    }
+
+    /**
+     * @param 'entries'|'matches'|'results' $table
+     */
+    #[DataProvider('tables')]
+    public function testTheForeignKeyMigrationValidatesAgainAfterACrashBetweenTheKeyAndTheValidation(string $table): void
+    {
+        $this->get('/api/health');
+        $this->previousReleaseRecords($table);
+        // The key is in, the orphan was never cleared, the bookkeeping still says started.
+        $other = $this->otherSession();
+        $other->exec('SET SESSION foreign_key_checks = 0');
+        $other->exec("UPDATE {$table} SET verified_by_account_id = 999 WHERE id = '" . self::ROW . "'");
+        $other->exec("UPDATE schema_migrations SET state = 'started', completed_at = NULL WHERE version = '" . self::MIGRATIONS[$table][2] . "'");
+
+        $health = $this->body($this->get('/api/health'));
+
+        self::assertSame('ok', $health['migration']);
+        self::assertSame('completed', array_column($this->rows('SELECT version, state FROM schema_migrations'), 'state', 'version')[self::MIGRATIONS[$table][2]]);
+        self::assertSame([['id' => self::ROW, 'verified_by_account_id' => null]], $this->rows("SELECT id, verified_by_account_id FROM {$table}"));
+    }
+
     public function testTheForeignKeyMigrationsRestoreTheSessionsForeignKeyChecksAfterSuccess(): void
     {
         $pdo = $this->migrationSession();

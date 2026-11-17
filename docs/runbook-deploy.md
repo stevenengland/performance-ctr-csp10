@@ -160,6 +160,29 @@ temporary workflow for a re-run.
 5. `archive` makes the tested tarball a GitHub Release tagged `release-YYYYMMDD-HHMM` (UTC
    minute of the archive), titled with the release id, at the deployed commit.
 
+**The migration barrier.** From the moment the API pointer switches, the new release's code
+answers, but every request first brings the schema up to date (`MigrationGate`): while one
+request runs the pending migrations, every other API route answers 503 `maintenance` with
+`Retry-After: 5`, and after a failed migration 503 `migration-failed`; only health answers. So
+no route of a release, reading or writing, runs before its migrations completed
+(`MigratorTest` › "a write arriving while another session migrates gets 503 and changes nothing
+until the migrations completed"). Requests that were already executing the previous release's
+code when the pointer switched finish with that code; a release's migrations must therefore stay
+compatible with the previous release's writes ([ADR 0006](adr/0006-rollout-compatibility.md)).
+
+Migrations may rely on that barrier, and say so where they do. The four-eyes rule (0.3.0,
+migrations `0022`, `0026`, `0029`) adds each verifier foreign key with foreign key checks off,
+which MariaDB needs to add a key in place; checks off mean the key does not validate the rows
+already there. That is safe because the previous release never writes the verifier columns and
+the new release writes them only after the barrier, so every value is null. Each step validates
+afterwards anyway, with checks back on: a `verified_by_account_id` that names no account is set to
+`NULL` (what the key's `ON DELETE SET NULL` means), and the step fails, so the API answers 503
+`migration-failed`, if one remains. The step counts as applied only when the key exists and no
+verifier is orphaned, so a crash between the key and the validation runs the validation again.
+After a cutover, `SELECT COUNT(*) FROM entries e LEFT JOIN accounts a ON a.id =
+e.verified_by_account_id WHERE e.verified_by_account_id IS NOT NULL AND a.id IS NULL` (and the
+same for `matches` and `results`) answers 0.
+
 Remote layout below the SFTP root:
 
 ```text

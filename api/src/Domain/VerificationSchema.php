@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Performance\Domain;
 
 use PDO;
+use RuntimeException;
 
 /**
  * The schema steps of the four-eyes rule (PRD #61), the same for each row table (`entries`,
@@ -21,8 +22,17 @@ use PDO;
  *   reads the index alone. Without `id` and `account_id`, a fifth of rows pending made MariaDB
  *   scan the whole table (PendingQueuePlanTest). INPLACE, LOCK=NONE.
  * - The verifier foreign key `<table>_verifier`, cleared when its account is deleted. MariaDB
- *   adds a foreign key in place only with foreign key checks off; that is safe here because
- *   every value of the new column is null at that moment. INPLACE, LOCK=NONE.
+ *   adds a foreign key in place only with foreign key checks off, and checks off mean it never
+ *   validates the rows already there. That is safe because of the cutover order: the API
+ *   pointer switches to the new release first, and its first request runs the pending
+ *   migrations while every other API route answers 503 `maintenance` (MigrationGate; runbook,
+ *   "What a push to `main` does"), so no code of this release writes a verifier before the
+ *   step; the previous release never writes the verifier columns. Every value of the new
+ *   column is therefore null. The step still validates after the key is in, with checks back
+ *   on: a verifier that names no account is set to null (what the key's `ON DELETE SET NULL`
+ *   would have done), and the step fails if one remains. The step counts as applied only when
+ *   the key exists and no verifier names a missing account, so a crash between the key and the
+ *   validation runs the validation again. INPLACE, LOCK=NONE.
  */
 final class VerificationSchema
 {
@@ -65,6 +75,12 @@ final class VerificationSchema
         $pdo->exec("ALTER TABLE {$table} ADD KEY {$table}_pending (pending, created_at DESC, id, account_id), ALGORITHM=INPLACE, LOCK=NONE");
     }
 
+    /** The verifier foreign key exists, and every verifier names an existing account. */
+    public static function verifierForeignKeyHolds(PDO $pdo, string $table): bool
+    {
+        return self::hasVerifierForeignKey($pdo, $table) && self::orphanedVerifiers($pdo, $table) === 0;
+    }
+
     public static function hasVerifierForeignKey(PDO $pdo, string $table): bool
     {
         $statement = $pdo->prepare(
@@ -77,11 +93,41 @@ final class VerificationSchema
     }
 
     /**
-     * Switches foreign key checks off on this connection only, for this one statement, and
-     * restores the session's previous setting afterwards, whether the statement succeeded or
-     * failed: the migration runs on the request's connection, which goes on serving it.
+     * Adds the key unless it exists, then validates the verifiers with the session's checks
+     * restored: one that names no account is set to null, and the step fails if any remains.
+     * For the key alone foreign key checks go off on this connection only, for this one
+     * statement, and the session's previous setting comes back afterwards, whether the
+     * statement succeeded or failed: the migration runs on the request's connection, which goes
+     * on serving it.
+     *
+     * @throws RuntimeException when a verifier still names no account
      */
     public static function addVerifierForeignKey(PDO $pdo, string $table): void
+    {
+        if (!self::hasVerifierForeignKey($pdo, $table)) {
+            self::addKeyWithoutChecks($pdo, $table);
+        }
+        $pdo->exec(
+            "UPDATE {$table} SET verified_by_account_id = NULL
+              WHERE verified_by_account_id IS NOT NULL AND verified_by_account_id NOT IN (SELECT id FROM accounts)",
+        );
+        $orphaned = self::orphanedVerifiers($pdo, $table);
+        if ($orphaned > 0) {
+            throw new RuntimeException("{$orphaned} verifiers of {$table} name no account");
+        }
+    }
+
+    private static function orphanedVerifiers(PDO $pdo, string $table): int
+    {
+        $statement = $pdo->query(
+            "SELECT COUNT(*) FROM {$table} t
+              WHERE t.verified_by_account_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id = t.verified_by_account_id)",
+        );
+
+        return $statement === false ? 0 : (int) $statement->fetchColumn();
+    }
+
+    private static function addKeyWithoutChecks(PDO $pdo, string $table): void
     {
         $statement = $pdo->query('SELECT @@SESSION.foreign_key_checks');
         $previous = $statement === false ? 1 : (int) $statement->fetchColumn();

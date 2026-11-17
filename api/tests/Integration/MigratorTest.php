@@ -46,6 +46,46 @@ final class MigratorTest extends DatabaseTestCase
         self::assertSame(0, $health['schemaVersion']);
     }
 
+    /**
+     * The cutover barrier of a release (runbook, "What a push to `main` does"): its code writes
+     * nothing before its migrations completed. A verification and a recording that arrive
+     * while another session migrates answer 503 and change nothing; once the migrations
+     * completed, the same requests go through.
+     */
+    public function testAWriteArrivingWhileAnotherSessionMigratesGets503AndChangesNothingUntilTheMigrationsCompleted(): void
+    {
+        $admin = $this->signIn();
+        $this->createAccount('anna', 'annas-startpasswort');
+        $anna = $this->signIn('anna', 'annas-startpasswort');
+        $this->send('POST', '/api/persons', ['name' => 'Daniel'], $admin);
+        $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $admin);
+        $waiting = '00000000-0000-4000-8000-000000000001';
+        $recording = '00000000-0000-4000-8000-000000000002';
+        $entry = ['personId' => 1, 'drinkId' => 1, 'quantity' => 1];
+        self::assertSame(201, $this->send('PUT', "/api/entries/{$waiting}", $entry, $admin)->getStatusCode());
+        $next = $this->app($this->config($this->fixtureMigrations('lock-probe')));
+        $other = $this->otherSession();
+        $lock = $other->prepare('SELECT GET_LOCK(?, 0)');
+        $lock->execute([Migrator::lockName($other)]);
+
+        $verified = $this->send('PUT', "/api/entries/{$waiting}/verification", [], $anna, $next);
+        $recorded = $this->send('PUT', "/api/entries/{$recording}", $entry, $anna, $next);
+
+        foreach ([$verified, $recorded] as $response) {
+            self::assertSame(503, $response->getStatusCode());
+            self::assertSame('urn:performance:problem:maintenance', $this->body($response)['type']);
+        }
+        self::assertSame(
+            [['id' => $waiting, 'pending' => 1, 'verified_by_account_id' => null]],
+            $this->rows('SELECT id, pending, verified_by_account_id FROM entries'),
+        );
+
+        $other->prepare('SELECT RELEASE_LOCK(?)')->execute([Migrator::lockName($other)]);
+
+        self::assertSame(204, $this->send('PUT', "/api/entries/{$waiting}/verification", [], $anna, $next)->getStatusCode());
+        self::assertSame(201, $this->send('PUT', "/api/entries/{$recording}", $entry, $anna, $next)->getStatusCode());
+    }
+
     public function testAMigrationWhoseDdlRanButWasNeverRecordedCompletesOnTheNextRun(): void
     {
         $this->get('/api/health');
