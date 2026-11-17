@@ -36,7 +36,6 @@ export type ResultItem = components['schemas']['ResultItem'];
 export type ResultPage = components['schemas']['ResultPage'];
 export type PendingPage = components['schemas']['PendingPage'];
 export type PendingItem = components['schemas']['PendingItem'];
-export type DaysWithData = components['schemas']['DaysWithData'];
 export type ApiPath = keyof paths;
 /** Field errors of a 422 problem, keyed by the API field name. */
 export type FieldErrors = Readonly<Record<string, string>>;
@@ -646,6 +645,7 @@ export async function getScoreboardDays(
 ): Promise<DaysAnswer | 'unchanged'> {
   const response = await send('/api/scoreboard/days', { ifNoneMatch: etag });
   if (response.status === NOT_MODIFIED) return 'unchanged';
-  const { instants } = (await response.json()) as DaysWithData;
+  const { instants } =
+    (await response.json()) as components['schemas']['DaysWithData'];
   return { instants, etag: response.headers.get('ETag') ?? undefined };
 }
