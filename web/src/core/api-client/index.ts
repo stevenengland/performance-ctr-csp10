@@ -407,15 +407,18 @@ export interface StandingsAnswer {
 }
 
 /**
-A game's ranking in its current run, tagged with the game's kind. With the ETag
-of the ranking already shown, `unchanged` means it still holds.
+A game's ranking, tagged with the game's kind: in its current run, or of a
+selection, a window or all time, over every run. With the ETag of the same
+selection's ranking already shown, `unchanged` means it still holds.
 */
 export async function getStandings(
   gameId: number,
   etag?: string,
+  selection?: ScoreboardSelection,
 ): Promise<StandingsAnswer | 'unchanged'> {
   const response = await send('/api/games/{id}/standings', {
     params: { id: String(gameId) },
+    query: selection && queryOfSelection(selection),
     ifNoneMatch: etag,
   });
   if (response.status === NOT_MODIFIED) return 'unchanged';
@@ -610,6 +613,17 @@ export interface TimeWindow {
 /** What the scoreboard ranks: a window or all time. */
 export type ScoreboardSelection = TimeWindow | { scope: 'all' };
 
+/** A selection's query parameters, those it leaves out omitted. */
+function queryOfSelection(
+  selection: ScoreboardSelection,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(selection).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
+}
+
 /**
 The standings of a selection, e.g. since `from`, the start of the viewer's day as a
 UTC instant. With the ETag of the same selection's standings already shown,
@@ -620,9 +634,7 @@ export async function getScoreboard(
   etag?: string,
 ): Promise<ScoreboardAnswer | 'unchanged'> {
   const response = await send('/api/scoreboard', {
-    query: Object.fromEntries(
-      Object.entries(selection).filter(([, value]) => value !== undefined),
-    ),
+    query: queryOfSelection(selection),
     ifNoneMatch: etag,
   });
   if (response.status === NOT_MODIFIED) return 'unchanged';
@@ -648,6 +660,25 @@ export async function getScoreboardDays(
   etag?: string,
 ): Promise<DaysAnswer | 'unchanged'> {
   const response = await send('/api/scoreboard/days', { ifNoneMatch: etag });
+  if (response.status === NOT_MODIFIED) return 'unchanged';
+  const { instants } =
+    (await response.json()) as components['schemas']['DaysWithData'];
+  return { instants, etag: response.headers.get('ETag') ?? undefined };
+}
+
+/**
+The quarter hours with matches or results of the game that count, of every run:
+what the game's calendar marks and its `Gesamt` line count. With the ETag of the
+answer already shown, `unchanged` means it still holds.
+*/
+export async function getStandingsDays(
+  gameId: number,
+  etag?: string,
+): Promise<DaysAnswer | 'unchanged'> {
+  const response = await send('/api/games/{id}/standings/days', {
+    params: { id: String(gameId) },
+    ifNoneMatch: etag,
+  });
   if (response.status === NOT_MODIFIED) return 'unchanged';
   const { instants } =
     (await response.json()) as components['schemas']['DaysWithData'];

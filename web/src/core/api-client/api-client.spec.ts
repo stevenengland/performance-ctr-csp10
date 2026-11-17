@@ -25,6 +25,7 @@ import {
   getScoreboard,
   getScoreboardDays,
   getStandings,
+  getStandingsDays,
   getPerson,
   getSession,
   listAuditEvents,
@@ -687,6 +688,62 @@ describe('the API client', () => {
       '/api/games/2/standings',
       expect.objectContaining({
         headers: expect.objectContaining({ 'If-None-Match': '"42"' }),
+      }),
+    );
+  });
+
+  it.each([
+    [
+      { from: '2026-11-14T23:00:00.000Z', to: '2026-11-15T23:00:00.000Z' },
+      '?from=2026-11-14T23%3A00%3A00.000Z&to=2026-11-15T23%3A00%3A00.000Z',
+    ],
+    [{ scope: 'all' } as const, '?scope=all'],
+  ])(
+    'asks for a game’s ranking of the selection %o on condition of its ETag',
+    async (selection, query) => {
+      const fetch = vi.fn(
+        async () =>
+          new Response(null, { status: 304, headers: { ETag: '"42-all"' } }),
+      );
+      vi.stubGlobal('fetch', fetch);
+
+      await expect(getStandings(2, '"42-all"', selection)).resolves.toBe(
+        'unchanged',
+      );
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/games/2/standings${query}`,
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'If-None-Match': '"42-all"' }),
+        }),
+      );
+    },
+  );
+
+  it('reads the quarter hours a game was played with their ETag, on condition of the last one; 304 means unchanged', async () => {
+    const instants = ['2026-11-14T20:00:00.000Z'];
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ instants }), {
+          status: 200,
+          headers: { ETag: '"7"' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 304, headers: { ETag: '"7"' } }),
+      );
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(getStandingsDays(2)).resolves.toEqual({
+      instants,
+      etag: '"7"',
+    });
+    await expect(getStandingsDays(2, '"7"')).resolves.toBe('unchanged');
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/games/2/standings/days',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'If-None-Match': '"7"' }),
       }),
     );
   });
