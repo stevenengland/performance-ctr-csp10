@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Standings } from '../src/core/api-client';
 import { installFixtureBackend } from './fixtureBackend';
+import { calendarDateOf, localDaysOf } from '../src/core/period';
+import { sampleEvening } from './fixtures';
 import { withGameRows } from './fixtureTesting';
 
 /*
@@ -572,5 +574,50 @@ describe('the fixture backend’s quarter hours a game was played', () => {
     expect(
       (await days(1, verified.headers.get('ETag') ?? undefined)).status,
     ).toBe(200);
+  });
+});
+
+describe('the sample’s games over all time', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const leaders = ({ rows }: Standings) =>
+    rows.map((row) =>
+      'sum' in row
+        ? `${row.name} ${String(row.sum)} (${String(row.results)})`
+        : row.name,
+    );
+
+  it('ranks earlier runs under Gesamt, so it differs from the current run', async () => {
+    installFixtureBackend(sampleEvening());
+
+    expect(leaders(await ranked(1))).toEqual([
+      'Daniel -11 (2)',
+      'Anna 15 (2)',
+      'Ben 39 (2)',
+      'Mara 79 (2)',
+    ]);
+    expect(leaders(await ranked(1, 'scope=all'))).toEqual([
+      'Tom 12 (4)',
+      'Anna 71 (5)',
+      'Daniel 84 (6)',
+      'Ben 112 (6)',
+      'Mara 210 (6)',
+    ]);
+    expect(leaders(await ranked(2))[0]).toBe('Anna');
+    expect(leaders(await ranked(2, 'scope=all'))[0]).toBe('Tom');
+  });
+
+  it('has Rommé played on six days, tonight and five earlier evenings', async () => {
+    installFixtureBackend(sampleEvening());
+    const response = await get('/api/games/1/standings/days');
+    const { instants } = (await response.json()) as { instants: string[] };
+
+    const days = localDaysOf(instants);
+
+    expect(days).toHaveLength(6);
+    expect(days.at(-1)).toEqual(calendarDateOf(new Date()));
   });
 });

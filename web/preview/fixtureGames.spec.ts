@@ -122,7 +122,7 @@ describe('the fixture backend’s games', () => {
 
     await expect(getGame(schach.id)).resolves.toEqual({
       ...schach,
-      matchCount: 9,
+      matchCount: 13,
       resultCount: 0,
     });
     await expect(
@@ -324,7 +324,7 @@ describe('the fixture backend’s games', () => {
     });
     await expect(getGame(romme)).resolves.toMatchObject({
       matchCount: 0,
-      resultCount: 10,
+      resultCount: 29,
     });
 
     await updateGame(romme, { name: 'Rommé', lowerWins: false });
@@ -344,7 +344,7 @@ describe('the fixture backend’s games', () => {
     await restart(schach);
 
     await expect(standingsOf(schach)).resolves.toMatchObject({ rows: [] });
-    await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 9 });
+    await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 13 });
   });
 
   it('tags the ranking with the data revision and answers 304 while it holds', async () => {
@@ -418,9 +418,9 @@ describe('the fixture backend’s games', () => {
 
     await deleteGame(romme);
 
-    const events = (await newest(11)).map(told).reverse();
+    const events = (await newest(30)).map(told).reverse();
     expect(events[0]).toMatchObject({ subjectKind: 'game', cause: null });
-    expect(events.slice(1)).toHaveLength(10);
+    expect(events.slice(1)).toHaveLength(29);
     expect(events[1]).toEqual({
       operation: 'delete',
       subjectKind: 'result',
@@ -439,18 +439,22 @@ describe('the fixture backend’s games', () => {
     const daniel = (await listPersons()).find(({ name }) => name === 'Daniel');
     if (!daniel) throw new Error('no Daniel');
     await expect(getPerson(daniel.id)).resolves.toMatchObject({
-      resultCount: 3,
+      resultCount: 7,
     });
 
     await deletePerson(daniel.id);
 
-    const removed = (await newest(3)).map(told).reverse();
+    const removed = (await newest(7)).map(told).reverse();
     expect(removed).toEqual(
       (
         [
           ['00000000-0000-4000-b000-000000000003', -20, false],
           ['00000000-0000-4000-b000-000000000007', 9, false],
           ['00000000-0000-4000-b000-000000000009', 14, true],
+          ['00000000-0000-4000-b100-000000000003', 31, false],
+          ['00000000-0000-4000-b100-000000000006', 15, false],
+          ['00000000-0000-4000-b100-000000000010', 28, false],
+          ['00000000-0000-4000-b100-000000000017', 21, false],
         ] as const
       ).map(([id, points, pending]) => ({
         operation: 'delete',
@@ -472,7 +476,7 @@ describe('the fixture backend’s games', () => {
     installFixtureBackend(fixtures);
     const ben = (await listPersons()).find(({ name }) => name === 'Ben');
     if (!ben) throw new Error('no Ben');
-    await expect(getPerson(ben.id)).resolves.toMatchObject({ matchCount: 5 });
+    await expect(getPerson(ben.id)).resolves.toMatchObject({ matchCount: 6 });
 
     await deletePerson(ben.id);
 
@@ -486,8 +490,8 @@ describe('the fixture backend’s games', () => {
       'Anna 15 (2)',
       'Mara 79 (2)',
     ]);
-    // Ben's five match updates, then his two results' deletions.
-    const updates = (await newest(7)).map(told).reverse().slice(0, 5);
+    // Ben's six match updates, then his six results' deletions.
+    const updates = (await newest(12)).map(told).reverse().slice(0, 6);
     expect(updates[0]).toMatchObject({
       operation: 'update',
       subjectKind: 'match',
@@ -543,7 +547,7 @@ describe('the fixture backend’s games', () => {
       'Tom 1 0-2-2/4',
       'Daniel 0.5 0-1-2/3',
     ]);
-    await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 10 });
+    await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 14 });
     const [recorded] = (await newest(1)).map(told);
     expect(recorded).toEqual({
       operation: 'create',
@@ -566,7 +570,7 @@ describe('the fixture backend’s games', () => {
     expect(replayed.status).toBe(200);
     // Even after the undo, a replay answers the original instant, like the API.
     await expect(replayed.json()).resolves.toEqual({ id, ...match, createdAt });
-    await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 9 });
+    await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 13 });
     const [undone] = (await newest(1)).map(told);
     expect(undone).toMatchObject({
       operation: 'delete',
@@ -667,8 +671,8 @@ describe('the fixture backend’s games', () => {
         { name: 'Tom', pendingCount: 1 },
       ],
     });
-    await expect(getGame(romme)).resolves.toMatchObject({ resultCount: 11 });
-    await expect(getPerson(tom)).resolves.toMatchObject({ resultCount: 1 });
+    await expect(getGame(romme)).resolves.toMatchObject({ resultCount: 30 });
+    await expect(getPerson(tom)).resolves.toMatchObject({ resultCount: 5 });
     const [recorded] = (await newest(1)).map(told);
     expect(recorded).toEqual({
       operation: 'create',
@@ -689,7 +693,7 @@ describe('the fixture backend’s games', () => {
       ...result,
       createdAt,
     });
-    await expect(getGame(romme)).resolves.toMatchObject({ resultCount: 10 });
+    await expect(getGame(romme)).resolves.toMatchObject({ resultCount: 29 });
     const [undone] = (await newest(1)).map(told);
     expect(undone).toMatchObject({
       operation: 'delete',
