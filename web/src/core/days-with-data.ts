@@ -12,10 +12,13 @@ export interface DaysRead {
   state: Readonly<Ref<DeepReadonly<PolledState<string[]>>>>;
   /** Reads again now, e.g. after the device's own writes; nothing while no screen runs it. */
   refresh(): Promise<void>;
-  /** A screen that shows the marks or the line starts the read while it does … */
-  start(): void;
-  /** … and stops it after; the instants are kept for the next start. */
-  stop(): void;
+  /**
+  A screen that shows the marks or the line starts the read while it does; `live`
+  while it shows a period that contains the present (all time), which polls it …
+  */
+  start(live?: boolean): void;
+  /** … and stops it after, as it started it; the instants are kept for the next start. */
+  stop(live?: boolean): void;
 }
 
 /**
@@ -31,8 +34,8 @@ export interface DaysWithData {
 /**
 A days-with-data read kept current while a screen needs it: read on start, on focus,
 when the page becomes visible and after the device's own writes, each time on
-condition of the last ETag. It is not polled: what it shows changes only when a
-day gets its first or loses its last row that counts.
+condition of the last ETag. It is polled every 10 s only while a screen runs it
+live: `Gesamt` is kept live, and its line with it; the calendar alone is not.
 */
 export function createDaysRead(
   read: (etag?: string) => Promise<DaysAnswer | 'unchanged'>,
@@ -44,19 +47,24 @@ export function createDaysRead(
         ? answer
         : { value: answer.instants, etag: answer.etag };
     },
-    { polls: () => false },
+    { polls: () => liveScreens > 0 },
   );
   let screens = 0;
+  let liveScreens = 0;
   return {
     state: resource.state,
     refresh: () => (screens > 0 ? resource.refresh() : Promise.resolve()),
-    start() {
+    start(live = false) {
       screens += 1;
+      if (live) liveScreens += 1;
       resource.start();
+      // Already run by another screen: read now, so the polling starts.
+      if (live && screens > 1) void resource.refresh();
     },
-    stop() {
+    stop(live = false) {
       if (screens === 0) return;
       screens -= 1;
+      if (live && liveScreens > 0) liveScreens -= 1;
       resource.stop();
     },
   };

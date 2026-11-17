@@ -68,6 +68,24 @@ describe('a days-with-data read', () => {
     expect(days.state.value.value).toEqual(SATURDAY);
   });
 
+  it('polls every 10 s on condition of its ETag while a screen runs it live, and stops polling when that screen stops', async () => {
+    const { read, asked } = readOf(SATURDAY, 'unchanged', SUNDAY);
+    days = createDaysRead(read);
+    days.start(true);
+    await settle();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(asked).toEqual([undefined, '"1"', '"1"']);
+    expect(days.state.value.value).toEqual(SUNDAY);
+    days.stop(true);
+    days.start();
+    await settle();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(asked).toEqual([undefined, '"1"', '"1"', '"3"']);
+  });
+
   it('reads again after the device’s own writes while a screen runs it, and on the next start otherwise', async () => {
     const { read, asked } = readOf(SATURDAY, SUNDAY);
     days = createDaysRead(read);

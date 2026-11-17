@@ -33,7 +33,7 @@ never past the one that contains today. The selected option sits in
 day opens the calendar `Tag wählen`, where a picked day shows that day or its
 week; with the page's days-with-data read, the calendar dots the days with data
 that counts and `Gesamt` says since when and over how many days it counts. The
-read runs only while the calendar or `Gesamt` is shown.
+read runs only while the calendar or `Gesamt` is shown, polled under `Gesamt`.
 */
 const props = defineProps<{
   kinds: PeriodKind[];
@@ -114,24 +114,28 @@ function pick(date: CalendarDate) {
   calendarOpen.value = false;
 }
 
-/** The days read, while the calendar or the `Gesamt` line needs it. */
-const neededRead = computed(() =>
-  calendarOpen.value || period.value.kind === 'all'
-    ? props.days?.read
-    : undefined,
-);
-let running: DaysRead | undefined;
+/** The days read, while the calendar or the `Gesamt` line needs it; live under `Gesamt`, as its ranking is. */
+const neededRead = computed(() => {
+  const read = props.days?.read;
+  if (read === undefined) return undefined;
+  if (period.value.kind === 'all') return { read, live: true };
+  return calendarOpen.value ? { read, live: false } : undefined;
+});
+let running: { read: DaysRead; live: boolean } | undefined;
 watch(
   neededRead,
-  (read) => {
-    running?.stop();
-    running = read;
-    running?.start();
+  (needed) => {
+    if (needed?.read === running?.read && needed?.live === running?.live) {
+      return;
+    }
+    running?.read.stop(running.live);
+    running = needed;
+    running?.read.start(running.live);
   },
   { immediate: true },
 );
 onScopeDispose(() => {
-  running?.stop();
+  running?.read.stop(running.live);
 });
 
 const markedDays = computed(() =>

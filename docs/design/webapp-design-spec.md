@@ -626,7 +626,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   longer shown is dropped, and an ETag is only sent with the period it came from. The days read
   runs only while the calendar is open or `Gesamt` is shown: read then, on focus, when the page
   becomes visible and after the device's own writes, on condition of its ETag (the bare data
-  revision), and not polled; the days last read show at once when the calendar opens again.
+  revision); under `Gesamt` it is polled every 10 s like the ranking, so the line stays live with
+  it, while the calendar alone does not poll it; the days last read show at once when the
+  calendar opens again.
 - Persons with verified entries in the period, ranked by score (ties by name); score, total
   count and per-drink counters count verified entries only:
   - **Rank 1 — leader card:** `primary-container`, corner 18 dp. On the left the avatar

@@ -426,6 +426,35 @@ describe('PeriodPicker', () => {
       expect(read).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps the Gesamt line live like the ranking: reads the days every 10 s while Gesamt is shown, and no longer after', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const first = ['2026-10-27T19:00:00.000Z'];
+      const later = [...first, '2026-11-14T19:30:00.000Z'];
+      const read = vi.fn(async (): Promise<DaysAnswer> => ({
+        instants: read.mock.calls.length > 1 ? later : first,
+        etag: '"1"',
+      }));
+      const days: DaysWithData = {
+        read: createDaysRead(read),
+        summary: messages.rangliste.allDaysSince,
+      };
+      opened = picker({ kind: 'all' }, ALL_KINDS, days);
+      await flushPromises();
+      expect(opened.get('.period-line').text()).toBe(
+        'Alle Tage seit 27.10.2026 · 1 Abend',
+      );
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(opened.get('.period-line').text()).toBe(
+        'Alle Tage seit 27.10.2026 · 2 Abende',
+      );
+      await option(opened, 'Tag')?.trigger('click');
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(read).toHaveBeenCalledTimes(2);
+      vi.useRealTimers();
+    });
+
     it('counts one evening as 1 Abend, and shows no line before a day counts', async () => {
       const one = daysOf(['2026-11-14T19:30:00.000Z']);
       opened = picker({ kind: 'all' }, ALL_KINDS, one.days);
