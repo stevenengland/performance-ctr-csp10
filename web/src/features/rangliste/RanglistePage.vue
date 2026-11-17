@@ -69,6 +69,12 @@ const others = computed(() => standings.value?.slice(1) ?? []);
 const unranked = computed(() =>
   shown.value.board ? unrankedOf(shown.value.board) : [],
 );
+/** The day a place's Verlauf shows: the past day shown, else today (from `Woche` and `Gesamt` too). */
+const verlaufDay = computed(() =>
+  period.value.kind === 'day' && !showsToday.value
+    ? period.value.date
+    : undefined,
+);
 const emptyText = computed(() =>
   showsToday.value
     ? messages.rangliste.noDrinks
@@ -123,11 +129,12 @@ provideTopBar(() => {
         class="rangliste__list"
         :aria-label="messages.navigation.rangliste"
       >
-        <LeaderCard :standing="leader" />
+        <LeaderCard :standing="leader" :day="verlaufDay" />
         <RankRow
           v-for="standing in others"
           :key="standing.personId"
           :standing="standing"
+          :day="verlaufDay"
         />
       </ol>
       <template v-if="unranked.length > 0">
@@ -139,6 +146,7 @@ provideTopBar(() => {
             v-for="standing in unranked"
             :key="standing.personId"
             :standing="standing"
+            :day="verlaufDay"
           />
         </ul>
       </template>

@@ -740,6 +740,66 @@ describe('the Rangliste’s periods', () => {
     expect(shown()).toContain('Ben');
   });
 
+  it('opens a person’s Verlauf of the past day shown, ranked or unranked, and today’s from Woche and Gesamt', async () => {
+    const jule = {
+      personId: 4,
+      name: 'Jule',
+      photoUrl: null,
+      pendingCount: 1,
+      drinks: [{ drinkId: 2, name: 'Bier', count: 0, recordedCount: 1 }],
+    };
+    const withJule = (board: Scoreboard) => ({ ...board, unranked: [jule] });
+    scoreboards({
+      [TODAY]: evening,
+      [SATURDAY]: withJule(only('Mara', 7)),
+      [THIS_WEEK]: withJule(only('Mara', 9)),
+      [ALL_TIME]: withJule(only('Mara', 40)),
+    });
+    await open();
+    const links = () =>
+      page
+        ?.findAll('a[href^="/verlauf"]')
+        .map((link) => link.attributes('href')) ?? [];
+
+    expect(links()).toEqual(['/verlauf/3', '/verlauf/1', '/verlauf/6']);
+    await back();
+    expect(links()).toEqual([
+      '/verlauf/9?tag=2026-11-14',
+      '/verlauf/4?tag=2026-11-14',
+    ]);
+    await choose('Woche');
+    expect(links()).toEqual(['/verlauf/9', '/verlauf/4']);
+    await choose('Gesamt');
+    expect(links()).toEqual(['/verlauf/9', '/verlauf/4']);
+  });
+
+  it('keeps a past day across its Verlauf and reads it again on return, after a delete there', async () => {
+    let saturday = only('Mara', 7);
+    const asked = scoreboards({ [TODAY]: evening, [SATURDAY]: () => saturday });
+    const { router } = await open();
+    await back();
+
+    await click('[data-test="leader"]');
+    expect(router.currentRoute.value.fullPath).toBe(
+      '/verlauf/9?tag=2026-11-14',
+    );
+    // Verlauf deletes one of Mara's entries of that day.
+    saturday = only('Mara', 6);
+    await refreshScoreboard();
+    router.back();
+    await flushPromises();
+
+    expect(router.currentRoute.value.fullPath).toBe('/rangliste');
+    expect(bar()?.text()).toBe('Gestern');
+    expect(context()).toBe('Samstag, 14.11.2026');
+    expect(shown()).toContain('6');
+    expect(asked.filter(([query]) => query === SATURDAY)).toEqual([
+      [SATURDAY, undefined],
+      [SATURDAY, `"1${SATURDAY}"`],
+      [SATURDAY, `"1${SATURDAY}"`],
+    ]);
+  });
+
   it('shows only the shown period’s ranking when answers arrive out of order, and sends an ETag only with its own period', async () => {
     let answerSaturday: (board: Scoreboard) => void = () => undefined;
     const slowSaturday = new Promise<Scoreboard>((resolve) => {
