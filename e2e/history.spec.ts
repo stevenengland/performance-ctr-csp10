@@ -196,3 +196,61 @@ test('Verwalten → Personen opens a Verlauf, which says when there are no entri
   await expect(page).toHaveURL(new RegExp(`/verlauf/${String(person.id)}$`));
   await expect(page.getByText('Heute keine Einträge.')).toBeVisible();
 });
+
+test('a Verlauf of a past day reads that day’s window and names the day; from Gesamt a place opens today’s', async ({
+  page,
+  request,
+}) => {
+  const verify = await verifierOn(request);
+  const person = await create(page.request, '/api/persons', {
+    name: uniqueName('Mara'),
+  });
+  const bier = await create(page.request, '/api/drinks', {
+    name: uniqueName('Bier'),
+    points: 1,
+  });
+  await verify(
+    await add(page.request, {
+      personId: person.id,
+      drinkId: bier.id,
+      quantity: 1,
+    }),
+  );
+  await page.goto('/rangliste');
+  const yesterday = await page.evaluate(() => {
+    const day = new Date();
+    day.setDate(day.getDate() - 1);
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return `${String(day.getFullYear())}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+  });
+
+  const read = page.waitForResponse((response) =>
+    response.url().includes('/api/entries?'),
+  );
+  await page.goto(`/verlauf/${String(person.id)}?tag=${yesterday}`);
+  const window = new URL((await read).url()).searchParams;
+  expect((await read).status()).toBe(200);
+  expect(
+    Date.parse(window.get('to') ?? '') - Date.parse(window.get('from') ?? ''),
+  ).toBeGreaterThanOrEqual(23 * 60 * 60 * 1000);
+  await expect(page.getByText('An diesem Tag keine Einträge.')).toBeVisible();
+  await expect(
+    page.getByRole('banner').locator('.top-bar__context'),
+  ).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+
+  await page.goto('/rangliste');
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Gesamt' })
+    .click();
+  await page
+    .getByRole('link', { name: new RegExp(`^Platz \\d+, ${person.name},`) })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/verlauf/${String(person.id)}$`));
+  await expect(entries(page, person.name)).toHaveText([
+    new RegExp(`^1× ${bier.name}`),
+  ]);
+  await expect(
+    page.getByRole('banner').locator('.top-bar__context'),
+  ).toHaveText('Heute');
+});

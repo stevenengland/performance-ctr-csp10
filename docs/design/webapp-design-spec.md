@@ -706,7 +706,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 - Loading: three skeleton rows. Empty: `Heute keine Einträge.`; a past day
   `An diesem Tag keine Einträge.`
 - A person that no longer exists (deleted on another phone): back to the Rangliste with
-  `Nicht mehr vorhanden` (§9). Opening another person's Verlauf is a new screen.
+  `Nicht mehr vorhanden` (§9). Opening another person's Verlauf, or another day's, is a new
+  screen.
 
 ### 7h. Verwalten `/verwalten`
 

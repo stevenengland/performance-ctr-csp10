@@ -446,6 +446,42 @@ test('the fixture preview shows and deletes entries on a person’s Verlauf', as
   ).toHaveAccessibleName('Platz 1, Daniel, 11,5 Punkte, 7 Getränke');
 });
 
+test('the fixture preview opens Anna’s Verlauf of yesterday from its Rangliste, deletes an entry there and comes back to yesterday', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/rangliste');
+  await page.getByRole('button', { name: 'Vorheriger Tag' }).click();
+  await page
+    .getByRole('link', {
+      name: 'Platz 1, Anna, 4 Punkte, 2 Getränke, +1 offen',
+    })
+    .click();
+
+  await expect(page).toHaveURL(/#\/verlauf\/\d+\?tag=\d{4}-\d{2}-\d{2}$/);
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  await expect(context).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+  const entries = page
+    .getByRole('list', { name: 'Einträge von Anna' })
+    .getByRole('listitem');
+  await expect(entries).toHaveText([
+    /^1× AperolKein Faktor · 21:30 · annaoffen/,
+    /^2× WeinKein Faktor · 19:25 · anna/,
+  ]);
+  await page.getByRole('button', { name: '2× Wein um 19:25 löschen' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Löschen' })
+    .click();
+  await expect(page.getByText('Eintrag gelöscht')).toBeVisible();
+  await expect(entries).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await expect(page.getByText('Gestern', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('list', { name: 'Noch nicht gewertet' }).getByRole('link'),
+  ).toHaveAccessibleName('Anna, Aperol 1, +1 offen');
+});
+
 test('the fixture preview opens another person’s Verlauf as a new screen', async ({
   page,
 }) => {
@@ -461,6 +497,37 @@ test('the fixture preview opens another person’s Verlauf as a new screen', asy
     .getByRole('list', { name: 'Einträge von Jule' })
     .getByRole('listitem');
   await expect(entries).toHaveText([/^2× Bier.*offen/, /^1× Aperol.*offen/]);
+});
+
+test('the fixture preview opens a person’s Verlauf of another day as a new screen', async ({
+  page,
+}) => {
+  const day = (daysAgo: number) =>
+    page.evaluate((back) => {
+      const date = new Date();
+      date.setDate(date.getDate() - back);
+      const pad = (value: number) => String(value).padStart(2, '0');
+      return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    }, daysAgo);
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  const entries = page
+    .getByRole('list', { name: 'Einträge von Daniel' })
+    .getByRole('listitem');
+  await page.goto('/index.html#/verlauf/3');
+  await expect(entries).toHaveCount(5);
+
+  await page.goto(`/index.html#/verlauf/3?tag=${await day(4)}`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Daniel');
+  await expect(context).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+  await expect(entries).toHaveText([/^2× Schnaps/, /^2× Margarita/]);
+
+  await page.goto(`/index.html#/verlauf/3?tag=${await day(2)}`);
+  await expect(page.getByText('An diesem Tag keine Einträge.')).toBeVisible();
+  await expect(context).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+
+  await page.goto('/index.html#/verlauf/3');
+  await expect(context).toHaveText('Heute');
+  await expect(entries).toHaveCount(5);
 });
 
 test('the fixture preview lists its sample games with their leaders under Spiele and opens one’s ranking', async ({
