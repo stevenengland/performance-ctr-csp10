@@ -41,7 +41,7 @@ import { SAMPLE_PASSWORD, sampleEvening } from './fixtures';
 
 /** The standings since `from`, asked without condition. */
 async function standings(from: string) {
-  const answer = await getScoreboard(from);
+  const answer = await getScoreboard({ from });
   if (answer === 'unchanged') throw new Error('asked without condition');
   return answer.board;
 }
@@ -314,22 +314,22 @@ describe('the fixture backend', () => {
 
   it('answers the scoreboard with ETags from its in-memory revision', async () => {
     installFixtureBackend(sampleEvening());
-    const first = await getScoreboard(todayFrom());
+    const first = await getScoreboard({ from: todayFrom() });
     if (first === 'unchanged') throw new Error('asked without condition');
 
-    await expect(getScoreboard(todayFrom(), first.etag)).resolves.toBe(
-      'unchanged',
-    );
+    await expect(
+      getScoreboard({ from: todayFrom() }, first.etag),
+    ).resolves.toBe('unchanged');
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    await expect(getScoreboard(tomorrow, first.etag)).resolves.not.toBe(
-      'unchanged',
-    );
+    await expect(
+      getScoreboard({ from: tomorrow }, first.etag),
+    ).resolves.not.toBe('unchanged');
     await putEntry('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e7', {
       personId: 1,
       drinkId: 2,
       quantity: 1,
     });
-    const after = await getScoreboard(todayFrom(), first.etag);
+    const after = await getScoreboard({ from: todayFrom() }, first.etag);
     expect(after).not.toBe('unchanged');
     expect(first.etag).toMatch(/^"\d+-\d+"$/);
   });
@@ -498,20 +498,20 @@ describe('the fixture backend', () => {
     const image = '/9j/2Q==';
     await putPersonPhoto(2, image);
     await deletePersonPhoto(4);
-    const first = await getScoreboard(todayFrom());
+    const first = await getScoreboard({ from: todayFrom() });
     if (first === 'unchanged') throw new Error('asked without condition');
 
     // The same photo again, and a removal where there is none.
     await putPersonPhoto(2, image);
     await deletePersonPhoto(4);
 
-    await expect(getScoreboard(todayFrom(), first.etag)).resolves.toBe(
-      'unchanged',
-    );
+    await expect(
+      getScoreboard({ from: todayFrom() }, first.etag),
+    ).resolves.toBe('unchanged');
     await putPersonPhoto(2, '/9j/2Q+=');
-    await expect(getScoreboard(todayFrom(), first.etag)).resolves.not.toBe(
-      'unchanged',
-    );
+    await expect(
+      getScoreboard({ from: todayFrom() }, first.etag),
+    ).resolves.not.toBe('unchanged');
   });
 
   it('keeps an uploaded photo as a data: URL on the person and their scoreboard row', async () => {

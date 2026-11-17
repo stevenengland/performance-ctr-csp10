@@ -682,7 +682,9 @@ describe('the API client', () => {
       },
     );
 
-    await expect(getScoreboard('2026-11-14T23:00:00.000Z')).resolves.toEqual({
+    await expect(
+      getScoreboard({ from: '2026-11-14T23:00:00.000Z' }),
+    ).resolves.toEqual({
       board: { rows: [] },
       etag: '"7-1"',
     });
@@ -696,6 +698,27 @@ describe('the API client', () => {
     );
   });
 
+  it('asks the scoreboard for a window with an end, or for all time with scope=all', async () => {
+    const fetch = respond({ rows: [] }, { status: 200 });
+
+    await getScoreboard({
+      from: '2026-11-13T23:00:00.000Z',
+      to: '2026-11-14T23:00:00.000Z',
+    });
+    await getScoreboard({ scope: 'all' });
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      '/api/scoreboard?from=2026-11-13T23%3A00%3A00.000Z&to=2026-11-14T23%3A00%3A00.000Z',
+      expect.anything(),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/scoreboard?scope=all',
+      expect.anything(),
+    );
+  });
+
   it('asks for the scoreboard on condition of the last ETag; 304 means unchanged', async () => {
     const fetch = vi.fn(
       async () =>
@@ -704,7 +727,7 @@ describe('the API client', () => {
     vi.stubGlobal('fetch', fetch);
 
     await expect(
-      getScoreboard('2026-11-14T23:00:00.000Z', '"7-1"'),
+      getScoreboard({ from: '2026-11-14T23:00:00.000Z' }, '"7-1"'),
     ).resolves.toBe('unchanged');
     expect(fetch).toHaveBeenCalledWith(
       expect.any(String),

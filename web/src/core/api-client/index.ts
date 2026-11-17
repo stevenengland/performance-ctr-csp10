@@ -600,15 +600,25 @@ export interface ScoreboardAnswer {
 }
 
 /**
-Standings since `from`, the start of the viewer's day as a UTC instant. With the
-ETag of the standings already shown, `unchanged` means they still hold.
+What the scoreboard ranks: the window `[from, to)` of UTC instants (without `to`,
+everything since `from`), or all time.
+*/
+export type ScoreboardSelection =
+  { from: string; to?: string } | { scope: 'all' };
+
+/**
+The standings of a selection, e.g. since `from`, the start of the viewer's day as a
+UTC instant. With the ETag of the same selection's standings already shown,
+`unchanged` means they still hold.
 */
 export async function getScoreboard(
-  from: string,
+  selection: ScoreboardSelection,
   etag?: string,
 ): Promise<ScoreboardAnswer | 'unchanged'> {
   const response = await send('/api/scoreboard', {
-    query: { from },
+    query: Object.fromEntries(
+      Object.entries(selection).filter(([, value]) => value !== undefined),
+    ),
     ifNoneMatch: etag,
   });
   if (response.status === NOT_MODIFIED) return 'unchanged';

@@ -29,7 +29,7 @@ while it was on its way is dropped for one for the new day.
 */
 const todaysScoreboard: ConditionalFetch<Scoreboard> = async (etag) => {
   const from = todayFrom(new Date());
-  const answer = await getScoreboard(from, etag);
+  const answer = await getScoreboard({ from }, etag);
   if (todayFrom(new Date()) !== from) return todaysScoreboard(etag);
   return answer === 'unchanged'
     ? 'unchanged'

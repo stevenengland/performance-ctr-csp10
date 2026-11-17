@@ -92,7 +92,7 @@ describe('the fixture backend’s four-eyes rule', () => {
 
     await verifyEntry(JULES_BEER);
 
-    const board = await getScoreboard(todayFrom());
+    const board = await getScoreboard({ from: todayFrom() });
     if (board === 'unchanged') throw new Error('asked without condition');
     expect(board.board.rows.find(({ name }) => name === 'Jule')).toMatchObject({
       score: 2,
@@ -118,7 +118,7 @@ describe('the fixture backend’s four-eyes rule', () => {
     installFixtureBackend(sampleEvening());
     await verifyEntry(JULES_BEER);
     const events = (await newest(100)).length;
-    const tagged = await getScoreboard(todayFrom());
+    const tagged = await getScoreboard({ from: todayFrom() });
     if (tagged === 'unchanged') throw new Error('asked without condition');
 
     await expect(verifyEntry(MARAS_WINE)).rejects.toMatchObject({
@@ -131,9 +131,9 @@ describe('the fixture backend’s four-eyes rule', () => {
     await expect(verifyEntry(JULES_BEER)).resolves.toBeUndefined();
 
     expect(await newest(100)).toHaveLength(events);
-    await expect(getScoreboard(todayFrom(), tagged.etag)).resolves.toBe(
-      'unchanged',
-    );
+    await expect(
+      getScoreboard({ from: todayFrom() }, tagged.etag),
+    ).resolves.toBe('unchanged');
   });
 
   it('rejects another account’s entry: it is gone, leaves the queue, and the log says reject, not delete', async () => {
