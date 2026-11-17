@@ -78,6 +78,21 @@ final class EntryHistoryTest extends DatabaseTestCase
         self::assertSame([self::FIRST], array_column($this->entries($response), 'id'));
     }
 
+    public function testAWindowWithAnEndListsOnlyThePersonsEntriesBeforeItsEnd(): void
+    {
+        $this->clock->advance('PT2H'); // 22:00 UTC, the evening before
+        $this->add(self::BEFORE, ['personId' => 1, 'drinkId' => 1, 'quantity' => 1]);
+        $this->add(self::OTHER_PERSON, ['personId' => 2, 'drinkId' => 1, 'quantity' => 3]);
+        $this->clock->advance('PT59M'); // 22:59 UTC
+        $this->add(self::FIRST, ['personId' => 1, 'drinkId' => 2, 'quantity' => 1]);
+        $this->clock->advance('PT1M'); // 23:00 UTC, the end of the window
+        $this->add(self::SECOND, ['personId' => 1, 'drinkId' => 1, 'quantity' => 2]);
+
+        $response = $this->history('personId=1&from=2026-11-13T23:00:00.000Z&to=' . self::FROM);
+
+        self::assertSame([self::FIRST, self::BEFORE], array_column($this->entries($response), 'id'));
+    }
+
     public function testAnEntryOfADeletedAccountHasNoAccountName(): void
     {
         $this->createAccount('ben', 'bens-startpasswort');
