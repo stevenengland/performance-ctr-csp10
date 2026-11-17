@@ -61,10 +61,8 @@ export function createPeriodResource<S, T>(
     const previous = shown.value?.resource;
     if (screens > 0) previous?.stop();
     previous?.clear();
-    if (selection === undefined || key === undefined) {
-      shown.value = undefined;
-      return;
-    }
+    shown.value = undefined;
+    if (selection === undefined || key === undefined) return;
     const resource = createPolledResource(reads.read(selection), {
       polls: () => reads.live(selection),
     });
