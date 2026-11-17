@@ -135,7 +135,9 @@ test('the Rangliste ranks today’s persons by score with their counters, German
   await page.goto('/rangliste');
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Rangliste');
-  await expect(page.getByText('Heute', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('banner').getByText('Heute', { exact: true }),
+  ).toBeVisible();
   // Ben: 1 × 1 + 3 × 0,5 = 2,5 before Anna: 2 × 1 = 2.
   const ben2 = place(page, ben);
   await expect(ben2).toHaveAccessibleName(
@@ -178,7 +180,9 @@ test('the Rangliste lists today’s persons whose entries all wait without a ran
   await page.goto('/rangliste');
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Rangliste');
-  await expect(page.getByText('Heute', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('banner').getByText('Heute', { exact: true }),
+  ).toBeVisible();
   // Nothing is verified yet: both wait, by name, with what they recorded.
   const unranked = page.getByRole('list', { name: 'Noch nicht gewertet' });
   const ben2 = unranked.getByRole('link', { name: new RegExp(`^${ben},`) });
@@ -383,6 +387,54 @@ test('the Rangliste polls every 10 s on condition, keeps its standings with “S
   await page.clock.runFor(3_000);
   expect([200, 304]).toContain((await recovered).status());
   await expect(page.getByText(/^Stand: /)).toHaveCount(0);
+});
+
+test('the Rangliste reads yesterday with its window and Gesamt with scope=all, and comes back to today', async ({
+  page,
+  request,
+}) => {
+  const verify = await verifierOn(request);
+  const anna = uniqueName('Anna');
+  const annaId = await created(page.request, '/api/persons', { name: anna });
+  const bierId = await created(page.request, '/api/drinks', {
+    name: uniqueName('Bier'),
+    points: 1,
+  });
+  await verify(await addEntry(page.request, annaId, bierId, 2));
+  await page.goto('/rangliste');
+  await expect(place(page, anna)).toBeVisible();
+
+  const yesterday = scoreboardRequests(page);
+  await page.getByRole('button', { name: 'Vorheriger Tag' }).click();
+  const window = new URL((await yesterday).url()).searchParams;
+  expect(
+    Date.parse(window.get('to') ?? '') - Date.parse(window.get('from') ?? ''),
+  ).toBeGreaterThanOrEqual(23 * 60 * 60 * 1000);
+  await expect(page.getByText('Gestern', { exact: true })).toBeVisible();
+  await expect(place(page, anna)).toHaveCount(0);
+
+  const allTime = scoreboardRequests(page);
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Gesamt' })
+    .click();
+  expect(new URL((await allTime).url()).search).toBe('?scope=all');
+  await expect(
+    page.getByRole('banner').getByText('Gesamt', { exact: true }),
+  ).toBeVisible();
+  await expect(place(page, anna)).toHaveAccessibleName(
+    new RegExp(`^Platz \\d+, ${anna}, 2 Punkte, 2 Getränke$`),
+  );
+
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Tag' })
+    .click();
+  await page.getByRole('button', { name: 'Nächster Tag' }).click();
+  await expect(
+    page.getByRole('banner').getByText('Heute', { exact: true }),
+  ).toBeVisible();
+  await expect(place(page, anna)).toBeVisible();
 });
 
 test('with nobody today the Rangliste says so and offers Zählen', async ({
