@@ -69,6 +69,28 @@ describe('a game in words', () => {
   });
 
   it.each([
+    [{ kind: 'run' } as const, 'Duell · seit 15.09.'],
+    [{ kind: 'all' } as const, 'Duell · Gesamt'],
+    [
+      { kind: 'day', date: { year: 2026, month: 11, day: 15 } } as const,
+      'Duell · Heute',
+    ],
+    [
+      { kind: 'day', date: { year: 2026, month: 11, day: 14 } } as const,
+      'Duell · Samstag, 14.11.2026',
+    ],
+    [
+      { kind: 'week', date: { year: 2026, month: 11, day: 9 } } as const,
+      'Duell · KW 46 · 09.11.–15.11.',
+    ],
+  ])(
+    'puts the kind before the period %o in the context line, the start under Aktuell',
+    (period, line) => {
+      expect(contextLine(game('duel'), now, period)).toBe(line);
+    },
+  );
+
+  it.each([
     [game('duel'), 'Remis möglich'],
     [game('duel', { drawsAllowed: false }), 'Kein Remis'],
     [game('points'), 'Höchste Summe gewinnt'],

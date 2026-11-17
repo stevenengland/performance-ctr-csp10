@@ -400,6 +400,17 @@ export const messages = {
       `Platz ${String(rank)}, ${name}, ${value}, ${details}`,
     noneYetDuel: 'Seit dem Start noch keine Partien.',
     noneYetPoints: 'Seit dem Start noch keine Ergebnisse.',
+    /** A past day without any match or result, counted or pending. */
+    nothingPlayedThatDay: 'An diesem Tag wurde nichts gespielt.',
+    /** A week without any match or result, counted or pending. */
+    nothingPlayedThatWeek: 'In dieser Woche wurde nichts gespielt.',
+    /** All time without any match or result. */
+    nothingPlayedEver: 'Noch nichts gespielt.',
+    /** A game's `Gesamt` line: `Alle Läufe seit 28.10.2026 · 6 Spieltage`, `1 Spieltag`. */
+    allRunsSince: (since: string, days: number) =>
+      `Alle Läufe seit ${since} · ${String(days)} ${days === 1 ? 'Spieltag' : 'Spieltage'}`,
+    /** What a calendar day's dot says to a screen reader: the game was played that day. */
+    playedThatDay: 'Gespielt',
     /** A duel player's tile: `5 Partien`. */
     played: (count: number) =>
       `${String(count)} ${count === 1 ? 'Partie' : 'Partien'}`,

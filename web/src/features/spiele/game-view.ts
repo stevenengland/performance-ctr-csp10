@@ -14,6 +14,11 @@ import {
   formatTime,
 } from '../../core/format';
 import { messages } from '../../core/messages';
+import {
+  calendarDateOf,
+  contextLine as periodLine,
+  type Period,
+} from '../../core/period';
 
 export const gamePath = (gameId: number) => `/spiele/${String(gameId)}`;
 /** The duel recording flow's first step, `Wer spielt?`. */
@@ -77,11 +82,20 @@ export function gameAsRanked(
   };
 }
 
-/** The game's context line in the list and the top bar: `Duell · seit 15.09.`. */
-export function contextLine(game: DeepReadonly<Game>, now: Date): string {
+/**
+The game's context line in the list and the top bar: `Duell · seit 15.09.` for the
+current run, else the period its page shows (`Punktespiel · Gesamt`, `Duell · Heute`).
+*/
+export function contextLine(
+  game: DeepReadonly<Game>,
+  now: Date,
+  period: Period = { kind: 'run' },
+): string {
   return messages.spiele.context(
     kindLabel(game.kind),
-    sinceLabel(game.startedAt, now),
+    period.kind === 'run'
+      ? sinceLabel(game.startedAt, now)
+      : periodLine(period, calendarDateOf(now)),
   );
 }
 

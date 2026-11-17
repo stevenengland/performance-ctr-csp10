@@ -5,22 +5,34 @@ import {
   onMounted,
   onUnmounted,
   ref,
+  shallowRef,
   watch,
   type DeepReadonly,
 } from 'vue';
 import { useRouter } from 'vue-router';
 import AppFab from '../../components/AppFab.vue';
 import ConfirmDialog from '../../components/ConfirmDialog.vue';
-import type { Game } from '../../core/api-client';
+import PeriodPicker from '../../components/PeriodPicker.vue';
+import type { Game, Standings } from '../../core/api-client';
+import type { DaysWithData } from '../../core/days-with-data';
 import { formatTime } from '../../core/format';
 import {
   forgetStandings,
+  type GamePeriod,
+  gameDays,
   loadGames,
   restartGame,
   useGames,
+  usePeriodStandings,
   useStandings,
 } from '../../core/games';
 import { messages } from '../../core/messages';
+import {
+  calendarDateOf,
+  isToday,
+  type Period,
+  type PeriodKind,
+} from '../../core/period';
 import { showProblem, showSnackbar } from '../../core/snackbar';
 import { useToday } from '../../core/today';
 import { provideTopBar } from '../../core/top-bar';
@@ -38,36 +50,86 @@ import {
 } from './game-view';
 
 /**
-A game's page (§7o): its name and context line in the top bar, the rule that
-decides its ranking, and the ranking since the last (re)start, shaped like the
-Rangliste and kept current like it: polled while the page is open, at once on
-focus and after the device's own writes; while its latest refresh failed, the top
-bar shows when the ranking was last confirmed (§6.6). The start and a points
-game's direction come with each ranking read, so a restart or rule edit elsewhere
-shows with it; the name and a duel's draw setting come from the games, read again
-on focus and on return to the page. The FAB opens the recording flow: `Partie eintragen` on a duel (§7p), `Ergebnis eintragen` on a points game (§7q);
-`Verlauf` under the ranking opens the game's Verlauf (§7r); `Neu starten` beside it
-starts the game's next run after a confirmation. A game deleted meanwhile, found
-on open or by the ranking's poll, leads back to Spiele.
+A game's page (§7o): its name and context line in the top bar, the period picker
+`Aktuell` | `Tag` | `Woche` | `Gesamt`, the rule that decides its ranking, and the
+ranking of the period shown, shaped like the Rangliste. It opens on `Aktuell`
+every time: the ranking since the last (re)start, kept current like the
+Rangliste — polled while shown, at once on focus and after the device's own
+writes; while its latest refresh failed, the top bar shows when the ranking was
+last confirmed (§6.6). `Tag`, `Woche` and `Gesamt` rank the matches or results of
+that period over every run, read apart per game and period, the current ones kept
+live; the calendar dots the days the game was played, and `Gesamt` says since when
+and over how many days. The start and a points game's direction come with each
+ranking read, so a restart or rule edit elsewhere shows with it; the name and a
+duel's draw setting come from the games, read again on focus and on return to the
+page. The FAB opens the recording flow: `Partie eintragen` on a duel (§7p),
+`Ergebnis eintragen` on a points game (§7q); `Verlauf` under the ranking opens the
+game's Verlauf (§7r); `Neu starten` beside it starts the game's next run after a
+confirmation. A game deleted meanwhile, found on open or by the ranking's poll,
+leads back to Spiele.
 */
 const props = defineProps<{ gameId: string }>();
 const SKELETON_ROWS = 3;
+const KINDS: PeriodKind[] = ['run', 'day', 'week', 'all'];
+/** What a period without any match or result, counted or pending, says. */
+const NOTHING_PLAYED: Record<GamePeriod['kind'], string> = {
+  day: messages.spiele.nothingPlayedThatDay,
+  week: messages.spiele.nothingPlayedThatWeek,
+  all: messages.spiele.nothingPlayedEver,
+};
 
 const router = useRouter();
 const games = useGames();
 const gameId = computed(() => Number(props.gameId));
-const ranking = useStandings(gameId.value);
+
+/** `seit heute, 19:30` turns into the date at midnight, even while the page stays open. */
+const today = useToday();
+const todayDate = computed(() => calendarDateOf(today.value));
+
+/** The period shown, `Aktuell` on every opening; today is held as today, so it moves on at midnight. */
+const chosen = shallowRef<Period | 'today'>({ kind: 'run' });
+const period = computed<Period>({
+  get: (): Period => {
+    const shown = chosen.value;
+    return shown === 'today' ? { kind: 'day', date: todayDate.value } : shown;
+  },
+  set: (shown: Period) => {
+    chosen.value = isToday(shown, todayDate.value) ? 'today' : shown;
+  },
+});
+const showsRun = computed(() => period.value.kind === 'run');
+
+const ranking = useStandings(gameId.value, showsRun);
+const other = usePeriodStandings(() => {
+  const shown = period.value;
+  return shown.kind === 'run'
+    ? undefined
+    : { gameId: gameId.value, period: shown };
+});
+/** The shown period's ranking with its freshness. */
+const shownRanking = computed(() =>
+  showsRun.value ? ranking.value : other.value,
+);
+const DAYS = computed<DaysWithData>(() => ({
+  read: gameDays(gameId.value),
+  summary: messages.spiele.allRunsSince,
+  mark: messages.spiele.playedThatDay,
+}));
+
+/** The ranking of the period shown; the current run's is the run the game knows of. */
+const shownOf = (
+  listed: DeepReadonly<Game>,
+): DeepReadonly<Standings> | undefined =>
+  showsRun.value ? currentRun(listed, ranking.value.value) : other.value.value;
 const game = computed(() => {
   const listed = games.value?.find(
     (candidate) => candidate.id === gameId.value,
   );
-  return listed && gameAsRanked(listed, run(listed));
+  return listed && gameAsRanked(listed, shownOf(listed));
 });
-/** The ranking of the run the game knows of; the page waits for the game before it shows one. */
-const run = (listed: DeepReadonly<Game>) =>
-  currentRun(listed, ranking.value.value);
+/** The page waits for the game before it shows a ranking of the current run. */
 const ranked = computed(() =>
-  game.value ? run(game.value) : ranking.value.value,
+  game.value ? shownOf(game.value) : shownRanking.value.value,
 );
 const standings = computed(() =>
   ranked.value ? gameStandings(ranked.value) : undefined,
@@ -75,18 +137,24 @@ const standings = computed(() =>
 const unranked = computed(() =>
   ranked.value ? unrankedGameStandings(ranked.value) : [],
 );
-
-/** `seit heute, 19:30` turns into the date at midnight, even while the page stays open. */
-const today = useToday();
+const emptyText = computed(() => {
+  const shown = period.value;
+  if (shown.kind !== 'run') return NOTHING_PLAYED[shown.kind];
+  return game.value?.kind === 'points'
+    ? messages.spiele.noneYetPoints
+    : messages.spiele.noneYetDuel;
+});
 
 const confirming = ref(false);
 const restarting = ref(false);
 
 provideTopBar(() => {
-  const { stale, updatedAt } = ranking.value;
+  const { stale, updatedAt } = shownRanking.value;
   return {
     title: game.value?.name,
-    context: game.value ? contextLine(game.value, today.value) : undefined,
+    context: game.value
+      ? contextLine(game.value, today.value, period.value)
+      : undefined,
     stale:
       stale && updatedAt ? messages.stand(formatTime(updatedAt)) : undefined,
   };
@@ -108,7 +176,7 @@ async function restart() {
 }
 
 watch(
-  () => ranking.value.gone,
+  () => ranking.value.gone ?? other.value.gone,
   (gone) => {
     if (!gone) return;
     forgetStandings(gameId.value);
@@ -155,6 +223,12 @@ function onVisibilityChange() {
 
 <template>
   <section class="spiel">
+    <PeriodPicker
+      v-model="period"
+      :kinds="KINDS"
+      :today="todayDate"
+      :days="DAYS"
+    />
     <p v-if="game" class="type-label spiel__rule">{{ ruleLine(game) }}</p>
     <div v-if="standings === undefined" aria-busy="true">
       <div class="spiel__skeleton-card" />
@@ -168,11 +242,7 @@ function onVisibilityChange() {
       v-else-if="standings.length === 0 && unranked.length === 0"
       class="type-body empty-state"
     >
-      {{
-        game?.kind === 'points'
-          ? messages.spiele.noneYetPoints
-          : messages.spiele.noneYetDuel
-      }}
+      {{ emptyText }}
     </p>
     <GameStandingList
       v-else
