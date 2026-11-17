@@ -101,6 +101,8 @@ export const messages = {
     noDrinks: 'Heute noch keine Getränke.',
     /** A past day without any entry, counted or pending. */
     noDrinksThatDay: 'An diesem Tag wurde nichts gezählt.',
+    /** A week without any entry, counted or pending. */
+    noDrinksThatWeek: 'In dieser Woche wurde nichts gezählt.',
     /** All time without any entry. */
     noDrinksEver: 'Noch keine Getränke.',
     /** The group of persons whose entries of today all wait for verification (§7f). */

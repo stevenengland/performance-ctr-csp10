@@ -370,6 +370,9 @@ const TODAY = '?from=2026-11-14T23:00:00.000Z';
 const SATURDAY = '?from=2026-11-13T23:00:00.000Z&to=2026-11-14T23:00:00.000Z';
 const FRIDAY = '?from=2026-11-12T23:00:00.000Z&to=2026-11-13T23:00:00.000Z';
 const ALL_TIME = '?scope=all';
+/** The current week (Monday 09.11. to Sunday 15.11.) and the one before, in Berlin. */
+const THIS_WEEK = '?from=2026-11-08T23:00:00.000Z&to=2026-11-15T23:00:00.000Z';
+const LAST_WEEK = '?from=2026-11-01T23:00:00.000Z&to=2026-11-08T23:00:00.000Z';
 
 const nobody: Scoreboard = { rows: [], unranked: [] };
 /** A board whose only place is `name` with `score`. */
@@ -463,7 +466,7 @@ describe('the Rangliste’s periods', () => {
     await page?.get(selector).trigger('click');
     await flushPromises();
   }
-  async function choose(kind: 'Tag' | 'Gesamt') {
+  async function choose(kind: 'Tag' | 'Woche' | 'Gesamt') {
     await page
       ?.findAll('[role="group"] button')
       .find((button) => button.text() === kind)
@@ -474,13 +477,14 @@ describe('the Rangliste’s periods', () => {
   const forward = () => click('button[aria-label="Nächster Tag"]');
   const next = () => page?.get('button[aria-label="Nächster Tag"]');
 
-  it('opens on today with the switch Tag | Gesamt, Heute in the bar and in the top bar, and no next day', async () => {
+  it('opens on today with the switch Tag | Woche | Gesamt, Heute in the bar and in the top bar, and no next day', async () => {
     scoreboards({ [TODAY]: evening });
 
     await open();
 
     expect(options()).toEqual([
       ['Tag', 'true'],
+      ['Woche', 'false'],
       ['Gesamt', 'false'],
     ]);
     expect(bar()?.text()).toBe('Heute');
@@ -536,8 +540,69 @@ describe('the Rangliste’s periods', () => {
     expect(bar()?.exists()).toBe(false);
     expect(options()).toEqual([
       ['Tag', 'false'],
+      ['Woche', 'false'],
       ['Gesamt', 'true'],
     ]);
+  });
+
+  it('ranks the current week under Woche, read with its local Monday-to-Monday window and kept live, named in the bar and by number in the top bar', async () => {
+    const asked = scoreboards({
+      [TODAY]: evening,
+      [THIS_WEEK]: only('Anna', 21),
+    });
+    await open();
+
+    await choose('Woche');
+    expect(bar()?.text()).toBe('Diese Woche');
+    expect(context()).toBe('KW 46 · 09.11.–15.11.');
+    expect(shown()).toContain('Anna');
+    expect(
+      page?.get('button[aria-label="Nächste Woche"]').attributes('disabled'),
+    ).toBeDefined();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(asked.slice(1)).toEqual([
+      [THIS_WEEK, undefined],
+      [THIS_WEEK, `"1${THIS_WEEK}"`],
+    ]);
+  });
+
+  it('steps back to Letzte Woche and further, each read when shown and on focus but not polled', async () => {
+    const asked = scoreboards({
+      [TODAY]: evening,
+      [THIS_WEEK]: only('Anna', 21),
+      [LAST_WEEK]: only('Mara', 30),
+    });
+    await open();
+    await choose('Woche');
+
+    await click('button[aria-label="Vorherige Woche"]');
+    expect(bar()?.text()).toBe('Letzte Woche');
+    expect(context()).toBe('KW 45 · 02.11.–08.11.');
+    expect(shown()).toContain('Mara');
+    await vi.advanceTimersByTimeAsync(60_000);
+    window.dispatchEvent(new Event('focus'));
+    await flushPromises();
+    expect(asked.filter(([query]) => query === LAST_WEEK)).toEqual([
+      [LAST_WEEK, undefined],
+      [LAST_WEEK, `"1${LAST_WEEK}"`],
+    ]);
+
+    await click('button[aria-label="Vorherige Woche"]');
+    expect(bar()?.text()).toBe('KW 44 · 26.10.–01.11.');
+    expect(asked.at(-1)?.[0]).toBe(
+      '?from=2026-10-25T23:00:00.000Z&to=2026-11-01T23:00:00.000Z',
+    );
+  });
+
+  it('says nothing was counted in a week without any entry, without Zählen', async () => {
+    scoreboards({ [TODAY]: evening });
+    await open();
+
+    await choose('Woche');
+
+    expect(page?.text()).toContain('In dieser Woche wurde nichts gezählt.');
+    expect(page?.find('a[href="/zaehlen"]').exists()).toBe(false);
   });
 
   it('says nothing was counted on a past day without any entry, and offers Zählen only on today', async () => {
@@ -630,6 +695,7 @@ describe('the Rangliste’s periods', () => {
 
     expect(options()).toEqual([
       ['Tag', 'false'],
+      ['Woche', 'false'],
       ['Gesamt', 'true'],
     ]);
     expect(context()).toBe('Gesamt');

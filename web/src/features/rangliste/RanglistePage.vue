@@ -9,7 +9,10 @@ import {
   isToday,
   type PeriodKind,
 } from '../../core/period';
-import { usePeriodScoreboard } from '../../core/period-scoreboard';
+import {
+  type DrinksPeriod,
+  usePeriodScoreboard,
+} from '../../core/period-scoreboard';
 import { useScoreboardFeed } from '../../core/scoreboard-feed';
 import { useToday } from '../../core/today';
 import { provideTopBar } from '../../core/top-bar';
@@ -22,13 +25,19 @@ import { standingsOf, unrankedOf } from './standings';
 Rangliste (§7f): the chosen period's leader on the amber card, everyone else with
 entries that count in ranked rows, and below them, without a rank, the persons whose
 entries of the period all wait for verification. The period picker offers `Tag`
-(opening on today) and `Gesamt`. Today comes from the shared feed, which also
-serves Zählen, and stays live; another day or all time is read apart from it. While
-the latest refresh failed, the top bar shows when the standings were last
-confirmed (§6.6).
+(opening on today), `Woche` and `Gesamt`. Today comes from the shared feed, which
+also serves Zählen, and stays live; another day, a week or all time is read apart
+from it, kept live while it contains the present. While the latest refresh
+failed, the top bar shows when the standings were last confirmed (§6.6).
 */
 const SKELETON_ROWS = 3;
-const KINDS: PeriodKind[] = ['day', 'all'];
+const KINDS: PeriodKind[] = ['day', 'week', 'all'];
+/** What a period without any entry, counted or pending, says (today aside). */
+const NOTHING_COUNTED: Record<DrinksPeriod['kind'], string> = {
+  day: messages.rangliste.noDrinksThatDay,
+  week: messages.rangliste.noDrinksThatWeek,
+  all: messages.rangliste.noDrinksEver,
+};
 
 const today = useToday();
 const todayDate = computed(() => calendarDateOf(today.value));
@@ -53,12 +62,11 @@ const others = computed(() => standings.value?.slice(1) ?? []);
 const unranked = computed(() =>
   shown.value.board ? unrankedOf(shown.value.board) : [],
 );
-const emptyText = computed(() => {
-  if (showsToday.value) return messages.rangliste.noDrinks;
-  return period.value.kind === 'all'
-    ? messages.rangliste.noDrinksEver
-    : messages.rangliste.noDrinksThatDay;
-});
+const emptyText = computed(() =>
+  showsToday.value
+    ? messages.rangliste.noDrinks
+    : NOTHING_COUNTED[period.value.kind],
+);
 
 provideTopBar(() => {
   const { stale, updatedAt } = shown.value;

@@ -15,7 +15,7 @@ import {
 import type { ConditionalFetch } from './polled-resource';
 
 /** The periods the drinks scoreboard ranks. */
-export type DrinksPeriod = Extract<Period, { kind: 'day' | 'all' }>;
+export type DrinksPeriod = Extract<Period, { kind: 'day' | 'week' | 'all' }>;
 
 /**
 The scoreboard of a period, its window built from the period's calendar date for
@@ -39,8 +39,8 @@ function scoreboardOf(period: DrinksPeriod): ConditionalFetch<Scoreboard> {
 /**
 The drinks scoreboard of any period but today, which the shared scoreboard feed
 keeps (so choosing another period never changes what Zählen shows): data and
-ETags per period, all time kept live, a past day read when shown, on focus and
-after the device's own writes.
+ETags per period, the current week and all time kept live, a past day or week
+read when shown, on focus and after the device's own writes.
 */
 export function createPeriodScoreboard(): PeriodResource<
   DrinksPeriod,
