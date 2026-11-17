@@ -312,8 +312,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * A person's entries since `from`, the start of the viewer's day, newest first
-     * @description Each entry names its drink and its factor (null without one, or once the factor was deleted) with their current names, and the user name of the account that logged it (null once that account was deleted). A `personId` that is not a positive integer is 422; a person that does not exist is 404.
+     * A person's entries in the window `[from, to)`, newest first
+     * @description The entries recorded in the window: from `from` on, and before `to` when it is given; without `to` the answer is the same as before the window had an end. An entry belongs to the window it was recorded in, whenever it was verified. Each entry names its drink and its factor (null without one, or once the factor was deleted) with their current names, and the user name of the account that logged it (null once that account was deleted). A `personId` that is not a positive integer is 422; a person that does not exist is 404. An invalid window is 422, with the same problem as on `GET /api/scoreboard`.
      */
     get: operations['listEntries'];
     put?: never;
@@ -415,8 +415,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * Standings since `from`, the start of the viewer's day
-     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. Only verified entries count: a recorded entry waits for verification by another account, and until then it counts in `recordedCount` and `pendingCount` only. A person whose entries since `from` all wait is listed in `unranked`. The ETag names the data revision, which every write of entries, persons, drinks and factors, every verification and every account deletion bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
+     * Standings in the window `[from, to)`, or of all time with `scope=all`
+     * @description Persons with entries in the selection, ranked by score (ties by name). The selection is exactly one of: a window, from `from` on and before `to` when it is given (without `to` the answer and its ETag are the same as before the window had an end), or all time with `scope=all`, every entry ever recorded. An entry belongs to the window it was recorded in, whenever it was verified. A missing or invalid `from`, an invalid `to`, a `to` not after `from`, a `to` without `from`, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422. score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. Only verified entries count: a recorded entry waits for verification by another account, and until then it counts in `recordedCount` and `pendingCount` only. A person whose entries in the selection all wait is listed in `unranked`. The ETag names the data revision, which every write of entries, persons, drinks and factors, every verification and every account deletion bumps in its own transaction, and the selection: `If-None-Match` with the last ETag of the same selection answers 304 without aggregating while the revision is unchanged. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
      */
     get: operations['getScoreboard'];
     put?: never;
@@ -978,9 +978,9 @@ export interface components {
       points: components['schemas']['GamePoints'];
     };
     Scoreboard: {
-      /** @description Persons with at least one verified entry since `from`, ranked by score, ties by name; persons without entries are absent */
+      /** @description Persons with at least one verified entry in the selection, ranked by score, ties by name; persons without entries are absent */
       rows: components['schemas']['ScoreRow'][];
-      /** @description Persons whose entries since `from` all wait for verification, by name: they have no rank and never lead */
+      /** @description Persons whose entries in the selection all wait for verification, by name: they have no rank and never lead */
       unranked: components['schemas']['UnrankedRow'][];
     };
     ScoreRow: {
@@ -991,7 +991,7 @@ export interface components {
       score: number;
       /** @description Verified entries only */
       count: number;
-      /** @description The number of the person's entries since `from` that wait for verification (rows, not quantities) */
+      /** @description The number of the person's entries in the selection that wait for verification (rows, not quantities) */
       pendingCount: number;
       /** @description By drink name; only drinks with entries, pending ones included */
       drinks: components['schemas']['DrinkCount'][];
@@ -1000,7 +1000,7 @@ export interface components {
       personId: number;
       name: string;
       photoUrl: components['schemas']['PhotoUrl'];
-      /** @description The number of the person's entries since `from`, all waiting for verification */
+      /** @description The number of the person's entries in the selection, all waiting for verification */
       pendingCount: number;
       /** @description By drink name; each `count` is 0 */
       drinks: components['schemas']['DrinkCount'][];
@@ -1389,6 +1389,10 @@ export interface components {
     GameId: number;
     /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
     ClientId: string;
+    /** @description End of the window (exclusive), such as the next local midnight, as an ISO-8601 instant with offset; after `from`, and only with it. Without it the window has no end. */
+    WindowTo: string;
+    /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
+    AllTimeScope: 'all';
     /** @description The `next` of the previous page, unchanged; omitted for the newest page of the current run */
     HistoryBefore: string;
     /** @description Rows per page */
@@ -2179,8 +2183,10 @@ export interface operations {
     parameters: {
       query: {
         personId: number;
-        /** @description Local midnight of the viewer's day as an ISO-8601 instant with offset */
+        /** @description Start of the window (inclusive), such as local midnight of the viewer's day, as an ISO-8601 instant with offset */
         from: string;
+        /** @description End of the window (exclusive), such as the next local midnight, as an ISO-8601 instant with offset; after `from`, and only with it. Without it the window has no end. */
+        to?: components['parameters']['WindowTo'];
       };
       header?: {
         /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
@@ -2378,9 +2384,13 @@ export interface operations {
   };
   getScoreboard: {
     parameters: {
-      query: {
-        /** @description Local midnight of the viewer's day as an ISO-8601 instant with offset */
-        from: string;
+      query?: {
+        /** @description Start of the window (inclusive), such as local midnight of the viewer's day, as an ISO-8601 instant with offset; required unless `scope=all` */
+        from?: string;
+        /** @description End of the window (exclusive), such as the next local midnight, as an ISO-8601 instant with offset; after `from`, and only with it. Without it the window has no end. */
+        to?: components['parameters']['WindowTo'];
+        /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
+        scope?: components['parameters']['AllTimeScope'];
       };
       header?: {
         /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
@@ -2396,7 +2406,7 @@ export interface operations {
       /** @description The standings */
       200: {
         headers: {
-          /** @description Data revision and window of these standings */
+          /** @description Data revision and selection of these standings */
           ETag?: string;
           [name: string]: unknown;
         };

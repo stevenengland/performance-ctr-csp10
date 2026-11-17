@@ -640,12 +640,16 @@ paths:
       - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listEntries
-      summary: A person's entries since `from`, the start of the viewer's day, newest first
+      summary: A person's entries in the window `[from, to)`, newest first
       description: >-
-        Each entry names its drink and its factor (null without one, or once the factor
+        The entries recorded in the window: from `from` on, and before `to` when it is
+        given; without `to` the answer is the same as before the window had an end. An
+        entry belongs to the window it was recorded in, whenever it was verified. Each
+        entry names its drink and its factor (null without one, or once the factor
         was deleted) with their current names, and the user name of the account that
         logged it (null once that account was deleted). A `personId` that is not a positive
-        integer is 422; a person that does not exist is 404.
+        integer is 422; a person that does not exist is 404. An invalid window is 422,
+        with the same problem as on `GET /api/scoreboard`.
       parameters:
         - name: personId
           in: query
@@ -656,11 +660,14 @@ paths:
         - name: from
           in: query
           required: true
-          description: Local midnight of the viewer's day as an ISO-8601 instant with offset
+          description: >-
+            Start of the window (inclusive), such as local midnight of the viewer's day, as
+            an ISO-8601 instant with offset
           schema:
             type: string
             format: date-time
             examples: ['2026-11-14T23:00:00.000Z']
+        - $ref: '#/components/parameters/WindowTo'
       responses:
         '200':
           description: The entries, newest first
@@ -856,29 +863,40 @@ paths:
       - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: getScoreboard
-      summary: Standings since `from`, the start of the viewer's day
+      summary: Standings in the window `[from, to)`, or of all time with `scope=all`
       description: >-
-        Persons with entries since `from`, ranked by score (ties by name). score =
+        Persons with entries in the selection, ranked by score (ties by name). The
+        selection is exactly one of: a window, from `from` on and before `to` when it is
+        given (without `to` the answer and its ETag are the same as before the window had
+        an end), or all time with `scope=all`, every entry ever recorded. An entry belongs
+        to the window it was recorded in, whenever it was verified. A missing or invalid
+        `from`, an invalid `to`, a `to` not after `from`, a `to` without `from`, another
+        `scope` than `all`, or `scope=all` together with `from` or `to` is 422. score =
         Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink
         counters likewise. The multiplier is the factor's current one, 1 without a
         factor. Only verified entries count: a recorded entry waits for verification
         by another account, and until then it counts in `recordedCount` and
-        `pendingCount` only. A person whose entries since `from` all wait is listed in
+        `pendingCount` only. A person whose entries in the selection all wait is listed in
         `unranked`. The ETag names the data revision, which every write of entries,
         persons, drinks and factors, every verification and every account deletion bumps
-        in its own transaction, and the window: `If-None-Match` with the
-        last ETag answers 304 without aggregating while the revision is unchanged.
+        in its own transaction, and the selection: `If-None-Match` with the
+        last ETag of the same selection answers 304 without aggregating while the
+        revision is unchanged.
         Each row names the person's photo by `photoUrl`; a photo write that changes it
         bumps the revision too, so the next conditional request gets the new URL.
       parameters:
         - name: from
           in: query
-          required: true
-          description: Local midnight of the viewer's day as an ISO-8601 instant with offset
+          required: false
+          description: >-
+            Start of the window (inclusive), such as local midnight of the viewer's day, as
+            an ISO-8601 instant with offset; required unless `scope=all`
           schema:
             type: string
             format: date-time
             examples: ['2026-11-14T23:00:00.000Z']
+        - $ref: '#/components/parameters/WindowTo'
+        - $ref: '#/components/parameters/AllTimeScope'
         - name: If-None-Match
           in: header
           required: false
@@ -891,7 +909,7 @@ paths:
           description: The standings
           headers:
             ETag:
-              description: Data revision and window of these standings
+              description: Data revision and selection of these standings
               schema:
                 type: string
           content:
@@ -1458,6 +1476,27 @@ components:
       schema:
         type: string
         pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    WindowTo:
+      name: to
+      in: query
+      required: false
+      description: >-
+        End of the window (exclusive), such as the next local midnight, as an ISO-8601
+        instant with offset; after `from`, and only with it. Without it the window has no end.
+      schema:
+        type: string
+        format: date-time
+        examples: ['2026-11-15T23:00:00.000Z']
+    AllTimeScope:
+      name: scope
+      in: query
+      required: false
+      description: >-
+        `all` for all time: every row ever recorded, no lower and no upper bound. Not
+        together with `from` or `to`.
+      schema:
+        type: string
+        enum: [all]
     HistoryBefore:
       name: before
       in: query
@@ -2007,14 +2046,14 @@ components:
         rows:
           type: array
           description: >-
-            Persons with at least one verified entry since `from`, ranked by score, ties by
+            Persons with at least one verified entry in the selection, ranked by score, ties by
             name; persons without entries are absent
           items:
             $ref: '#/components/schemas/ScoreRow'
         unranked:
           type: array
           description: >-
-            Persons whose entries since `from` all wait for verification, by name: they have
+            Persons whose entries in the selection all wait for verification, by name: they have
             no rank and never lead
           items:
             $ref: '#/components/schemas/UnrankedRow'
@@ -2038,7 +2077,7 @@ components:
         pendingCount:
           type: integer
           minimum: 0
-          description: The number of the person's entries since `from` that wait for verification (rows, not quantities)
+          description: The number of the person's entries in the selection that wait for verification (rows, not quantities)
         drinks:
           type: array
           description: By drink name; only drinks with entries, pending ones included
@@ -2058,7 +2097,7 @@ components:
         pendingCount:
           type: integer
           minimum: 1
-          description: The number of the person's entries since `from`, all waiting for verification
+          description: The number of the person's entries in the selection, all waiting for verification
         drinks:
           type: array
           description: By drink name; each `count` is 0
