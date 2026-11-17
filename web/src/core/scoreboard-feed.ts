@@ -1,6 +1,15 @@
-import { computed, onScopeDispose, type DeepReadonly, type Ref } from 'vue';
+import {
+  computed,
+  onScopeDispose,
+  toValue,
+  watch,
+  type DeepReadonly,
+  type MaybeRefOrGetter,
+  type Ref,
+} from 'vue';
 import { getScoreboard, type Scoreboard } from './api-client';
 import { todayFrom } from './day-window';
+import { refreshPeriodScoreboard } from './period-scoreboard';
 import { createPolledResource, type ConditionalFetch } from './polled-resource';
 
 export interface ScoreboardState {
@@ -58,16 +67,31 @@ export function createScoreboardFeed(): ScoreboardFeed {
 
 const feed = createScoreboardFeed();
 
-/** Today's standings for the calling screen: the shared feed runs while the screen is open. */
-export function useScoreboardFeed() {
-  feed.start();
-  onScopeDispose(feed.stop);
+/**
+Today's standings for the calling screen: the shared feed runs while the screen is
+open and, if given, while `shown` holds (the Rangliste while it shows today).
+*/
+export function useScoreboardFeed(shown: MaybeRefOrGetter<boolean> = true) {
+  let running = false;
+  function run(needed: boolean) {
+    if (needed === running) return;
+    running = needed;
+    if (needed) feed.start();
+    else feed.stop();
+  }
+  watch(() => toValue(shown), run, { immediate: true });
+  onScopeDispose(() => {
+    run(false);
+  });
   return feed.state;
 }
 
-/** Refetches the standings now, e.g. after the device's own writes. */
-export function refreshScoreboard(): Promise<void> {
-  return feed.refresh();
+/**
+Refetches the standings now, e.g. after the device's own writes: today's and those
+of the period the Rangliste shows.
+*/
+export async function refreshScoreboard(): Promise<void> {
+  await Promise.all([feed.refresh(), refreshPeriodScoreboard()]);
 }
 
 /** A person's total score today; 0 without entries. */

@@ -80,6 +80,10 @@ The query of a period, built from its calendar date in the time zone in use now:
 a day runs from its local midnight to the next one, so it has 23 or 25 hours on
 the days the clocks change.
 */
+export function queryOf(
+  period: Exclude<Period, { kind: 'run' }>,
+): Exclude<PeriodQuery, Record<string, never>>;
+export function queryOf(period: Period): PeriodQuery;
 export function queryOf(period: Period): PeriodQuery {
   switch (period.kind) {
     case 'day':
