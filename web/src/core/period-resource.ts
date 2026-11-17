@@ -58,9 +58,10 @@ selection gets its own polled resource, so its ETag is only ever sent with it an
 a 304 only ever applies to it; showing another one stops the previous one, so a
 slow answer for `Gestern` can never overwrite `Heute`. The previous one is
 forgotten with every answer still on its way for it, or, as far as `keeps`
-reaches, kept unread (an answer on its way lands in it, never in the shown one). A selection that contains the present is polled every
-10 s; a closed one is read when shown, on focus, when the page becomes visible and
-after the device's own writes. Failures keep the last value, marked stale.
+reaches, kept unread (an answer on its way lands in it, never in the shown one).
+A selection that contains the present is polled every 10 s; a closed one is read
+when shown, on focus, when the page becomes visible and after the device's own
+writes. Failures keep the last value, marked stale.
 */
 export function createPeriodResource<S, T>(
   reads: PeriodReads<S, T>,
