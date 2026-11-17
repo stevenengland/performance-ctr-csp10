@@ -161,7 +161,7 @@ test('the fixture preview renames a drink and deletes a person with their entrie
   await page.goto('/index.html#/verwalten/personen');
   await page.getByRole('button', { name: 'Daniel löschen' }).click();
   await expect(dialog).toContainText(
-    'Daniel, 9 Einträge und 3 Ergebnisse werden gelöscht.',
+    'Daniel, 9 Einträge und 7 Ergebnisse werden gelöscht.',
   );
   await dialog.getByRole('button', { name: 'Löschen' }).click();
   await expect(page.getByText('Daniel gelöscht')).toBeVisible();
@@ -569,6 +569,66 @@ test('the fixture preview lists its sample games with their leaders under Spiele
     /^3\s*Tom\s*4 Partien · 0 S · 2 R · 2 N\s*1$/,
     /^4\s*Daniel\s*3 Partien · 0 S · 1 R · 2 N\s*0,5$/,
   ]);
+});
+
+test('the fixture preview ranks Rommé’s earlier runs under Gesamt and its evenings under Tag, and opens on Aktuell again', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/1');
+  const periods = page.getByRole('group', { name: 'Zeitraum' });
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  const places = page
+    .getByRole('list', { name: 'Rommé' })
+    .getByRole('listitem');
+  await expect(periods.getByRole('button')).toHaveText([
+    'Aktuell',
+    'Tag',
+    'Woche',
+    'Gesamt',
+  ]);
+  await expect(
+    periods.getByRole('button', { name: 'Aktuell' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(context).toHaveText('Punktespiel · seit heute, 00:00');
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Daniel, −11 Punkte, 2 Ergebnisse, +1 offen',
+  );
+
+  await periods.getByRole('button', { name: 'Gesamt' }).click();
+  await expect(context).toHaveText('Punktespiel · Gesamt');
+  await expect(
+    page.getByText(/^Alle Läufe seit \d{2}\.\d{2}\.\d{4} · 6 Spieltage$/),
+  ).toBeVisible();
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Tom, 12 Punkte, 4 Ergebnisse',
+  );
+  await expect(
+    page.getByRole('listitem', { name: 'Jule, +1 offen' }),
+  ).toBeVisible();
+
+  await periods.getByRole('button', { name: 'Tag' }).click();
+  await expect(context).toHaveText('Punktespiel · Heute');
+  await page.getByRole('button', { name: 'Vorheriger Tag' }).click();
+  await expect(
+    page.getByText('An diesem Tag wurde nichts gespielt.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Vorheriger Tag' }).click();
+  await expect(context).toHaveText(
+    /^Punktespiel · \p{L}+, \d{2}\.\d{2}\.\d{4}$/u,
+  );
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Tom, −20 Punkte, 1 Ergebnis',
+  );
+
+  await page.getByRole('link', { name: 'Verlauf' }).click();
+  await expect(page).toHaveURL(/#\/spiele\/1\/verlauf$/);
+  await page.goBack();
+  await expect(
+    periods.getByRole('button', { name: 'Aktuell' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Daniel, −11 Punkte, 2 Ergebnisse, +1 offen',
+  );
 });
 
 test('the fixture preview records a Schach match in three taps and undoes it', async ({

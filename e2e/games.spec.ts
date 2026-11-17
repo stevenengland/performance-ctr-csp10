@@ -193,6 +193,64 @@ test('a restart empties the game’s ranking and keeps nothing of the old run on
   );
 });
 
+test('after a restart Aktuell is empty while Gesamt and Tag still rank the earlier run’s match, read with scope=all and today’s window', async ({
+  page,
+  request,
+}) => {
+  const { anna, ben, gameId } = await duelWithAMatch(page.request, request);
+  const restarted = await page.request.post(
+    `/api/games/${String(gameId)}/restart`,
+    { data: {} },
+  );
+  expect(restarted.status()).toBe(200);
+  const standingsOf = (matches: (url: URL) => boolean) =>
+    page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        url.pathname === `/api/games/${String(gameId)}/standings` &&
+        matches(url)
+      );
+    });
+  const periods = page.getByRole('group', { name: 'Zeitraum' });
+  const leader = page.getByRole('listitem', {
+    name: `Platz 1, ${anna}, 1 Punkt, 1 Partie · 1 S · 0 R · 0 N`,
+  });
+
+  await page.goto(`/spiele/${String(gameId)}`);
+  await expect(
+    page.getByText('Seit dem Start noch keine Partien.'),
+  ).toBeVisible();
+
+  const allTime = standingsOf((url) => url.search === '?scope=all');
+  await periods.getByRole('button', { name: 'Gesamt' }).click();
+  await allTime;
+  await expect(page.getByRole('banner')).toContainText('Duell · Gesamt');
+  await expect(leader).toBeVisible();
+  await expect(
+    page.getByRole('listitem', { name: new RegExp(`^Platz 2, ${ben},`) }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/^Alle Läufe seit \d{2}\.\d{2}\.\d{4} · 1 Spieltag$/),
+  ).toBeVisible();
+
+  const today = standingsOf((url) => url.searchParams.has('to'));
+  await periods.getByRole('button', { name: 'Tag' }).click();
+  const window = new URL((await today).url()).searchParams;
+  expect(
+    await page.evaluate(
+      (from) => new Date(from).getHours() + new Date(from).getMinutes(),
+      window.get('from') ?? '',
+    ),
+  ).toBe(0);
+  await expect(page.getByRole('banner')).toContainText('Duell · Heute');
+  await expect(leader).toBeVisible();
+
+  await periods.getByRole('button', { name: 'Aktuell' }).click();
+  await expect(
+    page.getByText('Seit dem Start noch keine Partien.'),
+  ).toBeVisible();
+});
+
 test('a match deleted from the game’s Verlauf leaves its ranking', async ({
   page,
   request,
