@@ -656,7 +656,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 - Card and rows form one ordered list `Rangliste`; each place has the accessible name
   `Platz 1, Daniel, 13,5 Punkte, 9 Getränke` (avatars are decorative, §10), followed by
   `, +2 offen` while entries wait. The card and each row are links with that name
-  (inside their list items) and open `/verlauf/:personId`.
+  (inside their list items) and open the person's Verlauf (§7g): of the day shown while a
+  past day is shown (`/verlauf/:personId?tag=2026-11-14`), else of today (`/verlauf/:personId`,
+  also from `Woche` and `Gesamt`). The unranked rows link the same way.
 - Loading: a skeleton card and three skeleton rows.
 - Persons without entries in the period are not listed. A period whose entries all wait is not
   empty: it shows no leader and no ranked rows, only the unranked group.
@@ -671,15 +673,24 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   without a button — only today's empty state offers `Zählen`.
 - Stale indicator (§6.6) in the top app bar, for whichever period is shown.
 
-### 7g. Verlauf `/verlauf/:personId`
+### 7g. Verlauf `/verlauf/:personId[?tag=YYYY-MM-DD]`
 
 - Reached from a place on the Rangliste and from a name under Verwalten → Personen (the name
   is a link `Verlauf von Daniel`). It belongs to the Rangliste destination (highlighted in the
   navigation, as in the mockup).
-- Title `Daniel` with the context line `Heute` (`Verlauf` until the person has loaded), back to
-  the previous screen (the Rangliste when there is none).
-- List `Einträge von Daniel` of today's entries (since local midnight; at the next local midnight,
-  or when the page is shown or focused again after it, read again for the new day), newest first, rows on
+- **Its day.** Today, or the past day the optional query `tag` names (`?tag=2026-11-14`, the
+  local calendar date): a place on the Rangliste adds it while a past day is shown (§7f); from
+  today, `Woche` and `Gesamt` it opens today's Verlauf. A `tag` that names no date (`gestern`,
+  `2026-02-30`) or a day after today shows today. The day is held as its calendar date: its
+  window `[00:00, next 00:00)` local (23 or 25 hours when the clocks change) is built anew for
+  every read and sent as UTC instants `from` and `to`, so after midnight, a resume or a
+  time-zone change it stays the same day. Today is read with `from` only, as before.
+- Title `Daniel` with the context line naming the day: `Heute`, or the past day in full as on
+  the Rangliste, `Samstag, 14.11.2026` (`Verlauf` until the person has loaded), back to the
+  previous screen (the Rangliste when there is none, which shows its kept period again and
+  reads it anew).
+- List `Einträge von Daniel` of the day's entries (today: since local midnight; at the next local midnight,
+  or when the page is shown or focused again after it, read again for the new day; a past day stays), newest first, rows on
   `outline-variant` hairlines: primary `2× Bier` (`row-title`), secondary
   `Happy Hour ×2 · 23:41 · anna` (`support`; the factor with its current multiplier,
   `Kein Faktor` when none or deleted; the local time; the account's user name, or
@@ -687,11 +698,13 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   the assist chip `offen` (§7j's `Admin` chip) before the delete button; trailing delete icon
   button named
   `2× Bier um 23:41 löschen`, opening the confirmation dialog (§6.9).
-- After `Löschen`: the snackbar `Eintrag gelöscht`, the list is read again and the scoreboard
-  feed refreshes at once, so counters and the Rangliste follow. An entry already deleted on
+- After `Löschen` (on a past day as on today): the snackbar `Eintrag gelöscht`, the list is
+  read again and the scoreboard feed refreshes at once, together with the period the Rangliste
+  shows, so counters and the Rangliste follow. An entry already deleted on
   another phone (404) counts as deleted; any other failure shows the problem title and keeps
   the row. Deleted entries stay deleted: a late retry of their save does not bring them back.
-- Loading: three skeleton rows. Empty: `Heute keine Einträge.`
+- Loading: three skeleton rows. Empty: `Heute keine Einträge.`; a past day
+  `An diesem Tag keine Einträge.`
 - A person that no longer exists (deleted on another phone): back to the Rangliste with
   `Nicht mehr vorhanden` (§9). Opening another person's Verlauf is a new screen.
 
@@ -1170,7 +1183,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
    back.
 3. **Lost response:** save fails → `Erneut versuchen` → same UUID → server returns the original
    outcome; no duplicate. A later `Speichern` of the same drink is a new entry with a new UUID.
-4. **Fix later:** Rangliste → Daniel → Verlauf → delete entry → confirm.
+4. **Fix later:** Rangliste → Daniel → Verlauf → delete entry → confirm. For a past evening:
+   Rangliste → `Gestern` → Daniel → Verlauf of that day → delete entry → confirm → back to
+   `Gestern`, read again.
 5. **Set up an evening:** Verwalten → Getränke → `Getränk anlegen` → `Margarita`, `3` →
    Speichern; same for a factor.
 6. **Midnight:** at 00:00 local time the Rangliste and counters show an empty new day on the next
@@ -1243,7 +1258,7 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 | Faktor | `GET /api/factors`, `PUT /api/entries/{uuid}` | Choice saves |
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
 | Rangliste | `GET /api/scoreboard?from=` (today), `?from=&to=` (a past day, a week), `?scope=all` (`Gesamt`) (ETag, `If-None-Match` → 304); `GET /api/scoreboard/days` (calendar dots, `Gesamt` line; ETag `"<rev>"`) | Today's feed polls every 10 s while visible, as do the current week and `Gesamt`; a past day or week is read on show, focus and after own writes; ETag = data revision + selection (`"<rev>-<fromMs>"`, `"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`). `rows` rank verified entries (`score`, `count`, each drink's `count`) with `pendingCount`; each drink also has `recordedCount`; `unranked` lists persons whose entries all wait |
-| Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt`, `accountName` (or `null`) and `pending`; 404 → person gone; after a delete the scoreboard feed refreshes |
+| Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=` (a past day `&to=`), `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt`, `accountName` (or `null`) and `pending`; 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count (a person also `matchCount` and `resultCount`); `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Personen (photo) | `PUT /api/persons/{id}/photo`, `DELETE /api/persons/{id}/photo` | Any member, any person; never a field of the person `PATCH`. `PUT` body `{image}`: base64 of a 256 × 256 JPEG of at most 64 KiB; answers the person (200). A body over 96 KiB is 413 `Foto zu groß.`, an invalid photo 422 on `image`. `DELETE` is 204, also without a photo. The same photo again and removing none change nothing |
 | Photo display | `GET /api/persons/{id}/photo?v=<version>` | Loaded by `<img>`, outside the fetch wrapper. 200 `image/jpeg` with `Cache-Control: private, max-age=31536000, immutable` only while `v` is the stored version; a missing, malformed or stale `v`, no photo and an unknown person are 404, every error `no-store`. The client never builds this URL |
@@ -1340,8 +1355,9 @@ the shareable page a UI change is reviewed on before it reaches the host.
 
 ## 13. Out of scope (this spec)
 
-- Views of other days beyond the Rangliste's periods (§7f; Protokoll, §7l, and Offen, §7s,
-  excepted), statistics or charts.
+- Views of other days beyond the Rangliste's periods (§7f) and a person's Verlauf of a past
+  day (§7g; Protokoll, §7l, and Offen, §7s, excepted) — no Verlauf of a week or all time —,
+  statistics or charts.
 - Filters, search or export of the Protokoll; restoring data from it.
 - Theme switch, custom colours per person.
 - English UI.
