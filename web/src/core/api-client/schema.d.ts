@@ -545,8 +545,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * The game's ranking in its current run, tagged with the game's kind
-     * @description Duel game: every person with a match in the current run, by points (win 1, draw ½, loss 0), then wins, then name. Rankings are computed from the stored outcome, so a deleted person's side counts for no one and never changes the other side's result. Points game: every person with a result in the current run, by the sum of their points, the lowest first when `lowerWins` is on and the highest otherwise, then name; a changed `lowerWins` re-ranks at once. The ETag is the data revision, read in the same snapshot as the ranking; every game, match and result write bumps it, so `If-None-Match` with the last ETag answers 304 without ranking while nothing changed.
+     * The game's ranking in its current run, a window `[from, to)` or all time, tagged with the game's kind
+     * @description The selection is exactly one of: nothing, the current run since the last (re)start, answered and tagged exactly as before the standings took a window; a window, from `from` on and before `to` when it is given; or all time with `scope=all`. A window and all time rank every verified match or result of the game recorded in them, whatever its run; a row belongs to the window it was recorded in, whenever it was verified. A `from` or `to` that is no instant, a `to` not after `from`, a `to` without `from`, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422, exactly as for the scoreboard. Duel game: every person with a match in the selection, by points (win 1, draw ½, loss 0), then wins, then name; across runs each verified match adds its result to both its players once. Rankings are computed from the stored outcome, so a deleted person's side counts for no one and never changes the other side's result. Points game: every person with a result in the selection, by the sum of their points, the lowest first when `lowerWins` is on and the highest otherwise, then name; across runs each verified result is one attempt, added to the sum and to `results`. A changed `lowerWins` re-ranks at once. The ETag names the data revision, read in the same snapshot as the ranking, and the selection: the bare revision for the current run, the revision and the window or `all` otherwise. Every game, match and result write bumps the revision, so `If-None-Match` with the last ETag of the same selection answers 304 without ranking while nothing changed.
      */
     get: operations['getStandings'];
     put?: never;
@@ -1220,18 +1220,18 @@ export interface components {
       kind: 'duel';
       /**
        * Format: date-time
-       * @description When the current run began, UTC
+       * @description When the current run began, UTC, whatever the selection
        */
       startedAt: string;
-      /** @description Persons with at least one verified match in the run, ranked by points, then wins, then name; only verified matches count. Persons without a match in the run are absent */
+      /** @description Persons with at least one verified match in the selection, ranked by points, then wins, then name; only verified matches count. Persons without a match in the selection are absent */
       rows: components['schemas']['DuelRow'][];
-      /** @description Persons whose matches in the run all wait for verification, by name: they have no rank and never lead */
+      /** @description Persons whose matches in the selection all wait for verification, by name: they have no rank and never lead */
       unranked: components['schemas']['UnrankedPlayer'][];
     };
     UnrankedPlayer: {
       personId: number;
       name: string;
-      /** @description The person's pending rows in the run (`+n offen`) */
+      /** @description The person's pending rows in the selection (`+n offen`) */
       pendingCount: number;
     };
     DuelRow: {
@@ -1244,7 +1244,7 @@ export interface components {
       losses: number;
       /** @description Verified matches; `wins`, `draws` and `losses` count verified ones too */
       played: number;
-      /** @description The person's matches in the run that wait for verification (`+n offen`); a pending match counts once for each player that still exists */
+      /** @description The person's matches in the selection that wait for verification (`+n offen`); a pending match counts once for each player that still exists */
       pendingCount: number;
     };
     PointsStandings: {
@@ -1255,23 +1255,23 @@ export interface components {
       kind: 'points';
       /**
        * Format: date-time
-       * @description When the current run began, UTC
+       * @description When the current run began, UTC, whatever the selection
        */
       startedAt: string;
       lowerWins: boolean;
-      /** @description Persons with at least one verified result in the run, ranked by the sum in the game's direction, then name; only verified results count. Persons without a result in the run are absent */
+      /** @description Persons with at least one verified result in the selection, ranked by the sum in the game's direction, then name; only verified results count. Persons without a result in the selection are absent */
       rows: components['schemas']['PointsRow'][];
-      /** @description Persons whose results in the run all wait for verification, by name: they have no rank and never lead, whichever way the game ranks and whatever the others' sums */
+      /** @description Persons whose results in the selection all wait for verification, by name: they have no rank and never lead, whichever way the game ranks and whatever the others' sums */
       unranked: components['schemas']['UnrankedPlayer'][];
     };
     PointsRow: {
       personId: number;
       name: string;
-      /** @description The sum of the person's verified points in the run */
+      /** @description The sum of the person's verified points in the selection */
       sum: number;
       /** @description How many verified results make up the sum */
       results: number;
-      /** @description The person's results in the run that wait for verification (`+n offen`) */
+      /** @description The person's results in the selection that wait for verification (`+n offen`) */
       pendingCount: number;
     };
     AuditPage: {
@@ -2696,7 +2696,14 @@ export interface operations {
   };
   getStandings: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description Start of the window (inclusive), such as local midnight of a chosen day, as an ISO-8601 instant with offset. Without `from`, `to` and `scope` the current run is ranked. */
+        from?: string;
+        /** @description End of the window (exclusive), such as the next local midnight, as an ISO-8601 instant with offset; after `from`, and only with it. Without it the window has no end. */
+        to?: components['parameters']['WindowTo'];
+        /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
+        scope?: components['parameters']['AllTimeScope'];
+      };
       header?: {
         /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
         'X-Client-Version'?: components['parameters']['ClientVersion'];
@@ -2714,7 +2721,7 @@ export interface operations {
       /** @description The ranking */
       200: {
         headers: {
-          /** @description The data revision of this ranking */
+          /** @description Data revision and selection of this ranking */
           ETag?: string;
           [name: string]: unknown;
         };
@@ -2733,6 +2740,7 @@ export interface operations {
       };
       401: components['responses']['Problem'];
       404: components['responses']['Problem'];
+      422: components['responses']['Problem'];
     };
   };
   getStandingsDays: {
