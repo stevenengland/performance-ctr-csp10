@@ -195,18 +195,44 @@ final class ScoreboardTest extends DatabaseTestCase
     public function testAWindowWithAnEndCountsOnlyEntriesBeforeItsEndAndAnEntryExactlyAtTheEndIsOutside(): void
     {
         $this->add(1, 1, 2); // 2026-11-14 20:00 UTC
+        $this->record(1, 1, 5);
         $this->record(3, 2, 1);
         $this->clock->advance('PT3H'); // 23:00 UTC, the end of the window
         $this->add(2, 1, 4);
         $this->add(1, 2, 1);
+        $this->record(3, 1, 1);
 
         $board = $this->body($this->scoreboard(from: '2026-11-13T23:00:00.000Z', to: '2026-11-14T23:00:00.000Z'));
 
         self::assertSame(
-            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 2, 'count' => 2, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 2, 'recordedCount' => 2]]]],
+            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 2, 'count' => 2, 'pendingCount' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 2, 'recordedCount' => 7]]]],
             $board['rows'],
         );
-        self::assertSame(['Ben'], array_column(self::listOf($board['unranked']), 'name'));
+        self::assertSame(
+            [['personId' => 3, 'name' => 'Ben', 'photoUrl' => null, 'pendingCount' => 1, 'drinks' => [['drinkId' => 2, 'name' => 'Aperol', 'count' => 0, 'recordedCount' => 1]]]],
+            $board['unranked'],
+        );
+    }
+
+    public function testAnEntryVerifiedAfterTheEndOfItsWindowStaysInTheWindowItWasRecordedIn(): void
+    {
+        $this->createAccount('anna', 'annas-startpasswort');
+        $anna = $this->signIn('anna', 'annas-startpasswort');
+        $this->clock->advance('PT2H59M'); // 22:59 UTC, a minute before local midnight in Berlin
+        $late = $this->record(1, 1, 2);
+        $this->clock->advance('PT2M'); // the next day
+        $verification = $this->send('PUT', "/api/entries/{$late}/verification", [], $anna);
+
+        $recordedDay = $this->rowsOf($this->scoreboard(from: '2026-11-13T23:00:00.000Z', to: '2026-11-14T23:00:00.000Z'));
+        $verifiedDay = $this->body($this->scoreboard(from: '2026-11-14T23:00:00.000Z', to: '2026-11-15T23:00:00.000Z'));
+        $recordedDayEntries = $this->body($this->send('GET', '/api/entries?personId=1&from=2026-11-13T23:00:00.000Z&to=2026-11-14T23:00:00.000Z', session: $this->session));
+        $verifiedDayEntries = $this->body($this->send('GET', '/api/entries?personId=1&from=2026-11-14T23:00:00.000Z&to=2026-11-15T23:00:00.000Z', session: $this->session));
+
+        self::assertSame(204, $verification->getStatusCode(), (string) $verification->getBody());
+        self::assertSame([['Daniel', 2]], array_map(static fn(array $row): array => [$row['name'], $row['score']], $recordedDay));
+        self::assertSame(['rows' => [], 'unranked' => []], $verifiedDay);
+        self::assertSame([[$late, false]], array_map(static fn(array $entry): array => [$entry['id'], $entry['pending']], self::listOf($recordedDayEntries['entries'])));
+        self::assertSame(['entries' => []], $verifiedDayEntries);
     }
 
     public function testTheEndMayCarryAnyOffset(): void
@@ -354,6 +380,53 @@ final class ScoreboardTest extends DatabaseTestCase
 
         self::assertSame(200, $nextDay->getStatusCode());
         self::assertNotSame($tag, $nextDay->getHeaderLine('ETag'));
+    }
+
+    public function testEachSelectionHasItsOwnTagAndOnlyItsOwnTagAnswers304(): void
+    {
+        $this->add(1, 1, 2);
+        $selections = [
+            'from=2026-11-13T23:00:00.000Z',
+            'from=2026-11-13T23:00:00.000Z&to=2026-11-14T23:00:00.000Z',
+            'from=2026-11-13T23:00:00.000Z&to=2026-11-15T23:00:00.000Z',
+            'from=2026-11-12T23:00:00.000Z&to=2026-11-14T23:00:00.000Z',
+            'scope=all',
+        ];
+        $tags = array_map(fn(string $query): string => $this->scoreboardFor($query)->getHeaderLine('ETag'), $selections);
+
+        $answers = [];
+        foreach ($selections as $query) {
+            foreach ($tags as $tag) {
+                $answers[$query][] = $this->scoreboardFor($query, $tag)->getStatusCode();
+            }
+        }
+
+        self::assertCount(count($selections), array_unique($tags));
+        self::assertSame(
+            array_combine($selections, [[304, 200, 200, 200, 200], [200, 304, 200, 200, 200], [200, 200, 304, 200, 200], [200, 200, 200, 304, 200], [200, 200, 200, 200, 304]]),
+            $answers,
+        );
+    }
+
+    public function testTheSameSelectionWithAnotherOffsetHasTheSameTag(): void
+    {
+        $utc = $this->scoreboard(to: '2026-11-14T23:00:00.000Z')->getHeaderLine('ETag');
+
+        $berlin = $this->scoreboardFor('from=' . rawurlencode('2026-11-14T00:00:00+01:00') . '&to=' . rawurlencode('2026-11-15T00:00:00+01:00'), $utc);
+
+        self::assertSame(304, $berlin->getStatusCode());
+    }
+
+    public function testAWriteChangesTheTagOfAWindowWithAnEndAndOfAllTime(): void
+    {
+        $this->add(1, 1, 1);
+        $window = $this->scoreboard(to: '2026-11-14T23:00:00.000Z')->getHeaderLine('ETag');
+        $allTime = $this->scoreboardFor('scope=all')->getHeaderLine('ETag');
+
+        $this->add(2, 1, 1);
+
+        self::assertSame(200, $this->scoreboard($window, to: '2026-11-14T23:00:00.000Z')->getStatusCode());
+        self::assertSame(200, $this->scoreboardFor('scope=all', $allTime)->getStatusCode());
     }
 
     /**
