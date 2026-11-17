@@ -427,6 +427,29 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/scoreboard/days': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The days with drinks, as the quarter hours with a verified entry
+     * @description The raw material of the Rangliste's calendar marks and its `Gesamt` line: the start instants, ascending and distinct, of the 15-minute UTC buckets that hold at least one entry that counts, with exactly the scoreboard's rule: verified entries of persons and drinks that still exist; pending entries are left out. Each instant is the start of a 15-minute UTC bucket: the bucket of a row is decided by its recording instant alone, never by its verification, so a row recorded before midnight and verified the next day stays in the bucket it was recorded in. Every UTC offset in use is a multiple of 15 minutes, so the client buckets the instants into its local days exactly; the server knows no time zone. The size is bounded by time, not by the number of rows: at most 96 instants per day with activity, a few thousand for years of evenings, without paging. The ETag is the data revision, read in the same snapshot as the instants; every write, verification and deletion bumps it, so `If-None-Match` with the last ETag answers 304 without reading while nothing changed.
+     */
+    get: operations['getScoreboardDays'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/games': {
     parameters: {
       query?: never;
@@ -526,6 +549,32 @@ export interface paths {
      * @description Duel game: every person with a match in the current run, by points (win 1, draw ½, loss 0), then wins, then name. Rankings are computed from the stored outcome, so a deleted person's side counts for no one and never changes the other side's result. Points game: every person with a result in the current run, by the sum of their points, the lowest first when `lowerWins` is on and the highest otherwise, then name; a changed `lowerWins` re-ranks at once. The ETag is the data revision, read in the same snapshot as the ranking; every game, match and result write bumps it, so `If-None-Match` with the last ETag answers 304 without ranking while nothing changed.
      */
     get: operations['getStandings'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}/standings/days': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /**
+     * The days the game was played, as the quarter hours with a verified match or result
+     * @description The raw material of a game page's calendar marks and its `Gesamt` line: the start instants, ascending and distinct, of the 15-minute UTC buckets that hold at least one match or result of the game that counts, in every run, with exactly the standings' rule: verified matches with at least one side that still names a person (a duel match is one instant although it counts for two players), verified results of persons who still exist; pending rows are left out. An unknown game is 404. Each instant is the start of a 15-minute UTC bucket: the bucket of a row is decided by its recording instant alone, never by its verification, so a row recorded before midnight and verified the next day stays in the bucket it was recorded in. Every UTC offset in use is a multiple of 15 minutes, so the client buckets the instants into its local days exactly; the server knows no time zone. The size is bounded by time, not by the number of rows: at most 96 instants per day with activity, a few thousand for years of evenings, without paging. The ETag is the data revision, read in the same snapshot as the instants; every write, verification and deletion bumps it, so `If-None-Match` with the last ETag answers 304 without reading while nothing changed.
+     */
+    get: operations['getStandingsDays'];
     put?: never;
     post?: never;
     delete?: never;
@@ -1012,6 +1061,10 @@ export interface components {
       count: number;
       /** @description Σ quantity × multiplier over every recorded entry, pending ones included: what the recording flow shows */
       recordedCount: number;
+    };
+    DaysWithData: {
+      /** @description Start instants of the distinct 15-minute UTC buckets with at least one row that counts, ascending; empty when nothing counts yet */
+      instants: string[];
     };
     /**
      * @description `duel`: two persons and an outcome. `points`: one person and a whole number.
@@ -2427,6 +2480,43 @@ export interface operations {
       422: components['responses']['Problem'];
     };
   };
+  getScoreboardDays: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+        /** @description The ETag of the instants the client already has */
+        'If-None-Match'?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The quarter hours with rows that count */
+      200: {
+        headers: {
+          /** @description The data revision of these instants */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DaysWithData'];
+        };
+      };
+      /** @description Unchanged since the instants named in `If-None-Match` */
+      304: {
+        headers: {
+          /** @description The same ETag */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+    };
+  };
   listGames: {
     parameters: {
       query?: never;
@@ -2633,6 +2723,47 @@ export interface operations {
         };
       };
       /** @description Unchanged since the ranking named in `If-None-Match` */
+      304: {
+        headers: {
+          /** @description The same ETag */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+    };
+  };
+  getStandingsDays: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+        /** @description The ETag of the instants the client already has */
+        'If-None-Match'?: string;
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The quarter hours with rows that count */
+      200: {
+        headers: {
+          /** @description The data revision of these instants */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DaysWithData'];
+        };
+      };
+      /** @description Unchanged since the instants named in `If-None-Match` */
       304: {
         headers: {
           /** @description The same ETag */
