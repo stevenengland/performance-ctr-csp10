@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { HistoryEntry, Scoreboard } from '../src/core/api-client';
 import { installFixtureBackend } from './fixtureBackend';
-import { type FixtureEntry, type Fixtures, sampleEvening } from './fixtures';
+import { sampleEvening } from './fixtures';
+import { withEntries } from './fixtureTesting';
 
 /*
 The fixture backend takes windows like the API (`IntervalQuery`): these cases are
@@ -11,27 +12,6 @@ and the API cannot drift apart unnoticed.
 
 const INSTANT = 'Zeitpunkt nach ISO 8601 mit Zeitzone.';
 const AFTER_FROM = 'Zeitpunkt nach from.';
-
-/** The sample persons and drinks with only the given entries: `[person, drink, quantity, createdAt, pending?]`. */
-function withEntries(
-  ...entries: [number, number, number, string, boolean?][]
-): Fixtures {
-  const fixtures = sampleEvening(new Date('2026-11-14T20:00:00Z'));
-  fixtures.entries = entries.map(
-    ([personId, drinkId, quantity, createdAt, pending = false], index) =>
-      ({
-        id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
-        personId,
-        drinkId,
-        quantity,
-        factorId: null,
-        accountId: 1,
-        createdAt,
-        pending,
-      }) satisfies FixtureEntry,
-  );
-  return fixtures;
-}
 
 async function get(path: string, ifNoneMatch?: string) {
   return fetch(

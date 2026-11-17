@@ -7,6 +7,7 @@ import type {
 } from '../src/core/api-client';
 
 type DrinkCount = Scoreboard['rows'][number]['drinks'][number];
+import { daysAnswer } from './fixtureDays';
 import { gameBackend } from './fixtureGames';
 import {
   contains,
@@ -112,6 +113,14 @@ interface Tally {
   verifiedEntries: number;
   pendingCount: number;
   drinks: DrinkCount[];
+}
+
+/** Whether an entry's person and drink still exist, as the API's joins require. */
+function counts(fixtures: Fixtures, entry: FixtureEntry): boolean {
+  return (
+    fixtures.persons.some(({ id }) => id === entry.personId) &&
+    fixtures.drinks.some(({ id }) => id === entry.drinkId)
+  );
 }
 
 /**
@@ -753,6 +762,18 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         response.headers.set('ETag', etag);
         return response;
       }),
+    ],
+    [
+      'GET /api/scoreboard/days',
+      guarded((_me, _body, request) =>
+        daysAnswer(
+          request,
+          revision(),
+          fixtures.entries
+            .filter((entry) => !entry.pending && counts(fixtures, entry))
+            .map(({ createdAt }) => createdAt),
+        ),
+      ),
     ],
   ]);
 }

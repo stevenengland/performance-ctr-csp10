@@ -1,4 +1,5 @@
 import type { AuditEvent } from '../src/core/api-client';
+import { type FixtureEntry, type Fixtures, sampleEvening } from './fixtures';
 
 /* Helpers the fixture backend's specs share. */
 
@@ -27,3 +28,24 @@ export const told = ({
   after,
   cause: cause && { subjectKind: cause.subjectKind, name: cause.name },
 });
+
+/** The sample persons and drinks with only the given entries: `[person, drink, quantity, createdAt, pending?]`. */
+export function withEntries(
+  ...entries: [number, number, number, string, boolean?][]
+): Fixtures {
+  const fixtures = sampleEvening(new Date('2026-11-14T20:00:00Z'));
+  fixtures.entries = entries.map(
+    ([personId, drinkId, quantity, createdAt, pending = false], index) =>
+      ({
+        id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        personId,
+        drinkId,
+        quantity,
+        factorId: null,
+        accountId: 1,
+        createdAt,
+        pending,
+      }) satisfies FixtureEntry,
+  );
+  return fixtures;
+}
