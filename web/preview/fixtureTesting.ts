@@ -65,14 +65,14 @@ export type MatchRow = [
   number?,
   boolean?,
 ];
-/** A result of `withGameRows`'s Rommé: person, points, createdAt, run (default 1), pending. */
-export type ResultRow = [number, number, string, number?, boolean?];
+/** A result of `withGameRows`'s points games: person, points, createdAt, run (default 1), pending, game (default 2, Rommé; 3 is Darts). */
+export type ResultRow = [number, number, string, number?, boolean?, number?];
 
 /**
 The sample persons (1 Anna, 2 Ben, 3 Daniel, 4 Jule, …) with two games, like the
-API integration tests': 1 Schach, a duel with draws, and 2 Rommé, a points game
-where the lowest sum wins, both in `run` since `startedAt`, holding only the given
-matches and results.
+API integration tests': 1 Schach, a duel with draws, 2 Rommé, a points game where
+the lowest sum wins, and 3 Darts, one where the highest wins, all in `run` since
+`startedAt`, holding only the given matches and results.
 */
 export function withGameRows(
   matches: MatchRow[],
@@ -99,6 +99,15 @@ export function withGameRows(
       run,
       startedAt,
     },
+    {
+      id: 3,
+      name: 'Darts',
+      kind: 'points',
+      drawsAllowed: true,
+      lowerWins: false,
+      run,
+      startedAt,
+    },
   ];
   fixtures.matches = matches.map(
     ([first, second, outcome, createdAt, inRun = 1, pending = false], index) =>
@@ -115,10 +124,13 @@ export function withGameRows(
       }) satisfies FixtureMatch,
   );
   fixtures.results = results.map(
-    ([personId, points, createdAt, inRun = 1, pending = false], index) =>
+    (
+      [personId, points, createdAt, inRun = 1, pending = false, gameId = 2],
+      index,
+    ) =>
       ({
         id: `00000000-0000-4000-b000-${String(index + 1).padStart(12, '0')}`,
-        gameId: 2,
+        gameId,
         run: inRun,
         personId,
         points,

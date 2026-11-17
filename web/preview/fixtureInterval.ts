@@ -45,17 +45,20 @@ function instant(value: string): Date | undefined {
   return new Date(local.getTime() - offset * 60_000 + Number(parts[7] ?? 0));
 }
 
-/** An optional text parameter like the API's `Query::text`: a list (`to[]=…`) reads as the empty text. */
-function text(query: URLSearchParams, name: string): string | undefined {
+/** An optional text parameter like the API's `Query::text`: a list (`to[]=…`) reads as the empty text, the last of several values wins. */
+export function queryText(
+  query: URLSearchParams,
+  name: string,
+): string | undefined {
   if ([...query.keys()].some((key) => key.startsWith(`${name}[`))) return '';
   return query.getAll(name).at(-1);
 }
 
 /** `from` with an optional `to`, as the entry list takes it; a 422 for an invalid window. */
 export function windowOf(query: URLSearchParams): Interval | Response {
-  const from = instant(text(query, 'from') ?? '');
+  const from = instant(queryText(query, 'from') ?? '');
   if (!from) return validation({ from: INSTANT });
-  const end = text(query, 'to');
+  const end = queryText(query, 'to');
   if (end === undefined) return { from };
   const to = instant(end);
   if (!to) return validation({ to: INSTANT });
@@ -65,10 +68,13 @@ export function windowOf(query: URLSearchParams): Interval | Response {
 
 /** A window, or all time with `scope=all`, as the scoreboard takes it; scope is checked first. */
 export function windowOrAllTime(query: URLSearchParams): Interval | Response {
-  const scope = text(query, 'scope');
+  const scope = queryText(query, 'scope');
   if (scope === undefined) return windowOf(query);
   if (scope !== 'all') return validation({ scope: 'Nur all.' });
-  if (text(query, 'from') !== undefined || text(query, 'to') !== undefined) {
+  if (
+    queryText(query, 'from') !== undefined ||
+    queryText(query, 'to') !== undefined
+  ) {
     return validation({ scope: 'Nicht zusammen mit from oder to.' });
   }
   return {};
@@ -83,7 +89,7 @@ export function windowAllTimeOrCurrentRun(
   query: URLSearchParams,
 ): Interval | 'run' | Response {
   const names = ['from', 'to', 'scope'];
-  return names.some((name) => text(query, name) !== undefined)
+  return names.some((name) => queryText(query, name) !== undefined)
     ? windowOrAllTime(query)
     : 'run';
 }

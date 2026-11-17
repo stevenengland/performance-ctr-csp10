@@ -38,6 +38,7 @@ import { daysAnswer } from './fixtureDays';
 import {
   contains,
   type Interval,
+  queryText,
   tagOf,
   windowAllTimeOrCurrentRun,
 } from './fixtureInterval';
@@ -53,12 +54,14 @@ The game's ranking, like the API's Standings: in its current run, or over a wind
 or all time across every run (`selection`). A cleared side counts for no one; only
 verified matches and results count, each person names their pending ones, and a
 person whose rows all wait is listed apart, unranked (PRD #61). The rows of a
-window or all time carry the average per result beside the sum.
+window or all time carry the average per result beside the sum; a points game
+ranks them by the `measure`, the average by its exact value.
 */
 function standingsOf(
   fixtures: Fixtures,
   game: FixtureGame,
   selection: Interval | 'run' = 'run',
+  measure: Measure = 'sum',
 ): Standings {
   const nameOf = (personId: number) =>
     fixtures.persons.find(({ id }) => id === personId)?.name ?? '';
@@ -138,13 +141,18 @@ function standingsOf(
   }
   const all = [...rows.values()];
   const direction = game.lowerWins ? 1 : -1;
+  // Like the API: the average compares exactly, by cross-multiplication.
+  const compare: Record<Measure, (a: PointsRow, b: PointsRow) => number> = {
+    sum: (a, b) => a.sum - b.sum,
+    average: (a, b) => a.sum * b.results - b.sum * a.results,
+  };
   return {
     kind,
     startedAt,
     lowerWins: game.lowerWins,
     rows: all
       .filter(({ results }) => results > 0)
-      .sort((a, b) => direction * (a.sum - b.sum) || byNameThenId(a, b))
+      .sort((a, b) => direction * compare[measure](a, b) || byNameThenId(a, b))
       .map((row) =>
         selection === 'run'
           ? row
@@ -172,6 +180,29 @@ function standingsOf(
 function averageOf({ sum, results }: { sum: number; results: number }): number {
   const tenths = Math.floor((20 * Math.abs(sum) + results) / (2 * results));
   return (Math.sign(sum) * tenths) / 10;
+}
+
+/** What a points game's window or all time is ranked by, like the API's `Measure`. */
+type Measure = 'sum' | 'average';
+
+/**
+The measure the query names, like the API's `StandingsAction::measure`: none, or a 422
+for another value than `sum` or `average` (also empty or a list), or for one in the
+current run. Whether the game is a duel waits for the game.
+*/
+function measureOf(
+  query: URLSearchParams,
+  selection: Interval | 'run',
+): Measure | undefined | Response {
+  const measure = queryText(query, 'measure');
+  if (measure === undefined) return undefined;
+  if (measure !== 'sum' && measure !== 'average') {
+    return validation({ measure: 'Nur sum oder average.' });
+  }
+  if (selection === 'run') {
+    return validation({ measure: 'Nur mit from oder scope=all.' });
+  }
+  return measure;
 }
 
 type DuelRow = Extract<Standings, { kind: 'duel' }>['rows'][number];
@@ -743,20 +774,27 @@ export function gameBackend({
       [
         'GET /api/games/{id}/standings',
         guarded((_me, _body, { id, headers, query }) => {
-          // Like the API: the selection is checked before the game is looked for.
+          // Like the API: the selection and the measure are checked before the game is looked for.
           const selection = windowAllTimeOrCurrentRun(query);
           if (selection instanceof Response) return selection;
+          const measure = measureOf(query, selection);
+          if (measure instanceof Response) return measure;
           const game = find(id);
           if (!game) return problem(PROBLEMS.notFound);
-          // Like the API: the data revision and, for a window or all time, the selection.
+          if (measure !== undefined && game.kind === 'duel') {
+            return validation({ measure: 'Nur bei Punktespielen.' });
+          }
+          // Like the API: the data revision and, for a window or all time, the selection and the average.
           const etag =
             selection === 'run'
               ? `"${String(revision())}"`
-              : `"${String(revision())}-${tagOf(selection)}"`;
+              : `"${String(revision())}-${tagOf(selection)}${measure === 'average' ? '-average' : ''}"`;
           if (headers.get('If-None-Match') === etag) {
             return new Response(null, { status: 304, headers: { ETag: etag } });
           }
-          const response = json(standingsOf(fixtures, game, selection));
+          const response = json(
+            standingsOf(fixtures, game, selection, measure ?? 'sum'),
+          );
           response.headers.set('ETag', etag);
           return response;
         }),

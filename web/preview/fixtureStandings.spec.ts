@@ -3,14 +3,16 @@ import type { Standings } from '../src/core/api-client';
 import { installFixtureBackend } from './fixtureBackend';
 import { calendarDateOf, localDaysOf } from '../src/core/period';
 import { sampleEvening } from './fixtures';
-import { withGameRows } from './fixtureTesting';
+import { type ResultRow, withGameRows } from './fixtureTesting';
 
 /*
-The fixture backend's game rankings over a window or all time, and the quarter hours
-a game was played: these cases are the API integration tests' (`StandingsWindowTest`,
-`StandingsDaysTest`, the standings' part of `IntervalQueryTest`), so the preview and
-the API cannot drift apart unnoticed. Games: 1 Schach (duel), 2 Rommé (points,
-lowest wins); persons: 1 Anna, 2 Ben, 3 Daniel, 4 Jule (the API tests' Carla).
+The fixture backend's game rankings over a window or all time, by either measure,
+and the quarter hours a game was played: these cases are the API integration
+tests' (`StandingsWindowTest`, `StandingsMeasureTest`, `StandingsDaysTest`, the
+standings' part of `IntervalQueryTest`), so the preview and the API cannot drift
+apart unnoticed. Games: 1 Schach (duel), 2 Rommé (points, lowest wins), 3 Darts
+(points, highest wins); persons: 1 Anna, 2 Ben, 3 Daniel, 4 Jule (the API tests'
+Carla).
 */
 
 const AT_20 = '2026-11-14T20:00:00.000Z';
@@ -394,6 +396,272 @@ describe('the fixture backend’s game rankings of a window or all time', () => 
 
     expect((await standings(9, 'scope=all')).status).toBe(404);
     expect((await standings(9, FIRST_RUN)).status).toBe(404);
+  });
+});
+
+describe('the fixture backend’s points rankings by measure', () => {
+  /*
+  The cases of the API's `StandingsMeasureTest`; its Carla is Jule (4) here, its
+  Daniel is Daniel (3). Games: 1 Schach (duel), 2 Rommé (lowest wins), 3 Darts
+  (highest wins).
+  */
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const SCHACH = 1;
+  const ROMME = 2;
+  const DARTS = 3;
+  const DAY = 'from=2026-11-14T20:00:00Z&to=2026-11-15T20:00:00Z';
+
+  /** Results of one person in one game, all at 20:00 of the first run. */
+  const scores = (
+    game: number,
+    personId: number,
+    points: number[],
+  ): ResultRow[] =>
+    points.map((value) => [personId, value, AT_20, 1, false, game]);
+
+  async function rows(game: number, query: string) {
+    return (await ranked(game, query)).rows;
+  }
+
+  it('ranks by the mean per verified result in the game’s direction, across a restart; equal means by name', async () => {
+    const games = [ROMME, DARTS];
+    installFixtureBackend(
+      withGameRows(
+        [],
+        games.flatMap((game): ResultRow[] => [
+          ...scores(game, 1, [10, 2]),
+          ...scores(game, 2, [9]),
+          ...scores(game, 4, [3, 3]),
+          ...scores(game, 3, [6]),
+          [4, 3, AT_21, 2, false, game],
+          [4, 3, AT_21, 2, false, game],
+          [4, 40, AT_21, 2, true, game],
+        ]),
+        { run: 2, startedAt: AT_21 },
+      ),
+    );
+    const jule = pointsRow(4, 'Jule', 12, 3, 4, 1);
+    const anna = pointsRow(1, 'Anna', 12, 6, 2);
+    const daniel = pointsRow(3, 'Daniel', 6, 6, 1);
+    const ben = pointsRow(2, 'Ben', 9, 9, 1);
+
+    for (const selection of ['scope=all', DAY]) {
+      expect(await rows(ROMME, `${selection}&measure=average`)).toEqual([
+        jule,
+        anna,
+        daniel,
+        ben,
+      ]);
+      expect(await rows(DARTS, `${selection}&measure=average`)).toEqual([
+        ben,
+        anna,
+        daniel,
+        jule,
+      ]);
+    }
+  });
+
+  it('ranks by the sum without a measure and with measure=sum, every row carrying the rounded average', async () => {
+    installFixtureBackend(
+      withGameRows(
+        [],
+        [
+          ...scores(ROMME, 1, [3, 4]),
+          ...scores(ROMME, 2, [3, 3, 4]),
+          ...scores(ROMME, 4, [6, 7, 7]),
+          ...scores(ROMME, 3, [1, -1, -1, 0]),
+        ],
+      ),
+    );
+    const bySum = [
+      pointsRow(3, 'Daniel', -1, -0.3, 4),
+      pointsRow(1, 'Anna', 7, 3.5, 2),
+      pointsRow(2, 'Ben', 10, 3.3, 3),
+      pointsRow(4, 'Jule', 20, 6.7, 3),
+    ];
+
+    const byDefault = await standings(ROMME, 'scope=all');
+    const sum = await standings(ROMME, 'scope=all&measure=sum');
+
+    const body = await byDefault.text();
+    expect((JSON.parse(body) as Standings).rows).toEqual(bySum);
+    expect(await sum.text()).toBe(body);
+    expect(await rows(ROMME, `${DAY}&measure=sum`)).toEqual(bySum);
+  });
+
+  it('ranks the sum highest first where the highest wins, across a restart; equal sums by name', async () => {
+    installFixtureBackend(
+      withGameRows(
+        [],
+        [
+          ...scores(DARTS, 2, [9]),
+          ...scores(DARTS, 1, [4, 5]),
+          ...scores(DARTS, 4, [3]),
+          ...scores(DARTS, 3, [5]),
+          [4, -1, AT_21, 2, false, DARTS],
+          [3, 7, AT_21, 2, false, DARTS],
+        ],
+        { run: 2, startedAt: AT_21 },
+      ),
+    );
+    const bySum = [
+      pointsRow(3, 'Daniel', 12, 6, 2),
+      pointsRow(1, 'Anna', 9, 4.5, 2),
+      pointsRow(2, 'Ben', 9, 9, 1),
+      pointsRow(4, 'Jule', 2, 1, 2),
+    ];
+
+    for (const selection of [
+      'scope=all',
+      DAY,
+      'scope=all&measure=sum',
+      `${DAY}&measure=sum`,
+    ]) {
+      expect(await rows(DARTS, selection)).toEqual(bySum);
+    }
+  });
+
+  it('orders two averages that round alike by their exact values', async () => {
+    installFixtureBackend(
+      withGameRows(
+        [],
+        [
+          ...scores(ROMME, 1, [3, 3, 4]),
+          ...scores(ROMME, 2, [3, 3, 3, 4]),
+          ...scores(ROMME, 4, [...Array<number>(107).fill(3), 2]),
+          ...scores(ROMME, 3, [...Array<number>(106).fill(3), 2]),
+        ],
+      ),
+    );
+
+    expect(await rows(ROMME, 'scope=all&measure=average')).toEqual([
+      pointsRow(3, 'Daniel', 320, 3, 107),
+      pointsRow(4, 'Jule', 323, 3, 108),
+      pointsRow(2, 'Ben', 13, 3.3, 4),
+      pointsRow(1, 'Anna', 10, 3.3, 3),
+    ]);
+  });
+
+  it('breaks equal averages by name however their sums differ', async () => {
+    installFixtureBackend(
+      withGameRows([], [...scores(DARTS, 2, [4]), ...scores(DARTS, 1, [3, 5])]),
+    );
+
+    expect(await rows(DARTS, 'scope=all&measure=average')).toEqual([
+      pointsRow(1, 'Anna', 8, 4, 2),
+      pointsRow(2, 'Ben', 4, 4, 1),
+    ]);
+  });
+
+  const known = { measure: 'Nur sum oder average.' };
+  const period = { measure: 'Nur mit from oder scope=all.' };
+  const points = { measure: 'Nur bei Punktespielen.' };
+
+  it.each([
+    ['an unknown measure', ROMME, 'scope=all&measure=median', known],
+    ['a measure in capitals', ROMME, 'scope=all&measure=SUM', known],
+    ['an empty measure', ROMME, `${DAY}&measure=`, known],
+    ['a measure that is a list', ROMME, 'scope=all&measure[]=average', known],
+    ['the sum in the current run', ROMME, 'measure=sum', period],
+    ['the average in the current run', ROMME, 'measure=average', period],
+    ['an unknown measure in the current run', ROMME, 'measure=median', known],
+    ['the sum of a duel', SCHACH, 'scope=all&measure=sum', points],
+    [
+      'the average of a duel in a window',
+      SCHACH,
+      `${DAY}&measure=average`,
+      points,
+    ],
+    [
+      'the average of a duel in the current run',
+      SCHACH,
+      'measure=average',
+      period,
+    ],
+  ])(
+    'rejects %s, even with the current run’s tag, and leaves the current run as it was',
+    async (_case, game, query, errors) => {
+      installFixtureBackend(withGameRows([], [[1, 5, AT_20]]));
+      const currentRun = await standings(game);
+      const body = await currentRun.text();
+
+      const rejected = await standings(
+        game,
+        query,
+        currentRun.headers.get('ETag') ?? '',
+      );
+
+      expect(rejected.status).toBe(422);
+      expect(rejected.headers.get('Content-Type')).toBe(
+        'application/problem+json',
+      );
+      expect(((await rejected.json()) as { errors: unknown }).errors).toEqual(
+        errors,
+      );
+      expect(await (await standings(game)).text()).toBe(body);
+    },
+  );
+
+  it('checks a measure in the current run before it looks for the game', async () => {
+    installFixtureBackend(withGameRows([]));
+
+    expect((await standings(99, 'measure=average')).status).toBe(422);
+    expect((await standings(99, 'scope=all&measure=average')).status).toBe(404);
+  });
+
+  it('tags the average apart from the sum, sent or not, and answers 304 only to the same one', async () => {
+    installFixtureBackend(withGameRows([], [[1, 5, AT_20]]));
+    const revision = (await standings(ROMME)).headers.get('ETag')?.slice(1, -1);
+    const sum = `"${revision ?? ''}-all"`;
+    const average = `"${revision ?? ''}-all-average"`;
+
+    const tagOf = async (query: string) =>
+      (await standings(ROMME, query)).headers.get('ETag');
+
+    expect(await tagOf('scope=all')).toBe(sum);
+    expect(await tagOf('scope=all&measure=sum')).toBe(sum);
+    expect(await tagOf('scope=all&measure=average')).toBe(average);
+    expect(await tagOf(`${DAY}&measure=average`)).toBe(
+      `"${revision ?? ''}-${START_MS}-1794772800000-average"`,
+    );
+    expect(
+      (await standings(ROMME, 'scope=all&measure=average', average)).status,
+    ).toBe(304);
+    expect(
+      (await standings(ROMME, 'scope=all&measure=average', sum)).status,
+    ).toBe(200);
+    expect(
+      (await standings(ROMME, 'scope=all&measure=sum', average)).status,
+    ).toBe(200);
+  });
+
+  it('lists a person whose results all wait unranked under either measure, without an average', async () => {
+    installFixtureBackend(
+      withGameRows(
+        [],
+        [
+          [1, 0, AT_20],
+          [2, 4, AT_20, 1, true],
+          [2, 6, AT_20, 1, true],
+        ],
+      ),
+    );
+
+    for (const measure of ['sum', 'average']) {
+      const { rows: ranks, unranked } = await ranked(
+        ROMME,
+        `scope=all&measure=${measure}`,
+      );
+
+      expect([ranks, unranked]).toEqual([
+        [pointsRow(1, 'Anna', 0, 0, 1)],
+        [{ personId: 2, name: 'Ben', pendingCount: 2 }],
+      ]);
+    }
   });
 });
 
