@@ -33,6 +33,16 @@ function api(pages: Record<number, () => PendingPage | Promise<PendingPage>>) {
   return { signedIn, asked };
 }
 
+/** A queue read that answers only when the test says so. */
+function deferred() {
+  let answer: (page: PendingPage) => void = () => undefined;
+  const reply = () =>
+    new Promise<PendingPage>((resolve) => {
+      answer = resolve;
+    });
+  return { reply, answer: (page: PendingPage) => answer(page) };
+}
+
 describe('the pending queue', () => {
   let queue: PendingQueue | undefined;
 
@@ -96,18 +106,97 @@ describe('the pending queue', () => {
     expect(queue.state.value.page?.count).toBe(1);
   });
 
-  it('keeps the queue while signed out or unknown until another account signs in', async () => {
-    const { signedIn } = api({ 1: () => page(3), 2: () => page(1) });
+  it('forgets the queue and its badge when the account signs out, without asking the server', async () => {
+    const { signedIn, asked } = api({ 1: () => page(3) });
+    queue = createPendingQueue(signedIn);
+    queue.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    signedIn.value = null;
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(queue.state.value).toEqual({ page: undefined, stale: false });
+    expect(asked).toEqual([undefined]);
+  });
+
+  it('reads the queue without its old ETag when the same account signs in again', async () => {
+    const { signedIn, asked } = api({ 1: () => page(3) });
+    queue = createPendingQueue(signedIn);
+    queue.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    signedIn.value = null;
+    signedIn.value = anna;
+
+    expect(queue.state.value.page).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queue.state.value.page?.count).toBe(3);
+    expect(asked).toEqual([undefined, undefined]);
+  });
+
+  it('discards an answer that arrives after sign-out', async () => {
+    const late = deferred();
+    const { signedIn } = api({ 1: late.reply });
+    queue = createPendingQueue(signedIn);
+    queue.start();
+
+    signedIn.value = null;
+    late.answer(page(5));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(queue.state.value.page).toBeUndefined();
+  });
+
+  it.each([
+    ['the same account', anna, 1],
+    ['another account', ben, 2],
+  ])(
+    'discards an answer from before sign-out that arrives after %s signed in',
+    async (_who, next, count) => {
+      const late = deferred();
+      const replies = [late.reply, () => page(1)];
+      const { signedIn } = api({
+        1: () => (replies.shift() ?? (() => page(1)))(),
+        2: () => page(2),
+      });
+      queue = createPendingQueue(signedIn);
+      queue.start();
+
+      signedIn.value = null;
+      signedIn.value = next;
+      await vi.advanceTimersByTimeAsync(0);
+      late.answer(page(5));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(queue.state.value.page?.count).toBe(count);
+    },
+  );
+
+  it('reads the queue anew when the account signs in again while its session was unknown', async () => {
+    const { signedIn, asked } = api({ 1: () => page(3) });
     queue = createPendingQueue(signedIn);
     queue.start();
     await vi.advanceTimersByTimeAsync(0);
 
     signedIn.value = undefined;
-    signedIn.value = null;
-    signedIn.value = anna;
-    expect(queue.state.value.page?.count).toBe(3);
-    signedIn.value = null;
-    signedIn.value = ben;
+    signedIn.value = { ...anna };
+
     expect(queue.state.value.page).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked).toEqual([undefined, undefined]);
+  });
+
+  it('keeps the queue while the session is only unknown for a moment', async () => {
+    const { signedIn, asked } = api({ 1: () => page(3) });
+    queue = createPendingQueue(signedIn);
+    queue.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    signedIn.value = undefined;
+    signedIn.value = anna;
+
+    expect(queue.state.value.page?.count).toBe(3);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(asked).toEqual([undefined, '"7-1"']);
   });
 });

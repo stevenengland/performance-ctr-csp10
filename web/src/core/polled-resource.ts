@@ -39,7 +39,12 @@ export interface PolledResource<T> {
   stop(): void;
   /**
   Forgets the value and its ETag and drops every answer still on its way, e.g. when
-  another account signs in; a screen that runs the resource gets it fetched anew.
+  the account signs out; nothing is fetched until the next refresh or reset.
+  */
+  clear(): void;
+  /**
+  Clears the resource, e.g. when an account signs in; a screen that runs the
+  resource gets it fetched anew, without an ETag.
   */
   reset(): void;
 }
@@ -121,6 +126,14 @@ export function createPolledResource<T>(
     }
   }
 
+  function clear() {
+    latest += 1;
+    etag = undefined;
+    failures = 0;
+    state.value = { stale: false };
+    cancel();
+  }
+
   function onVisibilityChange() {
     if (visible()) poll();
     else cancel();
@@ -136,12 +149,9 @@ export function createPolledResource<T>(
       window.addEventListener('focus', poll);
       poll();
     },
+    clear,
     reset() {
-      latest += 1;
-      etag = undefined;
-      failures = 0;
-      state.value = { stale: false };
-      cancel();
+      clear();
       if (screens > 0) poll();
     },
     stop() {

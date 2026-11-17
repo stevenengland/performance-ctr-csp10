@@ -1,13 +1,7 @@
-import {
-  computed,
-  onScopeDispose,
-  watch,
-  type DeepReadonly,
-  type Ref,
-} from 'vue';
+import { computed, onScopeDispose, type DeepReadonly, type Ref } from 'vue';
 import { getPending, type Account, type PendingPage } from './api-client';
 import { createPolledResource, type ConditionalFetch } from './polled-resource';
-import { useSession } from './session';
+import { useSession, watchAuthBoundaries } from './session';
 
 export interface PendingQueueState {
   /** The first page of the queue with the count of all rows; undefined until the first answer. */
@@ -38,25 +32,21 @@ const firstPage: ConditionalFetch<PendingPage> = async (etag) => {
 /**
 The rows the signed-in account may verify (PRD #61), as `Offen` and its badge
 show them: the first page of the queue as a polled resource (every 10 s while
-visible on condition of the last ETag). Every account has its own queue, so when
-another account signs in the queue is forgotten at once and every answer still
-on its way is dropped. Signed out, nothing shows the queue; a session that is
-only unknown for a moment (asked again after a 401 elsewhere) changes nothing.
+visible on condition of the last ETag). Every session has its own queue: at
+every authentication boundary (sign-out, any sign-in, also of the same account,
+another account taking over) the queue, its ETag and its staleness are forgotten
+at once and every answer still on its way is dropped. Signed out, nothing is
+read; the next sign-in reads without an ETag. A session that is only unknown for
+a moment (asked again after a 401 elsewhere) changes nothing.
 */
 export function createPendingQueue(
   session: Readonly<Ref<DeepReadonly<Account> | null | undefined>>,
 ): PendingQueue {
   const resource = createPolledResource(firstPage);
-  let owner = session.value?.id;
-  watch(
-    session,
-    (account) => {
-      if (!account || account.id === owner) return;
-      owner = account.id;
-      resource.reset();
-    },
-    { flush: 'sync' },
-  );
+  watchAuthBoundaries(session, (account) => {
+    if (account) resource.reset();
+    else resource.clear();
+  });
   const state = computed(() => {
     const { value, updatedAt, stale } = resource.state.value;
     return { page: value, updatedAt, stale };
