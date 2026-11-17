@@ -34,6 +34,13 @@ import type {
   FixtureResult,
   Fixtures,
 } from './fixtures';
+import { daysAnswer } from './fixtureDays';
+import {
+  contains,
+  type Interval,
+  tagOf,
+  windowAllTimeOrCurrentRun,
+} from './fixtureInterval';
 
 /*
 The games side of the fixture backend, like the API's Games, Matches and
@@ -42,12 +49,17 @@ each game's Verlauf, and what a game's or a person's deletion does to them.
 */
 
 /**
-The game's ranking in its current run, like the API's Standings: a cleared side
-counts for no one; only verified matches and results count, each person names
-their pending ones, and a person whose rows all wait is listed apart, unranked
-(PRD #61).
+The game's ranking, like the API's Standings: in its current run, or over a window
+or all time across every run (`selection`). A cleared side counts for no one; only
+verified matches and results count, each person names their pending ones, and a
+person whose rows all wait is listed apart, unranked (PRD #61). The rows of a
+window or all time carry the average per result beside the sum.
 */
-function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
+function standingsOf(
+  fixtures: Fixtures,
+  game: FixtureGame,
+  selection: Interval | 'run' = 'run',
+): Standings {
   const nameOf = (personId: number) =>
     fixtures.persons.find(({ id }) => id === personId)?.name ?? '';
   const byNameThenId = (
@@ -82,7 +94,7 @@ function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
       }
       rows.set(personId, row);
     };
-    for (const match of inRun(fixtures.matches, game)) {
+    for (const match of selected(fixtures.matches, game, selection)) {
       const [first, second] = DUEL_RESULTS[match.outcome];
       count(match.firstPersonId, first, match.pending);
       count(match.secondPersonId, second, match.pending);
@@ -108,7 +120,7 @@ function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
     };
   }
   const rows = new Map<number, PointsRow>();
-  for (const result of inRun(fixtures.results, game)) {
+  for (const result of selected(fixtures.results, game, selection)) {
     const row = rows.get(result.personId) ?? {
       personId: result.personId,
       name: nameOf(result.personId),
@@ -132,7 +144,19 @@ function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
     lowerWins: game.lowerWins,
     rows: all
       .filter(({ results }) => results > 0)
-      .sort((a, b) => direction * (a.sum - b.sum) || byNameThenId(a, b)),
+      .sort((a, b) => direction * (a.sum - b.sum) || byNameThenId(a, b))
+      .map((row) =>
+        selection === 'run'
+          ? row
+          : {
+              personId: row.personId,
+              name: row.name,
+              sum: row.sum,
+              average: averageOf(row),
+              results: row.results,
+              pendingCount: row.pendingCount,
+            },
+      ),
     unranked: all
       .filter(({ results }) => results === 0)
       .sort(byNameThenId)
@@ -142,6 +166,12 @@ function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
         pendingCount,
       })),
   };
+}
+
+/** The average per result, like the API's: rounded half away from zero to one decimal, in whole numbers. */
+function averageOf({ sum, results }: { sum: number; results: number }): number {
+  const tenths = Math.floor((20 * Math.abs(sum) + results) / (2 * results));
+  return (Math.sign(sum) * tenths) / 10;
 }
 
 type DuelRow = Extract<Standings, { kind: 'duel' }>['rows'][number];
@@ -156,13 +186,18 @@ const DUEL_RESULTS: Record<FixtureMatch['outcome'], [DuelResult, DuelResult]> =
     draw: ['draws', 'draws'],
   };
 
-/** The game's rows of its current run. */
-function inRun<T extends { gameId: number; run: number }>(
+/** The game's rows of its current run, or of every run recorded in the interval. */
+function selected<T extends { gameId: number; run: number; createdAt: string }>(
   rows: T[],
   game: FixtureGame,
+  selection: Interval | 'run',
 ): T[] {
   return rows.filter(
-    ({ gameId, run }) => gameId === game.id && run === game.run,
+    (row) =>
+      row.gameId === game.id &&
+      (selection === 'run'
+        ? row.run === game.run
+        : contains(selection, row.createdAt)),
   );
 }
 
@@ -707,17 +742,47 @@ export function gameBackend({
       ],
       [
         'GET /api/games/{id}/standings',
-        guarded((_me, _body, { id, headers }) => {
+        guarded((_me, _body, { id, headers, query }) => {
+          // Like the API: the selection is checked before the game is looked for.
+          const selection = windowAllTimeOrCurrentRun(query);
+          if (selection instanceof Response) return selection;
           const game = find(id);
           if (!game) return problem(PROBLEMS.notFound);
-          // Like the API: the data revision names the ranking.
-          const etag = `"${String(revision())}"`;
+          // Like the API: the data revision and, for a window or all time, the selection.
+          const etag =
+            selection === 'run'
+              ? `"${String(revision())}"`
+              : `"${String(revision())}-${tagOf(selection)}"`;
           if (headers.get('If-None-Match') === etag) {
             return new Response(null, { status: 304, headers: { ETag: etag } });
           }
-          const response = json(standingsOf(fixtures, game));
+          const response = json(standingsOf(fixtures, game, selection));
           response.headers.set('ETag', etag);
           return response;
+        }),
+      ],
+      [
+        'GET /api/games/{id}/standings/days',
+        guarded((_me, _body, request) => {
+          const game = find(request.id);
+          if (!game) return problem(PROBLEMS.notFound);
+          // Like the API: one instant per verified match while a side names a person.
+          const counted = [
+            ...fixtures.matches.filter(
+              (match) =>
+                match.gameId === game.id &&
+                !match.pending &&
+                (match.firstPersonId !== null || match.secondPersonId !== null),
+            ),
+            ...fixtures.results.filter(
+              (result) => result.gameId === game.id && !result.pending,
+            ),
+          ];
+          return daysAnswer(
+            request,
+            revision(),
+            counted.map(({ createdAt }) => createdAt),
+          );
         }),
       ],
     ];

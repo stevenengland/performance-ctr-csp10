@@ -289,7 +289,7 @@ function apiPath(url: URL): string {
   return index === -1 ? url.pathname : url.pathname.slice(index);
 }
 
-/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/entries/<uuid>/verification`, `/api/matches/<uuid>`, `/api/results/<uuid>`, `/api/persons/<n>`, `/api/persons/<n>/photo`, `/api/games/<n>/standings`, `/api/games/<n>/matches`, … */
+/** `/api/entries/<uuid>` → the route `/api/entries/{id}` and its id; likewise `/api/entries/<uuid>/verification`, `/api/matches/<uuid>`, `/api/results/<uuid>`, `/api/persons/<n>`, `/api/persons/<n>/photo`, `/api/games/<n>/standings`, `/api/games/<n>/standings/days`, `/api/games/<n>/matches`, … */
 function routeOf(path: string): { route: string; id: string } {
   const record =
     /^\/api\/(entries|matches|results)\/([^/]+)(\/verification)?$/.exec(path);
@@ -297,7 +297,7 @@ function routeOf(path: string): { route: string; id: string } {
     return { route: `/api/${record[1]}/{id}${record[3] ?? ''}`, id: record[2] };
   }
   const item =
-    /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart|\/standings|\/matches|\/results|\/photo)?$/.exec(
+    /^\/api\/(persons|drinks|factors|accounts|games)\/([1-9]\d*)(\/restart|\/standings\/days|\/standings|\/matches|\/results|\/photo)?$/.exec(
       path,
     );
   if (item?.[1] && item[2]) {

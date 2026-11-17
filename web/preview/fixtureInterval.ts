@@ -3,7 +3,8 @@ import { validation } from './fixtureHttp';
 /*
 The fixture backend's mirror of the API's `IntervalQuery` and `Interval`: the one
 place a windowed read's query becomes the instants it covers, so the scoreboard and
-the entry list accept and reject the same windows with the same problem.
+the entry list and a game's standings accept and reject the same windows with the
+same problem.
 */
 
 /** `from` (inclusive) up to `to` (exclusive); without `from`, all time. */
@@ -71,6 +72,20 @@ export function windowOrAllTime(query: URLSearchParams): Interval | Response {
     return validation({ scope: 'Nicht zusammen mit from oder to.' });
   }
   return {};
+}
+
+/**
+The current run (`'run'`) without `from`, `to` and `scope`, else a window or all
+time, as a game's standings take it: whatever names a period, even empty or as a
+list, is checked as the scoreboard checks it.
+*/
+export function windowAllTimeOrCurrentRun(
+  query: URLSearchParams,
+): Interval | 'run' | Response {
+  const names = ['from', 'to', 'scope'];
+  return names.some((name) => text(query, name) !== undefined)
+    ? windowOrAllTime(query)
+    : 'run';
 }
 
 /** Whether an instant lies in the interval. */
