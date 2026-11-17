@@ -141,25 +141,31 @@ final readonly class Results implements GameDependents, PersonDependents
 
     /**
      * A points game's ranking in its current run or an interval: every person with a verified
-     * result in it, by the sum of their points (the lowest first when the game's lower sum
-     * wins, else the highest), then name, then id. Across runs it accumulates: each verified
-     * result is one attempt, added to the sum and the count. Only verified results count
-     * (PRD #61); each person names their pending results in the selection, and a person whose
-     * results in it all wait is listed apart, unranked: a total of nothing never leads a
-     * ladder, whichever way it runs and whatever the others' totals.
+     * result in it, by the measure, the sum of their points or its average per result (the
+     * lowest first when the game's lower sum wins, else the highest), then name, then id.
+     * Across runs it accumulates: each verified result is one attempt, added to the sum and the
+     * count that divides it. Only verified results count (PRD #61); each person names their
+     * pending results in the selection, and a person whose results in it all wait is listed
+     * apart, unranked: a total of nothing never leads a ladder, whichever way it runs and
+     * whatever the others' totals, and has no average.
+     *
+     * The average is ranked from the exact quotients after the database's order by name and id,
+     * which a stable sort keeps for equal averages: an average the database divided would be
+     * rounded to its `div_precision_increment` and could tie two different ones.
      *
      * @return Standings<PointsRow>
      */
-    public function standings(Game $game, Interval|CurrentRun $selection): Standings
+    public function standings(Game $game, Interval|CurrentRun $selection, Measure $measure): Standings
     {
         $direction = $game->lowerWins ? 'ASC' : 'DESC';
+        $bySum = $measure === Measure::Sum ? "SUM(IF(r.pending = 0, r.points, 0)) {$direction}, " : '';
         [$condition, $parameters] = $game->rowsIn($selection, 'r.');
         $statement = $this->pdo->prepare(
             "SELECT p.id, p.name, SUM(IF(r.pending = 0, r.points, 0)) AS total, SUM(r.pending = 0) AS results, SUM(r.pending = 1) AS pending_results
              FROM " . self::RANKED . "
              WHERE {$condition}
              GROUP BY p.id, p.name
-             ORDER BY SUM(r.pending = 0) = 0, SUM(IF(r.pending = 0, r.points, 0)) {$direction}, p.name, p.id",
+             ORDER BY SUM(r.pending = 0) = 0, {$bySum}p.name, p.id",
         );
         $statement->execute($parameters);
         /** @var list<array<string, scalar|null>> $rows */
@@ -172,6 +178,10 @@ final readonly class Results implements GameDependents, PersonDependents
             } else {
                 $ranked[] = new PointsRow((int) $row['id'], (string) $row['name'], (int) $row['total'], (int) $row['results'], (int) $row['pending_results']);
             }
+        }
+        if ($measure === Measure::Average) {
+            $lowerFirst = $game->lowerWins ? 1 : -1;
+            usort($ranked, static fn(PointsRow $a, PointsRow $b): int => $lowerFirst * $a->compareAverage($b));
         }
 
         return new Standings($ranked, $unranked);

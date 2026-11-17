@@ -131,8 +131,8 @@ final class StandingsWindowTest extends DatabaseTestCase
             ['kind' => 'points', 'startedAt' => '2026-11-14T21:00:00.000Z', 'lowerWins' => true],
             array_slice($allTime, 0, 3),
         );
-        self::assertSame([self::pointsRow(2, 'Ben', 4, 1), self::pointsRow(3, 'Carla', 6, 1), self::pointsRow(1, 'Anna', 12, 3)], $allTime['rows']);
-        self::assertSame([self::pointsRow(2, 'Ben', 4, 1), self::pointsRow(1, 'Anna', 10, 1)], $firstRun['rows']);
+        self::assertSame([self::pointsRow(2, 'Ben', 4, 4, 1), self::pointsRow(3, 'Carla', 6, 6, 1), self::pointsRow(1, 'Anna', 12, 4, 3)], $allTime['rows']);
+        self::assertSame([self::pointsRow(2, 'Ben', 4, 4, 1), self::pointsRow(1, 'Anna', 10, 10, 1)], $firstRun['rows']);
     }
 
     /**
@@ -161,7 +161,7 @@ final class StandingsWindowTest extends DatabaseTestCase
             [['personId' => 3, 'name' => 'Carla', 'pendingCount' => 2], ['personId' => 4, 'name' => 'Daniel', 'pendingCount' => 1]],
             $duel['unranked'],
         );
-        self::assertSame([self::pointsRow(1, 'Anna', 5, 1, 1)], $points['rows']);
+        self::assertSame([self::pointsRow(1, 'Anna', 5, 5, 1, 1)], $points['rows']);
         self::assertSame([['personId' => 2, 'name' => 'Ben', 'pendingCount' => 1]], $points['unranked']);
     }
 
@@ -211,7 +211,7 @@ final class StandingsWindowTest extends DatabaseTestCase
         $window = 'from=2026-11-14T20:00:00Z&to=2026-11-14T21:00:00Z';
         foreach (['scope=all', $window] as $query) {
             self::assertSame([self::duelRow(1, 'Anna', 1, 1, 0, 0), self::duelRow(3, 'Carla', 0, 0, 0, 1)], $this->body($this->standings(1, $query))['rows'], $query);
-            self::assertSame([self::pointsRow(3, 'Carla', 9, 1)], $this->body($this->standings(2, $query))['rows'], $query);
+            self::assertSame([self::pointsRow(3, 'Carla', 9, 9, 1)], $this->body($this->standings(2, $query))['rows'], $query);
         }
     }
 
@@ -228,7 +228,7 @@ final class StandingsWindowTest extends DatabaseTestCase
         $verifiedIn = 'from=2026-11-14T23:00:00Z&to=2026-11-15T23:00:00Z';
 
         self::assertSame([self::duelRow(1, 'Anna', 1, 1, 0, 0), self::duelRow(2, 'Ben', 0, 0, 0, 1)], $this->body($this->standings(1, $recordedIn))['rows']);
-        self::assertSame([self::pointsRow(1, 'Anna', 5, 1)], $this->body($this->standings(2, $recordedIn))['rows']);
+        self::assertSame([self::pointsRow(1, 'Anna', 5, 5, 1)], $this->body($this->standings(2, $recordedIn))['rows']);
         self::assertSame(['rows' => [], 'unranked' => []], array_slice($this->body($this->standings(1, $verifiedIn)), 2));
         self::assertSame(['rows' => [], 'unranked' => []], array_slice($this->body($this->standings(2, $verifiedIn)), 3));
     }
@@ -251,11 +251,13 @@ final class StandingsWindowTest extends DatabaseTestCase
     }
 
     /**
-     * @return array{personId: int, name: string, sum: int, results: int, pendingCount: int}
+     * A row of a window or all time, which carries the average per result beside the sum.
+     *
+     * @return array{personId: int, name: string, sum: int, average: int|float, results: int, pendingCount: int}
      */
-    private static function pointsRow(int $personId, string $name, int $sum, int $results, int $pendingCount = 0): array
+    private static function pointsRow(int $personId, string $name, int $sum, int|float $average, int $results, int $pendingCount = 0): array
     {
-        return ['personId' => $personId, 'name' => $name, 'sum' => $sum, 'results' => $results, 'pendingCount' => $pendingCount];
+        return ['personId' => $personId, 'name' => $name, 'sum' => $sum, 'average' => $average, 'results' => $results, 'pendingCount' => $pendingCount];
     }
 
     private function standings(int $game, string $query = '', ?string $ifNoneMatch = null): ResponseInterface
