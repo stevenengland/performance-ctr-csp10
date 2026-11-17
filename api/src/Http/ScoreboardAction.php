@@ -25,7 +25,7 @@ final readonly class ScoreboardAction
 
     public function __invoke(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
-        $interval = IntervalQuery::window($request);
+        $interval = IntervalQuery::windowOrAllTime($request);
         $scoreboard = $this->database->scoreboard();
         $photoUrl = $this->photoUrl;
 

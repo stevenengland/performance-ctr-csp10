@@ -222,6 +222,48 @@ final class ScoreboardTest extends DatabaseTestCase
         self::assertSame($utc, $berlin);
     }
 
+    public function testAllTimeRanksEveryEntryEverRecorded(): void
+    {
+        $this->add(1, 1, 2);
+        $this->record(3, 1, 1);
+        $this->clock->advance('P20D');
+        $this->add(2, 2, 2);
+        $this->add(1, 1, 1);
+
+        $board = $this->body($this->scoreboardFor('scope=all'));
+
+        self::assertSame([['Anna', 5], ['Daniel', 3]], array_map(static fn(array $row): array => [$row['name'], $row['score']], self::listOf($board['rows'])));
+        self::assertSame(['Ben'], array_column(self::listOf($board['unranked']), 'name'));
+    }
+
+    /**
+     * @return iterable<string, array{string, array<string, string>}>
+     */
+    public static function invalidScopes(): iterable
+    {
+        yield 'all time with a start' => ['scope=all&from=2026-11-13T23:00:00Z', ['scope' => 'Nicht zusammen mit from oder to.']];
+        yield 'all time with an end' => ['scope=all&to=2026-11-13T23:00:00Z', ['scope' => 'Nicht zusammen mit from oder to.']];
+        yield 'all time with a window' => ['scope=all&from=2026-11-13T23:00:00Z&to=2026-11-14T23:00:00Z', ['scope' => 'Nicht zusammen mit from oder to.']];
+        yield 'all time with an empty start' => ['scope=all&from=', ['scope' => 'Nicht zusammen mit from oder to.']];
+        yield 'an unknown scope' => ['scope=day', ['scope' => 'Nur all.']];
+        yield 'an unknown scope with a start' => ['scope=ALL&from=2026-11-13T23:00:00Z', ['scope' => 'Nur all.']];
+        yield 'an empty scope' => ['scope=', ['scope' => 'Nur all.']];
+        yield 'a list of scopes' => ['scope[]=all', ['scope' => 'Nur all.']];
+    }
+
+    /**
+     * @param array<string, string> $errors
+     */
+    #[DataProvider('invalidScopes')]
+    public function testAllTimeIsTheOnlyScopeAndExcludesAWindow(string $query, array $errors): void
+    {
+        $response = $this->scoreboardFor($query);
+
+        self::assertSame(422, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('application/problem+json', $response->getHeaderLine('Content-Type'));
+        self::assertSame($errors, $this->body($response)['errors']);
+    }
+
     public function testTiesAreRankedByNameAndUndoneEntriesDisappear(): void
     {
         $this->add(3, 1, 2);
