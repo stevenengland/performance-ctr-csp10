@@ -300,6 +300,35 @@ describe('a polled resource', () => {
     expect(etags).toHaveLength(2);
   });
 
+  it('does not poll while its value cannot change any more, but still reads it on focus, when visible again, after writes and retries a failure', async () => {
+    const { fetch, etags } = server(value('a'), offline, value('b'));
+    let open = false;
+    resource = createPolledResource(fetch, { polls: () => open });
+    resource.start();
+    await settle();
+
+    await wait(60);
+    expect(etags).toHaveLength(1);
+    window.dispatchEvent(new Event('focus'));
+    await settle();
+    expect(resource.state.value).toMatchObject({ value: 'a', stale: true });
+    await wait(5);
+    expect(resource.state.value).toMatchObject({ value: 'b', stale: false });
+    await wait(60);
+    expect(etags).toHaveLength(3);
+
+    becomeVisible('hidden');
+    becomeVisible('visible');
+    await settle();
+    await resource.refresh();
+    expect(etags).toHaveLength(5);
+
+    open = true;
+    await resource.refresh();
+    await wait(10);
+    expect(etags).toHaveLength(7);
+  });
+
   it('fetches once on refresh without a screen and does not poll on', async () => {
     const { fetch, etags } = server(value('a'));
     resource = createPolledResource(fetch);
