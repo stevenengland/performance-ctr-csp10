@@ -38,6 +38,27 @@ export function formatDay(instant: Date, timeZone?: string): string {
   }).format(instant);
 }
 
+/** A day with its short weekday, without the year: `Sa., 14.11.`, in the browser's time zone unless one is given. */
+export function formatWeekdayDay(instant: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat('de-DE', {
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+    timeZone,
+  }).format(instant);
+}
+
+/** A day in full: `Montag, 16.11.2026`, in the browser's time zone unless one is given. */
+export function formatFullDay(instant: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat('de-DE', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone,
+  }).format(instant);
+}
+
 /** Game points can be negative: `−20` with a real minus sign, `0`, `35`. */
 export function formatSigned(value: number): string {
   return value < 0 ? `−${formatNumber(-value)}` : formatNumber(value);

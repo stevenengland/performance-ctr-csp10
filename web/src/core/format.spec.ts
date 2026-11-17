@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   formatDay,
   formatDecimalInput,
+  formatFullDay,
   formatMultiplier,
   formatNumber,
   formatPoints,
   formatSigned,
   formatTime,
+  formatWeekdayDay,
   parseDecimal,
 } from './format';
 
@@ -40,6 +42,15 @@ describe('de-DE formatting', () => {
     const instant = new Date('2026-09-14T22:30:00Z');
     expect(formatDay(instant, 'Europe/Berlin')).toBe('15.09.');
     expect(formatDay(instant, 'America/Mexico_City')).toBe('14.09.');
+  });
+
+  it('shows a day with its short weekday and without the year, and in full', () => {
+    const instant = new Date('2026-11-15T23:30:00Z');
+    expect(formatWeekdayDay(instant, 'Europe/Berlin')).toBe('Mo., 16.11.');
+    expect(formatFullDay(instant, 'Europe/Berlin')).toBe('Montag, 16.11.2026');
+    expect(formatFullDay(instant, 'America/Mexico_City')).toBe(
+      'Sonntag, 15.11.2026',
+    );
   });
 
   it('shows times as HH:mm in the given time zone', () => {

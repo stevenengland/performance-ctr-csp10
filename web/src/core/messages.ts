@@ -81,8 +81,22 @@ export const messages = {
     retry: 'Erneut versuchen',
     gone: 'Nicht mehr vorhanden',
   },
+  /** The period a ranking covers and the shared picker that chooses it (PRD #70). */
+  period: {
+    /** The switch's accessible name. */
+    label: 'Zeitraum',
+    kinds: { day: 'Tag', all: 'Gesamt', run: 'Aktuell' },
+    today: 'Heute',
+    yesterday: 'Gestern',
+    previousDay: 'Vorheriger Tag',
+    nextDay: 'Nächster Tag',
+  },
   rangliste: {
     noDrinks: 'Heute noch keine Getränke.',
+    /** A past day without any entry, counted or pending. */
+    noDrinksThatDay: 'An diesem Tag wurde nichts gezählt.',
+    /** All time without any entry. */
+    noDrinksEver: 'Noch keine Getränke.',
     /** The group of persons whose entries of today all wait for verification (§7f). */
     unranked: 'Noch nicht gewertet',
     count: 'Zählen',
