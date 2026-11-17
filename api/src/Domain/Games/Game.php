@@ -6,6 +6,7 @@ namespace Performance\Domain\Games;
 
 use DateTimeImmutable;
 use DateTimeZone;
+use Performance\Domain\Interval;
 
 /**
  * A game as created in the app. Each kind has one setting: a duel game whether draws count
@@ -45,5 +46,20 @@ final readonly class Game
             'run' => $this->run,
             'startedAt' => $this->startedAt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.v\Z'),
         ];
+    }
+
+    /**
+     * The SQL condition, without `WHERE`, that a match or result of this game lies in the
+     * selection, with its parameters in order: the current run by its number, an interval by
+     * the row's recording instant alone, whatever its run. `$prefix` qualifies the columns
+     * (`game_id`, `run`, `created_at`), e.g. `r.`.
+     *
+     * @return array{string, list<int|string>}
+     */
+    public function rowsIn(Interval|CurrentRun $selection, string $prefix = ''): array
+    {
+        return $selection instanceof Interval
+            ? ["{$prefix}game_id = ? AND " . $selection->condition("{$prefix}created_at"), [$this->id, ...$selection->parameters()]]
+            : ["{$prefix}game_id = ? AND {$prefix}run = ?", [$this->id, $this->run]];
     }
 }

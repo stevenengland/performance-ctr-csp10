@@ -8,8 +8,8 @@ use Performance\Tests\Support\DatabaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
- * Every windowed read takes `from` and an optional `to` alike: the same window is rejected
- * by each with the same problem.
+ * Every windowed read takes `from` and an optional `to` alike, and every read that offers all
+ * time takes `scope=all` alike: the same selection is rejected by each with the same problem.
  */
 final class IntervalQueryTest extends DatabaseTestCase
 {
@@ -22,6 +22,7 @@ final class IntervalQueryTest extends DatabaseTestCase
         parent::setUp();
         $this->session = $this->signIn();
         $this->send('POST', '/api/persons', ['name' => 'Daniel'], $this->session);
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $this->session);
     }
 
     /**
@@ -53,5 +54,34 @@ final class IntervalQueryTest extends DatabaseTestCase
         self::assertSame('application/problem+json', $scoreboard->getHeaderLine('Content-Type'));
         self::assertSame($errors, $this->body($scoreboard)['errors']);
         self::assertSame([422, (string) $scoreboard->getBody()], [$entries->getStatusCode(), (string) $entries->getBody()]);
+    }
+
+    /**
+     * Every invalid window but the empty query, which names the current run there, and every
+     * invalid scope.
+     *
+     * @return iterable<string, array{string, array<string, string>}>
+     */
+    public static function invalidSelections(): iterable
+    {
+        foreach (self::invalidWindows() as $name => $case) {
+            if ($case[0] !== '') {
+                yield $name => $case;
+            }
+        }
+        yield from ScoreboardTest::invalidScopes();
+    }
+
+    /**
+     * @param array<string, string> $errors
+     */
+    #[DataProvider('invalidSelections')]
+    public function testAGamesStandingsRejectAnInvalidWindowOrScopeWithTheScoreboardsProblem(string $selection, array $errors): void
+    {
+        $scoreboard = $this->send('GET', "/api/scoreboard?{$selection}", session: $this->session);
+        $standings = $this->send('GET', "/api/games/1/standings?{$selection}", session: $this->session);
+
+        self::assertSame($errors, $this->body($scoreboard)['errors']);
+        self::assertSame([422, (string) $scoreboard->getBody()], [$standings->getStatusCode(), (string) $standings->getBody()]);
     }
 }

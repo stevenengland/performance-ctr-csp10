@@ -17,6 +17,7 @@ use Performance\Domain\DatabaseError;
 use Performance\Domain\DataRevision;
 use Performance\Domain\GameDependents;
 use Performance\Domain\Idempotency;
+use Performance\Domain\Interval;
 use Performance\Domain\NotFound;
 use Performance\Domain\PendingResult;
 use Performance\Domain\PersonDependentCounts;
@@ -139,25 +140,28 @@ final readonly class Results implements GameDependents, PersonDependents
     }
 
     /**
-     * A points game's ranking in one run: every person with a verified result in it, by the
-     * sum of their points (the lowest first when `$lowerWins`, else the highest), then name,
-     * then id. Only verified results count (PRD #61); each person names their pending results
-     * in the run, and a person whose results in it all wait is listed apart, unranked: a total
-     * of nothing never leads a ladder, whichever way it runs and whatever the others' totals.
+     * A points game's ranking in its current run or an interval: every person with a verified
+     * result in it, by the sum of their points (the lowest first when the game's lower sum
+     * wins, else the highest), then name, then id. Across runs it accumulates: each verified
+     * result is one attempt, added to the sum and the count. Only verified results count
+     * (PRD #61); each person names their pending results in the selection, and a person whose
+     * results in it all wait is listed apart, unranked: a total of nothing never leads a
+     * ladder, whichever way it runs and whatever the others' totals.
      *
      * @return Standings<PointsRow>
      */
-    public function standings(int $gameId, int $run, bool $lowerWins): Standings
+    public function standings(Game $game, Interval|CurrentRun $selection): Standings
     {
-        $direction = $lowerWins ? 'ASC' : 'DESC';
+        $direction = $game->lowerWins ? 'ASC' : 'DESC';
+        [$condition, $parameters] = $game->rowsIn($selection, 'r.');
         $statement = $this->pdo->prepare(
             "SELECT p.id, p.name, SUM(IF(r.pending = 0, r.points, 0)) AS total, SUM(r.pending = 0) AS results, SUM(r.pending = 1) AS pending_results
              FROM " . self::RANKED . "
-             WHERE r.game_id = ? AND r.run = ?
+             WHERE {$condition}
              GROUP BY p.id, p.name
              ORDER BY SUM(r.pending = 0) = 0, SUM(IF(r.pending = 0, r.points, 0)) {$direction}, p.name, p.id",
         );
-        $statement->execute([$gameId, $run]);
+        $statement->execute($parameters);
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
         $ranked = [];

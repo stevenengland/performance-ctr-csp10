@@ -16,6 +16,7 @@ use Performance\Domain\DatabaseError;
 use Performance\Domain\DataRevision;
 use Performance\Domain\GameDependents;
 use Performance\Domain\Idempotency;
+use Performance\Domain\Interval;
 use Performance\Domain\NotFound;
 use Performance\Domain\PendingMatch;
 use Performance\Domain\PersonDependentCounts;
@@ -146,27 +147,29 @@ final readonly class Matches implements GameDependents, PersonDependents
     }
 
     /**
-     * A duel game's ranking in one run: every person with a verified match in it, by points
-     * (win 1, draw ½, loss 0), then wins, then name, then id. Only verified matches count
-     * (PRD #61); each person names their pending matches in the run, and a person whose matches
-     * in it all wait is listed apart, unranked. It is computed from each match's stored
-     * outcome, so a side that was cleared (a deleted person) counts for no one and never
-     * changes the other side's result.
+     * A duel game's ranking in its current run or an interval: every person with a verified
+     * match in it, by points (win 1, draw ½, loss 0), then wins, then name, then id. Across
+     * runs it simply accumulates: each verified match adds its result to both its players once.
+     * Only verified matches count (PRD #61); each person names their pending matches in the
+     * selection, and a person whose matches in it all wait is listed apart, unranked. It is
+     * computed from each match's stored outcome, so a side that was cleared (a deleted person)
+     * counts for no one and never changes the other side's result.
      *
      * @return Standings<DuelRow>
      */
-    public function standings(int $gameId, int $run): Standings
+    public function standings(Game $game, Interval|CurrentRun $selection): Standings
     {
+        [$condition, $parameters] = $game->rowsIn($selection);
         $statement = $this->pdo->prepare(
             "SELECT p.id, p.name,
                     SUM(IF(r.pending = 0, CASE r.result WHEN 'win' THEN 1 WHEN 'draw' THEN 0.5 ELSE 0 END, 0)) AS points,
                     SUM(r.pending = 0 AND r.result = 'win') AS wins, SUM(r.pending = 0 AND r.result = 'draw') AS draws,
                     SUM(r.pending = 0 AND r.result = 'loss') AS losses, SUM(r.pending = 0) AS played, SUM(r.pending = 1) AS pending_matches
-             FROM " . self::sides('game_id = ? AND run = ?') . "
+             FROM " . self::sides($condition) . "
              GROUP BY p.id, p.name
              ORDER BY SUM(r.pending = 0) = 0, points DESC, wins DESC, p.name, p.id",
         );
-        $statement->execute([$gameId, $run, $gameId, $run]);
+        $statement->execute([...$parameters, ...$parameters]);
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
         $ranked = [];

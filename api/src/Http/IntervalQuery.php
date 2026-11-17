@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Performance\Http;
 
+use Performance\Domain\Games\CurrentRun;
 use Performance\Domain\Interval;
 use Performance\Domain\ValidationFailed;
 use Psr\Http\Message\ServerRequestInterface;
@@ -50,6 +51,23 @@ final class IntervalQuery
         }
 
         return Interval::allTime();
+    }
+
+    /**
+     * The current run without `from`, `to` and `scope`, else a window or all time, as a game's
+     * standings take it: whatever names a period is checked as the scoreboard checks it.
+     *
+     * @throws ValidationFailed as windowOrAllTime()
+     */
+    public static function windowAllTimeOrCurrentRun(ServerRequestInterface $request): Interval|CurrentRun
+    {
+        foreach (['from', 'to', 'scope'] as $name) {
+            if (Query::text($request, $name) !== null) {
+                return self::windowOrAllTime($request);
+            }
+        }
+
+        return new CurrentRun();
     }
 
     /**

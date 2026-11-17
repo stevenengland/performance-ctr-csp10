@@ -4,20 +4,24 @@ declare(strict_types=1);
 
 namespace Performance\Http;
 
+use Performance\Domain\Games\CurrentRun;
 use Performance\Domain\Games\DuelRow;
 use Performance\Domain\Games\Game;
 use Performance\Domain\Games\GameKind;
 use Performance\Domain\Games\PointsRow;
 use Performance\Domain\Games\Standings;
 use Performance\Domain\Games\UnrankedPlayer;
+use Performance\Domain\Interval;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * `GET /api/games/{id}/standings`: the game's ranking in its current run, tagged with its kind.
- * The game, the data revision and the ranking are read in one snapshot, so the ETag (the
- * revision) always names what is sent, and `If-None-Match` with an unchanged revision answers
- * 304 before anything is ranked.
+ * `GET /api/games/{id}/standings`: the game's ranking in its current run, or with
+ * `from=<instant>[&to=<instant>]` or `scope=all` over every match or result recorded in that
+ * interval, whatever its run; tagged with its kind. The query is normalised into one selection
+ * before anything is read. The game, the data revision and the ranking are read in one
+ * snapshot, so the ETag (the revision, and the interval when there is one) always names what
+ * is sent, and `If-None-Match` with an unchanged tag answers 304 before anything is ranked.
  */
 final readonly class StandingsAction
 {
@@ -29,33 +33,42 @@ final readonly class StandingsAction
     public function __invoke(ServerRequestInterface $request, ResponseInterface $response, array $arguments): ResponseInterface
     {
         $database = $this->database;
+        $selection = IntervalQuery::windowAllTimeOrCurrentRun($request);
 
-        return $database->snapshot()->read(static function () use ($database, $request, $response, $arguments): ResponseInterface {
+        return $database->snapshot()->read(static function () use ($database, $selection, $request, $response, $arguments): ResponseInterface {
             $game = $database->games()->game((int) $arguments['id']);
 
             return ConditionalGet::respond(
                 $request,
                 $response,
-                sprintf('"%d"', $database->revision()->current()),
-                static fn(ResponseInterface $response): ResponseInterface => Json::write($response, self::standings($database, $game)),
+                self::tag($database->revision()->current(), $selection),
+                static fn(ResponseInterface $response): ResponseInterface => Json::write($response, self::standings($database, $game, $selection)),
             );
         });
+    }
+
+    /** The current run's tag is the bare revision, as before; an interval adds its own part. */
+    private static function tag(int $revision, Interval|CurrentRun $selection): string
+    {
+        return $selection instanceof Interval
+            ? sprintf('"%d-%s"', $revision, IntervalQuery::tag($selection))
+            : sprintf('"%d"', $revision);
     }
 
     /**
      * @return array<string, mixed>
      */
-    private static function standings(Database $database, Game $game): array
+    private static function standings(Database $database, Game $game, Interval|CurrentRun $selection): array
     {
         return match ($game->kind) {
-            GameKind::Duel => self::duel($game, $database->matches()->standings($game->id, $game->run)),
-            GameKind::Points => self::points($game, $database->results()->standings($game->id, $game->run, $game->lowerWins)),
+            GameKind::Duel => self::duel($game, $database->matches()->standings($game, $selection)),
+            GameKind::Points => self::points($game, $database->results()->standings($game, $selection)),
         };
     }
 
     /**
-     * The duel ranking: the ranked `rows` and the `unranked` persons whose matches in the run
-     * all wait for verification (PRD #61).
+     * The duel ranking: the ranked `rows` and the `unranked` persons whose matches in the
+     * selection all wait for verification (PRD #61).
      *
      * @param Standings<DuelRow> $standings
      *
@@ -73,7 +86,7 @@ final readonly class StandingsAction
 
     /**
      * The points ranking in the game's direction: the ranked `rows` and the `unranked` persons
-     * whose results in the run all wait for verification (PRD #61).
+     * whose results in the selection all wait for verification (PRD #61).
      *
      * @param Standings<PointsRow> $standings
      *
