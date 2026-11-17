@@ -58,9 +58,9 @@ test('the preview menu offers the update prompt and the reload floor', async ({
 });
 
 test('the preview marker covers no control of any screen', async ({ page }) => {
-  // Each screen is awaited by its own title and then by a control of its own: the
-  // Rangliste has links and no buttons, so waiting for "a button" only ever passed
-  // while the previous screen was still on the page.
+  // Each screen is awaited by its own title and then by a control of its own:
+  // waiting for "a button" alone could pass while the previous screen was still on
+  // the page.
   for (const [screen, title] of [
     ['konto', 'Konto'],
     ['rangliste', 'Rangliste'],
@@ -192,6 +192,56 @@ test('the fixture preview ranks its sample evening on the Rangliste', async ({
   await expect(
     page.getByRole('list', { name: 'Noch nicht gewertet' }).getByRole('link'),
   ).toHaveAccessibleName('Jule, Aperol 1 · Bier 2, +2 offen');
+});
+
+test('the fixture preview ranks its earlier evenings: yesterday, an empty day, a day whose entries all wait, and Gesamt', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/rangliste');
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  const places = page
+    .getByRole('list', { name: 'Rangliste' })
+    .getByRole('link');
+  const unranked = page
+    .getByRole('list', { name: 'Noch nicht gewertet' })
+    .getByRole('link');
+  const switcher = page.getByRole('group', { name: 'Zeitraum' });
+  const previous = page.getByRole('button', { name: 'Vorheriger Tag' });
+  await expect(switcher.getByRole('button', { name: 'Tag' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(context).toHaveText('Heute');
+  await expect(
+    page.getByRole('button', { name: 'Nächster Tag' }),
+  ).toBeDisabled();
+
+  await previous.click();
+  await expect(page.getByText('Gestern', { exact: true })).toBeVisible();
+  await expect(context).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+  await expect(places).toHaveCount(5);
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Anna, 4 Punkte, 2 Getränke, +1 offen',
+  );
+
+  await previous.click();
+  await expect(
+    page.getByText('An diesem Tag wurde nichts gezählt.'),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Zählen' })).toHaveCount(1);
+
+  await previous.click();
+  await expect(places).toHaveCount(0);
+  await expect(unranked).toHaveCount(2);
+  await expect(unranked.first()).toHaveAccessibleName('Ben, Wein 1, +1 offen');
+
+  await switcher.getByRole('button', { name: 'Gesamt' }).click();
+  await expect(context).toHaveText('Gesamt');
+  await expect(previous).toHaveCount(0);
+  await expect(places).toHaveCount(6);
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Daniel, 28 Punkte, 18 Getränke',
+  );
 });
 
 test('the fixture preview lists what anna may verify under Offen with its badge; Bestätigen lets it count, Ablehnen removes it', async ({
