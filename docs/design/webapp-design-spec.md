@@ -222,7 +222,8 @@ All user-visible text lives in one German messages module; all formatting goes t
 | Start of a game's run | `seit dd.MM.`, or `seit heute, HH:mm` when it lies after local midnight; browser time zone; turns into the date at the next local midnight, or when the screen is shown or focused again after it | `seit 15.09.`, `seit heute, 19:30` |
 | Day heading (Protokoll) | `Heute`, `Gestern`, else short weekday and date, browser time zone | `Sa., 14.11.2026` |
 | Day in the period bar (§7f) | `Heute`, `Gestern`, else short weekday and date without the year, a local calendar day | `Sa., 14.11.` |
-| Period in the top bar (§7f) | `Heute`, else the weekday and date in full; `Gesamt` | `Montag, 16.11.2026` |
+| Week in the period bar (§7f) | `Diese Woche`, `Letzte Woche`, else `KW` with the ISO week number and the Monday and Sunday without the year | `KW 45 · 02.11.–08.11.` |
+| Period in the top bar (§7f) | `Heute`, else the weekday and date in full; a week by its number and days, the current one too; `Gesamt` | `Montag, 16.11.2026`, `KW 47 · 16.11.–22.11.` |
 | Changed value (Protokoll) | `<label>: <before> → <after>` | `Punkte: 1 Punkt → 0,5 Punkte` |
 
 Inputs accept a decimal comma or point (`0,5` and `0.5`).
@@ -394,7 +395,7 @@ or a new day is dropped. After a failure it retries after 5, 10, 20, 40, then ev
 The Rangliste's other periods (§7f) are read by a *period resource*
 (`core/period-resource.ts`, the drinks instance in `core/period-scoreboard.ts`): one polled
 resource for the period shown, forgotten with its ETag when another period is shown, polled
-only while the period contains the present (`Gesamt`), otherwise read on show, focus,
+only while the period contains the present (the current week, `Gesamt`), otherwise read on show, focus,
 visibility and after the device's own writes (`refreshScoreboard` refreshes both).
 
 The mechanism is a keyed *polled resource* (`core/polled-resource.ts`): the drink feed is one
@@ -557,10 +558,11 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 ### 7f. Rangliste `/rangliste`
 
 - Title `Rangliste` with the context line naming the period shown (§6.1): `Heute`, a past day
-  in full (`Montag, 16.11.2026`) or `Gesamt`, so a screenshot of a ranking is unambiguous.
+  in full (`Montag, 16.11.2026`), a week by its number and days (`KW 47 · 16.11.–22.11.`, the
+  current week too) or `Gesamt`, so a screenshot of a ranking is unambiguous.
 - **Period picker** (PRD #70; `components/PeriodPicker.vue`, the one shared picker — pages pass
   the kinds they offer and never build their own switch) at the top of the content:
-  - **Segmented switch** `Tag` | `Gesamt`, a `group` named `Zeitraum` of buttons with
+  - **Segmented switch** `Tag` | `Woche` | `Gesamt`, a `group` named `Zeitraum` of buttons with
     `aria-pressed`: 1 dp `outline` border, corner 10 dp, each option at least 44 dp high in
     `label`, separated by `outline` hairlines; the selected option in `secondary-container` /
     `on-secondary-container` (the amber `primary-container` stays the leader card's). The
@@ -570,21 +572,31 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     weekday and date `Sa., 14.11.` (announced politely when it changes) — and an icon button
     `Nächster Tag` (chevron right), disabled on today: stepping never passes today. The day's
     label is where the calendar dialog `Tag wählen` will open (a later slice).
+  - **Week bar** under `Woche`: the same bar, stepping one week with `Vorherige Woche` and
+    `Nächste Woche`; the middle names the week — `Diese Woche`, `Letzte Woche`, otherwise
+    `KW 45 · 02.11.–08.11.` — and `Nächste Woche` is disabled on the current week. `Tag` and
+    `Woche` share the day shown last: `Woche` shows that day's week (the current week when no
+    day was shown), and `Tag` returns to that day, or to the Monday of a week stepped to.
   - **`Gesamt`** has no bar; a 12 dp gap stands in its place.
   - The chosen period is kept while the app runs, so returning from a person's Verlauf shows it
     again; a fresh start opens on today. Today is followed across midnight (a Rangliste left on
     `Heute` shows the new day); a past day is held as its local calendar date, so after
-    midnight, a resume or a time-zone change it stays the same day, its window rebuilt.
+    midnight, a resume or a time-zone change it stays the same day, its window rebuilt. A week
+    is held as its Monday, a local calendar date, in the same way; a week left open past Sunday
+    midnight stays that week (then `Letzte Woche`).
 - **What a period ranks.** A day is the local calendar day `[00:00, next 00:00)` in the viewer's
-  time zone (23 or 25 hours when the clocks change), sent as UTC instants `from` and `to`;
+  time zone (23 or 25 hours when the clocks change), sent as UTC instants `from` and `to`. A
+  week is an ISO 8601 week, Monday to Sunday, numbered by the Thursday rule (29.12.2025 is in
+  KW 1 of 2026): `[Monday 00:00, next Monday 00:00)` local, built by adding seven calendar days
+  (167 or 169 hours when the clocks change); the current week's `to` only delimits the query.
   `Gesamt` ranks every entry ever recorded, read with `scope=all` (no date stands for all time).
   An entry belongs to the day it was recorded on, whenever it was verified. Past periods are
   computed like today: each drink's current points and each factor's current multiplier, so
   editing a drink's points changes old rankings too.
 - **Where the data comes from.** Today comes from the shared scoreboard feed (§6.6), which also
-  serves Zählen and stays live; another day and `Gesamt` are separate reads, so choosing them
-  never changes what Zählen shows. `Gesamt` contains the present and is polled like today; a
-  past day is read when shown, on focus, when the page becomes visible and after the device's
+  serves Zählen and stays live; another day, a week and `Gesamt` are separate reads, so choosing
+  them never changes what Zählen shows. The current week and `Gesamt` contain the present and
+  are polled like today; a past day or week is read when shown, on focus, when the page becomes visible and after the device's
   own writes, and is not polled. Data and ETags are kept per period: an answer for a period no
   longer shown is dropped, and an ETag is only sent with the period it came from.
 - Persons with verified entries in the period, ranked by score (ties by name); score, total
@@ -626,8 +638,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   it has loaded when the connection drops (best effort; reopening the app offline is not
   promised). A photo changed on another phone shows with the next refresh.
 - Empty (no ranked and no unranked person): today `Heute noch keine Getränke.` + button
-  `Zählen` → `/zaehlen`; a past day `An diesem Tag wurde nichts gezählt.` and `Gesamt`
-  `Noch keine Getränke.`, both without a button — only today's empty state offers `Zählen`.
+  `Zählen` → `/zaehlen`; a past day `An diesem Tag wurde nichts gezählt.`, a week (the current
+  one too) `In dieser Woche wurde nichts gezählt.` and `Gesamt` `Noch keine Getränke.`, all
+  without a button — only today's empty state offers `Zählen`.
 - Stale indicator (§6.6) in the top app bar, for whichever period is shown.
 
 ### 7g. Verlauf `/verlauf/:personId`
@@ -1201,7 +1214,7 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 | Anzahl | scoreboard feed, `PUT /api/entries/{uuid}` | Booked count from the feed (`recordedCount`, pending entries included); saves while no factors exist |
 | Faktor | `GET /api/factors`, `PUT /api/entries/{uuid}` | Choice saves |
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
-| Rangliste | `GET /api/scoreboard?from=` (today), `?from=&to=` (a past day), `?scope=all` (`Gesamt`) (ETag, `If-None-Match` → 304) | Today's feed polls every 10 s while visible, as does `Gesamt`; a past day is read on show, focus and after own writes; ETag = data revision + selection (`"<rev>-<fromMs>"`, `"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`). `rows` rank verified entries (`score`, `count`, each drink's `count`) with `pendingCount`; each drink also has `recordedCount`; `unranked` lists persons whose entries all wait |
+| Rangliste | `GET /api/scoreboard?from=` (today), `?from=&to=` (a past day, a week), `?scope=all` (`Gesamt`) (ETag, `If-None-Match` → 304) | Today's feed polls every 10 s while visible, as do the current week and `Gesamt`; a past day or week is read on show, focus and after own writes; ETag = data revision + selection (`"<rev>-<fromMs>"`, `"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`). `rows` rank verified entries (`score`, `count`, each drink's `count`) with `pendingCount`; each drink also has `recordedCount`; `unranked` lists persons whose entries all wait |
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt`, `accountName` (or `null`) and `pending`; 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count (a person also `matchCount` and `resultCount`); `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Personen (photo) | `PUT /api/persons/{id}/photo`, `DELETE /api/persons/{id}/photo` | Any member, any person; never a field of the person `PATCH`. `PUT` body `{image}`: base64 of a 256 × 256 JPEG of at most 64 KiB; answers the person (200). A body over 96 KiB is 413 `Foto zu groß.`, an invalid photo 422 on `image`. `DELETE` is 204, also without a photo. The same photo again and removing none change nothing |
@@ -1221,7 +1234,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 
 `from` is local midnight of the current day in the browser's time zone, as a UTC instant, except
 where a screen shows another period: a past day sends its own local midnight as `from` and the
-next one as `to` (half-open), `Gesamt` sends `scope=all` instead of both.
+next one as `to` (half-open), a week its Monday's local midnight and the next Monday's, `Gesamt`
+sends `scope=all` instead of both.
 
 ## 12. Fixture preview
 
