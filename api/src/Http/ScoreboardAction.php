@@ -13,10 +13,11 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * `GET /api/scoreboard?from=<instant>`: the standings since `from`, the start of the viewer's day:
+ * `GET /api/scoreboard?from=<instant>[&to=<instant>]` or `?scope=all`: the standings in the
+ * window `[from, to)` (from the start of the viewer's day when there is no end) or of all time:
  * the ranked `rows` and the `unranked` persons whose entries all wait for verification.
- * The ETag names the data revision and the window, so `If-None-Match` with an
- * unchanged revision answers 304 before anything is aggregated. The revision and
+ * The ETag names the data revision and the selection, so `If-None-Match` with an
+ * unchanged revision and the same selection answers 304 before anything is aggregated. The revision and
  * the standings are read in one snapshot, so the tag always names what is sent.
  */
 final readonly class ScoreboardAction

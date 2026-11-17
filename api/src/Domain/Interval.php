@@ -39,11 +39,6 @@ final readonly class Interval
         return new self(null, null);
     }
 
-    public function isAllTime(): bool
-    {
-        return $this->from === null;
-    }
-
     /**
      * The SQL condition that a row's recording instant in `$column` lies in the interval,
      * without `WHERE`; its placeholders take `parameters()`, in order.
