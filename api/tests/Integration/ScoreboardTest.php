@@ -58,6 +58,29 @@ final class ScoreboardTest extends DatabaseTestCase
         );
     }
 
+    /**
+     * Installed clients send only `from`: their answer, body and ETag, is pinned byte for byte
+     * as it was before windows had an end.
+     */
+    public function testARequestWithOnlyFromAnswersByteForByteAsBeforeWindowsHadAnEnd(): void
+    {
+        $this->add(3, 1, 1);
+        $this->clock->advance('PT4H'); // 2026-11-15 00:00 UTC
+        $this->add(1, 1, 2, 1);
+        $this->add(1, 2, 1);
+        $this->record(1, 1, 1);
+        $this->record(2, 2, 3);
+
+        $response = $this->scoreboard(from: '2026-11-14T23:00:00.000Z');
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('"11-1794697200000"', $response->getHeaderLine('ETag'));
+        self::assertSame(
+            '{"rows":[{"personId":1,"name":"Daniel","photoUrl":null,"score":6.5,"count":5,"pendingCount":1,"drinks":[{"drinkId":2,"name":"Aperol","count":1,"recordedCount":1},{"drinkId":1,"name":"Bier","count":4,"recordedCount":5}]}],"unranked":[{"personId":2,"name":"Anna","photoUrl":null,"pendingCount":1,"drinks":[{"drinkId":2,"name":"Aperol","count":0,"recordedCount":3}]}]}',
+            (string) $response->getBody(),
+        );
+    }
+
     public function testARecordedEntryWaitsForVerificationAndCountsNeitherInScoreNorCount(): void
     {
         $this->add(1, 1, 2);
