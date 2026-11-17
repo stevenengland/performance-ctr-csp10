@@ -136,6 +136,9 @@ a day runs from its local midnight to the next one, so it has 23 or 25 hours on
 the days the clocks change.
 */
 export function queryOf(
+  period: Extract<Period, { kind: 'day' | 'week' }>,
+): Extract<PeriodQuery, { from: string }>;
+export function queryOf(
   period: Exclude<Period, { kind: 'run' }>,
 ): Exclude<PeriodQuery, Record<string, never>>;
 export function queryOf(period: Period): PeriodQuery;

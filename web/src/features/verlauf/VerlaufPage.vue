@@ -42,7 +42,7 @@ const router = useRouter();
 const route = useRoute();
 const today = useToday();
 const todayDate = computed(() => calendarDateOf(today.value));
-const day = computed<Period>(() => ({
+const day = computed<Extract<Period, { kind: 'day' }>>(() => ({
   kind: 'day',
   date: dayOfTag(route.query.tag, todayDate.value),
 }));
