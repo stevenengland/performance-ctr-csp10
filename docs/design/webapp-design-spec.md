@@ -224,6 +224,8 @@ All user-visible text lives in one German messages module; all formatting goes t
 | Day in the period bar (§7f) | `Heute`, `Gestern`, else short weekday and date without the year, a local calendar day | `Sa., 14.11.` |
 | Week in the period bar (§7f) | `Diese Woche`, `Letzte Woche`, else `KW` with the ISO week number and the Monday and Sunday without the year | `KW 45 · 02.11.–08.11.` |
 | Period in the top bar (§7f) | `Heute`, else the weekday and date in full; a week by its number and days, the current one too; `Gesamt` | `Montag, 16.11.2026`, `KW 47 · 16.11.–22.11.` |
+| Calendar (§7f) | month with its year; a day by its weekday, day and month name | `November 2026`, `Freitag, 13. November` |
+| `Gesamt` line (§7f) | `Alle Tage seit` the first day with its year `·` the number of days | `Alle Tage seit 27.10.2026 · 15 Abende`, `· 1 Abend` |
 | Changed value (Protokoll) | `<label>: <before> → <after>` | `Punkte: 1 Punkt → 0,5 Punkte` |
 
 Inputs accept a decimal comma or point (`0,5` and `0.5`).
@@ -570,14 +572,37 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   - **Day bar** under `Tag`: an icon button `Vorheriger Tag` (chevron left), in the middle the
     calendar icon (20 dp) with the day in `row-title` — `Heute`, `Gestern`, otherwise the short
     weekday and date `Sa., 14.11.` (announced politely when it changes) — and an icon button
-    `Nächster Tag` (chevron right), disabled on today: stepping never passes today. The day's
-    label is where the calendar dialog `Tag wählen` will open (a later slice).
+    `Nächster Tag` (chevron right), disabled on today: stepping never passes today. The middle
+    is a button named `Tag wählen: Gestern` (corner 10 dp, focus ring in `primary`) that opens
+    the calendar dialog `Tag wählen`.
   - **Week bar** under `Woche`: the same bar, stepping one week with `Vorherige Woche` and
     `Nächste Woche`; the middle names the week — `Diese Woche`, `Letzte Woche`, otherwise
     `KW 45 · 02.11.–08.11.` — and `Nächste Woche` is disabled on the current week. `Tag` and
     `Woche` share the day shown last: `Woche` shows that day's week (the current week when no
     day was shown), and `Tag` returns to that day, or to the Monday of a week stepped to.
-  - **`Gesamt`** has no bar; a 12 dp gap stands in its place.
+  - **Calendar dialog `Tag wählen`** (`components/DayCalendar.vue` in the dialog of §6.9's
+    shape), opened from the bar's middle under `Tag` and `Woche`: a head with icon buttons
+    `Vorheriger Monat` / `Nächster Monat` (comfortable density) around the month in `row-title`
+    (`November 2026`, announced politely), the weekday heads `Mo` … `So` in `caption`
+    (`on-surface-variant`, hidden from screen readers) and the month's days, Monday first, in a
+    seven-column grid: round 40 dp buttons with the day number (Text 600, 15 dp, tabular
+    figures), each named by its weekday and date (`Freitag, 13. November`). Today is outlined
+    (1.5 dp `outline` ring); the day shown (under `Woche` the day shown last, the week's Monday
+    until one was) is filled in `primary` / `on-primary` and `aria-pressed`; days after today are
+    disabled (40 % `on-surface-variant`); a day with entries that count carries a 5 dp dot in
+    `primary` (`on-primary` on the filled day). The dialog opens on the shown day's month; it
+    browses back freely, never past the current month. Picking a day closes the dialog and
+    shows that day, or its week under `Woche`. Actions: `Abbrechen` (text) closes it unchanged,
+    `Heute` (filled `primary`) shows today (under `Woche` the current week) and closes it.
+  - **Dots** come from `GET /api/scoreboard/days`: the start instants of the 15-minute UTC
+    buckets with an entry that counts, which the client buckets into the viewer's local days
+    (every UTC offset is a multiple of 15 minutes). A dot means "something counted here": a day
+    whose entries all wait has none, although its ranking shows the unranked group.
+  - **`Gesamt`** has no bar; in its place a line in `support` (`on-surface-variant`, margin
+    12 / 4 / 10 dp) says since when and over how many evenings it counts, from the same days:
+    `Alle Tage seit 27.10.2026 · 15 Abende` (`1 Abend`) — the first day with a dot and the
+    number of days with one. Until a day counts (or while the days are not read yet), a 12 dp
+    gap stands in its place.
   - The chosen period is kept while the app runs, so returning from a person's Verlauf shows it
     again; a fresh start opens on today. Today is followed across midnight (a Rangliste left on
     `Heute` shows the new day); a past day is held as its local calendar date, so after
@@ -598,7 +623,10 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   them never changes what Zählen shows. The current week and `Gesamt` contain the present and
   are polled like today; a past day or week is read when shown, on focus, when the page becomes visible and after the device's
   own writes, and is not polled. Data and ETags are kept per period: an answer for a period no
-  longer shown is dropped, and an ETag is only sent with the period it came from.
+  longer shown is dropped, and an ETag is only sent with the period it came from. The days read
+  runs only while the calendar is open or `Gesamt` is shown: read then, on focus, when the page
+  becomes visible and after the device's own writes, on condition of its ETag (the bare data
+  revision), and not polled; the days last read show at once when the calendar opens again.
 - Persons with verified entries in the period, ranked by score (ties by name); score, total
   count and per-drink counters count verified entries only:
   - **Rank 1 — leader card:** `primary-container`, corner 18 dp. On the left the avatar
@@ -1214,7 +1242,7 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 | Anzahl | scoreboard feed, `PUT /api/entries/{uuid}` | Booked count from the feed (`recordedCount`, pending entries included); saves while no factors exist |
 | Faktor | `GET /api/factors`, `PUT /api/entries/{uuid}` | Choice saves |
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
-| Rangliste | `GET /api/scoreboard?from=` (today), `?from=&to=` (a past day, a week), `?scope=all` (`Gesamt`) (ETag, `If-None-Match` → 304) | Today's feed polls every 10 s while visible, as do the current week and `Gesamt`; a past day or week is read on show, focus and after own writes; ETag = data revision + selection (`"<rev>-<fromMs>"`, `"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`). `rows` rank verified entries (`score`, `count`, each drink's `count`) with `pendingCount`; each drink also has `recordedCount`; `unranked` lists persons whose entries all wait |
+| Rangliste | `GET /api/scoreboard?from=` (today), `?from=&to=` (a past day, a week), `?scope=all` (`Gesamt`) (ETag, `If-None-Match` → 304); `GET /api/scoreboard/days` (calendar dots, `Gesamt` line; ETag `"<rev>"`) | Today's feed polls every 10 s while visible, as do the current week and `Gesamt`; a past day or week is read on show, focus and after own writes; ETag = data revision + selection (`"<rev>-<fromMs>"`, `"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`). `rows` rank verified entries (`score`, `count`, each drink's `count`) with `pendingCount`; each drink also has `recordedCount`; `unranked` lists persons whose entries all wait |
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt`, `accountName` (or `null`) and `pending`; 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count (a person also `matchCount` and `resultCount`); `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Personen (photo) | `PUT /api/persons/{id}/photo`, `DELETE /api/persons/{id}/photo` | Any member, any person; never a field of the person `PATCH`. `PUT` body `{image}`: base64 of a 256 × 256 JPEG of at most 64 KiB; answers the person (200). A body over 96 KiB is 413 `Foto zu groß.`, an invalid photo 422 on `image`. `DELETE` is 204, also without a photo. The same photo again and removing none change nothing |
@@ -1252,7 +1280,12 @@ the shareable page a UI change is reviewed on before it reaches the host.
 - **Windows.** The fixture backend takes `from`, `to` and `scope=all` on the scoreboard (and
   `from`/`to` on the entry list) like the API's `IntervalQuery`, rejects the same invalid windows
   with the same problems and tags each selection like the API; its specs
-  (`web/preview/fixtureInterval.spec.ts`) run the API integration tests' cases.
+  (`web/preview/fixtureInterval.spec.ts`) run the API integration tests' cases. It answers
+  `GET /api/scoreboard/days` like the API's `QuarterHours` (verified entries of persons and
+  drinks that still exist, 15-minute UTC buckets, ETag `"<rev>"`), its spec
+  (`web/preview/fixtureDays.spec.ts`) running `ScoreboardDaysTest`'s cases; the sample's
+  calendar dots today, yesterday and the evenings four, seven and nine days back, and `Gesamt`
+  reads `Alle Tage seit … · 5 Abende`.
 - **Behaviour.** The fixture backend starts signed in as the admin `anna` (the sample
   accounts `anna`, `ben`, `daniel`, `mara` sign in with `beispiel-passwort`), serves a sample evening
   (marked as sample data: persons, drinks, factors and entries timed relative to now, so the
