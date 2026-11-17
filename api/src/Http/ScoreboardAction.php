@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Performance\Http;
 
-use DateTimeImmutable;
 use Performance\Domain\DrinkCount;
 use Performance\Domain\DrinkStandings;
+use Performance\Domain\Interval;
 use Performance\Domain\ScoreRow;
 use Performance\Domain\UnrankedRow;
 use Psr\Http\Message\ResponseInterface;
@@ -25,8 +25,7 @@ final readonly class ScoreboardAction
 
     public function __invoke(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
-        parse_str($request->getUri()->getQuery(), $query);
-        $from = Instant::parse('from', is_string($query['from'] ?? null) ? $query['from'] : '');
+        $interval = IntervalQuery::window($request);
         $scoreboard = $this->database->scoreboard();
         $photoUrl = $this->photoUrl;
 
@@ -35,15 +34,15 @@ final readonly class ScoreboardAction
         return $this->database->snapshot()->read(static fn(): ResponseInterface => ConditionalGet::respond(
             $request,
             $response,
-            self::tag($scoreboard->revision(), $from),
-            static fn(ResponseInterface $response): ResponseInterface => Json::write($response, self::standings($scoreboard->since($from), $photoUrl)),
+            self::tag($scoreboard->revision(), $interval),
+            static fn(ResponseInterface $response): ResponseInterface => Json::write($response, self::standings($scoreboard->in($interval), $photoUrl)),
         ));
     }
 
-    /** The window is part of the tag: the same revision means other standings for another day. */
-    private static function tag(int $revision, DateTimeImmutable $from): string
+    /** The interval is part of the tag: the same revision means other standings for another day. */
+    private static function tag(int $revision, Interval $interval): string
     {
-        return sprintf('"%d-%s"', $revision, $from->format('Uv'));
+        return sprintf('"%d-%s"', $revision, IntervalQuery::tag($interval));
     }
 
     /**

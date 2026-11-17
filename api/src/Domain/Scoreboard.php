@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 namespace Performance\Domain;
 
-use DateTimeImmutable;
 use PDO;
 
 /**
- * The read model and single owner of aggregation: for every person with entries since `from`,
+ * The read model and single owner of aggregation: for every person with entries in an Interval,
  * the score (Σ quantity × multiplier × points), the count (Σ quantity × multiplier) and the
  * per-drink counters, ranked by score, ties by name, with the version of the person's photo
  * (never its bytes). The multiplier is the factor's current one, 1 without a factor.
@@ -18,7 +17,7 @@ use PDO;
  * flow shows, and each person names the number of their pending entries. A person whose
  * entries all wait has no rank: they are listed apart, unranked.
  *
- * Its version is the data revision: while that stays, the standings for any `from` stay too.
+ * Its version is the data revision: while that stays, the standings for any interval stay too.
  */
 final readonly class Scoreboard
 {
@@ -35,13 +34,12 @@ final readonly class Scoreboard
         return $this->revision->current();
     }
 
-    public function since(DateTimeImmutable $from): DrinkStandings
+    public function in(Interval $interval): DrinkStandings
     {
-        $since = Timestamp::of($from);
-        $drinks = $this->drinkCounts($since);
+        $drinks = $this->drinkCounts($interval);
         $rows = [];
         $unranked = [];
-        foreach ($this->persons($since) as $row) {
+        foreach ($this->persons($interval) as $row) {
             $id = (int) $row['id'];
             $photoVersion = $row['photo_version'] === null ? null : (string) $row['photo_version'];
             if ((int) $row['verified_entries'] === 0) {
@@ -55,12 +53,12 @@ final readonly class Scoreboard
     }
 
     /**
-     * Every person with entries since `$since`: ranked ones first, by score, ties by name; then
+     * Every person with entries in the interval: ranked ones first, by score, ties by name; then
      * those without a verified entry, by name.
      *
      * @return list<array<string, scalar|null>>
      */
-    private function persons(string $since): array
+    private function persons(Interval $interval): array
     {
         return $this->rows(
             'SELECT p.id, p.name, ph.version AS photo_version,
@@ -71,19 +69,19 @@ final readonly class Scoreboard
              FROM entries e JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
              LEFT JOIN factors f ON f.id = e.factor_id
              LEFT JOIN person_photos ph ON ph.person_id = p.id
-             WHERE e.created_at >= ?
+             WHERE ' . $interval->condition('e.created_at') . '
              GROUP BY p.id, p.name, ph.version
              ORDER BY SUM(e.pending = 0) = 0, score DESC, p.name, p.id',
-            $since,
+            $interval,
         );
     }
 
     /**
-     * Each person's drinks since `$since` with their verified and recorded counters, by name.
+     * Each person's drinks in the interval with their verified and recorded counters, by name.
      *
      * @return array<int, list<DrinkCount>> by person id
      */
-    private function drinkCounts(string $since): array
+    private function drinkCounts(Interval $interval): array
     {
         $drinks = [];
         foreach ($this->rows(
@@ -91,10 +89,10 @@ final readonly class Scoreboard
                     SUM(IF(e.pending = 0, ' . self::COUNTED . ', 0)) AS count,
                     SUM(' . self::COUNTED . ') AS recorded_count
              FROM entries e JOIN drinks d ON d.id = e.drink_id LEFT JOIN factors f ON f.id = e.factor_id
-             WHERE e.created_at >= ?
+             WHERE ' . $interval->condition('e.created_at') . '
              GROUP BY e.person_id, d.id, d.name
              ORDER BY d.name, d.id',
-            $since,
+            $interval,
         ) as $row) {
             $drinks[(int) $row['person_id']][] = new DrinkCount((int) $row['drink_id'], (string) $row['name'], (string) $row['count'], (string) $row['recorded_count']);
         }
@@ -105,10 +103,10 @@ final readonly class Scoreboard
     /**
      * @return list<array<string, scalar|null>>
      */
-    private function rows(string $sql, string $since): array
+    private function rows(string $sql, Interval $interval): array
     {
         $statement = $this->pdo->prepare($sql);
-        $statement->execute([$since]);
+        $statement->execute($interval->parameters());
 
         /** @var list<array<string, scalar|null>> */
         return $statement->fetchAll(PDO::FETCH_ASSOC);

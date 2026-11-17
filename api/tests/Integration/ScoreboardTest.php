@@ -7,6 +7,7 @@ namespace Performance\Tests\Integration;
 use DateTimeImmutable;
 use Performance\Domain\DataRevision;
 use Performance\Domain\DrinkStandings;
+use Performance\Domain\Interval;
 use Performance\Domain\Scoreboard;
 use Performance\Domain\Snapshot;
 use Performance\Tests\Support\DatabaseTestCase;
@@ -161,20 +162,20 @@ final class ScoreboardTest extends DatabaseTestCase
         $reader = $this->otherSession();
         $scoreboard = new Scoreboard($reader, new DataRevision($reader));
         $writer = $this->otherSession();
-        $from = new DateTimeImmutable('2026-11-14T00:00:00Z');
+        $interval = Interval::window(new DateTimeImmutable('2026-11-14T00:00:00Z'));
 
-        [$revision, $rows] = (new Snapshot($reader))->read(static function () use ($scoreboard, $writer, $from): array {
+        [$revision, $rows] = (new Snapshot($reader))->read(static function () use ($scoreboard, $writer, $interval): array {
             $revision = $scoreboard->revision();
             // Another request commits a change between the reads of this one.
             $writer->exec('DELETE FROM entries');
             $writer->exec('UPDATE data_revision SET revision = revision + 1');
 
-            return [$revision, $scoreboard->since($from)->rows];
+            return [$revision, $scoreboard->in($interval)->rows];
         });
 
         self::assertCount(1, $rows, 'the standings belong to the revision that was read');
         self::assertSame(2.0, (float) $rows[0]->count);
-        self::assertEquals(new DrinkStandings([], []), $scoreboard->since($from), 'a read after the snapshot sees the change');
+        self::assertEquals(new DrinkStandings([], []), $scoreboard->in($interval), 'a read after the snapshot sees the change');
         self::assertSame($revision + 1, $scoreboard->revision());
     }
 
@@ -189,6 +190,36 @@ final class ScoreboardTest extends DatabaseTestCase
 
         self::assertSame([['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1, 'recordedCount' => 1]]]], $today['rows']);
         self::assertSame($today, $sameInstantWithOffset);
+    }
+
+    public function testAWindowWithAnEndCountsOnlyEntriesBeforeItsEndAndAnEntryExactlyAtTheEndIsOutside(): void
+    {
+        $this->add(1, 1, 2); // 2026-11-14 20:00 UTC
+        $this->record(3, 2, 1);
+        $this->clock->advance('PT3H'); // 23:00 UTC, the end of the window
+        $this->add(2, 1, 4);
+        $this->add(1, 2, 1);
+
+        $board = $this->body($this->scoreboard(from: '2026-11-13T23:00:00.000Z', to: '2026-11-14T23:00:00.000Z'));
+
+        self::assertSame(
+            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 2, 'count' => 2, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 2, 'recordedCount' => 2]]]],
+            $board['rows'],
+        );
+        self::assertSame(['Ben'], array_column(self::listOf($board['unranked']), 'name'));
+    }
+
+    public function testTheEndMayCarryAnyOffset(): void
+    {
+        $this->add(1, 1, 2);
+        $this->clock->advance('PT3H');
+        $this->add(2, 1, 4);
+
+        $utc = $this->body($this->scoreboard(to: '2026-11-14T23:00:00.000Z'));
+        $berlin = $this->body($this->scoreboard(to: '2026-11-15T00:00:00+01:00'));
+
+        self::assertSame(['Daniel'], array_column($this->rowsOf($this->scoreboard(to: '2026-11-14T23:00:00Z')), 'name'));
+        self::assertSame($utc, $berlin);
     }
 
     public function testTiesAreRankedByNameAndUndoneEntriesDisappear(): void
@@ -357,9 +388,14 @@ final class ScoreboardTest extends DatabaseTestCase
         self::assertSame(304, $this->scoreboard($tag)->getStatusCode());
     }
 
-    private function scoreboard(?string $ifNoneMatch = null, string $from = '2026-11-13T23:00:00.000Z'): ResponseInterface
+    private function scoreboard(?string $ifNoneMatch = null, string $from = '2026-11-13T23:00:00.000Z', ?string $to = null): ResponseInterface
     {
-        $request = $this->request('GET', '/api/scoreboard?from=' . rawurlencode($from))
+        return $this->scoreboardFor('from=' . rawurlencode($from) . ($to === null ? '' : '&to=' . rawurlencode($to)), $ifNoneMatch);
+    }
+
+    private function scoreboardFor(string $query, ?string $ifNoneMatch = null): ResponseInterface
+    {
+        $request = $this->request('GET', "/api/scoreboard?{$query}")
             ->withCookieParams(['session' => $this->session]);
         if ($ifNoneMatch !== null) {
             $request = $request->withHeader('If-None-Match', $ifNoneMatch);
