@@ -59,17 +59,31 @@ export function weekOf(date: CalendarDate): Extract<Period, { kind: 'week' }> {
   return { kind: 'week', date: addDays(date, -((weekday + 6) % 7)) };
 }
 
+/**
+The local days that the quarter hours of a days-with-data read (their UTC start
+instants, ascending) fall on, each once, ascending. Every UTC offset in use is a
+multiple of 15 minutes, so a quarter hour never spans two local days.
+*/
+export function localDaysOf(instants: readonly string[]): CalendarDate[] {
+  const days = new Map<string, CalendarDate>();
+  for (const instant of instants) {
+    const day = calendarDateOf(new Date(instant));
+    days.set(isoDate(day), day);
+  }
+  return [...days.values()];
+}
+
 export function sameDate(a: CalendarDate, b: CalendarDate): boolean {
   return a.year === b.year && a.month === b.month && a.day === b.day;
 }
 
 /** Whether `a` lies after `b`. */
-function after(a: CalendarDate, b: CalendarDate): boolean {
+export function isAfter(a: CalendarDate, b: CalendarDate): boolean {
   return startOf(a).getTime() > startOf(b).getTime();
 }
 
-/** `2026-11-04`. */
-function isoDate({ year, month, day }: CalendarDate): string {
+/** `2026-11-04`: a calendar date as a key, ordered like the dates. */
+export function isoDate({ year, month, day }: CalendarDate): string {
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${String(year)}-${pad(month)}-${pad(day)}`;
 }
@@ -162,11 +176,11 @@ export function step(period: Period, by: number, today: CalendarDate): Period {
   switch (period.kind) {
     case 'day': {
       const date = addDays(period.date, by);
-      return { kind: 'day', date: after(date, today) ? today : date };
+      return { kind: 'day', date: isAfter(date, today) ? today : date };
     }
     case 'week': {
       const date = addDays(period.date, by * 7);
-      return after(date, today) ? weekOf(today) : { kind: 'week', date };
+      return isAfter(date, today) ? weekOf(today) : { kind: 'week', date };
     }
     case 'all':
     case 'run':

@@ -36,6 +36,7 @@ export type ResultItem = components['schemas']['ResultItem'];
 export type ResultPage = components['schemas']['ResultPage'];
 export type PendingPage = components['schemas']['PendingPage'];
 export type PendingItem = components['schemas']['PendingItem'];
+export type DaysWithData = components['schemas']['DaysWithData'];
 export type ApiPath = keyof paths;
 /** Field errors of a 422 problem, keyed by the API field name. */
 export type FieldErrors = Readonly<Record<string, string>>;
@@ -626,4 +627,25 @@ export async function getScoreboard(
     board: (await response.json()) as Scoreboard,
     etag: response.headers.get('ETag') ?? undefined,
   };
+}
+
+/** The quarter hours with data that counts, with the ETag that names them, to ask on condition of next time. */
+export interface DaysAnswer {
+  /** The UTC start instants of the 15-minute buckets, ascending. */
+  instants: string[];
+  etag: string | undefined;
+}
+
+/**
+The quarter hours with drinks that count, all time: what the calendar marks and the
+`Gesamt` line count, bucketed into local days by the client. With the ETag of the
+answer already shown, `unchanged` means it still holds.
+*/
+export async function getScoreboardDays(
+  etag?: string,
+): Promise<DaysAnswer | 'unchanged'> {
+  const response = await send('/api/scoreboard/days', { ifNoneMatch: etag });
+  if (response.status === NOT_MODIFIED) return 'unchanged';
+  const { instants } = (await response.json()) as DaysWithData;
+  return { instants, etag: response.headers.get('ETag') ?? undefined };
 }

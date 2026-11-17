@@ -23,6 +23,7 @@ import {
   verifyResult,
   rejectResult,
   getScoreboard,
+  getScoreboardDays,
   getStandings,
   getPerson,
   getSession,
@@ -733,6 +734,44 @@ describe('the API client', () => {
       expect.any(String),
       expect.objectContaining({
         headers: expect.objectContaining({ 'If-None-Match': '"7-1"' }),
+      }),
+    );
+  });
+
+  it('reads the quarter hours with drinks that count with their ETag, on condition of the last one; 304 means unchanged', async () => {
+    const instants = ['2026-11-14T20:00:00.000Z', '2026-11-14T20:15:00.000Z'];
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ instants }), {
+          status: 200,
+          headers: { ETag: '"7"' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 304, headers: { ETag: '"7"' } }),
+      );
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(getScoreboardDays()).resolves.toEqual({
+      instants,
+      etag: '"7"',
+    });
+    await expect(getScoreboardDays('"7"')).resolves.toBe('unchanged');
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      '/api/scoreboard/days',
+      expect.objectContaining({
+        headers: expect.not.objectContaining({
+          'If-None-Match': expect.anything(),
+        }),
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/scoreboard/days',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'If-None-Match': '"7"' }),
       }),
     );
   });

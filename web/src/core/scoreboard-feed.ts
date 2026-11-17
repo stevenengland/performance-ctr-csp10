@@ -9,6 +9,7 @@ import {
 } from 'vue';
 import { getScoreboard, type Scoreboard } from './api-client';
 import { todayFrom } from './day-window';
+import { scoreboardDays } from './days-with-data';
 import { refreshPeriodScoreboard } from './period-scoreboard';
 import { createPolledResource, type ConditionalFetch } from './polled-resource';
 
@@ -87,11 +88,16 @@ export function useScoreboardFeed(shown: MaybeRefOrGetter<boolean> = true) {
 }
 
 /**
-Refetches the standings now, e.g. after the device's own writes: today's and those
-of the period the Rangliste shows.
+Refetches the standings now, e.g. after the device's own writes: today's, those
+of the period the Rangliste shows, and the days with drinks that count while its
+calendar or `Gesamt` line shows them.
 */
 export async function refreshScoreboard(): Promise<void> {
-  await Promise.all([feed.refresh(), refreshPeriodScoreboard()]);
+  await Promise.all([
+    feed.refresh(),
+    refreshPeriodScoreboard(),
+    scoreboardDays.refresh(),
+  ]);
 }
 
 /** A person's total score today; 0 without entries. */

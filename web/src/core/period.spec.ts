@@ -8,6 +8,7 @@ import {
   isLive,
   isToday,
   kindLabel,
+  localDaysOf,
   periodKey,
   queryOf,
   sameDate,
@@ -294,5 +295,50 @@ describe('the period module', () => {
     expect(isToday({ kind: 'all' }, today)).toBe(false);
     expect(sameDate(date(2026, 1, 2), date(2026, 1, 2))).toBe(true);
     expect(sameDate(date(2026, 1, 2), date(2026, 2, 1))).toBe(false);
+  });
+
+  it('buckets the quarter hours with data into the local days they fall on, each day once, ascending', () => {
+    const instants = [
+      '2026-11-13T22:45:00.000Z', // 23:45 on Friday in Berlin
+      '2026-11-13T23:00:00.000Z', // Saturday's first quarter hour
+      '2026-11-14T20:15:00.000Z',
+      '2026-11-16T19:00:00.000Z',
+    ];
+
+    expect(localDaysOf(instants)).toEqual([
+      date(2026, 11, 13),
+      date(2026, 11, 14),
+      date(2026, 11, 16),
+    ]);
+    process.env.TZ = 'America/New_York';
+    expect(localDaysOf(instants)).toEqual([
+      date(2026, 11, 13),
+      date(2026, 11, 14),
+      date(2026, 11, 16),
+    ]);
+    process.env.TZ = 'Asia/Kathmandu';
+    expect(
+      localDaysOf(['2026-11-13T18:00:00.000Z', '2026-11-13T18:15:00.000Z']),
+    ).toEqual([date(2026, 11, 13), date(2026, 11, 14)]);
+    expect(localDaysOf([])).toEqual([]);
+  });
+
+  it('buckets the quarter hours of a day the clocks change on and of a year’s end into their local days', () => {
+    expect(
+      localDaysOf([
+        '2026-10-24T21:45:00.000Z', // 23:45 summer time, Saturday
+        '2026-10-24T22:00:00.000Z', // 00:00 summer time, Sunday
+        '2026-10-25T22:45:00.000Z', // 23:45 winter time, still Sunday
+        '2026-10-25T23:00:00.000Z', // Monday
+        '2026-12-31T22:45:00.000Z',
+        '2026-12-31T23:00:00.000Z',
+      ]),
+    ).toEqual([
+      date(2026, 10, 24),
+      date(2026, 10, 25),
+      date(2026, 10, 26),
+      date(2026, 12, 31),
+      date(2027, 1, 1),
+    ]);
   });
 });
