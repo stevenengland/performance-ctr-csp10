@@ -38,6 +38,7 @@ const KINDS: PeriodKind[] = ['day', 'week', 'all'];
 const DAYS: DaysWithData = {
   read: scoreboardDays,
   summary: messages.rangliste.allDaysSince,
+  mark: messages.rangliste.counted,
 };
 /** What a period without any entry, counted or pending, says (today aside). */
 const NOTHING_COUNTED: Record<DrinksPeriod['kind'], string> = {

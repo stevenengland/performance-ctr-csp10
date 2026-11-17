@@ -23,12 +23,14 @@ export interface DaysRead {
 
 /**
 What a page gives the period picker for its calendar marks and its `Gesamt` line:
-the read, and the line with the first day and the number of days (`Alle Tage seit
+the read, the mark a dotted day is described with, and the line with the first day and the number of days (`Alle Tage seit
 27.10.2026 · 15 Abende` for drinks, the runs and `Spieltage` for a game).
 */
 export interface DaysWithData {
   read: DaysRead;
   summary: (since: string, days: number) => string;
+  /** What a calendar day's dot says to a screen reader: `Gezählt`, `Gespielt`. */
+  mark: string;
 }
 
 /**

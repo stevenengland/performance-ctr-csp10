@@ -15,9 +15,10 @@ function calendar(
   selected: CalendarDate,
   marked: CalendarDate[] = [],
   shownToday = today,
+  mark?: string,
 ) {
   return mount(DayCalendar, {
-    props: { selected, today: shownToday, marked },
+    props: { selected, today: shownToday, marked, mark },
     global: { plugins: [createAppVuetify()] },
   });
 }
@@ -86,6 +87,28 @@ describe('DayCalendar', () => {
         .filter((day) => day.classes('calendar__day--marked'))
         .map((day) => day.text()),
     ).toEqual(['3', '13']);
+  });
+
+  it('describes the marked days to screen readers with the mark, keeping each day’s name', () => {
+    const wrapper = calendar(
+      november(13),
+      [november(3), november(13)],
+      today,
+      'Gezählt',
+    );
+    const description = (day: ReturnType<Calendar['get']>) =>
+      (day.attributes('aria-describedby') ?? '')
+        .split(' ')
+        .filter(Boolean)
+        .map((id) => wrapper.get(`[id="${id}"]`).text());
+
+    expect(description(dayNamed(wrapper, 'Dienstag, 3. November'))).toEqual([
+      'Gezählt',
+    ]);
+    expect(description(dayNamed(wrapper, 'Freitag, 13. November'))).toEqual([
+      'Gezählt',
+    ]);
+    expect(description(dayNamed(wrapper, 'Mittwoch, 4. November'))).toEqual([]);
   });
 
   it('disables the days after today and picks an earlier one', async () => {

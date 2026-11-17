@@ -266,6 +266,7 @@ describe('PeriodPicker', () => {
       const days: DaysWithData = {
         read: createDaysRead(read),
         summary: messages.rangliste.allDaysSince,
+        mark: messages.rangliste.counted,
       };
       return { days, read };
     }
@@ -299,6 +300,13 @@ describe('PeriodPicker', () => {
       button(name).click();
       await flushPromises();
     }
+    /** The description a screen reader gets for the day, beside its name. */
+    const described = (name: string) =>
+      (button(name).getAttribute('aria-describedby') ?? '')
+        .split(' ')
+        .filter(Boolean)
+        .map((id) => document.getElementById(id)?.textContent)
+        .join(' ');
     const marked = () =>
       [...(dialog()?.querySelectorAll('.calendar__day--marked') ?? [])].map(
         (day) => day.getAttribute('aria-label'),
@@ -400,6 +408,8 @@ describe('PeriodPicker', () => {
         'Dienstag, 3. November',
         'Samstag, 14. November',
       ]);
+      expect(described('Samstag, 14. November')).toBe('Gezählt');
+      expect(described('Sonntag, 15. November')).toBe('');
       await click('Abbrechen');
       window.dispatchEvent(new Event('focus'));
       await flushPromises();
@@ -437,6 +447,7 @@ describe('PeriodPicker', () => {
       const days: DaysWithData = {
         read: createDaysRead(read),
         summary: messages.rangliste.allDaysSince,
+        mark: messages.rangliste.counted,
       };
       opened = picker({ kind: 'all' }, ALL_KINDS, days);
       await flushPromises();

@@ -209,6 +209,7 @@ const allLine = computed(() => {
       :selected="dateShown()"
       :today="today"
       :marked="markedDays"
+      :mark="days?.mark"
       @pick="pick"
     />
     <template #actions>

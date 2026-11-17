@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { mdiChevronLeft, mdiChevronRight } from '@mdi/js';
-import { computed, shallowRef } from 'vue';
+import { computed, shallowRef, useId } from 'vue';
 import { formatCalendarDay, formatMonth } from '../core/format';
 import { messages } from '../core/messages';
 import {
@@ -13,7 +13,8 @@ import {
 
 /**
 A month of the calendar dialog `Tag wählen` (PRD #70), Monday first: the days with
-data that counts carry a dot, today is outlined, the selected day is filled and
+data that counts carry a dot, which screen readers get as the day's description (the
+mark, e.g. `Gezählt`) beside its name; today is outlined, the selected day is filled and
 pressed, and days after today cannot be picked. It opens on the selected day's
 month; it browses back freely but never past the month of today.
 */
@@ -23,12 +24,16 @@ const props = defineProps<{
   today: CalendarDate;
   /** The local days with data that counts, from a days-with-data read. */
   marked: readonly CalendarDate[];
+  /** What a dot says to a screen reader: `Gezählt`, `Gespielt`. */
+  mark?: string;
 }>();
 const emit = defineEmits<{ pick: [date: CalendarDate] }>();
 
 /** The month shown, as its first day. */
 const month = shallowRef<CalendarDate>({ ...props.selected, day: 1 });
 const markedKeys = computed(() => new Set(props.marked.map(isoDate)));
+const isMarked = (date: CalendarDate) => markedKeys.value.has(isoDate(date));
+const markId = useId();
 const isCurrentMonth = computed(
   () =>
     month.value.year === props.today.year &&
@@ -109,16 +114,18 @@ function browse(by: number) {
         :class="{
           'calendar__day--selected': sameDate(date, selected),
           'calendar__day--today': sameDate(date, today),
-          'calendar__day--marked': markedKeys.has(isoDate(date)),
+          'calendar__day--marked': isMarked(date),
         }"
         :disabled="isAfter(date, today)"
         :aria-label="formatCalendarDay(startOf(date))"
         :aria-pressed="sameDate(date, selected)"
+        :aria-describedby="mark && isMarked(date) ? markId : undefined"
         @click="emit('pick', date)"
       >
         {{ date.day }}
       </button>
     </div>
+    <span v-if="mark" :id="markId" hidden>{{ mark }}</span>
   </div>
 </template>
 

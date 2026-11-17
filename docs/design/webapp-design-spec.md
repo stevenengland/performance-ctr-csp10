@@ -590,7 +590,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     (1.5 dp `outline` ring); the day shown (under `Woche` the day shown last, the week's Monday
     until one was) is filled in `primary` / `on-primary` and `aria-pressed`; days after today are
     disabled (40 % `on-surface-variant`); a day with entries that count carries a 5 dp dot in
-    `primary` (`on-primary` on the filled day). The dialog opens on the shown day's month; it
+    `primary` (`on-primary` on the filled day), which screen readers get as the day button's
+    description `Gezählt` beside its name. The dialog opens on the shown day's month; it
     browses back freely, never past the current month. Picking a day closes the dialog and
     shows that day, or its week under `Woche`. Actions: `Abbrechen` (text) closes it unchanged,
     `Heute` (filled `primary`) shows today (under `Woche` the current week) and closes it.

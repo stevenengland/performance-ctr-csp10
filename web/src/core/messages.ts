@@ -115,6 +115,8 @@ export const messages = {
     /** The `Gesamt` line: `Alle Tage seit 27.10.2026 · 15 Abende`, `1 Abend`. */
     allDaysSince: (since: string, days: number) =>
       `Alle Tage seit ${since} · ${String(days)} ${days === 1 ? 'Abend' : 'Abende'}`,
+    /** What a calendar day's dot says to a screen reader: entries counted that day. */
+    counted: 'Gezählt',
     /** The group of persons whose entries of today all wait for verification (§7f). */
     unranked: 'Noch nicht gewertet',
     count: 'Zählen',
