@@ -199,7 +199,7 @@ describe('the fixture backend', () => {
 
   it('deletes accounts, keeping their entries without the account, but never the last admin', async () => {
     installFixtureBackend(sampleEvening());
-    const before = await listEntries(3, todayFrom());
+    const before = await listEntries(3, { from: todayFrom() });
 
     await expect(deleteAccount(1)).rejects.toMatchObject({ status: 409 });
     await deleteAccount(2);
@@ -209,7 +209,7 @@ describe('the fixture backend', () => {
       'daniel',
       'mara',
     ]);
-    const after = await listEntries(3, todayFrom());
+    const after = await listEntries(3, { from: todayFrom() });
     expect(after.map(({ id }) => id)).toEqual(before.map(({ id }) => id));
     expect(
       after
@@ -298,10 +298,14 @@ describe('the fixture backend', () => {
       },
     ]);
     expect(
-      (await listEntries(4, todayFrom())).map(({ pending }) => pending),
+      (await listEntries(4, { from: todayFrom() })).map(
+        ({ pending }) => pending,
+      ),
     ).toEqual([true, true]);
     expect(
-      (await listEntries(5, todayFrom())).map(({ pending }) => pending),
+      (await listEntries(5, { from: todayFrom() })).map(
+        ({ pending }) => pending,
+      ),
     ).toEqual([true, false, false]);
   });
 
@@ -421,7 +425,7 @@ describe('the fixture backend', () => {
   it('lists a person’s entries since from, newest first, with drink, factor and account', async () => {
     installFixtureBackend(sampleEvening());
 
-    const daniel = await listEntries(3, todayFrom());
+    const daniel = await listEntries(3, { from: todayFrom() });
 
     expect(
       daniel.map(({ quantity, drink, factor, accountName }) => [
@@ -444,7 +448,7 @@ describe('the fixture backend', () => {
     const times = daniel.map(({ createdAt }) => createdAt);
     expect(times).toEqual([...times].sort().reverse());
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    await expect(listEntries(3, tomorrow)).resolves.toEqual([]);
+    await expect(listEntries(3, { from: tomorrow })).resolves.toEqual([]);
   });
 
   it('records the signed-in account with a new entry and forgets a deleted one, like the API', async () => {
@@ -452,7 +456,7 @@ describe('the fixture backend', () => {
     const id = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e8';
 
     const added = await putEntry(id, { personId: 6, drinkId: 2, quantity: 1 });
-    const [tom] = await listEntries(6, todayFrom());
+    const [tom] = await listEntries(6, { from: todayFrom() });
     await deleteEntry(id);
 
     expect(Object.keys(added).sort()).toEqual([
@@ -470,21 +474,21 @@ describe('the fixture backend', () => {
       pending: true,
     });
     expect(
-      (await listEntries(6, todayFrom())).map((entry) => entry.id),
+      (await listEntries(6, { from: todayFrom() })).map((entry) => entry.id),
     ).not.toContain(id);
   });
 
   it('refuses an entry list for an unknown person, a malformed person id or instant', async () => {
     installFixtureBackend(sampleEvening());
 
-    await expect(listEntries(99, todayFrom())).rejects.toMatchObject({
+    await expect(listEntries(99, { from: todayFrom() })).rejects.toMatchObject({
       status: 404,
     });
-    await expect(listEntries(0, todayFrom())).rejects.toMatchObject({
+    await expect(listEntries(0, { from: todayFrom() })).rejects.toMatchObject({
       status: 422,
       errors: { personId: 'Person nicht gefunden.' },
     });
-    await expect(listEntries(3, 'gestern')).rejects.toMatchObject({
+    await expect(listEntries(3, { from: 'gestern' })).rejects.toMatchObject({
       status: 422,
       errors: { from: 'Zeitpunkt nach ISO 8601 mit Zeitzone.' },
     });

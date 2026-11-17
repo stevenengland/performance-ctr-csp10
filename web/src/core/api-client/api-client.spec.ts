@@ -406,11 +406,28 @@ describe('the API client', () => {
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
 
-    await expect(listEntries(3, '2026-11-14T23:00:00.000Z')).resolves.toEqual(
-      entries,
-    );
+    await expect(
+      listEntries(3, { from: '2026-11-14T23:00:00.000Z' }),
+    ).resolves.toEqual(entries);
     expect(fetch).toHaveBeenCalledWith(
       '/api/entries?personId=3&from=2026-11-14T23%3A00%3A00.000Z',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('lists a person’s entries of a window with an end', async () => {
+    const fetch = respond(
+      { entries: [] },
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+    await listEntries(3, {
+      from: '2026-11-13T23:00:00.000Z',
+      to: '2026-11-14T23:00:00.000Z',
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/entries?personId=3&from=2026-11-13T23%3A00%3A00.000Z&to=2026-11-14T23%3A00%3A00.000Z',
       expect.objectContaining({ method: 'GET' }),
     );
   });

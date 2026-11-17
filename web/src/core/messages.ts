@@ -130,6 +130,8 @@ export const messages = {
     /** The list's accessible name: `Einträge von Daniel`. */
     list: (person: string) => `Einträge von ${person}`,
     empty: 'Heute keine Einträge.',
+    /** A past day's Verlauf without entries: it names no `Heute`. */
+    emptyThatDay: 'An diesem Tag keine Einträge.',
     /** The logging account once it is deleted. */
     deletedAccount: 'gelöschtes Konto',
     /** A row's supporting line: `Happy Hour ×2 · 23:41 · anna`. */

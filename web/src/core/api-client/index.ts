@@ -490,14 +490,14 @@ export function putEntry(id: string, entry: NewEntry): Promise<Entry> {
   });
 }
 
-/** A person's entries since `from`, the start of the viewer's day as a UTC instant, newest first. */
+/** A person's entries of a window (without `to`, since `from`, e.g. the start of the viewer's day), newest first. */
 export async function listEntries(
   personId: number,
-  from: string,
+  window: TimeWindow,
 ): Promise<HistoryEntry[]> {
   return (
     await request<{ entries: HistoryEntry[] }>('/api/entries', {
-      query: { personId: String(personId), from },
+      query: { personId: String(personId), ...window },
     })
   ).entries;
 }
@@ -600,11 +600,15 @@ export interface ScoreboardAnswer {
 }
 
 /**
-What the scoreboard ranks: the window `[from, to)` of UTC instants (without `to`,
-everything since `from`), or all time.
+A window `[from, to)` of UTC instants; without `to`, everything since `from`.
 */
-export type ScoreboardSelection =
-  { from: string; to?: string } | { scope: 'all' };
+export interface TimeWindow {
+  from: string;
+  to?: string;
+}
+
+/** What the scoreboard ranks: a window or all time. */
+export type ScoreboardSelection = TimeWindow | { scope: 'all' };
 
 /**
 The standings of a selection, e.g. since `from`, the start of the viewer's day as a
