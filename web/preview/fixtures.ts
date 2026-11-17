@@ -321,6 +321,98 @@ function sampleEntries(
   );
 }
 
+/**
+Earlier evenings, from 19:00 every 25 minutes: days ago, then each entry like
+tonight's log. Yesterday is ranked; two days ago nothing is left (the Sekt of that
+evening went with the drink, see the audit log); three days ago every entry still
+waits, so nobody leads; and older evenings fill the all-time ranking. Their pending
+entries were logged by `anna`, so they are not in her `Offen`. The audit log does
+not repeat them.
+*/
+const EVENINGS: [
+  number,
+  [string, string, number, string | null, string, boolean?][],
+][] = [
+  [
+    1,
+    [
+      ['Ben', 'Bier', 3, null, 'ben'],
+      ['Anna', 'Wein', 2, null, 'anna'],
+      ['Tom', 'Bier', 2, null, 'mara'],
+      ['Mara', 'Aperol', 1, null, 'mara'],
+      ['Daniel', 'Bier', 1, null, 'daniel'],
+      ['Tom', 'Radler', 2, null, 'ben'],
+      ['Anna', 'Aperol', 1, null, 'anna', true],
+    ],
+  ],
+  [
+    3,
+    [
+      ['Jule', 'Bier', 2, null, 'anna', true],
+      ['Ben', 'Wein', 1, null, 'anna', true],
+    ],
+  ],
+  [
+    4,
+    [
+      ['Daniel', 'Margarita', 2, null, 'daniel'],
+      ['Tom', 'Wein', 3, null, 'mara'],
+      ['Daniel', 'Schnaps', 2, 'Geburtstag', 'ben'],
+      ['Tom', 'Bier', 1, null, 'mara'],
+    ],
+  ],
+  [
+    7,
+    [
+      ['Mara', 'Bier', 4, null, 'mara'],
+      ['Anna', 'Bier', 2, null, 'anna'],
+      ['Jule', 'Aperol', 2, null, 'ben'],
+    ],
+  ],
+  [
+    9,
+    [
+      ['Daniel', 'Bier', 3, null, 'anna'],
+      ['Ben', 'Schnaps', 2, null, 'jonas'],
+    ],
+  ],
+];
+
+/** The earlier evenings' entries, each evening on its local calendar day before today. */
+function earlierEntries(
+  now: Date,
+  persons: Person[],
+  drinks: Drink[],
+  factors: Factor[],
+  accounts: FixtureAccount[],
+): FixtureEntry[] {
+  const idOf = (list: { id: number; name: string }[], name: string) =>
+    list.find((item) => item.name === name)?.id ?? 0;
+  const accountOf = (userName: string) =>
+    accounts.find(({ account }) => account.userName === userName)?.account.id ??
+    null;
+  return EVENINGS.flatMap(([daysAgo, log]) =>
+    log.map(([person, drink, quantity, factor, account, pending], index) => ({
+      personId: idOf(persons, person),
+      drinkId: idOf(drinks, drink),
+      quantity,
+      factorId: factor === null ? null : idOf(factors, factor),
+      accountId: accountOf(account),
+      createdAt: new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() - daysAgo,
+        19,
+        25 * index,
+      ).toISOString(),
+      pending: pending ?? false,
+    })),
+  ).map((entry, index) => ({
+    id: `00000000-0000-4000-8001-${String(index + 1).padStart(12, '0')}`,
+    ...entry,
+  }));
+}
+
 /** A deletion as the events it brings about name it, like the API: by its id, kind and the name it recorded. */
 export function causeOf(deletion: AuditEvent): AuditEvent['cause'] {
   return {
@@ -522,7 +614,7 @@ function earlierEntry(index: number): string {
 }
 
 /**
-The sample log: the days before, then tonight's entries as they were counted —
+The sample log: the days before and every entry as it was counted, oldest first —
 so it reaches back over several days, holds a cascade, and names an account that
 no longer exists.
 */
@@ -539,13 +631,16 @@ function sampleAudit(
       ? { accountId: account.account.id, userName: account.account.userName }
       : FORMER_ACCOUNT;
   };
-  const events: AuditEvent[] = [];
-  let cause: AuditEvent | undefined;
+  /** An event before it has its place in the log. */
+  type Draft = Omit<AuditEvent, 'id' | 'cause'>;
+  const drafts: Draft[] = [];
+  /** What each event of a cascade was caused by. */
+  const causes = new Map<Draft, Draft>();
+  let cause: Draft | undefined;
   for (const event of EARLIER) {
     const [subjectKind, subjectId] = event.subject;
     const [hours, minutes] = event.at;
-    const recorded: AuditEvent = {
-      id: events.length + 1,
+    const draft: Draft = {
       occurredAt: new Date(
         midnight - event.daysAgo * DAY + hours * HOUR + minutes * MINUTE,
       ).toISOString(),
@@ -555,14 +650,13 @@ function sampleAudit(
       actor: actorOf(({ userName }) => userName === event.by),
       before: event.before,
       after: event.after,
-      cause: event.caused && cause ? causeOf(cause) : null,
     };
-    if (!event.caused) cause = recorded;
-    events.push(recorded);
+    if (!event.caused) cause = draft;
+    else if (cause) causes.set(draft, cause);
+    drafts.push(draft);
   }
   for (const entry of entries) {
-    events.push({
-      id: events.length + 1,
+    drafts.push({
       occurredAt: entry.createdAt,
       operation: 'create',
       subjectKind: 'entry',
@@ -570,8 +664,19 @@ function sampleAudit(
       actor: actorOf(({ id }) => id === entry.accountId),
       before: null,
       after: entrySnapshot(fixtures, entry),
-      cause: null,
     });
+  }
+  // Oldest first; a cascade keeps its order, as it shares its instant.
+  drafts.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+  const events = drafts.map((draft, index): AuditEvent => ({
+    ...draft,
+    id: index + 1,
+    cause: null,
+  }));
+  for (const [draft, deletion] of causes) {
+    const event = events[drafts.indexOf(draft)];
+    const caused = events[drafts.indexOf(deletion)];
+    if (event && caused) event.cause = causeOf(caused);
   }
   return events;
 }
@@ -599,7 +704,10 @@ export function sampleEvening(now: Date = new Date()): Fixtures {
     sample(3, 'daniel'),
     sample(4, 'mara'),
   ];
-  const entries = sampleEntries(now, persons, drinks, factors, accounts);
+  const entries = [
+    ...earlierEntries(now, persons, drinks, factors, accounts),
+    ...sampleEntries(now, persons, drinks, factors, accounts),
+  ];
   const audit = sampleAudit(
     now,
     { persons, drinks, factors, accounts },

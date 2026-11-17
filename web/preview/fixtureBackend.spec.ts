@@ -32,16 +32,20 @@ import {
   listAuditEvents,
   signIn,
   signOut,
+  type ScoreboardSelection,
 } from '../src/core/api-client';
 import { todayFrom } from '../src/core/day-window';
+import { addDays, calendarDateOf, queryOf } from '../src/core/period';
 import { auditDays } from '../src/features/verwalten/protokoll/audit-rows';
 import { installFixtureBackend } from './fixtureBackend';
 import { newest, told } from './fixtureTesting';
 import { SAMPLE_PASSWORD, sampleEvening } from './fixtures';
 
-/** The standings since `from`, asked without condition. */
-async function standings(from: string) {
-  const answer = await getScoreboard({ from });
+/** The standings since `from` (or of another selection), asked without condition. */
+async function standings(selection: string | ScoreboardSelection) {
+  const answer = await getScoreboard(
+    typeof selection === 'string' ? { from: selection } : selection,
+  );
   if (answer === 'unchanged') throw new Error('asked without condition');
   return answer.board;
 }
@@ -299,6 +303,51 @@ describe('the fixture backend', () => {
     expect(
       (await listEntries(5, todayFrom())).map(({ pending }) => pending),
     ).toEqual([true, false, false]);
+  });
+
+  it('serves earlier evenings: a ranked yesterday, an empty day, a day whose entries all wait, and all time over every evening', async () => {
+    installFixtureBackend(sampleEvening());
+    const today = calendarDateOf(new Date());
+    const daysBack = async (days: number) => {
+      const query = queryOf({ kind: 'day', date: addDays(today, -days) });
+      if (!('from' in query)) throw new Error('no window');
+      return standings(query);
+    };
+    const scores = ({ rows }: { rows: { name: string; score: number }[] }) =>
+      rows.map(({ name, score }) => [name, score]);
+
+    const yesterday = await daysBack(1);
+    expect(scores(yesterday)).toEqual([
+      ['Anna', 4],
+      ['Ben', 3],
+      ['Tom', 3],
+      ['Mara', 2],
+      ['Daniel', 1],
+    ]);
+    expect(yesterday.rows[0]?.pendingCount).toBe(1);
+    expect(await daysBack(2)).toEqual({ rows: [], unranked: [] });
+    const waiting = await daysBack(3);
+    expect(waiting.rows).toEqual([]);
+    expect(
+      waiting.unranked.map(({ name, pendingCount }) => [name, pendingCount]),
+    ).toEqual([
+      ['Ben', 1],
+      ['Jule', 1],
+    ]);
+    expect(scores(await daysBack(4))).toEqual([
+      ['Daniel', 10.5],
+      ['Tom', 7],
+    ]);
+    const allTime = await standings({ scope: 'all' });
+    expect(scores(allTime)).toEqual([
+      ['Daniel', 28],
+      ['Anna', 15],
+      ['Mara', 12],
+      ['Ben', 11],
+      ['Tom', 10.5],
+      ['Jule', 4],
+    ]);
+    expect(allTime.unranked).toEqual([]);
   });
 
   it('counts only entries since from', async () => {
@@ -755,7 +804,7 @@ describe('the fixture backend’s audit log', () => {
     expect(events.some(({ actor }) => !accounts.includes(actor.userName))).toBe(
       true,
     );
-    // Tonight's entries were counted, so the log has them.
+    // Every entry was counted, so the log has them.
     const entryIds = new Set(events.map(({ subjectId }) => subjectId));
     expect(fixtures.entries.every(({ id }) => entryIds.has(id))).toBe(true);
     // A photo change, as Protokoll shows it.
