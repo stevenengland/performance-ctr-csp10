@@ -12,6 +12,13 @@ final class IdempotencyTest extends DatabaseTestCase
 {
     private const ENTRY = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
     private const TWO_BEERS = ['personId' => 1, 'drinkId' => 1, 'quantity' => 2];
+    /** Daniel's win over Erik in Schach (game 1), and Daniel's −20 in Rommé (game 2), under the entry's id. */
+    private const GAME_ROWS = [
+        'match' => ['path' => '/api/matches/', 'verlauf' => '/api/games/1/matches', 'game' => 1, 'content' => ['gameId' => 1, 'firstPersonId' => 1, 'secondPersonId' => 2, 'outcome' => 'first']],
+        'result' => ['path' => '/api/results/', 'verlauf' => '/api/games/2/results', 'game' => 2, 'content' => ['gameId' => 2, 'personId' => 1, 'points' => -20]],
+    ];
+    /** Who plays in each kind of row, by name. */
+    private const PLAYERS = ['match' => ['Daniel', 'Erik'], 'result' => ['Daniel']];
 
     private string $session;
 
@@ -148,6 +155,78 @@ final class IdempotencyTest extends DatabaseTestCase
     {
         yield 'rejected by another account' => ['reject'];
         yield 'deleted' => ['delete'];
+    }
+
+    /**
+     * @return iterable<string, array{'match'|'result', string}>
+     */
+    public static function gameRowDecisions(): iterable
+    {
+        foreach (['match', 'result'] as $kind) {
+            foreach (self::decisions() as $name => [$decision]) {
+                yield "a {$kind} {$name}" => [$kind, $decision];
+            }
+        }
+    }
+
+    /**
+     * Matches and results share the retry keys with entries: within seven days of the
+     * recording a replay answers as the recording did, so a rejected or undone row stays gone
+     * and a verified one stays the only one and keeps counting.
+     *
+     * @param 'match'|'result' $kind
+     */
+    #[DataProvider('gameRowDecisions')]
+    public function testAReplayOfAMatchOrResultWithinSevenDaysAnswersTheOriginalOutcomeWhateverHappenedToIt(string $kind, string $decision): void
+    {
+        $this->setUpGames();
+        $first = $this->putGameRow($kind);
+        $this->decideOnGameRow($kind, $decision);
+        $this->clock->advance('P7D');
+
+        $replay = $this->putGameRow($kind);
+
+        self::assertSame(200, $replay->getStatusCode(), (string) $replay->getBody());
+        self::assertSame($this->body($first), $this->body($replay));
+        self::assertSame(
+            $decision === 'verify'
+                ? ['history' => [[self::ENTRY, false]], 'ranked' => self::PLAYERS[$kind], 'unranked' => []]
+                : ['history' => [], 'ranked' => [], 'unranked' => []],
+            $this->gameObserved($kind),
+        );
+    }
+
+    /**
+     * @return iterable<string, array{'match'|'result', string}>
+     */
+    public static function gameRowRemovals(): iterable
+    {
+        foreach (['match', 'result'] as $kind) {
+            foreach (self::removals() as $name => [$removal]) {
+                yield "a {$kind} {$name}" => [$kind, $removal];
+            }
+        }
+    }
+
+    /**
+     * After the seven days the id is forgotten, so the same request records the match or
+     * result again, pending as every new one: its players wait without a rank.
+     *
+     * @param 'match'|'result' $kind
+     */
+    #[DataProvider('gameRowRemovals')]
+    public function testAReplayOfAMatchOrResultAfterSevenDaysRecordsANewPendingRow(string $kind, string $removal): void
+    {
+        $this->setUpGames();
+        $this->putGameRow($kind);
+        $this->decideOnGameRow($kind, $removal);
+        $this->clock->advance('P7D');
+        $this->clock->advance('PT1S');
+
+        $afterTheWindow = $this->putGameRow($kind);
+
+        self::assertSame(201, $afterTheWindow->getStatusCode(), (string) $afterTheWindow->getBody());
+        self::assertSame(['history' => [[self::ENTRY, true]], 'ranked' => [], 'unranked' => self::PLAYERS[$kind]], $this->gameObserved($kind));
     }
 
     public function testTheSameIdWithDifferentContentIs409AndChangesNothing(): void
@@ -336,6 +415,67 @@ final class IdempotencyTest extends DatabaseTestCase
             },
             $entries,
         );
+    }
+
+    /** Erik (person 2), the duel game Schach (1) and the points game Rommé (2), beside Daniel. */
+    private function setUpGames(): void
+    {
+        $this->send('POST', '/api/persons', ['name' => 'Erik'], $this->session);
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $this->session);
+        $this->send('POST', '/api/games', ['name' => 'Rommé', 'kind' => 'points'], $this->session);
+    }
+
+    /** @param 'match'|'result' $kind */
+    private function putGameRow(string $kind): ResponseInterface
+    {
+        return $this->send('PUT', self::GAME_ROWS[$kind]['path'] . self::ENTRY, self::GAME_ROWS[$kind]['content'], $this->session);
+    }
+
+    /**
+     * Rejects, undoes or verifies the match or result; Anna, another account, rejects and verifies.
+     *
+     * @param 'match'|'result' $kind
+     */
+    private function decideOnGameRow(string $kind, string $decision): void
+    {
+        $this->createAccount('anna', 'annas-startpasswort');
+        $anna = $this->signIn('anna', 'annas-startpasswort');
+        $row = self::GAME_ROWS[$kind]['path'] . self::ENTRY;
+        $response = match ($decision) {
+            'reject' => $this->send('DELETE', "{$row}/verification", session: $anna),
+            'delete' => $this->send('DELETE', $row, session: $this->session),
+            'verify' => $this->send('PUT', "{$row}/verification", [], $anna),
+            default => self::fail("Unknown decision {$decision}"),
+        };
+        self::assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+    }
+
+    /**
+     * The game's rows as its Verlauf lists them (id and whether it waits), and who its standings
+     * rank and who they list without a rank.
+     *
+     * @param 'match'|'result' $kind
+     *
+     * @return array{history: list<array{mixed, mixed}>, ranked: list<mixed>, unranked: list<mixed>}
+     */
+    private function gameObserved(string $kind): array
+    {
+        $game = self::GAME_ROWS[$kind]['game'];
+        $items = $this->body($this->send('GET', self::GAME_ROWS[$kind]['verlauf'], session: $this->session))['items'];
+        self::assertIsList($items);
+        $standings = $this->body($this->send('GET', "/api/games/{$game}/standings", session: $this->session));
+        self::assertIsList($standings['rows']);
+        self::assertIsList($standings['unranked']);
+
+        return [
+            'history' => array_map(static function (mixed $item): array {
+                self::assertIsArray($item);
+
+                return [$item['id'], $item['pending']];
+            }, $items),
+            'ranked' => array_column($standings['rows'], 'name'),
+            'unranked' => array_column($standings['unranked'], 'name'),
+        ];
     }
 
     /**

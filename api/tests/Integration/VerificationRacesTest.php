@@ -173,6 +173,20 @@ final class VerificationRacesTest extends DatabaseTestCase
     }
 
     /**
+     * The recorder's deletion clears the entry's recorder, so it locks the entry as the
+     * rejection does: whichever commits first, the entry ends rejected, since an entry whose
+     * recorder was deleted may be rejected by anyone.
+     */
+    public function testARejectionRacingTheRecordersDeletionEndsRejected(): void
+    {
+        $exitCodes = $this->interleave('entries', self::ENTRY, [['reject-entry', self::ENTRY, self::BEN], ['delete-account', (string) self::ANNA]]);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame(['create', 'reject'], $this->entryEvents());
+        self::assertSame(self::GONE, $this->observed());
+    }
+
+    /**
      * Daniel's entries as his Verlauf shows them (null once Daniel is deleted), and who the
      * Rangliste ranks and who it lists without a rank, as the bootstrap admin sees them.
      *

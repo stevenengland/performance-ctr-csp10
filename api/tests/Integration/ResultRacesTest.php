@@ -263,6 +263,89 @@ final class ResultRacesTest extends DatabaseTestCase
     }
 
     /**
+     * The undo, the game's and the person's deletion race the rejection the same way: the
+     * deletions lock the game or the person before the result, the rejection the other way
+     * round; the loser of a deadlock runs again. Whichever removes the result first records its
+     * event; the other finds it gone (an undo answers 404, a deletion has nothing left to
+     * remove).
+     *
+     * @param 'undo'|'game'|'person' $removal
+     * @param 'game'|'person'|null    $causeKind what the delete event names as its cause
+     */
+    #[DataProvider('removalsOfTheResult')]
+    public function testARejectionRacingTheResultsRemovalEndsInOneConsistentState(string $removal, ?string $causeKind): void
+    {
+        $this->record();
+
+        [$reject, $removed] = $this->interleaveOnTheResult(['reject', $removal]);
+
+        self::assertContains(
+            [$reject, $removed],
+            $removal === 'undo' ? [[self::SUCCEEDED, self::NOT_FOUND], [self::NOT_FOUND, self::SUCCEEDED]] : [[self::SUCCEEDED, self::SUCCEEDED], [self::NOT_FOUND, self::SUCCEEDED]],
+        );
+        self::assertSame(
+            [
+                ['operation' => 'create', 'cause_kind' => null],
+                $reject === self::SUCCEEDED ? ['operation' => 'reject', 'cause_kind' => null] : ['operation' => 'delete', 'cause_kind' => $causeKind],
+            ],
+            $this->causedResultEvents(),
+        );
+        self::assertSame($removal === 'game' ? null : self::GONE, $this->observed());
+    }
+
+    /**
+     * The recorder's deletion clears the result's recorder, so it locks the result as the
+     * verification does: whichever commits first, the result ends verified by Ben with its
+     * recorder unknown, since a result whose recorder was deleted may be verified by anyone.
+     */
+    public function testAVerificationRacingTheRecordersDeletionEndsVerified(): void
+    {
+        $this->record($this->signIn('anna', 'annas-startpasswort'));
+
+        $exitCodes = $this->interleaveOnTheResult(['verify-ben', 'anna-account']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame([['operation' => 'create'], ['operation' => 'verify']], $this->resultEvents());
+        self::assertSame(['history' => [['pending' => false, 'accountName' => null]], 'ranked' => ['Anna'], 'unranked' => []], $this->observed());
+        self::assertSame([self::BEN], $this->verifiersOf(self::RESULT));
+    }
+
+    /**
+     * The verification reads its own account under a shared lock, which the account's deletion
+     * waits for or holds: a verifier deleted first is recorded as unknown, the same state as one
+     * deleted a moment after it verified.
+     */
+    public function testAVerificationRacingTheVerifiersDeletionEndsVerifiedByAnUnknownAccount(): void
+    {
+        $this->record();
+
+        $exitCodes = $this->interleave('accounts', (string) self::BEN, [['delete-account', (string) self::BEN], ['verify-result', self::RESULT, self::BEN]]);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame([['operation' => 'create'], ['operation' => 'verify']], $this->resultEvents());
+        self::assertSame(self::VERIFIED, $this->observed());
+        self::assertSame([self::BEN], $this->verifiersOf(self::RESULT), 'the audit log keeps the deleted verifier');
+        // No route shows who verified a row; read directly that the deleted verifier is unknown.
+        self::assertSame([['verified_by_account_id' => null]], $this->rows('SELECT verified_by_account_id FROM results'));
+    }
+
+    /**
+     * The recorder's deletion clears the result's recorder, so it locks the result as the
+     * rejection does: whichever commits first, the result ends rejected, since a result whose
+     * recorder was deleted may be rejected by anyone.
+     */
+    public function testARejectionRacingTheRecordersDeletionEndsRejected(): void
+    {
+        $this->record($this->signIn('anna', 'annas-startpasswort'));
+
+        $exitCodes = $this->interleaveOnTheResult(['reject-ben', 'anna-account']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame([['operation' => 'create'], ['operation' => 'reject']], $this->resultEvents());
+        self::assertSame(self::GONE, $this->observed());
+    }
+
+    /**
      * Rommé's results as its Verlauf shows them, and who its standings rank and who they list
      * without a rank, as the bootstrap admin sees them; null once Rommé is deleted.
      *

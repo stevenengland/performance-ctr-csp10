@@ -362,6 +362,103 @@ final class MatchRacesTest extends DatabaseTestCase
         self::assertNull($this->observed(), 'Schach is gone');
     }
 
+    /** The undo and the rejection both remove the match; whichever comes second finds it gone. */
+    public function testARejectionRacingTheUndoEndsInOneConsistentState(): void
+    {
+        $this->record();
+
+        [$reject, $undo] = $this->interleaveOnTheMatch(['reject', 'undo']);
+
+        self::assertContains([$reject, $undo], [[self::SUCCEEDED, self::NOT_FOUND], [self::NOT_FOUND, self::SUCCEEDED]]);
+        self::assertSame($reject === self::SUCCEEDED ? ['create', 'reject'] : ['create', 'delete'], array_column($this->matchEvents(), 'operation'));
+        self::assertSame(self::GONE, $this->observed());
+    }
+
+    /**
+     * The person's deletion and the rejection lock the match and the person in opposite
+     * orders; the loser of the deadlock runs again. Both succeed: the rejection removes the
+     * match, with Ben's side cleared if his deletion came first.
+     */
+    public function testARejectionRacingAPersonsDeletionEndsRejected(): void
+    {
+        $this->record();
+
+        $exitCodes = $this->interleaveOnTheMatch(['reject', 'person']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertContains(array_column($this->matchEvents(), 'operation'), [['create', 'reject'], ['create', 'update', 'reject']]);
+        self::assertSame(self::GONE, $this->observed());
+    }
+
+    /**
+     * The game's deletion and the rejection lock the match and the game in opposite orders;
+     * the loser of the deadlock runs again. Either the rejection removed the match before the
+     * game went, or the match went with the game and the rejection finds it gone.
+     */
+    public function testARejectionRacingTheGamesDeletionEndsInOneConsistentState(): void
+    {
+        $this->record();
+
+        [$reject, $deletion] = $this->interleaveOnTheMatch(['reject', 'game']);
+
+        self::assertSame(self::SUCCEEDED, $deletion);
+        self::assertContains($reject, [self::SUCCEEDED, self::NOT_FOUND]);
+        self::assertSame($reject === self::SUCCEEDED ? ['create', 'reject'] : ['create', 'delete'], array_column($this->matchEvents(), 'operation'));
+        self::assertNull($this->observed(), 'Schach is gone');
+    }
+
+    /**
+     * The recorder's deletion clears the match's recorder, so it locks the match as the
+     * verification does: whichever commits first, the match ends verified by Ben with its
+     * recorder unknown, since a match whose recorder was deleted may be verified by anyone.
+     */
+    public function testAVerificationRacingTheRecordersDeletionEndsVerified(): void
+    {
+        $this->record($this->signIn('anna', 'annas-startpasswort'));
+
+        $exitCodes = $this->interleaveOnTheMatch(['verify-ben', 'anna-account']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame(['create', 'verify'], array_column($this->matchEvents(), 'operation'));
+        self::assertSame(['history' => [['pending' => false, 'accountName' => null]], 'ranked' => ['Anna', 'Ben'], 'unranked' => []], $this->observed());
+        self::assertSame([self::BEN], $this->verifiersOf(self::MATCH));
+    }
+
+    /**
+     * The verification reads its own account under a shared lock, which the account's deletion
+     * waits for or holds: a verifier deleted first is recorded as unknown, the same state as one
+     * deleted a moment after it verified.
+     */
+    public function testAVerificationRacingTheVerifiersDeletionEndsVerifiedByAnUnknownAccount(): void
+    {
+        $this->record();
+
+        $exitCodes = $this->interleave('accounts', (string) self::BEN, [['delete-account', (string) self::BEN], ['verify-match', self::MATCH, self::BEN]]);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame(['create', 'verify'], array_column($this->matchEvents(), 'operation'));
+        self::assertSame(self::VERIFIED, $this->observed());
+        self::assertSame([self::BEN], $this->verifiersOf(self::MATCH), 'the audit log keeps the deleted verifier');
+        // No route shows who verified a row; read directly that the deleted verifier is unknown.
+        self::assertSame([['verified_by_account_id' => null]], $this->rows('SELECT verified_by_account_id FROM matches'));
+    }
+
+    /**
+     * The recorder's deletion clears the match's recorder, so it locks the match as the
+     * rejection does: whichever commits first, the match ends rejected, since a match whose
+     * recorder was deleted may be rejected by anyone.
+     */
+    public function testARejectionRacingTheRecordersDeletionEndsRejected(): void
+    {
+        $this->record($this->signIn('anna', 'annas-startpasswort'));
+
+        $exitCodes = $this->interleaveOnTheMatch(['reject-ben', 'anna-account']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame(['create', 'reject'], array_column($this->matchEvents(), 'operation'));
+        self::assertSame(self::GONE, $this->observed());
+    }
+
     /**
      * Schach's matches as its Verlauf shows them, and who its standings rank and who they list
      * without a rank, as the bootstrap admin sees them; null once Schach is deleted.
