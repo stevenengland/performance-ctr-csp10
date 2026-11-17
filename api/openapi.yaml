@@ -1133,14 +1133,19 @@ paths:
         loss 0), then wins, then name; across runs each verified match adds its result to
         both its players once. Rankings are computed from the stored outcome, so a deleted
         person's side counts for no one and never changes the other side's result.
-        Points game: every person with a result in the selection, by the sum of their
-        points, the lowest first when `lowerWins` is on and the highest otherwise, then name;
-        across runs each verified result is one attempt, added to the sum and to `results`.
-        A changed `lowerWins` re-ranks at once. The ETag names the data revision, read in the
+        Points game: every person with a result in the selection, by the `measure`, the sum
+        of their points (the current run always) or their average per verified result, the
+        lowest first when `lowerWins` is on and the highest otherwise, then name, then id; the
+        exact average decides, never the rounded `average` sent. Across runs each verified
+        result is one attempt, added to the sum and to `results`, which divides it. A
+        `measure` other than `sum` or `average`, a `measure` on a duel game, or one without
+        `from` or `scope=all` is 422, so it never changes the current run's answer. A
+        changed `lowerWins` re-ranks at once. The ETag names the data revision, read in the
         same snapshot as the ranking, and the selection: the bare revision for the current
-        run, the revision and the window or `all` otherwise. Every game, match and result
-        write bumps the revision, so `If-None-Match` with the last ETag of the same selection
-        answers 304 without ranking while nothing changed.
+        run, the revision and the window or `all` otherwise, followed by `-average` when the
+        average ranks. Every game, match and result write bumps the revision, so
+        `If-None-Match` with the last ETag of the same selection and measure answers 304
+        without ranking while nothing changed.
       parameters:
         - name: from
           in: query
@@ -1155,19 +1160,30 @@ paths:
             examples: ['2026-11-14T23:00:00.000Z']
         - $ref: '#/components/parameters/WindowTo'
         - $ref: '#/components/parameters/AllTimeScope'
+        - name: measure
+          in: query
+          required: false
+          description: >-
+            What ranks a points game's window or all time: the sum of the verified points
+            (the default) or their average per verified result. Only for a points game
+            together with `from` or `scope=all`.
+          schema:
+            type: string
+            enum: [sum, average]
+            default: sum
         - name: If-None-Match
           in: header
           required: false
           description: The ETag of the ranking the client already shows
           schema:
             type: string
-            examples: ['"42"', '"42-1763161200000-1763247600000"', '"42-all"']
+            examples: ['"42"', '"42-1763161200000-1763247600000"', '"42-all"', '"42-all-average"']
       responses:
         '200':
           description: The ranking
           headers:
             ETag:
-              description: Data revision and selection of this ranking
+              description: Data revision, selection and measure of this ranking
               schema:
                 type: string
           content:
@@ -2620,9 +2636,9 @@ components:
         rows:
           type: array
           description: >-
-            Persons with at least one verified result in the selection, ranked by the sum in
-            the game's direction, then name; only verified results count. Persons without a
-            result in the selection are absent
+            Persons with at least one verified result in the selection, ranked by the measure
+            (the sum in the current run) in the game's direction, then name, then id; only
+            verified results count. Persons without a result in the selection are absent
           items:
             $ref: '#/components/schemas/PointsRow'
         unranked:
@@ -2644,9 +2660,16 @@ components:
         sum:
           type: integer
           description: The sum of the person's verified points in the selection
+        average:
+          type: number
+          description: >-
+            The sum divided by `results`, rounded half away from zero to one decimal (`3.25` →
+            `3.3`, whole numbers without a fraction), for display only: the exact value ranks.
+            Sent for a window or all time, whichever the measure; absent in the current run,
+            whose rows are as before
         results:
           type: integer
-          description: How many verified results make up the sum
+          description: How many verified results make up the sum; the average's denominator
         pendingCount:
           type: integer
           minimum: 0

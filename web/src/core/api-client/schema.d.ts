@@ -546,7 +546,7 @@ export interface paths {
     };
     /**
      * The game's ranking in its current run, a window `[from, to)` or all time, tagged with the game's kind
-     * @description The selection is exactly one of: nothing, the current run since the last (re)start, answered and tagged exactly as before the standings took a window; a window, from `from` on and before `to` when it is given; or all time with `scope=all`. A window and all time rank every verified match or result of the game recorded in them, whatever its run; a row belongs to the window it was recorded in, whenever it was verified. A `from` or `to` that is no instant, a `to` not after `from`, a `to` without `from`, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422, exactly as for the scoreboard. Duel game: every person with a match in the selection, by points (win 1, draw ½, loss 0), then wins, then name; across runs each verified match adds its result to both its players once. Rankings are computed from the stored outcome, so a deleted person's side counts for no one and never changes the other side's result. Points game: every person with a result in the selection, by the sum of their points, the lowest first when `lowerWins` is on and the highest otherwise, then name; across runs each verified result is one attempt, added to the sum and to `results`. A changed `lowerWins` re-ranks at once. The ETag names the data revision, read in the same snapshot as the ranking, and the selection: the bare revision for the current run, the revision and the window or `all` otherwise. Every game, match and result write bumps the revision, so `If-None-Match` with the last ETag of the same selection answers 304 without ranking while nothing changed.
+     * @description The selection is exactly one of: nothing, the current run since the last (re)start, answered and tagged exactly as before the standings took a window; a window, from `from` on and before `to` when it is given; or all time with `scope=all`. A window and all time rank every verified match or result of the game recorded in them, whatever its run; a row belongs to the window it was recorded in, whenever it was verified. A `from` or `to` that is no instant, a `to` not after `from`, a `to` without `from`, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422, exactly as for the scoreboard. Duel game: every person with a match in the selection, by points (win 1, draw ½, loss 0), then wins, then name; across runs each verified match adds its result to both its players once. Rankings are computed from the stored outcome, so a deleted person's side counts for no one and never changes the other side's result. Points game: every person with a result in the selection, by the `measure`, the sum of their points (the current run always) or their average per verified result, the lowest first when `lowerWins` is on and the highest otherwise, then name, then id; the exact average decides, never the rounded `average` sent. Across runs each verified result is one attempt, added to the sum and to `results`, which divides it. A `measure` other than `sum` or `average`, a `measure` on a duel game, or one without `from` or `scope=all` is 422, so it never changes the current run's answer. A changed `lowerWins` re-ranks at once. The ETag names the data revision, read in the same snapshot as the ranking, and the selection: the bare revision for the current run, the revision and the window or `all` otherwise, followed by `-average` when the average ranks. Every game, match and result write bumps the revision, so `If-None-Match` with the last ETag of the same selection and measure answers 304 without ranking while nothing changed.
      */
     get: operations['getStandings'];
     put?: never;
@@ -1259,7 +1259,7 @@ export interface components {
        */
       startedAt: string;
       lowerWins: boolean;
-      /** @description Persons with at least one verified result in the selection, ranked by the sum in the game's direction, then name; only verified results count. Persons without a result in the selection are absent */
+      /** @description Persons with at least one verified result in the selection, ranked by the measure (the sum in the current run) in the game's direction, then name, then id; only verified results count. Persons without a result in the selection are absent */
       rows: components['schemas']['PointsRow'][];
       /** @description Persons whose results in the selection all wait for verification, by name: they have no rank and never lead, whichever way the game ranks and whatever the others' sums */
       unranked: components['schemas']['UnrankedPlayer'][];
@@ -1269,7 +1269,9 @@ export interface components {
       name: string;
       /** @description The sum of the person's verified points in the selection */
       sum: number;
-      /** @description How many verified results make up the sum */
+      /** @description The sum divided by `results`, rounded half away from zero to one decimal (`3.25` → `3.3`, whole numbers without a fraction), for display only: the exact value ranks. Sent for a window or all time, whichever the measure; absent in the current run, whose rows are as before */
+      average?: number;
+      /** @description How many verified results make up the sum; the average's denominator */
       results: number;
       /** @description The person's results in the selection that wait for verification (`+n offen`) */
       pendingCount: number;
@@ -2703,6 +2705,8 @@ export interface operations {
         to?: components['parameters']['WindowTo'];
         /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
         scope?: components['parameters']['AllTimeScope'];
+        /** @description What ranks a points game's window or all time: the sum of the verified points (the default) or their average per verified result. Only for a points game together with `from` or `scope=all`. */
+        measure?: 'sum' | 'average';
       };
       header?: {
         /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
@@ -2721,7 +2725,7 @@ export interface operations {
       /** @description The ranking */
       200: {
         headers: {
-          /** @description Data revision and selection of this ranking */
+          /** @description Data revision, selection and measure of this ranking */
           ETag?: string;
           [name: string]: unknown;
         };
