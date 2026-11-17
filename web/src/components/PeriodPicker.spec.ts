@@ -1,6 +1,11 @@
 import { mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { CalendarDate, Period, PeriodKind } from '../core/period';
+import {
+  type CalendarDate,
+  type Period,
+  type PeriodKind,
+  weekOf,
+} from '../core/period';
 import { createAppVuetify } from '../theme';
 import PeriodPicker from './PeriodPicker.vue';
 
@@ -39,6 +44,9 @@ const previous = (wrapper: Picker) =>
 const next = (wrapper: Picker) =>
   wrapper.get('button[aria-label="Nächster Tag"]');
 const chosen = (wrapper: Picker) => wrapper.emitted('update:modelValue');
+const week = (dayOfMonth: number, month = 11): Period =>
+  weekOf({ year: 2026, month, day: dayOfMonth });
+const ALL_KINDS: PeriodKind[] = ['day', 'week', 'all'];
 
 describe('PeriodPicker', () => {
   const zone = process.env.TZ;
@@ -119,5 +127,68 @@ describe('PeriodPicker', () => {
     await option(wrapper, 'Tag')?.trigger('click');
 
     expect(chosen(wrapper)).toEqual([[day(16)]]);
+  });
+
+  it('offers Tag | Woche | Gesamt and shows the week of the shown day under Woche', async () => {
+    const wrapper = picker(day(4), ALL_KINDS);
+
+    await option(wrapper, 'Woche')?.trigger('click');
+
+    expect(chosen(wrapper)).toEqual([[week(2)]]);
+    expect(options(wrapper)).toEqual([
+      ['Tag', 'false'],
+      ['Woche', 'true'],
+      ['Gesamt', 'false'],
+    ]);
+  });
+
+  it('names the week in the bar: Diese Woche, Letzte Woche or its number and days', async () => {
+    const wrapper = picker(week(16), ALL_KINDS);
+    const label = () => wrapper.get('[data-test="day-bar"]').text();
+
+    expect(label()).toBe('Diese Woche');
+    await wrapper.setProps({ modelValue: week(9) });
+    expect(label()).toBe('Letzte Woche');
+    await wrapper.setProps({ modelValue: week(2) });
+    expect(label()).toBe('KW 45 · 02.11.–08.11.');
+  });
+
+  it('steps one week back and forward, its next control disabled on the current week', async () => {
+    const wrapper = picker(week(16), ALL_KINDS);
+    const previousWeek = () =>
+      wrapper.get('button[aria-label="Vorherige Woche"]');
+    const nextWeek = () => wrapper.get('button[aria-label="Nächste Woche"]');
+    expect(nextWeek().attributes('disabled')).toBeDefined();
+
+    await previousWeek().trigger('click');
+    await previousWeek().trigger('click');
+    expect(nextWeek().attributes('disabled')).toBeUndefined();
+    await nextWeek().trigger('click');
+
+    expect(chosen(wrapper)).toEqual([[week(9)], [week(2)], [week(9)]]);
+  });
+
+  it('returns to the day it showed when Tag is chosen again after Woche', async () => {
+    const wrapper = picker(day(4), ALL_KINDS);
+
+    await option(wrapper, 'Woche')?.trigger('click');
+    await option(wrapper, 'Gesamt')?.trigger('click');
+    await option(wrapper, 'Woche')?.trigger('click');
+    await option(wrapper, 'Tag')?.trigger('click');
+
+    expect(chosen(wrapper)).toEqual([
+      [week(2)],
+      [{ kind: 'all' }],
+      [week(2)],
+      [day(4)],
+    ]);
+  });
+
+  it('opens Woche on the current week when it starts on another kind', async () => {
+    const wrapper = picker({ kind: 'all' }, ALL_KINDS);
+
+    await option(wrapper, 'Woche')?.trigger('click');
+
+    expect(chosen(wrapper)).toEqual([[week(16)]]);
   });
 });

@@ -9,18 +9,21 @@ import { messages } from '../core/messages';
 import {
   barLabel,
   type CalendarDate,
-  isToday,
+  isLive,
   kindLabel,
   type Period,
   type PeriodKind,
+  sameDate,
   step,
+  weekOf,
 } from '../core/period';
 
 /**
 The one period picker (PRD #70): a segmented switch of the kinds the page offers
-and, under `Tag`, a bar that steps one day back and forward, never past today. The
-selected option sits in `secondary-container`; `primary-container` stays the
-leader card's. Switching back to `Tag` returns to the day shown last.
+and, under `Tag` and `Woche`, a bar that steps one day or week back and forward,
+never past the one that contains today. The selected option sits in
+`secondary-container`; `primary-container` stays the leader card's. `Tag` and
+`Woche` share the day last shown: switching shows that day or its week.
 */
 const props = defineProps<{
   kinds: PeriodKind[];
@@ -29,30 +32,45 @@ const props = defineProps<{
 }>();
 const period = defineModel<Period>({ required: true });
 
-/** The day `Tag` shows, kept while another kind is shown. */
-const lastDay = shallowRef<Extract<Period, { kind: 'day' }>>();
+/** The day `Tag` and `Woche` show, kept while another kind is shown; until one is shown, today. */
+const shownDate = shallowRef<CalendarDate>();
 watch(
   period,
   (shown) => {
-    if (shown.kind === 'day') lastDay.value = shown;
+    if (shown.kind === 'day') shownDate.value = shown.date;
+    if (shown.kind === 'week' && !inWeek(shownDate.value, shown.date)) {
+      shownDate.value = shown.date;
+    }
   },
   { immediate: true },
 );
 
-const shownDay = computed(() =>
-  period.value.kind === 'day' ? period.value : undefined,
+function inWeek(date: CalendarDate | undefined, monday: CalendarDate) {
+  return date !== undefined && sameDate(weekOf(date).date, monday);
+}
+
+/** The day or week the bar names, if one is shown. */
+const stepped = computed(() =>
+  period.value.kind === 'day' || period.value.kind === 'week'
+    ? period.value
+    : undefined,
+);
+const stepNames = computed(() =>
+  stepped.value?.kind === 'week'
+    ? { back: messages.period.previousWeek, on: messages.period.nextWeek }
+    : { back: messages.period.previousDay, on: messages.period.nextDay },
 );
 
 function choose(kind: PeriodKind) {
   if (kind === period.value.kind) return;
-  period.value =
-    kind === 'day'
-      ? (lastDay.value ?? { kind: 'day', date: props.today })
-      : { kind };
+  const date = shownDate.value ?? props.today;
+  if (kind === 'day') period.value = { kind, date };
+  else if (kind === 'week') period.value = weekOf(date);
+  else period.value = { kind };
 }
 
-function stepBy(days: number) {
-  period.value = step(period.value, days, props.today);
+function stepBy(by: number) {
+  period.value = step(period.value, by, props.today);
 }
 </script>
 
@@ -74,21 +92,21 @@ function stepBy(days: number) {
       {{ kindLabel(kind) }}
     </button>
   </div>
-  <div v-if="shownDay" class="day-bar" data-test="day-bar">
+  <div v-if="stepped" class="day-bar" data-test="day-bar">
     <v-btn
       :icon="mdiChevronLeft"
-      :aria-label="messages.period.previousDay"
+      :aria-label="stepNames.back"
       variant="text"
       @click="stepBy(-1)"
     />
     <p class="day-bar__day" aria-live="polite">
       <v-icon :icon="mdiCalendarMonthOutline" size="20" />
-      <span class="type-row-title">{{ barLabel(shownDay, today) }}</span>
+      <span class="type-row-title">{{ barLabel(stepped, today) }}</span>
     </p>
     <v-btn
       :icon="mdiChevronRight"
-      :aria-label="messages.period.nextDay"
-      :disabled="isToday(shownDay, today)"
+      :aria-label="stepNames.on"
+      :disabled="isLive(stepped, today)"
       variant="text"
       @click="stepBy(1)"
     />
