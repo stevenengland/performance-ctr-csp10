@@ -54,6 +54,7 @@ final class App
         $matches = new MatchActions($database);
         $results = new ResultActions($database);
         $verification = new VerificationActions($database);
+        $days = new DaysActions($database);
 
         // Open routes: health and sign-in. Every other route requires a session.
         $app->get('/api/health', new HealthAction($database, $config->appVersion));
@@ -96,6 +97,7 @@ final class App
         $member($app->delete($entry . '/verification', $verification->rejectEntry(...)));
         $member($app->get('/api/pending', $verification->queue(...)));
         $member($app->get('/api/scoreboard', new ScoreboardAction($database, $photoUrl)));
+        $member($app->get('/api/scoreboard/days', $days->drinks(...)));
         $member($app->get('/api/games', $games->list(...)));
         $member($app->post('/api/games', $games->create(...)));
         $game = '/api/games/{id:' . CatalogActions::ID_PATTERN . '}';
