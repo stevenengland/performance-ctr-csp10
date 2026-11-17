@@ -244,6 +244,43 @@ test('the fixture preview ranks its earlier evenings: yesterday, an empty day, a
   );
 });
 
+test('the fixture preview ranks a calendar week: Diese Woche with tonight, Letzte Woche, and an empty week three back', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/rangliste');
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  const bar = page.locator('[data-test="day-bar"]');
+  const places = page
+    .getByRole('list', { name: 'Rangliste' })
+    .getByRole('link');
+  const previous = page.getByRole('button', { name: 'Vorherige Woche' });
+
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Woche' })
+    .click();
+  await expect(bar).toHaveText('Diese Woche');
+  await expect(context).toHaveText(
+    /^KW \d{1,2} · \d{2}\.\d{2}\.–\d{2}\.\d{2}\.$/,
+  );
+  await expect(
+    page.getByRole('button', { name: 'Nächste Woche' }),
+  ).toBeDisabled();
+  await expect(places.first()).toBeVisible();
+
+  await previous.click();
+  await expect(bar).toHaveText('Letzte Woche');
+
+  await previous.click();
+  await previous.click();
+  await expect(bar).toHaveText(/^KW \d{1,2} · /);
+  await expect(
+    page.getByText('In dieser Woche wurde nichts gezählt.'),
+  ).toBeVisible();
+  // Only the navigation's Zählen: a past week offers no Zählen button.
+  await expect(page.getByRole('link', { name: 'Zählen' })).toHaveCount(1);
+});
+
 test('the fixture preview lists what anna may verify under Offen with its badge; Bestätigen lets it count, Ablehnen removes it', async ({
   page,
 }) => {

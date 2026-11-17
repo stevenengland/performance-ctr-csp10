@@ -437,6 +437,48 @@ test('the Rangliste reads yesterday with its window and Gesamt with scope=all, a
   await expect(place(page, anna)).toBeVisible();
 });
 
+test('the Rangliste reads this week from Monday’s to next Monday’s local midnight, and the week before without today’s entries', async ({
+  page,
+  request,
+}) => {
+  const verify = await verifierOn(request);
+  const anna = uniqueName('Anna');
+  const annaId = await created(page.request, '/api/persons', { name: anna });
+  const bierId = await created(page.request, '/api/drinks', {
+    name: uniqueName('Bier'),
+    points: 1,
+  });
+  await verify(await addEntry(page.request, annaId, bierId, 3));
+  await page.goto('/rangliste');
+  await expect(place(page, anna)).toBeVisible();
+
+  const thisWeek = scoreboardRequests(page);
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Woche' })
+    .click();
+  const window = new URL((await thisWeek).url()).searchParams;
+  const from = window.get('from') ?? '';
+  const hours =
+    (Date.parse(window.get('to') ?? '') - Date.parse(from)) / 3_600_000;
+  expect([167, 168, 169]).toContain(hours);
+  expect(
+    await page.evaluate((instant) => {
+      const start = new Date(instant);
+      return [start.getDay(), start.getHours(), start.getMinutes()];
+    }, from),
+  ).toEqual([1, 0, 0]);
+  await expect(page.getByText('Diese Woche', { exact: true })).toBeVisible();
+  await expect(page.getByRole('banner')).toContainText(/KW \d{1,2} · /);
+  await expect(place(page, anna)).toHaveAccessibleName(
+    new RegExp(`^Platz \\d+, ${anna}, 3 Punkte, 3 Getränke$`),
+  );
+
+  await page.getByRole('button', { name: 'Vorherige Woche' }).click();
+  await expect(page.getByText('Letzte Woche', { exact: true })).toBeVisible();
+  await expect(place(page, anna)).toHaveCount(0);
+});
+
 test('with nobody today the Rangliste says so and offers Zählen', async ({
   page,
 }) => {
