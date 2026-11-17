@@ -10,7 +10,7 @@ import { signIn, uniqueName, VERIFIER, verifierOn } from './support/session.ts';
 /*
 The four-eyes rule across all three kinds at once (PRD #61): the bootstrap
 admin records a drink, a match and a result; each waits as `offen` and counts
-nowhere. The verifier confirms the drink and rejects the match in `Offen`,
+nowhere. The verifier verifies the drink and rejects the match in `Offen`,
 the result keeps waiting, and the Rangliste, the game screens and the
 Protokoll show exactly that.
 */
@@ -47,7 +47,7 @@ async function gameHistory(page: Page, gameId: number) {
   return page.getByRole('list', { name: 'Verlauf' }).getByRole('listitem');
 }
 
-test('a drink, a match and a result wait as offen; another account confirms one and rejects one in Offen, and only the confirmed one counts', async ({
+test('a drink, a match and a result wait as offen; another account verifies one and rejects one in Offen, and only the verified one counts', async ({
   page,
   browser,
 }) => {

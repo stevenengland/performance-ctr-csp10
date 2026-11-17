@@ -11,7 +11,7 @@ import {
 
 /*
 The four-eyes rule end to end with two accounts (PRD #61): the bootstrap admin
-records a drink, a match or a result, which waits; the verifier confirms it in
+records a drink, a match or a result, which waits; the verifier verifies it in
 `Offen`, and it counts, or rejects it there, and it is gone.
 */
 
@@ -29,7 +29,7 @@ async function created(
   return ((await response.json()) as { id: number }).id;
 }
 
-test('one account records a drink, it waits as offen, another confirms it in Offen, and it counts', async ({
+test('one account records a drink, it waits as offen, another verifies it in Offen, and it counts', async ({
   page,
   browser,
 }) => {
@@ -168,7 +168,7 @@ test('another account rejects a waiting drink in Offen: it is gone, and Protokol
   ).toContainText(VERIFIER.userName);
 });
 
-test('a match waits as offen for both players until another account confirms it in Offen, then counts on both sides', async ({
+test('a match waits as offen for both players until another account verifies it in Offen, then counts on both sides', async ({
   page,
   browser,
 }) => {
@@ -240,7 +240,7 @@ test('a match waits as offen for both players until another account confirms it 
   ).toBeVisible();
 });
 
-test('a result waits as offen and unranked, even as a zero in a lowest-wins game, until another account confirms it in Offen', async ({
+test('a result waits as offen and unranked, even as a zero in a lowest-wins game, until another account verifies it in Offen', async ({
   page,
   browser,
 }) => {
