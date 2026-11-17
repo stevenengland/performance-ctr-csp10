@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatDay,
+  formatDayRange,
   formatDecimalInput,
   formatFullDay,
   formatMultiplier,
@@ -42,6 +43,16 @@ describe('de-DE formatting', () => {
     const instant = new Date('2026-09-14T22:30:00Z');
     expect(formatDay(instant, 'Europe/Berlin')).toBe('15.09.');
     expect(formatDay(instant, 'America/Mexico_City')).toBe('14.09.');
+  });
+
+  it('shows a span of days as dd.MM.–dd.MM. without the year, across a year end', () => {
+    expect(
+      formatDayRange(
+        new Date('2025-12-28T23:00:00Z'),
+        new Date('2026-01-03T23:00:00Z'),
+        'Europe/Berlin',
+      ),
+    ).toBe('29.12.–04.01.');
   });
 
   it('shows a day with its short weekday and without the year, and in full', () => {

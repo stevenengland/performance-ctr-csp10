@@ -595,6 +595,26 @@ describe('the Rangliste’s periods', () => {
     );
   });
 
+  it('keeps a week as its Monday when Sunday’s midnight passes: it becomes Letzte Woche and is no longer polled', async () => {
+    const asked = scoreboards({
+      [TODAY]: evening,
+      [THIS_WEEK]: only('Anna', 21),
+    });
+    await open();
+    await choose('Woche');
+
+    await vi.advanceTimersByTimeAsync(20 * 60_000);
+    window.dispatchEvent(new Event('focus'));
+    await flushPromises();
+    const reads = asked.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(bar()?.text()).toBe('Letzte Woche');
+    expect(context()).toBe('KW 46 · 09.11.–15.11.');
+    expect(asked.at(-1)?.[0]).toBe(THIS_WEEK);
+    expect(asked).toHaveLength(reads);
+  });
+
   it('says nothing was counted in a week without any entry, without Zählen', async () => {
     scoreboards({ [TODAY]: evening });
     await open();
