@@ -251,6 +251,90 @@ test('after a restart Aktuell is empty while Gesamt and Tag still rank the earli
   ).toBeVisible();
 });
 
+test('a points game’s Gesamt ranks by Summe, then by Ø pro Ergebnis across a restart, asking for the measure', async ({
+  page,
+  request,
+}) => {
+  const anna = uniqueName('Anna');
+  const ben = uniqueName('Ben');
+  const annaId = await created(page.request, '/api/persons', { name: anna });
+  const benId = await created(page.request, '/api/persons', { name: ben });
+  const gameId = await created(page.request, '/api/games', {
+    name: uniqueName('Darts'),
+    kind: 'points',
+    lowerWins: false,
+  });
+  const verify = await verifierOn(request);
+  const score = async (personId: number, points: number) => {
+    const id = randomUUID();
+    const response = await page.request.put(`/api/results/${id}`, {
+      data: { gameId, personId, points },
+    });
+    expect(response.status()).toBe(201);
+    await verify(id, 'results');
+  };
+  await score(annaId, 10);
+  await score(benId, 15);
+  const restarted = await page.request.post(
+    `/api/games/${String(gameId)}/restart`,
+    { data: {} },
+  );
+  expect(restarted.status()).toBe(200);
+  await score(annaId, 10);
+  const standingsBy = (measure: string) =>
+    page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        url.pathname === `/api/games/${String(gameId)}/standings` &&
+        url.searchParams.get('scope') === 'all' &&
+        url.searchParams.get('measure') === measure
+      );
+    });
+  const periods = page.getByRole('group', { name: 'Zeitraum' });
+  const measures = page.getByRole('group', { name: 'Wertung' });
+  const places = page.getByRole('listitem', { name: /^Platz / });
+
+  await page.goto(`/spiele/${String(gameId)}`);
+  await expect(measures).toBeHidden();
+  const bySum = standingsBy('sum');
+  await periods.getByRole('button', { name: 'Gesamt' }).click();
+  await bySum;
+  await expect(measures.getByRole('button', { name: 'Summe' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(places.nth(0)).toHaveAccessibleName(
+    `Platz 1, ${anna}, 20 Punkte, 2 Ergebnisse · Ø 10`,
+  );
+  await expect(places.nth(1)).toHaveAccessibleName(
+    `Platz 2, ${ben}, 15 Punkte, 1 Ergebnis · Ø 15`,
+  );
+
+  const byAverage = standingsBy('average');
+  await measures.getByRole('button', { name: 'Ø pro Ergebnis' }).click();
+  await byAverage;
+  await expect(places.nth(0)).toHaveAccessibleName(
+    `Platz 1, ${ben}, Ø 15 Punkte, 1 Ergebnis · Summe 15`,
+  );
+  await expect(places.nth(1)).toHaveAccessibleName(
+    `Platz 2, ${anna}, Ø 10 Punkte, 2 Ergebnisse · Summe 20`,
+  );
+
+  const today = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return (
+      url.pathname === `/api/games/${String(gameId)}/standings` &&
+      url.searchParams.has('to')
+    );
+  });
+  await periods.getByRole('button', { name: 'Tag' }).click();
+  expect(new URL((await today).url()).searchParams.has('measure')).toBe(false);
+  await expect(measures).toBeHidden();
+  await expect(places.first()).toHaveAccessibleName(
+    `Platz 1, ${anna}, 20 Punkte, 2 Ergebnisse`,
+  );
+});
+
 test('a match deleted from the game’s Verlauf leaves its ranking', async ({
   page,
   request,

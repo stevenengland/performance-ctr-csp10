@@ -600,7 +600,7 @@ test('the fixture preview ranks Rommé’s earlier runs under Gesamt and its eve
     page.getByText(/^Alle Läufe seit \d{2}\.\d{2}\.\d{4} · 6 Spieltage$/),
   ).toBeVisible();
   await expect(places.first()).toHaveAccessibleName(
-    'Platz 1, Tom, 12 Punkte, 4 Ergebnisse',
+    'Platz 1, Tom, 12 Punkte, 4 Ergebnisse · Ø 3',
   );
   await expect(
     page.getByRole('listitem', { name: 'Jule, +1 offen' }),
@@ -629,6 +629,58 @@ test('the fixture preview ranks Rommé’s earlier runs under Gesamt and its eve
   await expect(places.first()).toHaveAccessibleName(
     'Platz 1, Daniel, −11 Punkte, 2 Ergebnisse, +1 offen',
   );
+});
+
+test('the fixture preview ranks Rommé’s Woche and Gesamt by Summe or Ø pro Ergebnis, keeping the choice between them', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/1');
+  const periods = page.getByRole('group', { name: 'Zeitraum' });
+  const measures = page.getByRole('group', { name: 'Wertung' });
+  const ranking = page
+    .getByRole('list', { name: 'Rommé' })
+    .getByRole('listitem');
+  await expect(measures).toBeHidden();
+  await periods.getByRole('button', { name: 'Tag' }).click();
+  await expect(measures).toBeHidden();
+
+  await periods.getByRole('button', { name: 'Gesamt' }).click();
+  await expect(measures.getByRole('button')).toHaveText([
+    'Summe',
+    'Ø pro Ergebnis',
+  ]);
+  await expect(measures.getByRole('button', { name: 'Summe' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(ranking).toHaveText([
+    /^Tom\s*12\s*12 Punkte\s*4 Ergebnisse · Ø 3$/,
+    /^2\s*Anna\s*5 Ergebnisse · Ø 14,2\s*71$/,
+    /^3\s*Daniel\s*6 Ergebnisse · Ø 14\s*84\s*\+1 offen$/,
+    /^4\s*Ben\s*6 Ergebnisse · Ø 18,7\s*112$/,
+    /^5\s*Mara\s*6 Ergebnisse · Ø 35\s*210$/,
+  ]);
+
+  await measures.getByRole('button', { name: 'Ø pro Ergebnis' }).click();
+  await expect(
+    measures.getByRole('button', { name: 'Ø pro Ergebnis' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(ranking).toHaveText([
+    /^Tom\s*3\s*Ø 3 Punkte\s*4 Ergebnisse · Summe 12$/,
+    /^2\s*Daniel\s*6 Ergebnisse · Summe 84\s*14\s*\+1 offen$/,
+    /^3\s*Anna\s*5 Ergebnisse · Summe 71\s*14,2$/,
+    /^4\s*Ben\s*6 Ergebnisse · Summe 112\s*18,7$/,
+    /^5\s*Mara\s*6 Ergebnisse · Summe 210\s*35$/,
+  ]);
+  await expect(ranking.first()).toHaveAccessibleName(
+    'Platz 1, Tom, Ø 3 Punkte, 4 Ergebnisse · Summe 12',
+  );
+
+  await periods.getByRole('button', { name: 'Woche' }).click();
+  await expect(
+    measures.getByRole('button', { name: 'Ø pro Ergebnis' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(ranking.first()).toHaveAccessibleName(/ · Summe −?\d+/);
 });
 
 test('the fixture preview records a Schach match in three taps and undoes it', async ({
