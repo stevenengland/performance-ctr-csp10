@@ -14,6 +14,7 @@ import { defineComponent, h } from 'vue';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 import AppTopBar from '../../components/AppTopBar.vue';
 import { refreshPending } from '../../core/pending-queue';
+import { forgetSession, signIn, signOut } from '../../core/session';
 import { createAppVuetify } from '../../theme';
 import OffenPage from './OffenPage.vue';
 
@@ -156,6 +157,23 @@ function api(
 
 const snackbar = useSnackbar();
 
+/** Lets the current fake API also answer sign-in (as the given user name) and sign-out. */
+function sessions() {
+  const queue = fetch;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init: RequestInit) => {
+      if (new URL(url, 'http://app').pathname !== '/api/session')
+        return queue(url, init);
+      if (init.method === 'DELETE') return new Response(null, { status: 204 });
+      const { userName } = JSON.parse(String(init.body)) as {
+        userName: string;
+      };
+      return json({ id: userName.length, userName, isAdmin: false });
+    }),
+  );
+}
+
 /** Offen below the shell's top bar, as the app shows it. */
 async function offenInTheShell() {
   const router = createRouter({
@@ -199,6 +217,7 @@ describe('Offen', () => {
     });
   });
   afterEach(() => {
+    forgetSession();
     wrapper?.unmount();
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
@@ -533,6 +552,61 @@ describe('Offen', () => {
 
     expect(rows(wrapper)).toHaveLength(4);
     expect(snackbar.value).toBeUndefined();
+  });
+
+  it.each([
+    ['the same account', 'anna'],
+    ['another account', 'ben'],
+  ])(
+    'drops an older page that arrives after sign-out, also once %s signed in',
+    async (_who, next) => {
+      const reads: (Reply | undefined)[] = [];
+      api([entry(4), entry(3), entry(2), entry(1)], { pageSize: 2, reads });
+      sessions();
+      await signIn('anna', 'geheim');
+      wrapper = await mountPage('/offen', OffenPage);
+      let answerOlder: () => void = () => undefined;
+      reads.push(
+        () =>
+          new Promise<Response>((resolve) => {
+            answerOlder = () => {
+              resolve(json({ items: [entry(2), entry(1)], next: null }));
+            };
+          }),
+      );
+      await click(buttonIn(document, 'Ältere laden'));
+
+      await signOut();
+      answerOlder();
+      await flushPromises();
+      expect(rows(wrapper).join()).not.toContain('Bier');
+
+      api([match(1)]);
+      sessions();
+      await signIn(next, 'geheim');
+      await flushPromises();
+      expect(rows(wrapper)).toEqual([expect.stringContaining('Schach')]);
+    },
+  );
+
+  it('shows a row handled before sign-out again in the next session’s queue', async () => {
+    api([entry(2), entry(1)], {
+      replies: [() => problem(404, NOT_FOUND)],
+    });
+    sessions();
+    await signIn('anna', 'geheim');
+    wrapper = await mountPage('/offen', OffenPage);
+    await click(buttonIn(document, '1× Bier für Daniel bestätigen'));
+    await flushPromises();
+    expect(rows(wrapper)).toHaveLength(1);
+
+    await signOut();
+    api([entry(2), entry(1)]);
+    sessions();
+    await signIn('ben', 'geheim');
+    await flushPromises();
+
+    expect(rows(wrapper)).toHaveLength(2);
   });
 
   it('shows “Stand: hh:mm” in the top bar while the queue cannot be read', async () => {

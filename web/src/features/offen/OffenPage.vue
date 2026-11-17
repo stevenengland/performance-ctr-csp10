@@ -23,6 +23,7 @@ import { messages } from '../../core/messages';
 import { useOnline } from '../../core/online';
 import { refreshPending, usePendingQueue } from '../../core/pending-queue';
 import { refreshScoreboard } from '../../core/scoreboard-feed';
+import { useSession, watchAuthBoundaries } from '../../core/session';
 import { showProblem, showSnackbar } from '../../core/snackbar';
 import { provideTopBar } from '../../core/top-bar';
 import { pendingRows, type PendingRow } from './pending-rows';
@@ -36,7 +37,9 @@ and `Ablehnen` remove the row; one that is gone already (404), or verified
 already when rejecting it (409), counts as handled; a refusal (403) or any
 other failure is shown and the row stays. Offline, nothing can be verified or
 rejected, like saving. While the latest refresh of the queue failed, the top
-bar shows when it was last confirmed (§6.6).
+bar shows when it was last confirmed (§6.6). Every sign-out and sign-in ends
+what was read for the session before: the older rows, the handled ones and
+every read still on its way.
 */
 const SKELETON_ROWS = 3;
 
@@ -70,7 +73,10 @@ const older = shallowRef<readonly DeepReadonly<PendingItem>[]>([]);
 const olderNext = shallowRef<string | null>();
 /** Older pages being loaded or read again. */
 const readsUnderWay = ref(0);
-/** Counts the first pages seen and the loads begun: a read that a newer one overtook is dropped. */
+/**
+Counts the first pages seen, the loads begun and the authentication boundaries
+crossed: a read that a newer one or a new session overtook is dropped.
+*/
 let generation = 0;
 /** Rows verified or rejected (or found handled) here, hidden while the lists still show them. */
 const handled = reactive(new Set<string>());
@@ -93,6 +99,13 @@ provideTopBar(() => {
     stale:
       stale && updatedAt ? messages.stand(formatTime(updatedAt)) : undefined,
   };
+});
+
+watchAuthBoundaries(useSession(), () => {
+  generation += 1;
+  older.value = [];
+  olderNext.value = undefined;
+  handled.clear();
 });
 
 /** Forgets the handled rows that neither list shows any more. */
@@ -145,7 +158,7 @@ watch(first, async (page) => {
   }
   try {
     const again = await readOlder(page.next, wanted, read);
-    if (!again) return;
+    if (!again || read !== generation) return;
     const onFirst = new Set(page.items.map(({ id }) => id));
     older.value = again.items.filter(({ id }) => !onFirst.has(id));
     olderNext.value = again.next;
@@ -159,9 +172,10 @@ async function loadOlder() {
   const cursor = next.value;
   if (!cursor || readsUnderWay.value > 0) return;
   generation += 1;
+  const read = generation;
   try {
-    const page = await readOlder(cursor, 1, generation);
-    if (!page) return;
+    const page = await readOlder(cursor, 1, read);
+    if (!page || read !== generation) return;
     older.value = [...older.value, ...page.items];
     olderNext.value = page.next;
   } catch (failure) {
