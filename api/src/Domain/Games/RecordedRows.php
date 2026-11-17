@@ -17,6 +17,7 @@ use Performance\Domain\DataRevision;
 use Performance\Domain\NotFound;
 use Performance\Domain\PendingBound;
 use Performance\Domain\PendingItem;
+use Performance\Domain\PendingQuery;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
 use Performance\Domain\VerifiableRow;
@@ -47,8 +48,7 @@ final readonly class RecordedRows implements VerifiableRows
      *                                                                       the rows the transaction holds already
      * @param 'm'|'r'                                        $alias          the table's alias in `$snapshotSelect`
      * @param Closure(array<string, scalar|null>): TSnapshot $snapshotOf     one row of `$snapshotSelect` as the audit log keeps it
-     * @param PendingRead|null                               $pendingRead    how the rows read for the pending queue; null while the table
-     *                                                                       has no pending rows
+     * @param PendingRead                                    $pendingRead    how the rows read for the pending queue
      */
     public function __construct(
         private PDO $pdo,
@@ -59,7 +59,7 @@ final readonly class RecordedRows implements VerifiableRows
         private string $snapshotSelect,
         private string $alias,
         private Closure $snapshotOf,
-        private ?PendingRead $pendingRead = null,
+        private PendingRead $pendingRead,
     ) {}
 
     /**
@@ -144,22 +144,12 @@ final readonly class RecordedRows implements VerifiableRows
 
     public function pending(int $accountId, ?PendingBound $bound, int $limit): array
     {
-        $read = $this->pendingRead ?? throw new LogicException("The {$this->table} have no pending rows to list");
+        $read = $this->pendingRead;
+        $query = new PendingQuery($accountId, $bound);
         $statement = $this->pdo->prepare(
-            $read->select . ' WHERE ' . $this->mayVerify()
-            . match (true) {
-                $bound === null => '',
-                $bound->afterId === null => " AND {$this->alias}.created_at < ?",
-                default => " AND ({$this->alias}.created_at < ? OR ({$this->alias}.created_at = ? AND {$this->alias}.id > ?))",
-            }
-            . " ORDER BY {$this->alias}.created_at DESC, {$this->alias}.id LIMIT {$limit}",
+            $read->select . ' WHERE ' . $query->where($this->alias) . $query->orderBy($this->alias, $limit),
         );
-        $at = $bound === null ? null : Timestamp::of($bound->createdAt);
-        $statement->execute(match (true) {
-            $bound === null => [$accountId],
-            $bound->afterId === null => [$accountId, $at],
-            default => [$accountId, $at, $at, $bound->afterId],
-        });
+        $statement->execute($query->parameters());
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
 
@@ -174,8 +164,9 @@ final readonly class RecordedRows implements VerifiableRows
 
     public function countPending(int $accountId): int
     {
-        $statement = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->table} {$this->alias} WHERE " . $this->mayVerify());
-        $statement->execute([$accountId]);
+        $query = new PendingQuery($accountId);
+        $statement = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->table} {$this->alias} WHERE " . $query->where($this->alias));
+        $statement->execute($query->parameters());
 
         return (int) $statement->fetchColumn();
     }
@@ -246,11 +237,5 @@ final readonly class RecordedRows implements VerifiableRows
             $this->subjectKind,
             array_map(static fn(array $row): array => [$row[0], $row[1], null], $this->snapshots($index, $column, $id)),
         );
-    }
-
-    /** The pending rows an account (the parameter) may verify: those another account or one deleted since recorded. */
-    private function mayVerify(): string
-    {
-        return "{$this->alias}.pending = 1 AND ({$this->alias}.account_id IS NULL OR {$this->alias}.account_id <> ?)";
     }
 }

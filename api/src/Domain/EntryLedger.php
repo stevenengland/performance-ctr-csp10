@@ -21,8 +21,6 @@ use PDOException;
 final readonly class EntryLedger implements VerifiableRows
 {
     public const MAX_QUANTITY = 99;
-    /** The pending entries an account (the parameter) may verify: those another account or one deleted since recorded. */
-    private const MAY_VERIFY = 'e.pending = 1 AND (e.account_id IS NULL OR e.account_id <> ?)';
 
     public function __construct(
         private PDO $pdo,
@@ -107,25 +105,15 @@ final readonly class EntryLedger implements VerifiableRows
 
     public function pending(int $accountId, ?PendingBound $bound, int $limit): array
     {
+        $query = new PendingQuery($accountId, $bound);
         $statement = $this->pdo->prepare(
             'SELECT e.id, e.created_at, a.user_name AS account_name, e.person_id, p.name AS person_name, e.drink_id,
                     d.name AS drink_name, e.quantity, e.factor_id, f.name AS factor_name, f.multiplier
                FROM entries e JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
                LEFT JOIN factors f ON f.id = e.factor_id LEFT JOIN accounts a ON a.id = e.account_id
-              WHERE ' . self::MAY_VERIFY
-            . match (true) {
-                $bound === null => '',
-                $bound->afterId === null => ' AND e.created_at < ?',
-                default => ' AND (e.created_at < ? OR (e.created_at = ? AND e.id > ?))',
-            }
-            . ' ORDER BY e.created_at DESC, e.id LIMIT ' . $limit,
+              WHERE ' . $query->where('e') . $query->orderBy('e', $limit),
         );
-        $at = $bound === null ? null : Timestamp::of($bound->createdAt);
-        $statement->execute(match (true) {
-            $bound === null => [$accountId],
-            $bound->afterId === null => [$accountId, $at],
-            default => [$accountId, $at, $at, $bound->afterId],
-        });
+        $statement->execute($query->parameters());
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
 
@@ -134,8 +122,9 @@ final readonly class EntryLedger implements VerifiableRows
 
     public function countPending(int $accountId): int
     {
-        $statement = $this->pdo->prepare('SELECT COUNT(*) FROM entries e WHERE ' . self::MAY_VERIFY);
-        $statement->execute([$accountId]);
+        $query = new PendingQuery($accountId);
+        $statement = $this->pdo->prepare('SELECT COUNT(*) FROM entries e WHERE ' . $query->where('e'));
+        $statement->execute($query->parameters());
 
         return (int) $statement->fetchColumn();
     }
