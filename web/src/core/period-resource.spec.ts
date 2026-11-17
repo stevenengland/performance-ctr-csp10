@@ -17,23 +17,26 @@ interface Request {
 }
 
 /** A fake server for selections named by strings; `live` ones contain the present. */
-function server(live: string[] = []) {
+function server(live: string[] = [], keeps = 0) {
   const requests: Request[] = [];
-  const resource = createPeriodResource<string, string>({
-    key: (selection) => selection,
-    live: (selection) => live.includes(selection),
-    read: (selection) => (etag) =>
-      new Promise<Answer>((resolve) => {
-        requests.push({
-          selection,
-          etag,
-          answer: async (reply) => {
-            resolve(reply);
-            await vi.advanceTimersByTimeAsync(0);
-          },
-        });
-      }),
-  });
+  const resource = createPeriodResource<string, string>(
+    {
+      key: (selection) => selection,
+      live: (selection) => live.includes(selection),
+      read: (selection) => (etag) =>
+        new Promise<Answer>((resolve) => {
+          requests.push({
+            selection,
+            etag,
+            answer: async (reply) => {
+              resolve(reply);
+              await vi.advanceTimersByTimeAsync(0);
+            },
+          });
+        }),
+    },
+    { keeps },
+  );
   const sent = () => requests.map(({ selection, etag }) => [selection, etag]);
   return { resource, requests, sent };
 }
@@ -215,5 +218,90 @@ describe('a period resource', () => {
       ['gestern', undefined],
       ['vorgestern', undefined],
     ]);
+  });
+  describe('that keeps the identities shown last', () => {
+    it('shows a kept one again at once and asks on condition of its ETag; while hidden it is not read', async () => {
+      const fake = server([], 1);
+      resource = fake.resource;
+      resource.start();
+      resource.show('summe');
+      await settle();
+      await fake.requests[0]?.answer({ value: 'S', etag: '"s"' });
+      resource.show('schnitt');
+      await settle();
+      await fake.requests[1]?.answer({ value: 'D', etag: '"d"' });
+      window.dispatchEvent(new Event('focus'));
+      await settle();
+      await fake.requests[2]?.answer('unchanged');
+
+      resource.show('summe');
+
+      expect(resource.state.value).toMatchObject({ value: 'S', stale: false });
+      await settle();
+      await fake.requests[3]?.answer('unchanged');
+      expect(resource.state.value.value).toBe('S');
+      resource.show('schnitt');
+      expect(resource.state.value.value).toBe('D');
+      expect(fake.sent()).toEqual([
+        ['summe', undefined],
+        ['schnitt', undefined],
+        ['schnitt', '"d"'],
+        ['summe', '"s"'],
+        ['schnitt', '"d"'],
+      ]);
+    });
+
+    it('keeps no more than it is asked to: the one shown longest ago is forgotten', async () => {
+      const fake = server([], 1);
+      resource = fake.resource;
+      resource.start();
+      resource.show('a');
+      await settle();
+      await fake.requests[0]?.answer({ value: 'A', etag: '"a"' });
+      resource.show('b');
+      resource.show('c');
+
+      resource.show('a');
+
+      expect(resource.state.value.value).toBeUndefined();
+      await settle();
+      expect(fake.sent().at(-1)).toEqual(['a', undefined]);
+    });
+
+    it('shows the answer of the identity shown last, whatever order the answers arrive in', async () => {
+      const fake = server([], 2);
+      resource = fake.resource;
+      resource.start();
+      resource.show('summe');
+      resource.show('schnitt');
+      resource.show('summe');
+      await settle();
+      const [firstSum, average, secondSum] = fake.requests;
+
+      await secondSum?.answer({ value: 'S2', etag: '"s2"' });
+      await average?.answer({ value: 'D', etag: '"d"' });
+      await firstSum?.answer({ value: 'S1', etag: '"s1"' });
+
+      expect(resource.state.value.value).toBe('S2');
+      resource.show('schnitt');
+      expect(resource.state.value.value).toBe('D');
+    });
+
+    it('keeps nothing once it is told to forget', async () => {
+      const fake = server([], 2);
+      resource = fake.resource;
+      resource.start();
+      resource.show('a');
+      await settle();
+      await fake.requests[0]?.answer({ value: 'A', etag: '"a"' });
+      resource.show('b');
+
+      resource.forget();
+      resource.show('a');
+
+      expect(resource.state.value.value).toBeUndefined();
+      await settle();
+      expect(fake.sent().at(-1)).toEqual(['a', undefined]);
+    });
   });
 });

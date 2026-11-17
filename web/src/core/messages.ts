@@ -395,6 +395,15 @@ export const messages = {
     /** A points place's count: `3 Ergebnisse`. */
     resultCount: (count: number) =>
       `${String(count)} ${count === 1 ? 'Ergebnis' : 'Ergebnisse'}`,
+    /** The chips that choose what a points game's week or all time is ranked by. */
+    measure: 'Wertung',
+    measures: { sum: 'Summe', average: 'Ø pro Ergebnis' },
+    /** An average per result: `Ø 12,3`. */
+    average: (formatted: string) => `Ø ${formatted}`,
+    /** A sum beside the average: `Summe 172`. */
+    sum: (formatted: string) => `Summe ${formatted}`,
+    /** A points place's count with the measure not ranked by: `14 Ergebnisse · Ø 12,3`. */
+    withOther: (count: string, other: string) => `${count} · ${other}`,
     /** Accessible name of a place: `Platz 1, Anna, 3,5 Punkte, 5 Partien · …`. */
     place: (rank: number, name: string, value: string, details: string) =>
       `Platz ${String(rank)}, ${name}, ${value}, ${details}`,

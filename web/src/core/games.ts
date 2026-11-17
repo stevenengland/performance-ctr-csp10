@@ -7,7 +7,13 @@ import {
   watch,
 } from 'vue';
 import * as api from './api-client';
-import type { Game, GameChange, NewGame, Standings } from './api-client';
+import type {
+  Game,
+  GameChange,
+  Measure,
+  NewGame,
+  Standings,
+} from './api-client';
 import { createDaysRead, type DaysRead } from './days-with-data';
 import { calendarDateOf, isLive, type Period, periodKey } from './period';
 import {
@@ -101,36 +107,51 @@ export function useStandings(
 /** The periods a game's page ranks apart from its current run (PRD #70). */
 export type GamePeriod = Exclude<Period, { kind: 'run' }>;
 
-/** What a game's page shows apart from its current run: the game and the period. */
+/**
+What a game's page shows apart from its current run: the game, the period and, for
+a points game's week or all time, the measure (none: the sum, without asking).
+*/
 export interface GameSelection {
   gameId: number;
   period: GamePeriod;
+  measure?: Measure;
 }
+
+/** How many selections a game's page keeps beside the shown one, e.g. the other measure. */
+const KEPT_SELECTIONS = 6;
 
 /**
 The ranking a game's page shows of a day, a week or all time, counting every run:
-data and ETags per game and period, so switching games or periods never shows or
-asks with another's; the current week and all time are kept live, a past day or
-week is read when shown, on focus and after the device's own writes.
+data and ETags per game, period and measure, so switching games, periods or
+measures never shows or asks with another's; the current week and all time are
+kept live, a past day or week is read when shown, on focus and after the device's
+own writes. The selections shown last keep their ranking while the page is open,
+so switching back (`Summe` ⇄ `Ø pro Ergebnis`) shows it at once and asks on
+condition of its ETag. The sum asked for and none asked for are one ranking (the
+API answers both alike).
 */
-const periodStandings = createPeriodResource<GameSelection, Standings>({
-  key: ({ gameId, period }) => `${String(gameId)}|${periodKey(period)}`,
-  live: ({ period }) => isLive(period, calendarDateOf(new Date())),
-  read: ({ gameId, period }) =>
-    windowedRead(period, async (selection, etag) => {
-      const answer = await api.getStandings(gameId, etag, selection);
-      return answer === 'unchanged'
-        ? 'unchanged'
-        : { value: answer.standings, etag: answer.etag };
-    }),
-});
+const periodStandings = createPeriodResource<GameSelection, Standings>(
+  {
+    key: ({ gameId, period, measure = 'sum' }) =>
+      `${String(gameId)}|${periodKey(period)}|${measure}`,
+    live: ({ period }) => isLive(period, calendarDateOf(new Date())),
+    read: ({ gameId, period, measure }) =>
+      windowedRead(period, async (selection, etag) => {
+        const answer = await api.getStandings(gameId, etag, selection, measure);
+        return answer === 'unchanged'
+          ? 'unchanged'
+          : { value: answer.standings, etag: answer.etag };
+      }),
+  },
+  { keeps: KEPT_SELECTIONS },
+);
 /** The game whose period ranking a screen shows. */
 let periodShownOf: number | undefined;
 
 /**
-The ranking of the game and period the calling screen shows (`undefined`: none,
-e.g. under `Aktuell`), while the screen is open. A game's page always opens on
-`Aktuell`, so nothing of it is kept after the screen closes.
+The ranking of the game, period and measure the calling screen shows (`undefined`:
+none, e.g. under `Aktuell`), while the screen is open. A game's page always opens
+on `Aktuell` with the sum, so nothing of it is kept after the screen closes.
 */
 export function usePeriodStandings(
   selection: MaybeRefOrGetter<GameSelection | undefined>,
@@ -144,7 +165,7 @@ export function usePeriodStandings(
   );
   const state = usePeriodResource(periodStandings, selection);
   onScopeDispose(() => {
-    periodStandings.show(undefined);
+    periodStandings.forget();
     periodShownOf = undefined;
   });
   return state;

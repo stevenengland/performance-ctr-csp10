@@ -719,6 +719,26 @@ describe('the API client', () => {
     },
   );
 
+  it.each([
+    ['average', '?scope=all&measure=average'],
+    ['sum', '?scope=all&measure=sum'],
+  ] as const)(
+    'asks for a points game’s ranking of all time by the measure %s',
+    async (measure, query) => {
+      const fetch = respond(
+        { kind: 'points', startedAt: '2026-09-15T10:00:00.000Z', rows: [] },
+        { status: 200, headers: { ETag: '"42-all-average"' } },
+      );
+
+      await getStandings(2, undefined, { scope: 'all' }, measure);
+
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/games/2/standings${query}`,
+        expect.anything(),
+      );
+    },
+  );
+
   it('reads the quarter hours a game was played with their ETag, on condition of the last one; 304 means unchanged', async () => {
     const instants = ['2026-11-14T20:00:00.000Z'];
     const fetch = vi

@@ -1,5 +1,5 @@
 import { requireReload } from '../../pwa/reload-floor';
-import type { components, paths } from './schema';
+import type { components, operations, paths } from './schema';
 
 export type Health = components['schemas']['Health'];
 export type Account = components['schemas']['Account'];
@@ -30,6 +30,10 @@ export type Result = components['schemas']['Result'];
 export type Standings = components['schemas']['Standings'];
 export type DuelRow = components['schemas']['DuelRow'];
 export type PointsRow = components['schemas']['PointsRow'];
+/** What a points game's window or all time is ranked by: the sum or the average per result. */
+export type Measure = NonNullable<
+  NonNullable<operations['getStandings']['parameters']['query']>['measure']
+>;
 export type MatchItem = components['schemas']['MatchItem'];
 export type MatchPage = components['schemas']['MatchPage'];
 export type ResultItem = components['schemas']['ResultItem'];
@@ -408,17 +412,22 @@ export interface StandingsAnswer {
 
 /**
 A game's ranking, tagged with the game's kind: in its current run, or of a
-selection, a window or all time, over every run. With the ETag of the same
-selection's ranking already shown, `unchanged` means it still holds.
+selection, a window or all time, over every run; a points game's selection by a
+`measure` (only there: anywhere else it is 422). With the ETag of the same
+selection's and measure's ranking already shown, `unchanged` means it still holds.
 */
 export async function getStandings(
   gameId: number,
   etag?: string,
   selection?: ScoreboardSelection,
+  measure?: Measure,
 ): Promise<StandingsAnswer | 'unchanged'> {
   const response = await send('/api/games/{id}/standings', {
     params: { id: String(gameId) },
-    query: selection && queryOfSelection(selection),
+    query: selection && {
+      ...queryOfSelection(selection),
+      ...(measure && { measure }),
+    },
     ifNoneMatch: etag,
   });
   if (response.status === NOT_MODIFIED) return 'unchanged';

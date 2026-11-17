@@ -787,6 +787,10 @@ describe('a game’s periods', () => {
   const THIS_WEEK =
     '?from=2026-11-08T23:00:00.000Z&to=2026-11-15T23:00:00.000Z';
   const ALL = '?scope=all';
+  /** A points game's week and all time ask for the measure its chips chose. */
+  const WEEK_SUM = `${THIS_WEEK}&measure=sum`;
+  const ALL_SUM = `${ALL}&measure=sum`;
+  const ALL_AVERAGE = `${ALL}&measure=average`;
   /** The quarter hours Rommé was played: 28.10. and 14.11. twice. */
   const ROMME_DAYS = [
     '2026-10-28T19:00:00.000Z',
@@ -817,23 +821,34 @@ describe('a game’s periods', () => {
   });
 
   const ROMME = game(41, 'Rommé', 'points', { lowerWins: true });
+  /** Rows `[person, name, sum, results, average]`; a window's or all time's carry the average. */
   const pointsOf = (
     ...rows: [number, string, number, number, number?][]
   ): Standings => ({
     kind: 'points',
     startedAt: STARTED,
     lowerWins: true,
-    rows: rows.map(([personId, name, sum, results, pendingCount = 0]) => ({
+    rows: rows.map(([personId, name, sum, results, average]) => ({
       personId,
       name,
       sum,
+      ...(average === undefined ? {} : { average }),
       results,
-      pendingCount,
+      pendingCount: 0,
     })),
     unranked: [],
   });
   const CURRENT = pointsOf([3, 'Daniel', -11, 2]);
-  const FOREVER = pointsOf([6, 'Tom', 164, 12], [3, 'Daniel', 199, 14]);
+  const FOREVER = pointsOf(
+    [6, 'Tom', 164, 12, 13.7],
+    [3, 'Daniel', 199, 14, 14.2],
+  );
+  /** All time by the average, in the API's order for it. */
+  const FOREVER_AVERAGE = pointsOf(
+    [2, 'Ben', 172, 14, 12.3],
+    [6, 'Tom', 164, 12, 13.7],
+    [3, 'Daniel', 199, 14, 14.2],
+  );
 
   /**
   The API with the given games: each game's ranking by its query (`''` the current
@@ -923,7 +938,7 @@ describe('a game’s periods', () => {
         '': CURRENT,
         [TODAY]: pointsOf([3, 'Daniel', -11, 2], [6, 'Tom', 20, 1]),
         [SATURDAY]: pointsOf([6, 'Tom', 12, 3]),
-        [THIS_WEEK]: pointsOf([6, 'Tom', 32, 4], [3, 'Daniel', 40, 5]),
+        [WEEK_SUM]: pointsOf([6, 'Tom', 32, 4, 8], [3, 'Daniel', 40, 5, 8]),
       },
     });
     wrapper = await spiel(41);
@@ -941,21 +956,21 @@ describe('a game’s periods', () => {
 
     expect(context()).toBe('Punktespiel · KW 46 · 09.11.–15.11.');
     expect(places()).toEqual([
-      'Platz 1, Tom, 32 Punkte, 4 Ergebnisse',
-      'Platz 2, Daniel, 40 Punkte, 5 Ergebnisse',
+      'Platz 1, Tom, 32 Punkte, 4 Ergebnisse · Ø 8',
+      'Platz 2, Daniel, 40 Punkte, 5 Ergebnisse · Ø 8',
     ]);
     expect(asked.map(([query]) => query)).toEqual([
       '41',
       `41${TODAY}`,
       `41${SATURDAY}`,
-      `41${THIS_WEEK}`,
+      `41${WEEK_SUM}`,
     ]);
   });
 
   it('ranks all time under Gesamt with scope=all, live, saying since when and over how many days the game was played', async () => {
     const asked = serve(
       [ROMME],
-      { 41: { '': CURRENT, [ALL]: FOREVER } },
+      { 41: { '': CURRENT, [ALL_SUM]: FOREVER } },
       {
         41: ROMME_DAYS,
       },
@@ -971,12 +986,12 @@ describe('a game’s periods', () => {
     );
     expect(wrapper.find('[data-test="day-bar"]').exists()).toBe(false);
     expect(places()).toEqual([
-      'Platz 1, Tom, 164 Punkte, 12 Ergebnisse',
-      'Platz 2, Daniel, 199 Punkte, 14 Ergebnisse',
+      'Platz 1, Tom, 164 Punkte, 12 Ergebnisse · Ø 13,7',
+      'Platz 2, Daniel, 199 Punkte, 14 Ergebnisse · Ø 14,2',
     ]);
-    expect(asked.filter(([query]) => query === `41${ALL}`)).toEqual([
-      [`41${ALL}`, undefined],
-      [`41${ALL}`, `"1${ALL}"`],
+    expect(asked.filter(([query]) => query === `41${ALL_SUM}`)).toEqual([
+      [`41${ALL_SUM}`, undefined],
+      [`41${ALL_SUM}`, `"1${ALL_SUM}"`],
     ]);
   });
 
@@ -1070,7 +1085,7 @@ describe('a game’s periods', () => {
   });
 
   it('opens on Aktuell again every time the page opens', async () => {
-    serve([ROMME], { 41: { '': CURRENT, [ALL]: FOREVER } });
+    serve([ROMME], { 41: { '': CURRENT, [ALL_SUM]: FOREVER } });
     wrapper = await spiel(41);
     await choose('Gesamt');
     wrapper.unmount();
@@ -1083,7 +1098,7 @@ describe('a game’s periods', () => {
   });
 
   it('keeps Verlauf, Neu starten and the record button in every period', async () => {
-    serve([ROMME], { 41: { '': CURRENT, [ALL]: FOREVER } });
+    serve([ROMME], { 41: { '': CURRENT, [ALL_SUM]: FOREVER } });
     wrapper = await spiel(41);
 
     await choose('Gesamt');
@@ -1121,7 +1136,11 @@ describe('a game’s periods', () => {
 
   it('shows only the shown period’s ranking when answers arrive out of order, and sends an ETag only with its own period', async () => {
     const asked = serve([ROMME], {
-      41: { '': CURRENT, [ALL]: FOREVER, [TODAY]: pointsOf([6, 'Tom', 1, 1]) },
+      41: {
+        '': CURRENT,
+        [ALL_SUM]: FOREVER,
+        [TODAY]: pointsOf([6, 'Tom', 1, 1, 1]),
+      },
     });
     wrapper = await spiel(41);
     await choose('Gesamt');
@@ -1143,16 +1162,16 @@ describe('a game’s periods', () => {
     expect(places()).toEqual(['Platz 1, Tom, 1 Punkt, 1 Ergebnis']);
     expect(context()).toBe('Punktespiel · Heute');
     expect(asked.filter(([query]) => query !== '41')).toEqual([
-      [`41${ALL}`, undefined],
+      [`41${ALL_SUM}`, undefined],
       [`41${TODAY}`, undefined],
-      [`41${ALL}`, `"1${ALL}"`],
+      [`41${ALL_SUM}`, `"1${ALL_SUM}"`],
     ]);
   });
 
   it('shows the other game’s ranking, never the previous one’s, when another game opens under the same period', async () => {
     serve([ROMME, game(43, 'Kniffel', 'points')], {
-      41: { [ALL]: FOREVER },
-      43: { [ALL]: pointsOf([1, 'Anna', 300, 3]) },
+      41: { [ALL_SUM]: FOREVER },
+      43: { [ALL_SUM]: pointsOf([1, 'Anna', 300, 3, 100]) },
     });
     wrapper = await spiel(41);
     await choose('Gesamt');
@@ -1162,6 +1181,183 @@ describe('a game’s periods', () => {
     wrapper = await spiel(43);
     await choose('Gesamt');
 
-    expect(places()).toEqual(['Platz 1, Anna, 300 Punkte, 3 Ergebnisse']);
+    expect(places()).toEqual([
+      'Platz 1, Anna, 300 Punkte, 3 Ergebnisse · Ø 100',
+    ]);
+  });
+  describe('measured by Summe or Ø pro Ergebnis', () => {
+    /** The chips with their pressed state; `undefined` while none are offered. */
+    function chips() {
+      const group = wrapper?.find('[role="group"][aria-label="Wertung"]');
+      if (!group?.exists()) return undefined;
+      return group
+        .findAll('button')
+        .map((button) => [button.text(), button.attributes('aria-pressed')]);
+    }
+    async function measure(name: 'Summe' | 'Ø pro Ergebnis') {
+      await wrapper
+        ?.get('[role="group"][aria-label="Wertung"]')
+        .findAll('button')
+        .find((button) => button.text() === name)
+        ?.trigger('click');
+      await flushPromises();
+    }
+    const DUEL = game(42, 'Schach', 'duel');
+
+    it('offers Summe | Ø pro Ergebnis under Woche and Gesamt of a points game only, Summe chosen', async () => {
+      serve([ROMME], {});
+      wrapper = await spiel(41);
+      const offered: Record<string, unknown> = {};
+
+      for (const kind of ['Aktuell', 'Tag', 'Woche', 'Gesamt'] as const) {
+        await choose(kind);
+        offered[kind] = chips();
+      }
+
+      const both = [
+        ['Summe', 'true'],
+        ['Ø pro Ergebnis', 'false'],
+      ];
+      expect(offered).toEqual({
+        Aktuell: undefined,
+        Tag: undefined,
+        Woche: both,
+        Gesamt: both,
+      });
+    });
+
+    it('never shows the chips on a duel, and never sends a measure under Aktuell, Tag or for a duel', async () => {
+      const asked = serve([ROMME, DUEL], {});
+      wrapper = await spiel(42);
+      for (const kind of ['Tag', 'Woche', 'Gesamt', 'Aktuell'] as const) {
+        await choose(kind);
+        expect(chips()).toBeUndefined();
+      }
+      wrapper.unmount();
+      wrapper = await spiel(41);
+      await choose('Gesamt');
+      await measure('Ø pro Ergebnis');
+      await choose('Tag');
+      await choose('Aktuell');
+
+      expect(asked.map(([query]) => query)).toEqual([
+        '42',
+        `42${TODAY}`,
+        `42${THIS_WEEK}`,
+        `42${ALL}`,
+        '42',
+        '41',
+        `41${ALL_SUM}`,
+        `41${ALL_AVERAGE}`,
+        `41${TODAY}`,
+        '41',
+      ]);
+    });
+
+    it('ranks by the average in the API’s order, the average as the value and the sum in the details', async () => {
+      serve([ROMME], {
+        41: { [ALL_SUM]: FOREVER, [ALL_AVERAGE]: FOREVER_AVERAGE },
+      });
+      wrapper = await spiel(41);
+      await choose('Gesamt');
+
+      await measure('Ø pro Ergebnis');
+
+      expect(chips()).toEqual([
+        ['Summe', 'false'],
+        ['Ø pro Ergebnis', 'true'],
+      ]);
+      expect(places()).toEqual([
+        'Platz 1, Ben, Ø 12,3 Punkte, 14 Ergebnisse · Summe 172',
+        'Platz 2, Tom, Ø 13,7 Punkte, 12 Ergebnisse · Summe 164',
+        'Platz 3, Daniel, Ø 14,2 Punkte, 14 Ergebnisse · Summe 199',
+      ]);
+      expect(wrapper.get('.game-leader__value').text()).toBe('12,3');
+      expect(wrapper.findAll('.game-rank__value').map((v) => v.text())).toEqual(
+        ['13,7', '14,2'],
+      );
+    });
+
+    it('keeps the measure between Woche and Gesamt, ranks Tag by the sum without one, and opens on Summe again', async () => {
+      const asked = serve([ROMME], {});
+      wrapper = await spiel(41);
+      await choose('Gesamt');
+      await measure('Ø pro Ergebnis');
+
+      await choose('Woche');
+      const inWeek = chips();
+      await choose('Tag');
+      await choose('Gesamt');
+      const back = chips();
+      wrapper.unmount();
+      wrapper = await spiel(41);
+      await choose('Gesamt');
+
+      expect(inWeek?.[1]).toEqual(['Ø pro Ergebnis', 'true']);
+      expect(back?.[1]).toEqual(['Ø pro Ergebnis', 'true']);
+      expect(chips()?.[0]).toEqual(['Summe', 'true']);
+      expect(asked.map(([query]) => query).slice(1)).toEqual([
+        `41${ALL_SUM}`,
+        `41${ALL_AVERAGE}`,
+        `41${THIS_WEEK}&measure=average`,
+        `41${TODAY}`,
+        `41${ALL_AVERAGE}`,
+        '41',
+        `41${ALL_SUM}`,
+      ]);
+    });
+
+    it('shows the ranking kept for a measure at once when switching back, asking on condition of its ETag', async () => {
+      const asked = serve([ROMME], {
+        41: { [ALL_SUM]: FOREVER, [ALL_AVERAGE]: FOREVER_AVERAGE },
+      });
+      wrapper = await spiel(41);
+      await choose('Gesamt');
+      await measure('Ø pro Ergebnis');
+      const answer = vi.mocked(fetch).getMockImplementation();
+      vi.mocked(fetch).mockImplementation(
+        () => new Promise<Response>(() => undefined),
+      );
+
+      await measure('Summe');
+
+      expect(wrapper.find('[aria-busy="true"]').exists()).toBe(false);
+      expect(places()?.[0]).toBe(
+        'Platz 1, Tom, 164 Punkte, 12 Ergebnisse · Ø 13,7',
+      );
+      vi.mocked(fetch).mockImplementation(
+        answer ?? (() => Promise.reject(new Error('no answer'))),
+      );
+      expect(vi.mocked(fetch).mock.calls.at(-1)?.[1]).toMatchObject({
+        headers: { 'If-None-Match': `"1${ALL_SUM}"` },
+      });
+      expect(asked.at(-1)).toEqual([`41${ALL_AVERAGE}`, undefined]);
+    });
+
+    it('shows the chosen chip’s ranking when the answers of quick switches arrive out of order', async () => {
+      serve([ROMME], {
+        41: { [ALL_SUM]: FOREVER, [ALL_AVERAGE]: FOREVER_AVERAGE },
+      });
+      wrapper = await spiel(41);
+      await choose('Gesamt');
+      const answer = vi.mocked(fetch).getMockImplementation();
+      const held: (() => void)[] = [];
+      vi.mocked(fetch).mockImplementation(async (url, init) => {
+        if (String(url).includes('measure=')) {
+          await new Promise<void>((resolve) => held.push(resolve));
+        }
+        return answer?.(url, init) ?? Promise.reject(new Error('no answer'));
+      });
+
+      await measure('Ø pro Ergebnis');
+      await measure('Summe');
+      await measure('Ø pro Ergebnis');
+      for (const release of held.reverse()) release();
+      await flushPromises();
+
+      expect(places()?.[0]).toBe(
+        'Platz 1, Ben, Ø 12,3 Punkte, 14 Ergebnisse · Summe 172',
+      );
+    });
   });
 });

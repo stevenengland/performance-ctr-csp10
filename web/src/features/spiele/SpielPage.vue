@@ -13,7 +13,7 @@ import { useRouter } from 'vue-router';
 import AppFab from '../../components/AppFab.vue';
 import ConfirmDialog from '../../components/ConfirmDialog.vue';
 import PeriodPicker from '../../components/PeriodPicker.vue';
-import type { Game, Standings } from '../../core/api-client';
+import type { Game, Measure, Standings } from '../../core/api-client';
 import type { DaysWithData } from '../../core/days-with-data';
 import { formatTime } from '../../core/format';
 import {
@@ -59,7 +59,11 @@ writes; while its latest refresh failed, the top bar shows when the ranking was
 last confirmed (§6.6). `Tag`, `Woche` and `Gesamt` rank the matches or results of
 that period over every run, read apart per game and period, the current ones kept
 live; the calendar dots the days the game was played, and `Gesamt` says since when
-and over how many days. The start and a points game's direction come with each
+and over how many days. A points game's `Woche` and `Gesamt` rank by the measure
+its chips `Summe` | `Ø pro Ergebnis` choose (the sum on every opening, kept while
+switching periods; `Tag` ranks by the sum without asking for one), the chosen one
+as the value and the other in the details; switching back shows the ranking kept
+for it at once. The start and a points game's direction come with each
 ranking read, so a restart or rule edit elsewhere shows with it; the name and a
 duel's draw setting come from the games, read again on focus and on return to the
 page. The FAB opens the recording flow: `Partie eintragen` on a duel (§7p),
@@ -71,6 +75,9 @@ leads back to Spiele.
 const props = defineProps<{ gameId: string }>();
 const SKELETON_ROWS = 3;
 const KINDS: PeriodKind[] = ['run', 'day', 'week', 'all'];
+const MEASURES: Measure[] = ['sum', 'average'];
+/** The periods a points game ranks by a chosen measure. */
+const MEASURED: Period['kind'][] = ['week', 'all'];
 /** What a period without any match or result, counted or pending, says. */
 const NOTHING_PLAYED: Record<GamePeriod['kind'], string> = {
   day: messages.spiele.nothingPlayedThatDay,
@@ -98,13 +105,24 @@ const period = computed<Period>({
   },
 });
 const showsRun = computed(() => period.value.kind === 'run');
+/** The chips' measure, `Summe` on every opening. */
+const chosenMeasure = shallowRef<Measure>('sum');
+const listedGame = computed(() =>
+  games.value?.find((candidate) => candidate.id === gameId.value),
+);
+/** The measure the shown period ranks by, while the chips offer one. */
+const measure = computed(() =>
+  listedGame.value?.kind === 'points' && MEASURED.includes(period.value.kind)
+    ? chosenMeasure.value
+    : undefined,
+);
 
 const ranking = useStandings(gameId.value, showsRun);
 const other = usePeriodStandings(() => {
   const shown = period.value;
   return shown.kind === 'run'
     ? undefined
-    : { gameId: gameId.value, period: shown };
+    : { gameId: gameId.value, period: shown, measure: measure.value };
 });
 /** The shown period's ranking with its freshness. */
 const shownRanking = computed(() =>
@@ -122,9 +140,7 @@ const shownOf = (
 ): DeepReadonly<Standings> | undefined =>
   showsRun.value ? currentRun(listed, ranking.value.value) : other.value.value;
 const game = computed(() => {
-  const listed = games.value?.find(
-    (candidate) => candidate.id === gameId.value,
-  );
+  const listed = listedGame.value;
   return listed && gameAsRanked(listed, shownOf(listed));
 });
 /** The page waits for the game before it shows a ranking of the current run. */
@@ -132,7 +148,7 @@ const ranked = computed(() =>
   game.value ? shownOf(game.value) : shownRanking.value.value,
 );
 const standings = computed(() =>
-  ranked.value ? gameStandings(ranked.value) : undefined,
+  ranked.value ? gameStandings(ranked.value, measure.value) : undefined,
 );
 const unranked = computed(() =>
   ranked.value ? unrankedGameStandings(ranked.value) : [],
@@ -229,6 +245,23 @@ function onVisibilityChange() {
       :today="todayDate"
       :days="DAYS"
     />
+    <div
+      v-if="measure"
+      class="measure"
+      role="group"
+      :aria-label="messages.spiele.measure"
+    >
+      <button
+        v-for="option in MEASURES"
+        :key="option"
+        type="button"
+        class="type-caption measure__option"
+        :aria-pressed="option === measure"
+        @click="chosenMeasure = option"
+      >
+        {{ messages.spiele.measures[option] }}
+      </button>
+    </div>
     <p v-if="game" class="type-label spiel__rule">{{ ruleLine(game) }}</p>
     <div v-if="standings === undefined" aria-busy="true">
       <div class="spiel__skeleton-card" />
@@ -293,6 +326,41 @@ function onVisibilityChange() {
   padding-top: 8px;
   /* The ranking's end stays clear of the FAB. */
   padding-bottom: 88px;
+}
+
+.measure {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+/* A 32 dp chip (draft) whose touch target reaches 48 dp. */
+.measure__option {
+  position: relative;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgb(var(--v-theme-outline));
+  border-radius: 8px;
+  background: none;
+  color: rgb(var(--v-theme-on-surface-variant));
+  cursor: pointer;
+}
+
+.measure__option::after {
+  position: absolute;
+  inset: -8px 0;
+  content: '';
+}
+
+.measure__option[aria-pressed='true'] {
+  border-color: transparent;
+  background: rgb(var(--v-theme-secondary-container));
+  color: rgb(var(--v-theme-on-secondary-container));
+}
+
+.measure__option:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
 }
 
 .spiel__rule {

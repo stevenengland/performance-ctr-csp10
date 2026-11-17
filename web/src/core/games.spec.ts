@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { effectScope, shallowRef } from 'vue';
+import { effectScope, nextTick, shallowRef } from 'vue';
 import type { Standings } from './api-client';
 import {
   type GamePeriod,
@@ -11,13 +11,13 @@ import {
   viewStandings,
 } from './games';
 
-const standings = (gameId: number): Standings => ({
+const standings = (gameId: number, name = 'Anna'): Standings => ({
   kind: 'duel',
   startedAt: '2026-09-15T10:00:00.000Z',
   rows: [
     {
       personId: gameId,
-      name: 'Anna',
+      name,
       points: 1,
       wins: 1,
       draws: 0,
@@ -152,7 +152,8 @@ describe('a game’s ranking of a period', () => {
 
   /**
   A fake API answering each game's ranking of any selection with ETag `"7-<query>"`
-  and 304 on condition of it; `hold` keeps answers back until `release`.
+  and 304 on condition of it, its leader named after the measure asked for (`sum`,
+  `average`, else `Anna`); `hold` keeps answers back until `release`.
   */
   function periodApi() {
     const asked: Asked[] = [];
@@ -170,7 +171,8 @@ describe('a game’s ranking of a period', () => {
         const gameId = Number(/^\/api\/games\/(\d+)\//.exec(path)?.[1]);
         const etag = `"7-${path}"`;
         if (ifNoneMatch === etag) return new Response(null, { status: 304 });
-        return new Response(JSON.stringify(standings(gameId)), {
+        const measure = /measure=(\w+)/.exec(path)?.[1];
+        return new Response(JSON.stringify(standings(gameId, measure)), {
           status: 200,
           headers: { 'Content-Type': 'application/json', ETag: etag },
         });
@@ -244,6 +246,67 @@ describe('a game’s ranking of a period', () => {
         ['/api/games/3/standings?scope=all', undefined],
       ],
     );
+  });
+
+  it('asks for the measure with the window and keeps each measure’s ranking: switching back shows it at once, on condition of its ETag', async () => {
+    const api = periodApi();
+    const shown = page({ gameId: 2, period: ALL, measure: 'sum' });
+    await wait(0);
+    shown.selection.value = { gameId: 2, period: ALL, measure: 'average' };
+    await wait(0);
+
+    shown.selection.value = { gameId: 2, period: ALL, measure: 'sum' };
+    await nextTick();
+
+    expect(shown.ranking?.value.value).toEqual(standings(2, 'sum'));
+    await wait(0);
+    shown.close();
+    expect(api.asked.map(({ url, ifNoneMatch }) => [url, ifNoneMatch])).toEqual(
+      [
+        ['/api/games/2/standings?scope=all&measure=sum', undefined],
+        ['/api/games/2/standings?scope=all&measure=average', undefined],
+        [
+          '/api/games/2/standings?scope=all&measure=sum',
+          '"7-/api/games/2/standings?scope=all&measure=sum"',
+        ],
+      ],
+    );
+  });
+
+  it('shows the chosen measure’s ranking when the answers for quick switches arrive out of order', async () => {
+    periodApi();
+    const shown = page({ gameId: 2, period: ALL, measure: 'sum' });
+    await wait(0);
+    const api = periodApi();
+    api.hold();
+    shown.selection.value = { gameId: 2, period: ALL, measure: 'average' };
+    await wait(0);
+    shown.selection.value = { gameId: 2, period: ALL, measure: 'sum' };
+    await wait(0);
+    shown.selection.value = { gameId: 2, period: ALL, measure: 'average' };
+    await wait(0);
+
+    api.release();
+    await wait(0);
+
+    expect(shown.ranking?.value.value).toEqual(standings(2, 'average'));
+    shown.close();
+  });
+
+  it('forgets every ranking of the page once it closes', async () => {
+    const api = periodApi();
+    const shown = page({ gameId: 2, period: ALL, measure: 'average' });
+    await wait(0);
+    shown.close();
+
+    const again = page({ gameId: 2, period: ALL, measure: 'average' });
+    await wait(0);
+    again.close();
+
+    expect(api.asked.map(({ ifNoneMatch }) => ifNoneMatch)).toEqual([
+      undefined,
+      undefined,
+    ]);
   });
 
   it('is read again after the device’s own writes to its game, not to another game', async () => {

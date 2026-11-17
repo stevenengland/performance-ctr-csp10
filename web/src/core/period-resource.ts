@@ -27,11 +27,21 @@ export interface PeriodReads<S, T> {
   read(selection: S): ConditionalFetch<T>;
 }
 
+export interface PeriodOptions {
+  /**
+  How many selections shown before keep their value and ETag (default none), so
+  showing one again shows its value at once and asks on condition of its ETag.
+  */
+  keeps?: number;
+}
+
 export interface PeriodResource<S, T> {
   /** The shown selection's value; empty while nothing is shown or until its first answer. */
   state: Readonly<Ref<DeepReadonly<PolledState<T>>>>;
-  /** Shows another selection (`undefined`: none); the one shown before is forgotten. */
+  /** Shows another selection (`undefined`: none); the one shown before is kept or forgotten. */
   show(selection: S | undefined): void;
+  /** Forgets the shown selection and every kept one. */
+  forget(): void;
   /** Reads the shown selection again now, e.g. after the device's own writes. */
   refresh(): Promise<void>;
   /** A screen that shows the selection starts the resource while it is open … */
@@ -45,31 +55,55 @@ const NOTHING_SHOWN: PolledState<never> = { stale: false };
 /**
 The value of whichever selection a page shows, one selection at a time. Each
 selection gets its own polled resource, so its ETag is only ever sent with it and
-a 304 only ever applies to it; showing another one forgets the previous one and
-drops every answer still on its way for it, so a slow answer for `Gestern` can
-never overwrite `Heute`. A selection that contains the present is polled every
+a 304 only ever applies to it; showing another one stops the previous one, so a
+slow answer for `Gestern` can never overwrite `Heute`. The previous one is
+forgotten with every answer still on its way for it, or, as far as `keeps`
+reaches, kept unread (an answer on its way lands in it, never in the shown one). A selection that contains the present is polled every
 10 s; a closed one is read when shown, on focus, when the page becomes visible and
 after the device's own writes. Failures keep the last value, marked stale.
 */
 export function createPeriodResource<S, T>(
   reads: PeriodReads<S, T>,
+  { keeps = 0 }: PeriodOptions = {},
 ): PeriodResource<S, T> {
   const shown = shallowRef<{ key: string; resource: PolledResource<T> }>();
+  /** The selections shown before, kept unread, the one shown last at the end. */
+  const kept = new Map<string, PolledResource<T>>();
   let screens = 0;
+
+  function hidePrevious() {
+    const previous = shown.value;
+    shown.value = undefined;
+    if (!previous) return;
+    if (screens > 0) previous.resource.stop();
+    kept.set(previous.key, previous.resource);
+    for (const [key, resource] of kept) {
+      if (kept.size <= keeps) break;
+      resource.clear();
+      kept.delete(key);
+    }
+  }
 
   function show(selection: S | undefined) {
     const key = selection === undefined ? undefined : reads.key(selection);
     if (key === shown.value?.key) return;
-    const previous = shown.value?.resource;
-    if (screens > 0) previous?.stop();
-    previous?.clear();
-    shown.value = undefined;
+    const reused = key === undefined ? undefined : kept.get(key);
+    if (key !== undefined) kept.delete(key);
+    hidePrevious();
     if (selection === undefined || key === undefined) return;
-    const resource = createPolledResource(reads.read(selection), {
-      polls: () => reads.live(selection),
-    });
+    const resource =
+      reused ??
+      createPolledResource(reads.read(selection), {
+        polls: () => reads.live(selection),
+      });
     shown.value = { key, resource };
     if (screens > 0) resource.start();
+  }
+
+  function forget() {
+    show(undefined);
+    for (const resource of kept.values()) resource.clear();
+    kept.clear();
   }
 
   return {
@@ -77,6 +111,7 @@ export function createPeriodResource<S, T>(
       () => shown.value?.resource.state.value ?? NOTHING_SHOWN,
     ) as PeriodResource<S, T>['state'],
     show,
+    forget,
     refresh: () => shown.value?.resource.refresh() ?? Promise.resolve(),
     start() {
       screens += 1;
