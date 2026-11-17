@@ -218,6 +218,32 @@ describe('Verlauf', () => {
     expect(wrapper.text()).toContain('Heute keine Einträge.');
   });
 
+  it('drops a late answer for the day before once the new day has been read', async () => {
+    let answerYesterday: (response: Response) => void = () => undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url === '/api/persons') return json({ persons });
+        if (url.includes('from=2026-11-14T23')) {
+          return new Promise<Response>((resolve) => {
+            answerYesterday = resolve;
+          });
+        }
+        return json({ entries: [] });
+      }),
+    );
+    wrapper = await verlauf(3);
+
+    vi.setSystemTime(new Date('2026-11-16T00:05:00Z'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+    answerYesterday(json({ entries: evening() }));
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Heute keine Einträge.');
+    expect(rows(wrapper)).toEqual([]);
+  });
+
   it('says so when the person has no entries today', async () => {
     api([]);
 

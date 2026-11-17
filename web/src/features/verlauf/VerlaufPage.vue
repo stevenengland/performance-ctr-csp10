@@ -72,7 +72,7 @@ function leaveGone() {
   showSnackbar({ text: messages.zaehlen.gone });
 }
 
-/** Today's entries since local midnight, as before; a past day's window is built from its date for each read. */
+/** Today: since local midnight; a past day: its window, built from its calendar date for each read. */
 function windowOfDay(): TimeWindow {
   return showsToday.value ? { from: todayFrom() } : queryOf(day.value);
 }
