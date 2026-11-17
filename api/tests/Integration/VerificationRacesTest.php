@@ -6,6 +6,7 @@ namespace Performance\Tests\Integration;
 
 use Performance\Tests\Support\DatabaseTestCase;
 use Performance\Tests\Support\InterleavedWrites;
+use Performance\Tests\Support\ObservedVerification;
 
 /**
  * Verifications of an entry written by requests that run at the same moment as other writes,
@@ -15,6 +16,7 @@ use Performance\Tests\Support\InterleavedWrites;
 final class VerificationRacesTest extends DatabaseTestCase
 {
     use InterleavedWrites;
+    use ObservedVerification;
 
     private const ENTRY = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
     private const SUCCEEDED = 0;
@@ -23,6 +25,12 @@ final class VerificationRacesTest extends DatabaseTestCase
     /** Anna records the entry; the bootstrap admin (1) and Ben (3) may verify it. */
     private const ANNA = 2;
     private const BEN = 3;
+    /** Daniel's entry, verified: his Verlauf shows it counting, and the Rangliste ranks him. */
+    private const VERIFIED = ['history' => [['pending' => false, 'accountName' => 'anna']], 'ranked' => ['Daniel'], 'unranked' => []];
+    /** The entry is gone, Daniel is not: his Verlauf is empty, and the Rangliste has nobody. */
+    private const GONE = ['history' => [], 'ranked' => [], 'unranked' => []];
+    /** Daniel is deleted, and his entry with him: his Verlauf is not found, and the Rangliste has nobody. */
+    private const GONE_WITH_DANIEL = ['history' => null, 'ranked' => [], 'unranked' => []];
 
     protected function setUp(): void
     {
@@ -45,7 +53,8 @@ final class VerificationRacesTest extends DatabaseTestCase
         self::assertSame([self::SUCCEEDED, self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
         self::assertSame(['create', 'verify'], $this->entryEvents());
         self::assertSame($revision + 1, $this->revision());
-        self::assertSame([['pending' => 0, 'verified_by_account_id' => 1]], $this->entryState());
+        self::assertSame(self::VERIFIED, $this->observed());
+        self::assertSame([1], $this->verifiersOf(self::ENTRY));
     }
 
     /**
@@ -60,7 +69,7 @@ final class VerificationRacesTest extends DatabaseTestCase
         self::assertSame([self::SUCCEEDED, self::SUCCEEDED], [$verify, $undo]);
         self::assertSame(404, $lateVerify->getStatusCode());
         self::assertSame(['create', 'verify', 'delete'], $this->entryEvents());
-        self::assertSame([], $this->entryState());
+        self::assertSame(self::GONE, $this->observed());
     }
 
     /**
@@ -75,7 +84,7 @@ final class VerificationRacesTest extends DatabaseTestCase
         self::assertSame(self::SUCCEEDED, $deletion);
         self::assertContains($verify, [self::SUCCEEDED, self::NOT_FOUND]);
         self::assertSame($verify === self::SUCCEEDED ? ['create', 'verify', 'delete'] : ['create', 'delete'], $this->entryEvents());
-        self::assertSame([], $this->entryState());
+        self::assertSame(self::GONE_WITH_DANIEL, $this->observed());
     }
 
     /**
@@ -89,7 +98,8 @@ final class VerificationRacesTest extends DatabaseTestCase
 
         self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
         self::assertSame(['create', 'verify'], $this->entryEvents());
-        self::assertSame([['pending' => 0, 'account_id' => null, 'verified_by_account_id' => self::BEN]], $this->verification());
+        self::assertSame(['history' => [['pending' => false, 'accountName' => null]], 'ranked' => ['Daniel'], 'unranked' => []], $this->observed());
+        self::assertSame([self::BEN], $this->verifiersOf(self::ENTRY));
     }
 
     /**
@@ -103,7 +113,10 @@ final class VerificationRacesTest extends DatabaseTestCase
 
         self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
         self::assertSame(['create', 'verify'], $this->entryEvents());
-        self::assertSame([['pending' => 0, 'account_id' => self::ANNA, 'verified_by_account_id' => null]], $this->verification());
+        self::assertSame(self::VERIFIED, $this->observed());
+        self::assertSame([self::BEN], $this->verifiersOf(self::ENTRY), 'the audit log keeps the deleted verifier');
+        // No route shows who verified a row; read directly that the deleted verifier is unknown.
+        self::assertSame([['verified_by_account_id' => null]], $this->rows('SELECT verified_by_account_id FROM entries'));
     }
 
     public function testOfConcurrentRejectionsExactlyOneRemovesTheEntryAndRecordsItsEvent(): void
@@ -116,7 +129,7 @@ final class VerificationRacesTest extends DatabaseTestCase
         self::assertSame([self::SUCCEEDED, self::NOT_FOUND, self::NOT_FOUND], $exitCodes);
         self::assertSame(['create', 'reject'], $this->entryEvents());
         self::assertSame($revision + 1, $this->revision());
-        self::assertSame([], $this->entryState());
+        self::assertSame(self::GONE, $this->observed());
     }
 
     /**
@@ -128,10 +141,8 @@ final class VerificationRacesTest extends DatabaseTestCase
         [$verify, $reject] = $this->interleave('entries', self::ENTRY, [['verify-entry', self::ENTRY], ['reject-entry', self::ENTRY, self::BEN]]);
 
         self::assertContains([$verify, $reject], [[self::SUCCEEDED, self::ALREADY_VERIFIED], [self::NOT_FOUND, self::SUCCEEDED]]);
-        self::assertSame(
-            $verify === self::SUCCEEDED ? [['pending' => 0, 'verified_by_account_id' => 1]] : [],
-            $this->entryState(),
-        );
+        self::assertSame($verify === self::SUCCEEDED ? self::VERIFIED : self::GONE, $this->observed());
+        self::assertSame($verify === self::SUCCEEDED ? [1] : [], $this->verifiersOf(self::ENTRY));
         self::assertSame($verify === self::SUCCEEDED ? ['create', 'verify'] : ['create', 'reject'], $this->entryEvents());
     }
 
@@ -142,7 +153,7 @@ final class VerificationRacesTest extends DatabaseTestCase
 
         self::assertContains([$reject, $undo], [[self::SUCCEEDED, self::NOT_FOUND], [self::NOT_FOUND, self::SUCCEEDED]]);
         self::assertSame($reject === self::SUCCEEDED ? ['create', 'reject'] : ['create', 'delete'], $this->entryEvents());
-        self::assertSame([], $this->entryState());
+        self::assertSame(self::GONE, $this->observed());
     }
 
     /**
@@ -158,15 +169,38 @@ final class VerificationRacesTest extends DatabaseTestCase
         self::assertSame(self::SUCCEEDED, $deletion);
         self::assertContains($reject, [self::SUCCEEDED, self::NOT_FOUND]);
         self::assertSame($reject === self::SUCCEEDED ? ['create', 'reject'] : ['create', 'delete'], $this->entryEvents());
-        self::assertSame([], $this->entryState());
+        self::assertSame(self::GONE_WITH_DANIEL, $this->observed());
     }
 
     /**
-     * @return list<array<string, mixed>>
+     * Daniel's entries as his Verlauf shows them (null once Daniel is deleted), and who the
+     * Rangliste ranks and who it lists without a rank, as the bootstrap admin sees them.
+     *
+     * @return array{history: list<array{pending: mixed, accountName: mixed}>|null, ranked: list<mixed>, unranked: list<mixed>}
      */
-    private function verification(): array
+    private function observed(): array
     {
-        return $this->rows('SELECT pending, account_id, verified_by_account_id FROM entries');
+        $session = $this->signIn();
+        $verlauf = $this->send('GET', '/api/entries?personId=1&from=2026-11-14T00:00:00.000Z', session: $session);
+        $history = null;
+        if ($verlauf->getStatusCode() !== 404) {
+            $entries = $this->body($verlauf)['entries'];
+            self::assertIsList($entries);
+            $history = array_map(static function (mixed $entry): array {
+                self::assertIsArray($entry);
+
+                return ['pending' => $entry['pending'], 'accountName' => $entry['accountName']];
+            }, $entries);
+        }
+        $scoreboard = $this->body($this->send('GET', '/api/scoreboard?from=2026-11-14T00:00:00.000Z', session: $session));
+        self::assertIsList($scoreboard['rows']);
+        self::assertIsList($scoreboard['unranked']);
+
+        return [
+            'history' => $history,
+            'ranked' => array_column($scoreboard['rows'], 'name'),
+            'unranked' => array_column($scoreboard['unranked'], 'name'),
+        ];
     }
 
     /**
@@ -175,14 +209,6 @@ final class VerificationRacesTest extends DatabaseTestCase
     private function entryEvents(): array
     {
         return array_column($this->rows("SELECT operation FROM audit_events WHERE subject_kind = 'entry' ORDER BY id"), 'operation');
-    }
-
-    /**
-     * @return list<array<string, mixed>>
-     */
-    private function entryState(): array
-    {
-        return $this->rows('SELECT pending, verified_by_account_id FROM entries');
     }
 
     private function revision(): int

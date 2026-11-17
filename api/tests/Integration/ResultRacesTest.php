@@ -6,6 +6,7 @@ namespace Performance\Tests\Integration;
 
 use Performance\Tests\Support\DatabaseTestCase;
 use Performance\Tests\Support\InterleavedWrites;
+use Performance\Tests\Support\ObservedVerification;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -16,6 +17,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 final class ResultRacesTest extends DatabaseTestCase
 {
     use InterleavedWrites;
+    use ObservedVerification;
 
     private const RESULT = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
     private const SUCCEEDED = 0;
@@ -24,6 +26,10 @@ final class ResultRacesTest extends DatabaseTestCase
     /** The bootstrap admin (1) records the result; Anna (2) and Ben (3) may verify or reject it. */
     private const ANNA = 2;
     private const BEN = 3;
+    /** The result, verified: Rommé's Verlauf shows it counting, and Anna is ranked. */
+    private const VERIFIED = ['history' => [['pending' => false, 'accountName' => 'chef']], 'ranked' => ['Anna'], 'unranked' => []];
+    /** The result is gone, Rommé is not: its Verlauf is empty, and nobody is ranked or waits. */
+    private const GONE = ['history' => [], 'ranked' => [], 'unranked' => []];
 
     protected function setUp(): void
     {
@@ -182,7 +188,8 @@ final class ResultRacesTest extends DatabaseTestCase
         self::assertSame([self::SUCCEEDED, self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
         self::assertSame([['operation' => 'create'], ['operation' => 'verify']], $this->resultEvents());
         self::assertSame($revision + 1, $this->revision());
-        self::assertSame([['pending' => 0, 'verified_by_account_id' => self::ANNA]], $this->verificationState());
+        self::assertSame(self::VERIFIED, $this->observed());
+        self::assertSame([self::ANNA], $this->verifiersOf(self::RESULT));
     }
 
     public function testOfConcurrentRejectionsExactlyOneRemovesTheResultAndRecordsItsEvent(): void
@@ -194,7 +201,7 @@ final class ResultRacesTest extends DatabaseTestCase
         sort($exitCodes);
         self::assertSame([self::SUCCEEDED, self::NOT_FOUND, self::NOT_FOUND], $exitCodes);
         self::assertSame([['operation' => 'create'], ['operation' => 'reject']], $this->resultEvents());
-        self::assertSame([], $this->verificationState());
+        self::assertSame(self::GONE, $this->observed());
     }
 
     /**
@@ -208,7 +215,8 @@ final class ResultRacesTest extends DatabaseTestCase
         [$verify, $reject] = $this->interleaveOnTheResult(['verify', 'reject-ben']);
 
         self::assertContains([$verify, $reject], [[self::SUCCEEDED, self::ALREADY_VERIFIED], [self::NOT_FOUND, self::SUCCEEDED]]);
-        self::assertSame($verify === self::SUCCEEDED ? [['pending' => 0, 'verified_by_account_id' => self::ANNA]] : [], $this->verificationState());
+        self::assertSame($verify === self::SUCCEEDED ? self::VERIFIED : self::GONE, $this->observed());
+        self::assertSame($verify === self::SUCCEEDED ? [self::ANNA] : [], $this->verifiersOf(self::RESULT));
         self::assertSame(
             [['operation' => 'create'], ['operation' => $verify === self::SUCCEEDED ? 'verify' : 'reject']],
             $this->resultEvents(),
@@ -251,15 +259,37 @@ final class ResultRacesTest extends DatabaseTestCase
             ],
             $this->causedResultEvents(),
         );
-        self::assertSame([], $this->verificationState());
+        self::assertSame($removal === 'game' ? null : self::GONE, $this->observed());
     }
 
     /**
-     * @return list<array<string, mixed>>
+     * Rommé's results as its Verlauf shows them, and who its standings rank and who they list
+     * without a rank, as the bootstrap admin sees them; null once Rommé is deleted.
+     *
+     * @return array{history: list<array{pending: mixed, accountName: mixed}>, ranked: list<mixed>, unranked: list<mixed>}|null
      */
-    private function verificationState(): array
+    private function observed(): ?array
     {
-        return $this->rows('SELECT pending, verified_by_account_id FROM results');
+        $session = $this->signIn();
+        $verlauf = $this->send('GET', '/api/games/1/results', session: $session);
+        if ($verlauf->getStatusCode() === 404) {
+            return null;
+        }
+        $items = $this->body($verlauf)['items'];
+        self::assertIsList($items);
+        $standings = $this->body($this->send('GET', '/api/games/1/standings', session: $session));
+        self::assertIsList($standings['rows']);
+        self::assertIsList($standings['unranked']);
+
+        return [
+            'history' => array_map(static function (mixed $item): array {
+                self::assertIsArray($item);
+
+                return ['pending' => $item['pending'], 'accountName' => $item['accountName']];
+            }, $items),
+            'ranked' => array_column($standings['rows'], 'name'),
+            'unranked' => array_column($standings['unranked'], 'name'),
+        ];
     }
 
     private function revision(): int
@@ -270,17 +300,18 @@ final class ResultRacesTest extends DatabaseTestCase
         return $revision;
     }
 
-    /** Anna's result in Rommé, recorded by the bootstrap admin; it waits for verification. */
-    private function record(): void
+    /** Anna's result in Rommé, recorded by the bootstrap admin unless another session is given; it waits for verification. */
+    private function record(?string $session = null): void
     {
-        $response = $this->send('PUT', '/api/results/' . self::RESULT, ['gameId' => 1, 'personId' => 1, 'points' => -20], $this->signIn());
+        $response = $this->send('PUT', '/api/results/' . self::RESULT, ['gameId' => 1, 'personId' => 1, 'points' => -20], $session ?? $this->signIn());
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
     }
 
     /**
      * Runs the writes on the recorded result in the order given (InterleavedWrites).
      *
-     * @param list<'game'|'person'|'undo'|'verify'|'verify-ben'|'reject'|'reject-ben'> $writes `verify` and `reject` act as Anna
+     * @param list<'game'|'person'|'undo'|'verify'|'verify-ben'|'reject'|'reject-ben'|'anna-account'> $writes `verify` and `reject` act as Anna;
+     *                                                                                                 `anna-account` deletes her account
      *
      * @return list<int> the exit codes, in the order given
      */
@@ -294,6 +325,7 @@ final class ResultRacesTest extends DatabaseTestCase
             'verify-ben' => ['verify-result', self::RESULT, self::BEN],
             'reject' => ['reject-result', self::RESULT, self::ANNA],
             'reject-ben' => ['reject-result', self::RESULT, self::BEN],
+            'anna-account' => ['delete-account', (string) self::ANNA],
         }, $writes));
     }
 
