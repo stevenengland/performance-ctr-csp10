@@ -95,9 +95,10 @@ function place(page: Page, name: string) {
 }
 
 /** The next scoreboard request the page sends. */
+/** The next scoreboard read; the days read beside it is another resource. */
 function scoreboardRequests(page: Page) {
   return page.waitForRequest((request) =>
-    request.url().includes('/api/scoreboard'),
+    new URL(request.url()).pathname.endsWith('/api/scoreboard'),
   );
 }
 
@@ -477,6 +478,75 @@ test('the Rangliste reads this week from Monday’s to next Monday’s local mid
   await page.getByRole('button', { name: 'Vorherige Woche' }).click();
   await expect(page.getByText('Letzte Woche', { exact: true })).toBeVisible();
   await expect(place(page, anna)).toHaveCount(0);
+});
+
+test('Tag wählen dots today once an entry counts and picks yesterday; Gesamt says since when it counts, its days read again on condition', async ({
+  page,
+  request,
+}) => {
+  const verify = await verifierOn(request);
+  const anna = uniqueName('Anna');
+  const annaId = await created(page.request, '/api/persons', { name: anna });
+  const bierId = await created(page.request, '/api/drinks', {
+    name: uniqueName('Bier'),
+    points: 1,
+  });
+  await verify(await addEntry(page.request, annaId, bierId, 1));
+  await page.goto('/rangliste');
+  await expect(place(page, anna)).toBeVisible();
+  const dialog = page.getByRole('dialog');
+  const daysRead = () =>
+    page.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith('/api/scoreboard/days'),
+    );
+  const [today, yesterday] = await page.evaluate(() => {
+    const now = new Date();
+    const name = new Intl.DateTimeFormat('de-DE', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    });
+    const before = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - 1,
+    );
+    return [
+      { name: name.format(now) },
+      {
+        name: name.format(before),
+        earlierMonth: before.getMonth() !== now.getMonth(),
+      },
+    ];
+  });
+
+  const first = daysRead();
+  await page.getByRole('button', { name: 'Tag wählen: Heute' }).click();
+  expect((await first).status()).toBe(200);
+  const todayInCalendar = dialog.getByRole('button', {
+    name: today?.name,
+    exact: true,
+  });
+  await expect(todayInCalendar).toHaveAttribute('aria-pressed', 'true');
+  await expect(todayInCalendar).toHaveClass(/calendar__day--marked/);
+  if (yesterday?.earlierMonth) {
+    await dialog.getByRole('button', { name: 'Vorheriger Monat' }).click();
+  }
+  await dialog
+    .getByRole('button', { name: yesterday?.name, exact: true })
+    .click();
+  await expect(page.getByText('Gestern', { exact: true })).toBeVisible();
+  await expect(place(page, anna)).toHaveCount(0);
+
+  const again = daysRead();
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Gesamt' })
+    .click();
+  expect((await again).status()).toBe(304);
+  await expect(
+    page.getByText(/^Alle Tage seit \d{2}\.\d{2}\.\d{4} · \d+ Abende?$/),
+  ).toBeVisible();
 });
 
 test('with nobody today the Rangliste says so and offers Zählen', async ({

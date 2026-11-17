@@ -281,6 +281,84 @@ test('the fixture preview ranks a calendar week: Diese Woche with tonight, Letzt
   await expect(page.getByRole('link', { name: 'Zählen' })).toHaveCount(1);
 });
 
+test('the fixture preview picks an evening from Tag wählen, whose dots skip the empty day and the day whose entries all wait, and counts its evenings under Gesamt', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/rangliste');
+  const dialog = page.getByRole('dialog');
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  const places = page
+    .getByRole('list', { name: 'Rangliste' })
+    .getByRole('link');
+  /** The calendar's name of the day `daysAgo` before today, and whether it lies in the month before. */
+  const dayBack = (daysAgo: number) =>
+    page.evaluate((back) => {
+      const now = new Date();
+      const day = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() - back,
+      );
+      return {
+        name: new Intl.DateTimeFormat('de-DE', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+        }).format(day),
+        earlierMonth: day.getMonth() !== now.getMonth(),
+      };
+    }, daysAgo);
+  async function dayInCalendar(daysAgo: number) {
+    const { name, earlierMonth } = await dayBack(daysAgo);
+    if (earlierMonth) {
+      await dialog.getByRole('button', { name: 'Vorheriger Monat' }).click();
+    }
+    return dialog.getByRole('button', { name, exact: true });
+  }
+  const openCalendar = () =>
+    page.getByRole('button', { name: /^Tag wählen: / }).click();
+
+  await openCalendar();
+  await expect(dialog.getByText('Tag wählen')).toBeVisible();
+  const today = await dayInCalendar(0);
+  await expect(today).toHaveAttribute('aria-pressed', 'true');
+  await expect(today).toHaveClass(/calendar__day--marked/);
+  await expect(
+    dialog.getByRole('button', { name: 'Nächster Monat' }),
+  ).toBeDisabled();
+  for (const [daysAgo, marked] of [
+    [1, true],
+    [2, false],
+    [3, false],
+    [4, true],
+  ] as const) {
+    await dialog.getByRole('button', { name: 'Abbrechen' }).click();
+    await openCalendar();
+    const day = await dayInCalendar(daysAgo);
+    if (marked) await expect(day).toHaveClass(/calendar__day--marked/);
+    else await expect(day).not.toHaveClass(/calendar__day--marked/);
+  }
+
+  await (await dayInCalendar(4)).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(context).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Daniel, 10,5 Punkte, 5 Getränke',
+  );
+
+  await openCalendar();
+  await dialog.getByRole('button', { name: 'Heute' }).click();
+  await expect(context).toHaveText('Heute');
+
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Gesamt' })
+    .click();
+  await expect(
+    page.getByText(/^Alle Tage seit \d{2}\.\d{2}\.\d{4} · 5 Abende$/),
+  ).toBeVisible();
+});
+
 test('the fixture preview lists what anna may verify under Offen with its badge; Bestätigen lets it count, Ablehnen removes it', async ({
   page,
 }) => {
