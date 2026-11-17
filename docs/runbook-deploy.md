@@ -319,6 +319,20 @@ records one delete per match and per result of the game; those are read in one g
 one at a time; one that waits more than 10 s for the one before it answers 500 and changes
 nothing. A write that loses a deadlock is run again, up to three times (ADR 0004, decision 4).
 
+**Deleting an account while its rows wait (four-eyes rule, PRD #61):** a deleted account's
+drinks, matches and results stay; the rows keep no recording account (`account_id` becomes
+`NULL`), so Verlauf shows `gelöschtes Konto`. Rows of that account that still wait for
+verification can from then on be verified or rejected by **any** other account: nobody is the
+recorder any more, and the server cannot tell who the account belonged to. This is the PRD's
+decision (user story 21), not an accident. Before deleting an account, an admin who wants the
+second pair of eyes kept for its waiting rows should have them decided first (they are in every
+other account's `Offen`). The audit log keeps the provenance: the `create` event of each row
+names the recording account by its id and its user name as it was then
+(`actor_account_id`, `actor_user_name`, no foreign key), and the `verify` or `reject` event names
+the account that decided. Deleting the account changes none of these events; only the user
+name in the log stays the old one, it is a copy, not a reference. Proven by
+`DeletedRecorderDecisionTest` (every kind, verify and reject).
+
 ## Live check
 
 `live-check.yml` runs every Monday 05:17 UTC (and on demand). It fails, and GitHub emails the

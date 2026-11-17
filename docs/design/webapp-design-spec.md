@@ -713,6 +713,12 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   account's sessions end; its entries stay and Verlauf shows them as `gelöschtes Konto`
   (§7g). Resetting one's own password or deleting one's own account signs this device out
   too, which leads to Anmelden (§9, 401).
+- Deleting an account relaxes the four-eyes rule for its rows that still wait: they have no
+  recording account any more, so any other account may verify or reject them in `Offen` (PRD
+  #61, user story 21). The Protokoll keeps who recorded each row (the `create` event names the
+  account and its user name as it was then) and who verified or rejected it. An admin who wants
+  a second pair of eyes on them has them decided before deleting the account (runbook,
+  *Audit log*).
 - Extended FAB `Konto anlegen`: dialog `Konto anlegen` with `Benutzername` and `Startpasswort`
   (with show/hide; 10 characters to 72 bytes), buttons `Abbrechen` and `Speichern`. Field errors
   inline (§6.11): 422 under its field, and a taken user name (409) under `Benutzername` as the
