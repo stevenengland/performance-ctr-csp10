@@ -8,6 +8,13 @@ import type {
 
 type DrinkCount = Scoreboard['rows'][number]['drinks'][number];
 import { gameBackend } from './fixtureGames';
+import {
+  contains,
+  type Interval,
+  tagOf,
+  windowOf,
+  windowOrAllTime,
+} from './fixtureInterval';
 import { verificationBackend } from './fixtureVerification';
 import {
   type AuditSnapshot,
@@ -108,15 +115,15 @@ interface Tally {
 }
 
 /**
-The day's standings, aggregated like the API's Scoreboard: factors at their current
+The standings of an interval, aggregated like the API's Scoreboard: factors at their current
 multiplier; score, count and each drink's `count` over verified entries only,
 `recordedCount` over every entry, the pending entries counted per person, and a
 person whose entries all wait listed apart in `unranked`, by name.
 */
-function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
+function scoreboard(fixtures: Fixtures, interval: Interval): Scoreboard {
   const tallies = new Map<number, Tally>();
   for (const entry of fixtures.entries) {
-    if (new Date(entry.createdAt) < from) continue;
+    if (!contains(interval, entry.createdAt)) continue;
     const person = fixtures.persons.find(({ id }) => id === entry.personId);
     const drink = fixtures.drinks.find(({ id }) => id === entry.drinkId);
     if (!person || !drink) continue;
@@ -188,16 +195,16 @@ function scoreboard(fixtures: Fixtures, from: Date): Scoreboard {
   };
 }
 
-/** A person's entries since `from`, newest first, like the API's EntryLedger. */
+/** A person's entries of a window, newest first, like the API's EntryLedger. */
 function history(
   fixtures: Fixtures,
   personId: number,
-  from: Date,
+  window: Interval,
 ): HistoryEntry[] {
   return fixtures.entries
     .filter(
       (entry) =>
-        entry.personId === personId && new Date(entry.createdAt) >= from,
+        entry.personId === personId && contains(window, entry.createdAt),
     )
     .sort(
       (a, b) =>
@@ -681,15 +688,13 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
         if (!QUERY_ID.test(personId)) {
           return validation({ personId: 'Person nicht gefunden.' });
         }
-        const from = new Date(query.get('from') ?? '');
-        if (Number.isNaN(from.getTime())) {
-          return validation({ from: 'Zeitpunkt nach ISO 8601 mit Zeitzone.' });
-        }
+        const window = windowOf(query);
+        if (window instanceof Response) return window;
         const id = Number(personId);
         if (!fixtures.persons.some((person) => person.id === id)) {
           return problem(PROBLEMS.notFound);
         }
-        return json({ entries: history(fixtures, id, from) });
+        return json({ entries: history(fixtures, id, window) });
       }),
     ],
     [
@@ -737,16 +742,14 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     [
       'GET /api/scoreboard',
       guarded((_me, _body, { query, headers }) => {
-        const from = new Date(query.get('from') ?? '');
-        if (Number.isNaN(from.getTime())) {
-          return validation({ from: 'Zeitpunkt nach ISO 8601 mit Zeitzone.' });
-        }
-        // Like the API: the revision and the window, so another day never answers 304.
-        const etag = `"${String(revision())}-${String(from.getTime())}"`;
+        const interval = windowOrAllTime(query);
+        if (interval instanceof Response) return interval;
+        // Like the API: the revision and the selection, so another window never answers 304.
+        const etag = `"${String(revision())}-${tagOf(interval)}"`;
         if (headers.get('If-None-Match') === etag) {
           return new Response(null, { status: 304, headers: { ETag: etag } });
         }
-        const response = json(scoreboard(fixtures, from));
+        const response = json(scoreboard(fixtures, interval));
         response.headers.set('ETag', etag);
         return response;
       }),
