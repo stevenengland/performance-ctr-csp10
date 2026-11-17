@@ -960,8 +960,28 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 ### 7o. Spiel `/spiele/:gameId`
 
 - Belongs to the Spiele destination (highlighted in the navigation) with a back button. Title:
-  the game's name (`Spiele` until the games have loaded); context line: as on its tile,
-  `Duell · seit 15.09.`.
+  the game's name (`Spiele` until the games have loaded); context line: the kind and the
+  period shown — under `Aktuell` as on its tile, `Duell · seit 15.09.`; otherwise the kind and
+  the period as the Rangliste names it (§7f): `Punktespiel · Heute`, `Duell · Samstag,
+  14.11.2026`, `Duell · KW 47 · 16.11.–22.11.`, `Punktespiel · Gesamt`.
+- **Period picker** (PRD #70; the shared `PeriodPicker` of §7f) at the top of the content, with
+  four options `Aktuell` | `Tag` | `Woche` | `Gesamt`. The page opens on `Aktuell` every time
+  it opens (the choice is not kept, not even for the session, and never put in the address).
+  `Aktuell` is the ranking since the last (re)start described below, unchanged; it has no bar,
+  only the 12 dp gap. `Tag` and `Woche` bring the day/week bar and the calendar dialog
+  `Tag wählen` exactly as on the Rangliste (a `Tag` left on `Heute` follows midnight). The
+  calendar dots the days the game was played — a verified match or result of any run counts
+  (`GET /api/games/{id}/standings/days`, the same 15-minute buckets as the Rangliste's), and a
+  dotted day's button is described as `Gespielt` for screen readers. `Gesamt` has no bar; in its
+  place the line `Alle Läufe seit 28.10.2026 · 6 Spieltage` (`1 Spieltag`) — the first day
+  with a dot and the number of days with one — or the 12 dp gap until a day counts.
+- **What a period ranks.** `Tag`, `Woche` and `Gesamt` rank every verified match or result of
+  the game recorded in that local day, ISO week or ever, whatever its run: restarts do not
+  matter there, so earlier runs count. A duel accumulates each match's win, draw or loss for
+  both players; a points game adds up each verified result as one attempt. Day and week are
+  read with `from`/`to`, `Gesamt` with `scope=all`, the same windows as the Rangliste's (§7f).
+  The ranking keeps its shape below; a points place under `Woche` or `Gesamt` keeps showing the
+  sum (the measure chips `Summe` | `Ø pro Ergebnis` come with PRD #70's next slice).
 - The extended FAB (as in §7i) opens the game's recording flow: `Partie eintragen` on a duel
   (§7p), `Ergebnis eintragen` on a points game (§7q); the page keeps 88 dp free below the
   ranking so the FAB covers no place.
@@ -1001,8 +1021,11 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     no value, no record. They have no rank and never take the leader card, even when nobody
     else has a verified row — in a points game whichever way it ranks: a pending `0` never
     leads `Niedrigste Summe gewinnt` nor beats negative sums. Accessible name `Jule, +1 offen`.
-- Empty (no ranked and no unranked person): `Seit dem Start noch keine Partien.` for a duel,
-  `Seit dem Start noch keine Ergebnisse.` for a points game.
+- Empty (no ranked and no unranked person): under `Aktuell` `Seit dem Start noch keine
+  Partien.` for a duel, `Seit dem Start noch keine Ergebnisse.` for a points game; under `Tag`
+  `An diesem Tag wurde nichts gespielt.`, under `Woche` `In dieser Woche wurde nichts
+  gespielt.`, under `Gesamt` `Noch nichts gespielt.`. A period whose matches or results all
+  wait is not empty: it shows only the `Noch nicht gewertet` group.
 - The ranking (`GET /api/games/{id}/standings`) is kept current like the Rangliste (§6.6):
   read when the page opens, every 10 s while visible with `If-None-Match` (304 keeps it), at
   once on focus and after the device's own writes. A failed read keeps what is shown with
@@ -1014,6 +1037,16 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   and a duel's draw setting come from the games list (`GET /api/games`), read again on focus
   and on becoming visible, so a rename or draw-setting change elsewhere shows then; a failed
   read keeps the game shown.
+- **Other periods' data.** `Tag`, `Woche` and `Gesamt` are separate reads, one per game and
+  period: data and ETags are kept under that identity, an ETag is only sent with the identity
+  it came from, and an answer for a game or period no longer shown is dropped. The current day,
+  the current week and `Gesamt` contain the present and are polled like `Aktuell` (with the
+  stale indicator); a past day or week is read when shown, on focus, when the page becomes
+  visible and after the device's own writes (recording or undoing a match or result, a
+  restart), and is not polled. While another period is shown the current run is not polled;
+  it is read again when `Aktuell` is chosen. The days read runs while the calendar is open or
+  `Gesamt` is shown (polled under `Gesamt`, so its line stays live), and is read again after
+  the device's own writes. Leaving the page forgets the period: the next opening is `Aktuell`.
 - Below the ranking (or the empty state) a row of text buttons (`row-title`, normal case):
   `Verlauf` (`mdiHistory`) opens the game's Verlauf (§7r); `Neu starten` (`mdiRestart`) opens
   the confirmation dialog (§6.9) `Schach neu starten?` – `Die Rangliste beginnt wieder bei null.
@@ -1267,7 +1300,7 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 | Personen (photo) | `PUT /api/persons/{id}/photo`, `DELETE /api/persons/{id}/photo` | Any member, any person; never a field of the person `PATCH`. `PUT` body `{image}`: base64 of a 256 × 256 JPEG of at most 64 KiB; answers the person (200). A body over 96 KiB is 413 `Foto zu groß.`, an invalid photo 422 on `image`. `DELETE` is 204, also without a photo. The same photo again and removing none change nothing |
 | Photo display | `GET /api/persons/{id}/photo?v=<version>` | Loaded by `<img>`, outside the fetch wrapper. 200 `image/jpeg` with `Cache-Control: private, max-age=31536000, immutable` only while `v` is the stored version; a missing, malformed or stale `v`, no photo and an unknown person are 404, every error `no-store`. The client never builds this URL |
 | Verwalten | `GET /api/{persons,drinks,factors,games}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
-| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` (ETag, `If-None-Match` → 304) | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. The game's page polls every 10 s while visible, Spiele reads on open and on focus; ETag = data revision. Standings of the current run, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played, pendingCount}` over verified matches, with `unranked` `{personId, name, pendingCount}` for persons whose matches all wait; a points game's `{personId, name, sum, results, pendingCount}` over verified results with `lowerWins`, and `unranked` like a duel's |
+| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` (current run; on the game's page also `?from=&to=` for a day or week and `?scope=all` for `Gesamt`; ETag, `If-None-Match` → 304), `GET /api/games/{id}/standings/days` (calendar dots, `Gesamt` line; ETag `"<rev>"`) | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. The game's page polls every 10 s while visible (the current run, today, the current week and `Gesamt`; a past day or week on show, focus and after own writes), Spiele reads on open and on focus; ETag = data revision (`"<rev>"`), plus the selection for a window or all time (`"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`). A window or all time ranks every run's verified matches or results, a points row also carrying `average`. Standings of the current run, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played, pendingCount}` over verified matches, with `unranked` `{personId, name, pendingCount}` for persons whose matches all wait; a points game's `{personId, name, sum, results, pendingCount}` over verified results with `lowerWins`, and `unranked` like a duel's |
 | Verwalten → Spiele | `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/{id}` | Game: `id`, `name`, `kind` (`duel` \| `points`), `drawsAllowed`, `lowerWins`, `startedAt`. `POST` takes `name`, `kind` and the kind's setting; `PATCH` takes `name` and the setting (the kind is fixed); `GET …/{id}` adds `matchCount` and `resultCount` (every run) |
 | Partie eintragen | `GET /api/games`, `GET /api/persons`, `GET /api/games/{id}/standings`, `PUT /api/matches/{uuid}` | Body `{gameId, firstPersonId, secondPersonId, outcome}` with `outcome` `first` \| `second` \| `draw`; 201 new, 200 replay; the same UUID with other content is 409 `request-conflict` |
 | Snackbar `Rückgängig` (match) | `DELETE /api/matches/{uuid}` | 404 counts as undone; the ranking is read again |
@@ -1304,7 +1337,12 @@ the shareable page a UI change is reviewed on before it reaches the host.
   drinks that still exist, 15-minute UTC buckets, ETag `"<rev>"`), its spec
   (`web/preview/fixtureDays.spec.ts`) running `ScoreboardDaysTest`'s cases; the sample's
   calendar dots today, yesterday and the evenings four, seven and nine days back, and `Gesamt`
-  reads `Alle Tage seit … · 5 Abende`.
+  reads `Alle Tage seit … · 5 Abende`. A game's standings take nothing (its current run), a
+  window or `scope=all` the same way, with the API's ETags (`"<rev>"`, `"<rev>-<window>"`,
+  `"<rev>-all"`) and averages on a window's points rows, and `GET /api/games/{id}/standings/days`
+  answers the quarter hours with verified matches or results of every run; its specs
+  (`web/preview/fixtureStandings.spec.ts`) run `StandingsWindowTest`'s and
+  `StandingsDaysTest`'s cases.
 - **Behaviour.** The fixture backend starts signed in as the admin `anna` (the sample
   accounts `anna`, `ben`, `daniel`, `mara` sign in with `beispiel-passwort`), serves a sample evening
   (marked as sample data: persons, drinks, factors and entries timed relative to now, so the
@@ -1323,15 +1361,18 @@ the shareable page a UI change is reviewed on before it reaches the host.
   deletes, CRUD; an uploaded photo is kept as a `data:` URL in place of the versioned URL —
   the artifact host allows `data:` images, the production CSP never sees them — and checked
   only for base64 that starts like a JPEG), and answers anything else with 503. Its games are `Rommé` (points, lowest
-  sum wins, started today), `Schach` (duel with draws, two months) and `Tischtennis` (duel
+  sum wins, its third run started today after earlier runs from twenty and nine days back),
+  `Schach` (duel with draws, two months, after an earlier run) and `Tischtennis` (duel
   without draws, three weeks) — on Spiele `Punktespiel · seit heute, 00:00`, `Duell · seit …`; they
   are served by the API's rules (name, kind and setting
   validation, the kind fixed, restart starting the next run from now). Schach holds nine
-  sample matches (one with a person deleted since) and Tischtennis four, on evenings before
-  today, the last of them pending (Jule and Tom show `+1 offen`); Rommé holds tonight's ten
-  results, the last two pending: Daniel's `14` (`+1 offen`) and Jule's only one, a `0` that
+  sample matches in its run (one with a person deleted since) and four older ones of its
+  earlier run, which Tom won, and Tischtennis four, on evenings before today, the last of them
+  pending (Jule and Tom show `+1 offen`); Rommé holds nineteen verified results on five earlier
+  evenings (where Tom, absent tonight, has the lowest sum: its `Gesamt` ranks `Tom 12` first,
+  `Alle Läufe seit … · 6 Spieltage`) and tonight's ten results, the last two pending: Daniel's `14` (`+1 offen`) and Jule's only one, a `0` that
   `anna` recorded, so Jule is listed under `Noch nicht gewertet` instead of leading. Both
-  rankings are computed like the API's (current run only; verified matches and results only,
+  rankings are computed like the API's (the current run, a window or all time; verified matches and results only,
   with `pendingCount` and `unranked`); every match and result the viewer records waits too; matches and results are recorded and undone by the API's rules
   (idempotent on the UUID, which is unique across entries, matches and results; a match only
   in a duel, `Remis` only where allowed, two different persons; a result only in a points
@@ -1359,8 +1400,8 @@ the shareable page a UI change is reviewed on before it reaches the host.
 
 ## 13. Out of scope (this spec)
 
-- Views of other days beyond the Rangliste's periods (§7f) and a person's Verlauf of a past
-  day (§7g; Protokoll, §7l, and Offen, §7s, excepted) — no Verlauf of a week or all time —,
+- Views of other days beyond the Rangliste's periods (§7f), a game's periods (§7o) and a
+  person's Verlauf of a past day (§7g; Protokoll, §7l, and Offen, §7s, excepted) — no Verlauf of a week or all time —,
   statistics or charts.
 - Filters, search or export of the Protokoll; restoring data from it.
 - Theme switch, custom colours per person.
