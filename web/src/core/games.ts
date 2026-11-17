@@ -15,7 +15,7 @@ import {
   usePeriodResource,
   windowedRead,
 } from './period-resource';
-import { createPolledResources, usePolledResource } from './polled-resource';
+import { createPolledResources } from './polled-resource';
 
 /** The games, shared by Verwalten and its Spiele screen; every screen refreshes them when it opens. */
 const games = shallowRef<Game[]>();
@@ -84,7 +84,6 @@ export function useStandings(
   shown: MaybeRefOrGetter<boolean> = true,
 ) {
   const resource = rankings.of(gameId);
-  if (shown === true) return usePolledResource(resource);
   let running = false;
   const run = (needed: boolean) => {
     if (needed === running) return;
