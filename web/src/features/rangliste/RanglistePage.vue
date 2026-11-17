@@ -1,35 +1,69 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import PeriodPicker from '../../components/PeriodPicker.vue';
 import { formatTime } from '../../core/format';
 import { messages } from '../../core/messages';
+import {
+  calendarDateOf,
+  contextLine,
+  isToday,
+  type PeriodKind,
+} from '../../core/period';
+import { usePeriodScoreboard } from '../../core/period-scoreboard';
 import { useScoreboardFeed } from '../../core/scoreboard-feed';
+import { useToday } from '../../core/today';
 import { provideTopBar } from '../../core/top-bar';
+import { useChosenPeriod } from './chosen-period';
 import LeaderCard from './LeaderCard.vue';
 import RankRow from './RankRow.vue';
 import { standingsOf, unrankedOf } from './standings';
 
 /**
-Rangliste · Heute (§7f): today's leader on the amber card, everyone else with
-entries today that count in ranked rows, and below them, without a rank, the persons
-whose entries of today all wait for verification. The shared feed keeps it current;
-while its latest refresh failed, the top bar shows when the standings were last
+Rangliste (§7f): the chosen period's leader on the amber card, everyone else with
+entries that count in ranked rows, and below them, without a rank, the persons whose
+entries of the period all wait for verification. The period picker offers `Tag`
+(opening on today) and `Gesamt`. Today comes from the shared feed, which also
+serves Zählen, and stays live; another day or all time is read apart from it. While
+the latest refresh failed, the top bar shows when the standings were last
 confirmed (§6.6).
 */
 const SKELETON_ROWS = 3;
+const KINDS: PeriodKind[] = ['day', 'all'];
 
-const feed = useScoreboardFeed();
+const today = useToday();
+const todayDate = computed(() => calendarDateOf(today.value));
+const period = useChosenPeriod(todayDate);
+const showsToday = computed(() => isToday(period.value, todayDate.value));
+
+const feed = useScoreboardFeed(showsToday);
+const other = usePeriodScoreboard(() =>
+  showsToday.value ? undefined : period.value,
+);
+const shown = computed(() => {
+  if (showsToday.value) return feed.value;
+  const { value, updatedAt, stale } = other.value;
+  return { board: value, updatedAt, stale };
+});
+
 const standings = computed(() =>
-  feed.value.board ? standingsOf(feed.value.board) : undefined,
+  shown.value.board ? standingsOf(shown.value.board) : undefined,
 );
 const leader = computed(() => standings.value?.[0]);
 const others = computed(() => standings.value?.slice(1) ?? []);
 const unranked = computed(() =>
-  feed.value.board ? unrankedOf(feed.value.board) : [],
+  shown.value.board ? unrankedOf(shown.value.board) : [],
 );
+const emptyText = computed(() => {
+  if (showsToday.value) return messages.rangliste.noDrinks;
+  return period.value.kind === 'all'
+    ? messages.rangliste.noDrinksEver
+    : messages.rangliste.noDrinksThatDay;
+});
 
 provideTopBar(() => {
-  const { stale, updatedAt } = feed.value;
+  const { stale, updatedAt } = shown.value;
   return {
+    context: contextLine(period.value, todayDate.value),
     stale:
       stale && updatedAt ? messages.stand(formatTime(updatedAt)) : undefined,
   };
@@ -38,6 +72,7 @@ provideTopBar(() => {
 
 <template>
   <section class="rangliste">
+    <PeriodPicker v-model="period" :kinds="KINDS" :today="todayDate" />
     <div v-if="standings === undefined" aria-busy="true">
       <div class="rangliste__skeleton-card" />
       <div
@@ -50,8 +85,9 @@ provideTopBar(() => {
       v-else-if="leader === undefined && unranked.length === 0"
       class="empty-state"
     >
-      <p class="type-body">{{ messages.rangliste.noDrinks }}</p>
+      <p class="type-body">{{ emptyText }}</p>
       <v-btn
+        v-if="showsToday"
         to="/zaehlen"
         variant="flat"
         color="primary"
