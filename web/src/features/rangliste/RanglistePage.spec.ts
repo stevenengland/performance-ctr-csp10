@@ -10,6 +10,7 @@ import {
   useScoreboardFeed,
 } from '../../core/scoreboard-feed';
 import { createAppVuetify } from '../../theme';
+import { stubDialogEnvironment } from '../verwalten/manage-page-harness';
 import { useChosenPeriod } from './chosen-period';
 import RanglistePage from './RanglistePage.vue';
 
@@ -402,16 +403,33 @@ A fake API that answers each scoreboard query from `boards` (by its decoded quer
 string; an unknown one is an empty board), tagged `"<n>-<query>"`, and records what
 was asked with which ETag.
 */
-function scoreboards(boards: Record<string, Reply | (() => Reply)>) {
+function scoreboards(
+  boards: Record<string, Reply | (() => Reply)>,
+  days: () => string[] = () => [],
+) {
   const asked: [string, string | undefined][] = [];
+  /** The ETags the days read was asked with. */
+  const daysAsked: (string | undefined)[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init: RequestInit) => {
-      const query = decodeURIComponent(new URL(url, 'http://app').search);
-      asked.push([
-        query,
-        (init.headers as Record<string, string>)['If-None-Match'],
-      ]);
+      const { pathname, search } = new URL(url, 'http://app');
+      const ifNoneMatch = (init.headers as Record<string, string>)[
+        'If-None-Match'
+      ];
+      if (pathname === '/api/scoreboard/days') {
+        daysAsked.push(ifNoneMatch);
+        const instants = days();
+        const etag = `"${String(instants.length)}"`;
+        return ifNoneMatch === etag
+          ? new Response(null, { status: 304, headers: { ETag: etag } })
+          : new Response(JSON.stringify({ instants }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json', ETag: etag },
+            });
+      }
+      const query = decodeURIComponent(search);
+      asked.push([query, ifNoneMatch]);
       const entry = boards[query];
       const reply = typeof entry === 'function' ? entry() : (entry ?? nobody);
       if (reply === 'unchanged') return new Response(null, { status: 304 });
@@ -421,7 +439,7 @@ function scoreboards(boards: Record<string, Reply | (() => Reply)>) {
       });
     }),
   );
-  return asked;
+  return Object.assign(asked, { days: daysAsked });
 }
 
 describe('the Rangliste’s periods', () => {
@@ -835,5 +853,109 @@ describe('the Rangliste’s periods', () => {
     expect(asked.at(-1)?.[0]).toBe(
       '?from=2026-11-14T05:00:00.000Z&to=2026-11-15T05:00:00.000Z',
     );
+  });
+
+  describe('with the calendar Tag wählen', () => {
+    /** Saturday 14.11., 21:00 and 21:15 in Berlin, and Tuesday 27.10. */
+    const DAYS = [
+      '2026-10-27T19:00:00.000Z',
+      '2026-11-14T20:00:00.000Z',
+      '2026-11-14T20:15:00.000Z',
+    ];
+
+    beforeEach(() => {
+      stubDialogEnvironment();
+    });
+
+    afterEach(() => {
+      document.body.innerHTML = '';
+    });
+
+    const dialog = () =>
+      document.querySelector('[role="dialog"].v-overlay--active');
+    async function openCalendar() {
+      await click('[data-test="day-bar"] button.day-bar__day');
+    }
+    async function pick(name: string) {
+      const day = dialog()?.querySelector<HTMLButtonElement>(
+        `[aria-label="${name}"]`,
+      );
+      if (!day) throw new Error(`no day ${name}`);
+      day.click();
+      await flushPromises();
+    }
+
+    it('shows the ranking of the day picked in the calendar, its days with drinks that count dotted', async () => {
+      const asked = scoreboards(
+        { [TODAY]: evening, [SATURDAY]: only('Mara', 7) },
+        () => DAYS,
+      );
+      await open();
+
+      await openCalendar();
+      expect(
+        [...(dialog()?.querySelectorAll('.calendar__day--marked') ?? [])].map(
+          (day) => day.getAttribute('aria-label'),
+        ),
+      ).toEqual(['Samstag, 14. November']);
+      await pick('Samstag, 14. November');
+
+      expect(dialog()).toBeNull();
+      expect(bar()?.text()).toBe('Gestern');
+      expect(context()).toBe('Samstag, 14.11.2026');
+      expect(shown()).toContain('Mara');
+      expect(asked.at(-1)).toEqual([SATURDAY, undefined]);
+    });
+
+    it('shows the week of the day picked while Woche is shown', async () => {
+      const asked = scoreboards({
+        [TODAY]: evening,
+        [LAST_WEEK]: only('Tom', 9),
+      });
+      await open();
+      await choose('Woche');
+
+      await openCalendar();
+      await pick('Mittwoch, 4. November');
+
+      expect(context()).toBe('KW 45 · 02.11.–08.11.');
+      expect(shown()).toContain('Tom');
+      expect(asked.at(-1)).toEqual([LAST_WEEK, undefined]);
+    });
+
+    it('says under Gesamt since when and over how many evenings it counts', async () => {
+      scoreboards(
+        { [TODAY]: evening, [ALL_TIME]: only('Ben', 40) },
+        () => DAYS,
+      );
+      await open();
+
+      await choose('Gesamt');
+
+      expect(page?.get('.period-line').text()).toBe(
+        'Alle Tage seit 27.10.2026 · 2 Abende',
+      );
+    });
+
+    it('reads the days again after the device’s own writes and on focus, on condition of their ETag', async () => {
+      let days = DAYS.slice(0, 1);
+      const asked = scoreboards(
+        { [TODAY]: evening, [ALL_TIME]: only('Ben', 40) },
+        () => days,
+      );
+      await open();
+      await choose('Gesamt');
+      expect(page?.get('.period-line').text()).toContain('1 Abend');
+
+      days = DAYS;
+      await refreshScoreboard();
+      await flushPromises();
+      expect(page?.get('.period-line').text()).toContain('2 Abende');
+      window.dispatchEvent(new Event('focus'));
+      await flushPromises();
+
+      // The first read asks on condition of what an earlier test left behind.
+      expect(asked.days.slice(1)).toEqual(['"1"', '"3"']);
+    });
   });
 });

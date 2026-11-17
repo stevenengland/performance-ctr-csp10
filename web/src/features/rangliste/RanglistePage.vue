@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import PeriodPicker from '../../components/PeriodPicker.vue';
+import { type DaysWithData, scoreboardDays } from '../../core/days-with-data';
 import { formatTime } from '../../core/format';
 import { messages } from '../../core/messages';
 import {
@@ -25,13 +26,19 @@ import { standingsOf, unrankedOf } from './standings';
 Rangliste (§7f): the chosen period's leader on the amber card, everyone else with
 entries that count in ranked rows, and below them, without a rank, the persons whose
 entries of the period all wait for verification. The period picker offers `Tag`
-(opening on today), `Woche` and `Gesamt`. Today comes from the shared feed, which
+(opening on today), `Woche` and `Gesamt`; its calendar dots the days with drinks
+that count, and `Gesamt` says since when and over how many evenings it counts. Today comes from the shared feed, which
 also serves Zählen, and stays live; another day, a week or all time is read apart
 from it, kept live while it contains the present. While the latest refresh
 failed, the top bar shows when the standings were last confirmed (§6.6).
 */
 const SKELETON_ROWS = 3;
 const KINDS: PeriodKind[] = ['day', 'week', 'all'];
+/** The calendar's dots and the `Gesamt` line: `Alle Tage seit 27.10.2026 · 15 Abende`. */
+const DAYS: DaysWithData = {
+  read: scoreboardDays,
+  summary: messages.rangliste.allDaysSince,
+};
 /** What a period without any entry, counted or pending, says (today aside). */
 const NOTHING_COUNTED: Record<DrinksPeriod['kind'], string> = {
   day: messages.rangliste.noDrinksThatDay,
@@ -80,7 +87,12 @@ provideTopBar(() => {
 
 <template>
   <section class="rangliste">
-    <PeriodPicker v-model="period" :kinds="KINDS" :today="todayDate" />
+    <PeriodPicker
+      v-model="period"
+      :kinds="KINDS"
+      :today="todayDate"
+      :days="DAYS"
+    />
     <div v-if="standings === undefined" aria-busy="true">
       <div class="rangliste__skeleton-card" />
       <div

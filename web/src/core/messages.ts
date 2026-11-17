@@ -96,6 +96,13 @@ export const messages = {
     nextWeek: 'Nächste Woche',
     /** An ISO calendar week by its number and days: `KW 45 · 02.11.–08.11.`. */
     week: (number: number, days: string) => `KW ${String(number)} · ${days}`,
+    /** The calendar dialog's title, and the bar's day that opens it: `Tag wählen: Gestern`. */
+    pickDay: 'Tag wählen',
+    pickDayFrom: (shown: string) => `Tag wählen: ${shown}`,
+    previousMonth: 'Vorheriger Monat',
+    nextMonth: 'Nächster Monat',
+    /** The calendar's column heads, Monday first. */
+    weekdays: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'],
   },
   rangliste: {
     noDrinks: 'Heute noch keine Getränke.',
@@ -105,6 +112,9 @@ export const messages = {
     noDrinksThatWeek: 'In dieser Woche wurde nichts gezählt.',
     /** All time without any entry. */
     noDrinksEver: 'Noch keine Getränke.',
+    /** The `Gesamt` line: `Alle Tage seit 27.10.2026 · 15 Abende`, `1 Abend`. */
+    allDaysSince: (since: string, days: number) =>
+      `Alle Tage seit ${since} · ${String(days)} ${days === 1 ? 'Abend' : 'Abende'}`,
     /** The group of persons whose entries of today all wait for verification (§7f). */
     unranked: 'Noch nicht gewertet',
     count: 'Zählen',

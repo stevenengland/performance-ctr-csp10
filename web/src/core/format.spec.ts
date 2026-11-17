@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatCalendarDay,
+  formatDate,
   formatDay,
   formatDayRange,
   formatDecimalInput,
   formatFullDay,
+  formatMonth,
   formatMultiplier,
   formatNumber,
   formatPoints,
@@ -62,6 +65,16 @@ describe('de-DE formatting', () => {
     expect(formatFullDay(instant, 'America/Mexico_City')).toBe(
       'Sonntag, 15.11.2026',
     );
+  });
+
+  it('shows a date with its year, a calendar day by name and a month with its year', () => {
+    const instant = new Date('2026-10-26T23:30:00Z');
+    expect(formatDate(instant, 'Europe/Berlin')).toBe('27.10.2026');
+    expect(formatDate(instant, 'America/Mexico_City')).toBe('26.10.2026');
+    expect(formatCalendarDay(instant, 'Europe/Berlin')).toBe(
+      'Dienstag, 27. Oktober',
+    );
+    expect(formatMonth(instant, 'Europe/Berlin')).toBe('Oktober 2026');
   });
 
   it('shows times as HH:mm in the given time zone', () => {
