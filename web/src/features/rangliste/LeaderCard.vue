@@ -8,7 +8,8 @@ import type { Standing } from './standings';
 Rank 1 on the Rangliste (§7f): amber, the one loud thing on the screen. Name and the
 tally of the total count left, under the ringed avatar (beside the name it left too
 little room for a long name), the score right; under them the total count and the
-per-drink counters. The card opens the person's Verlauf.
+per-drink counters, and `+2 offen` beside the count while entries wait for verification.
+The card opens the person's Verlauf.
 */
 defineProps<{ standing: Standing }>();
 </script>
@@ -34,7 +35,12 @@ defineProps<{ standing: Standing }>();
         </div>
         <p class="leader__score">{{ standing.score }}</p>
       </div>
-      <p class="type-label leader__count">{{ standing.countText }}</p>
+      <p class="type-label leader__count">
+        {{ standing.countText }}
+        <span v-if="standing.pending" class="assist-chip leader__pending">{{
+          standing.pending
+        }}</span>
+      </p>
       <p class="type-support">{{ standing.drinks }}</p>
     </RouterLink>
   </li>
@@ -91,6 +97,15 @@ defineProps<{ standing: Standing }>();
 }
 
 .leader__count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-top: 10px;
+}
+
+/* On the amber card the chip takes the card's colour, like everything else on it. */
+.leader__pending {
+  border-color: currentcolor;
+  color: inherit;
 }
 </style>

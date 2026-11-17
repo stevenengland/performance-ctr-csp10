@@ -23,6 +23,8 @@ export interface FixtureAccount {
 /** An entry with the account that logged it (`null` once that account is deleted), as the database keeps it. */
 export interface FixtureEntry extends Entry {
   accountId: number | null;
+  /** Whether it waits for verification by another account (PRD #61). */
+  pending: boolean;
 }
 
 /** A game with the run its ranking is in, which the API keeps to itself. */
@@ -40,6 +42,8 @@ export interface FixtureMatch {
   outcome: Outcome;
   accountId: number | null;
   createdAt: string;
+  /** Whether it waits for verification by another account (PRD #61). */
+  pending: boolean;
 }
 
 /** A points-game result as the database keeps it, in its game's run. */
@@ -51,6 +55,8 @@ export interface FixtureResult {
   points: number;
   accountId: number | null;
   createdAt: string;
+  /** Whether it waits for verification by another account (PRD #61). */
+  pending: boolean;
 }
 
 /** Canned answers of the fixture preview; typed against the generated API types. */
@@ -85,7 +91,7 @@ export function entrySnapshot(
     drinks,
     factors,
   }: Pick<Fixtures, 'persons' | 'drinks' | 'factors'>,
-  entry: Entry,
+  entry: Entry & { pending: boolean },
 ): AuditSnapshot {
   const drink = drinks.find(({ id }) => id === entry.drinkId);
   const factor = factors.find(({ id }) => id === entry.factorId);
@@ -97,6 +103,7 @@ export function entrySnapshot(
     factor: factor
       ? { name: factor.name, multiplier: factor.multiplier }
       : null,
+    pending: entry.pending,
   };
 }
 
@@ -150,7 +157,10 @@ const GAMES: [string, Game['kind'], boolean, boolean, number][] = [
 ];
 /**
 Schach and Tischtennis: game, first, second (`null`: a person deleted since),
-outcome, days ago and the recording account (`null`: deleted since).
+outcome, days ago, the recording account (`null`: deleted since) and whether the
+match still waits for verification. Last night's Tischtennis match, which `mara`
+recorded, waits: Jule and Tom each get `+1 offen` beside their verified matches,
+and it is in Offen as a row of an earlier day.
 */
 const MATCHES: [
   string,
@@ -159,6 +169,7 @@ const MATCHES: [
   Outcome,
   number,
   string | null,
+  boolean?,
 ][] = [
   ['Schach', 'Anna', 'Ben', 'first', 58, 'anna'],
   ['Schach', null, 'Ben', 'second', 51, 'ben'],
@@ -172,9 +183,16 @@ const MATCHES: [
   ['Tischtennis', 'Mara', 'Jule', 'first', 19, 'mara'],
   ['Tischtennis', 'Jule', 'Tom', 'first', 12, 'mara'],
   ['Tischtennis', 'Mara', 'Tom', 'second', 5, 'daniel'],
+  ['Tischtennis', 'Jule', 'Tom', 'second', 1, 'mara', true],
 ];
-/** Tonight's Rommé, two rounds so far: person, penalty points (going out first gives −20) and account. */
-const RESULTS: [string, number, string][] = [
+/**
+Tonight's Rommé, two rounds so far and the third begun: person, penalty points
+(going out first gives −20), account and whether the result still waits for
+verification. Daniel's 14 (ben) waits beside his counted results, `+1 offen`, and
+is in Offen; Jule's only result, a 0 (anna), waits, so she is listed without a
+rank instead of leading the lowest-wins ladder.
+*/
+const RESULTS: [string, number, string, boolean?][] = [
   ['Anna', 35, 'anna'],
   ['Ben', 12, 'anna'],
   ['Daniel', -20, 'anna'],
@@ -183,6 +201,8 @@ const RESULTS: [string, number, string][] = [
   ['Ben', 27, 'ben'],
   ['Daniel', 9, 'ben'],
   ['Mara', 31, 'ben'],
+  ['Daniel', 14, 'ben', true],
+  ['Jule', 0, 'anna', true],
 ];
 
 /** The games with their matches (evenings at 21:00) and tonight's results, spread between midnight and now. */
@@ -211,7 +231,10 @@ function sampleGames(
     accounts.find(({ account }) => account.userName === userName)?.account.id ??
     null;
   const matches = MATCHES.map(
-    ([game, first, second, outcome, daysAgo, account], index) => ({
+    (
+      [game, first, second, outcome, daysAgo, account, pending = false],
+      index,
+    ) => ({
       id: `00000000-0000-4000-a000-${String(index + 1).padStart(12, '0')}`,
       gameId: gameOf(game),
       run: 1,
@@ -220,10 +243,11 @@ function sampleGames(
       outcome,
       accountId: accountOf(account),
       createdAt: new Date(midnight - daysAgo * DAY + 21 * HOUR).toISOString(),
+      pending,
     }),
   );
   const span = now.getTime() - midnight;
-  const results = RESULTS.map(([person, points, account], index) => ({
+  const results = RESULTS.map(([person, points, account, pending], index) => ({
     id: `00000000-0000-4000-b000-${String(index + 1).padStart(12, '0')}`,
     gameId: gameOf('Rommé'),
     run: 1,
@@ -233,15 +257,18 @@ function sampleGames(
     createdAt: new Date(
       midnight + Math.floor((span * (index + 1)) / (RESULTS.length + 1)),
     ).toISOString(),
+    pending: pending ?? false,
   }));
   return { games, matches, results };
 }
 
 /**
-Tonight so far: person, drink, quantity, factor and the logging account — in the
-order they were logged. One account was deleted since (`jonas`).
+Tonight so far: person, drink, quantity, factor, the logging account and whether
+the entry still waits for verification — in the order they were logged. One
+account was deleted since (`jonas`). The last three wait: one of Mara's, and
+Jule's only ones, so she is listed without a rank.
 */
-const LOG: [string, string, number, string | null, string][] = [
+const LOG: [string, string, number, string | null, string, boolean?][] = [
   ['Anna', 'Wein', 1, null, 'anna'],
   ['Daniel', 'Bier', 2, null, 'ben'],
   ['Mara', 'Aperol', 2, null, 'mara'],
@@ -255,6 +282,9 @@ const LOG: [string, string, number, string | null, string][] = [
   ['Anna', 'Wein', 2, null, 'ben'],
   ['Daniel', 'Aperol', 1, null, 'anna'],
   ['Daniel', 'Bier', 2, null, 'anna'],
+  ['Mara', 'Wein', 1, null, 'anna', true],
+  ['Jule', 'Aperol', 1, null, 'mara', true],
+  ['Jule', 'Bier', 2, null, 'ben', true],
 ];
 
 /**
@@ -275,17 +305,20 @@ function sampleEntries(
   const accountOf = (userName: string) =>
     accounts.find(({ account }) => account.userName === userName)?.account.id ??
     null;
-  return LOG.map(([person, drink, quantity, factor, account], index) => ({
-    id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
-    personId: idOf(persons, person),
-    drinkId: idOf(drinks, drink),
-    quantity,
-    factorId: factor === null ? null : idOf(factors, factor),
-    accountId: accountOf(account),
-    createdAt: new Date(
-      midnight + Math.floor((span * (index + 1)) / (LOG.length + 1)),
-    ).toISOString(),
-  }));
+  return LOG.map(
+    ([person, drink, quantity, factor, account, pending], index) => ({
+      id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+      personId: idOf(persons, person),
+      drinkId: idOf(drinks, drink),
+      quantity,
+      factorId: factor === null ? null : idOf(factors, factor),
+      accountId: accountOf(account),
+      createdAt: new Date(
+        midnight + Math.floor((span * (index + 1)) / (LOG.length + 1)),
+      ).toISOString(),
+      pending: pending ?? false,
+    }),
+  );
 }
 
 /** A deletion as the events it brings about name it, like the API: by its id, kind and the name it recorded. */

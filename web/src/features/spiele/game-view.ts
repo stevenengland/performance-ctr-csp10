@@ -57,7 +57,7 @@ export function currentRun(
     Date.parse(standings.startedAt) >= Date.parse(game.startedAt)
   )
     return standings;
-  return { ...standings, startedAt: game.startedAt, rows: [] };
+  return { ...standings, startedAt: game.startedAt, rows: [], unranked: [] };
 }
 
 /**
@@ -135,18 +135,40 @@ export interface GameStanding {
   details: string;
   /** The person tile's line in a recording flow: `5 Partien`, or `3 Ergebnisse`. */
   short: string;
+  /** `+2 offen` while rows of the person in the run wait for verification. */
+  pending?: string;
+  /** Accessible name: `Platz 1, Anna, 3,5 Punkte, 5 Partien · 3 S · 1 R · 1 N, +2 offen`. */
+  label: string;
+}
+
+/** A person whose rows in the run all wait for verification: no rank, no value (PRD #61). */
+export interface UnrankedGameStanding {
+  personId: number;
+  name: string;
+  /** `+2 offen`. */
+  pending: string;
+  /** Accessible name: `Jule, +2 offen`. */
   label: string;
 }
 
 function place(
   index: number,
-  { personId, name }: { personId: number; name: string },
+  {
+    personId,
+    name,
+    pendingCount,
+  }: { personId: number; name: string; pendingCount?: number },
   value: string,
   points: number,
   details: string,
   short: string,
 ): GameStanding {
   const valueText = messages.spiele.gamePoints(value, points);
+  const label = messages.spiele.place(index + 1, name, valueText, details);
+  const pending =
+    pendingCount !== undefined && pendingCount > 0
+      ? messages.pending.hint(pendingCount)
+      : undefined;
   return {
     personId,
     rank: index + 1,
@@ -155,7 +177,8 @@ function place(
     valueText,
     details,
     short,
-    label: messages.spiele.place(index + 1, name, valueText, details),
+    pending,
+    label: pending === undefined ? label : `${label}, ${pending}`,
   };
 }
 
@@ -178,6 +201,16 @@ export function gameStandings(
   return standings.rows.map((row, index) => {
     const count = messages.spiele.resultCount(row.results);
     return place(index, row, formatSigned(row.sum), row.sum, count, count);
+  });
+}
+
+/** The persons of the run without a rank, by name, as the API lists them. */
+export function unrankedGameStandings(
+  standings: DeepReadonly<Standings>,
+): UnrankedGameStanding[] {
+  return standings.unranked.map(({ personId, name, pendingCount }) => {
+    const pending = messages.pending.hint(pendingCount);
+    return { personId, name, pending, label: `${name}, ${pending}` };
   });
 }
 
@@ -218,13 +251,19 @@ export interface GameHistoryRow {
   removeLabel: string;
   /** What the confirmation dialog names: `Anna – Ben · Anna gewinnt am 15.11. um 21:00`. */
   removeBody: string;
+  /** `offen` while the row waits for verification. */
+  pending?: string;
 }
 
 function historyRow(
   id: string,
   title: string,
   what: string,
-  { createdAt, accountName }: { createdAt: string; accountName: string | null },
+  {
+    createdAt,
+    accountName,
+    pending,
+  }: { createdAt: string; accountName: string | null; pending?: boolean },
   outcome?: string,
 ): GameHistoryRow {
   const at = new Date(createdAt);
@@ -241,6 +280,7 @@ function historyRow(
     details: outcome === undefined ? details : `${outcome} · ${details}`,
     removeLabel: messages.spiele.removeRecorded(title, day),
     removeBody: messages.spiele.removeRecordedBody(what, day, time),
+    pending: pending === true ? messages.pending.marker : undefined,
   };
 }
 

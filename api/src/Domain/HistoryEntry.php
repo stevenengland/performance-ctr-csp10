@@ -9,7 +9,8 @@ use DateTimeImmutable;
 /**
  * One entry of a person's history: the drink and the factor with their current
  * names (the factor null when there was none or it was deleted), and the name of
- * the account that logged it (null once that account is deleted).
+ * the account that logged it (null once that account is deleted), and whether it still waits
+ * for verification.
  */
 final readonly class HistoryEntry
 {
@@ -21,5 +22,6 @@ final readonly class HistoryEntry
         public ?HistoryFactor $factor,
         public DateTimeImmutable $createdAt,
         public ?string $accountName,
+        public bool $pending,
     ) {}
 }

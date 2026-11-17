@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext } from './support/playwright.ts';
-import { signIn, signInVia, uniqueName } from './support/session.ts';
+import {
+  signIn,
+  signInVia,
+  uniqueName,
+  verifierOn,
+} from './support/session.ts';
 
 /** The game page's polling interval while it is visible. */
 const POLL_MS = 10_000;
@@ -15,8 +20,14 @@ async function created(
   return ((await response.json()) as { id: number }).id;
 }
 
-/** A duel between two new persons with one match the first won, recorded through the API. */
-async function duelWithAMatch(request: APIRequestContext) {
+/**
+A duel between two new persons with one match the first won, recorded through
+the API and verified by a second account, so it counts.
+*/
+async function duelWithAMatch(
+  request: APIRequestContext,
+  verifier: APIRequestContext,
+) {
   const anna = uniqueName('Anna');
   const ben = uniqueName('Ben');
   const annaId = await created(request, '/api/persons', { name: anna });
@@ -26,7 +37,8 @@ async function duelWithAMatch(request: APIRequestContext) {
     name: game,
     kind: 'duel',
   });
-  const response = await request.put(`/api/matches/${randomUUID()}`, {
+  const matchId = randomUUID();
+  const response = await request.put(`/api/matches/${matchId}`, {
     data: {
       gameId,
       firstPersonId: annaId,
@@ -35,6 +47,8 @@ async function duelWithAMatch(request: APIRequestContext) {
     },
   });
   expect(response.status()).toBe(201);
+  const verify = await verifierOn(verifier);
+  await verify(matchId, 'matches');
   return { anna, ben, benId, game, gameId };
 }
 
@@ -42,9 +56,10 @@ test.beforeEach(async ({ page }) => {
   await signIn(page);
 });
 
-test('a match recorded in one browser appears on another browser’s game page within one refresh interval', async ({
+test('a match recorded in one browser waits on another browser’s game page and counts there once verified, each within one refresh interval', async ({
   page,
   browser,
+  request,
 }) => {
   const anna = uniqueName('Anna');
   const ben = uniqueName('Ben');
@@ -58,6 +73,7 @@ test('a match recorded in one browser appears on another browser’s game page w
     baseURL: test.info().project.use.baseURL,
     viewport: test.info().project.use.viewport,
     locale: 'de-DE',
+    extraHTTPHeaders: test.info().project.use.extraHTTPHeaders,
   });
   try {
     const watcher = await other.newPage();
@@ -73,8 +89,26 @@ test('a match recorded in one browser appears on another browser’s game page w
     await page.getByRole('button', { name: new RegExp(`^${ben},`) }).click();
     await page.getByRole('button', { name: `${anna} gewinnt` }).click();
     await expect(
-      page.getByText(`${anna} – ${ben} · ${anna} gewinnt`),
+      page.getByText(
+        `${anna} – ${ben} · ${anna} gewinnt · wartet auf Bestätigung`,
+      ),
     ).toBeVisible();
+
+    // It waits: both players are listed without a rank until another account verifies it.
+    const waiting = watcher.getByRole('list', { name: 'Noch nicht gewertet' });
+    await expect(
+      waiting.getByRole('listitem', { name: `${anna}, +1 offen` }),
+    ).toBeVisible({ timeout: POLL_MS + 2_000 });
+    await expect(
+      waiting.getByRole('listitem', { name: `${ben}, +1 offen` }),
+    ).toBeVisible();
+    const history = await page.request.get(
+      `/api/games/${String(gameId)}/matches`,
+    );
+    const [match] = ((await history.json()) as { items: { id: string }[] })
+      .items;
+    const verify = await verifierOn(request);
+    await verify(match?.id ?? '', 'matches');
 
     await expect(
       watcher.getByRole('listitem', { name: new RegExp(`^Platz 1, ${anna},`) }),
@@ -87,8 +121,9 @@ test('a match recorded in one browser appears on another browser’s game page w
   }
 });
 
-test('a result typed on the number pad is saved and ranked on the game’s page', async ({
+test('a result typed on the number pad is saved, waits on the game’s page and is ranked once verified', async ({
   page,
+  request,
 }) => {
   const daniel = uniqueName('Daniel');
   await created(page.request, '/api/persons', { name: daniel });
@@ -105,11 +140,28 @@ test('a result typed on the number pad is saved and ranked on the game’s page'
   await page.getByRole('button', { name: 'Vorzeichen wechseln' }).click();
   await page.getByRole('button', { name: 'Speichern' }).click();
 
-  await expect(page.getByText(`${daniel} · −20 Punkte`)).toBeVisible();
   await expect(
-    page.getByRole('button', { name: `${daniel}, −20 Punkte` }),
+    page.getByText(`${daniel} · −20 Punkte · wartet auf Bestätigung`),
+  ).toBeVisible();
+  // It waits: the tile keeps the verified standing, the game lists Daniel without a rank.
+  await expect(
+    page.getByRole('button', { name: `${daniel}, noch nichts` }),
   ).toBeVisible();
   await page.goto(`/spiele/${String(gameId)}`);
+  await expect(
+    page
+      .getByRole('list', { name: 'Noch nicht gewertet' })
+      .getByRole('listitem', { name: `${daniel}, +1 offen` }),
+  ).toBeVisible();
+  const history = await page.request.get(
+    `/api/games/${String(gameId)}/results`,
+  );
+  const [result] = ((await history.json()) as { items: { id: string }[] })
+    .items;
+  const verify = await verifierOn(request);
+  await verify(result?.id ?? '', 'results');
+
+  await page.reload();
   await expect(
     page.getByRole('listitem', {
       name: `Platz 1, ${daniel}, −20 Punkte, 1 Ergebnis`,
@@ -119,8 +171,9 @@ test('a result typed on the number pad is saved and ranked on the game’s page'
 
 test('a restart empties the game’s ranking and keeps nothing of the old run on its page', async ({
   page,
+  request,
 }) => {
-  const { anna, game, gameId } = await duelWithAMatch(page.request);
+  const { anna, game, gameId } = await duelWithAMatch(page.request, request);
 
   await page.goto(`/spiele/${String(gameId)}`);
   await expect(
@@ -142,8 +195,9 @@ test('a restart empties the game’s ranking and keeps nothing of the old run on
 
 test('a match deleted from the game’s Verlauf leaves its ranking', async ({
   page,
+  request,
 }) => {
-  const { anna, ben, gameId } = await duelWithAMatch(page.request);
+  const { anna, ben, gameId } = await duelWithAMatch(page.request, request);
 
   await page.goto(`/spiele/${String(gameId)}/verlauf`);
   await page
@@ -167,8 +221,9 @@ test('a match deleted from the game’s Verlauf leaves its ranking', async ({
 
 test('a deleted person’s match stays in the Verlauf as “gelöschte Person”', async ({
   page,
+  request,
 }) => {
-  const { anna, benId, gameId } = await duelWithAMatch(page.request);
+  const { anna, benId, gameId } = await duelWithAMatch(page.request, request);
   const deleted = await page.request.delete(`/api/persons/${String(benId)}`);
   expect(deleted.status()).toBe(204);
 

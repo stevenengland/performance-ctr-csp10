@@ -276,7 +276,7 @@ describe('the fixture backend’s games', () => {
     return answer.standings;
   }
 
-  /** A ranking's rows as `name points W-D-L/played` or `name sum (results)`. */
+  /** A ranking's rows as `name points W-D-L/played` or `name sum (results)`, with ` +n` pending results. */
   async function ranking(id: number): Promise<string[]> {
     const standings = await standingsOf(id);
     return standings.kind === 'duel'
@@ -285,7 +285,8 @@ describe('the fixture backend’s games', () => {
             `${row.name} ${String(row.points)} ${String(row.wins)}-${String(row.draws)}-${String(row.losses)}/${String(row.played)}`,
         )
       : standings.rows.map(
-          (row) => `${row.name} ${String(row.sum)} (${String(row.results)})`,
+          (row) =>
+            `${row.name} ${String(row.sum)} (${String(row.results)})${row.pendingCount > 0 ? ` +${String(row.pendingCount)}` : ''}`,
         );
   }
 
@@ -311,15 +312,19 @@ describe('the fixture backend’s games', () => {
 
     const standings = await standingsOf(romme);
     expect(standings).toMatchObject({ kind: 'points', lowerWins: true });
+    // Daniel's third result waits; Jule's only one, a 0, waits, so she does not lead.
     expect(await ranking(romme)).toEqual([
-      'Daniel -11 (2)',
+      'Daniel -11 (2) +1',
       'Anna 15 (2)',
       'Ben 39 (2)',
       'Mara 79 (2)',
     ]);
+    expect(standings).toMatchObject({
+      unranked: [{ name: 'Jule', pendingCount: 1 }],
+    });
     await expect(getGame(romme)).resolves.toMatchObject({
       matchCount: 0,
-      resultCount: 8,
+      resultCount: 10,
     });
 
     await updateGame(romme, { name: 'Rommé', lowerWins: false });
@@ -328,7 +333,7 @@ describe('the fixture backend’s games', () => {
       'Mara 79 (2)',
       'Ben 39 (2)',
       'Anna 15 (2)',
-      'Daniel -11 (2)',
+      'Daniel -11 (2) +1',
     ]);
   });
 
@@ -371,23 +376,32 @@ describe('the fixture backend’s games', () => {
 
     await deleteGame(tischtennis);
 
-    const events = (await newest(4)).map(told).reverse();
+    const events = (await newest(5)).map(told).reverse();
     expect(events[0]).toMatchObject({
       operation: 'delete',
       subjectKind: 'game',
       cause: null,
     });
     expect(events.slice(1)).toEqual(
-      [
-        ['00000000-0000-4000-a000-000000000010', 'Mara', 'Jule', 'first'],
-        ['00000000-0000-4000-a000-000000000011', 'Jule', 'Tom', 'first'],
-        ['00000000-0000-4000-a000-000000000012', 'Mara', 'Tom', 'second'],
-      ].map(([id, first, second, outcome]) => ({
+      (
+        [
+          ['00000000-0000-4000-a000-000000000010', 'Mara', 'Jule', 'first'],
+          ['00000000-0000-4000-a000-000000000011', 'Jule', 'Tom', 'first'],
+          ['00000000-0000-4000-a000-000000000012', 'Mara', 'Tom', 'second'],
+          ['00000000-0000-4000-a000-000000000013', 'Jule', 'Tom', 'second'],
+        ] as const
+      ).map(([id, first, second, outcome]) => ({
         operation: 'delete',
         subjectKind: 'match',
         subjectId: id,
         userName: 'anna',
-        before: { game: 'Tischtennis', first, second, outcome },
+        before: {
+          game: 'Tischtennis',
+          first,
+          second,
+          outcome,
+          pending: id.endsWith('13'),
+        },
         after: null,
         cause: { subjectKind: 'game', name: 'Tischtennis' },
       })),
@@ -404,15 +418,15 @@ describe('the fixture backend’s games', () => {
 
     await deleteGame(romme);
 
-    const events = (await newest(9)).map(told).reverse();
+    const events = (await newest(11)).map(told).reverse();
     expect(events[0]).toMatchObject({ subjectKind: 'game', cause: null });
-    expect(events.slice(1)).toHaveLength(8);
+    expect(events.slice(1)).toHaveLength(10);
     expect(events[1]).toEqual({
       operation: 'delete',
       subjectKind: 'result',
       subjectId: '00000000-0000-4000-b000-000000000001',
       userName: 'anna',
-      before: { game: 'Rommé', person: 'Anna', points: 35 },
+      before: { game: 'Rommé', person: 'Anna', points: 35, pending: false },
       after: null,
       cause: { subjectKind: 'game', name: 'Rommé' },
     });
@@ -425,22 +439,25 @@ describe('the fixture backend’s games', () => {
     const daniel = (await listPersons()).find(({ name }) => name === 'Daniel');
     if (!daniel) throw new Error('no Daniel');
     await expect(getPerson(daniel.id)).resolves.toMatchObject({
-      resultCount: 2,
+      resultCount: 3,
     });
 
     await deletePerson(daniel.id);
 
-    const removed = (await newest(2)).map(told).reverse();
+    const removed = (await newest(3)).map(told).reverse();
     expect(removed).toEqual(
-      [
-        ['00000000-0000-4000-b000-000000000003', -20],
-        ['00000000-0000-4000-b000-000000000007', 9],
-      ].map(([id, points]) => ({
+      (
+        [
+          ['00000000-0000-4000-b000-000000000003', -20, false],
+          ['00000000-0000-4000-b000-000000000007', 9, false],
+          ['00000000-0000-4000-b000-000000000009', 14, true],
+        ] as const
+      ).map(([id, points, pending]) => ({
         operation: 'delete',
         subjectKind: 'result',
         subjectId: id,
         userName: 'anna',
-        before: { game: 'Rommé', person: 'Daniel', points },
+        before: { game: 'Rommé', person: 'Daniel', points, pending },
         after: null,
         cause: { subjectKind: 'person', name: 'Daniel' },
       })),
@@ -465,7 +482,7 @@ describe('the fixture backend’s games', () => {
       'Daniel 0.5 0-1-2/3',
     ]);
     expect(await ranking(await gameId('Rommé'))).toEqual([
-      'Daniel -11 (2)',
+      'Daniel -11 (2) +1',
       'Anna 15 (2)',
       'Mara 79 (2)',
     ]);
@@ -519,11 +536,12 @@ describe('the fixture backend’s games', () => {
     await expect(conflict.json()).resolves.toMatchObject({
       type: 'urn:performance:problem:request-conflict',
     });
+    // The new match waits, so it counts for neither player yet.
     expect(await ranking(schach)).toEqual([
       'Anna 4 3-2-0/5',
       'Ben 3.5 3-1-1/5',
-      'Daniel 1.5 1-1-2/4',
-      'Tom 1 0-2-3/5',
+      'Tom 1 0-2-2/4',
+      'Daniel 0.5 0-1-2/3',
     ]);
     await expect(getGame(schach)).resolves.toMatchObject({ matchCount: 10 });
     const [recorded] = (await newest(1)).map(told);
@@ -538,6 +556,7 @@ describe('the fixture backend’s games', () => {
         first: 'Daniel',
         second: 'Tom',
         outcome: 'first',
+        pending: true,
       },
       cause: null,
     });
@@ -635,14 +654,20 @@ describe('the fixture backend’s games', () => {
     await expect(conflict.json()).resolves.toMatchObject({
       type: 'urn:performance:problem:request-conflict',
     });
+    // The new result waits, so Tom is not ranked on it yet.
     expect(await ranking(romme)).toEqual([
-      'Tom -20 (1)',
-      'Daniel -11 (2)',
+      'Daniel -11 (2) +1',
       'Anna 15 (2)',
       'Ben 39 (2)',
       'Mara 79 (2)',
     ]);
-    await expect(getGame(romme)).resolves.toMatchObject({ resultCount: 9 });
+    await expect(standingsOf(romme)).resolves.toMatchObject({
+      unranked: [
+        { name: 'Jule', pendingCount: 1 },
+        { name: 'Tom', pendingCount: 1 },
+      ],
+    });
+    await expect(getGame(romme)).resolves.toMatchObject({ resultCount: 11 });
     await expect(getPerson(tom)).resolves.toMatchObject({ resultCount: 1 });
     const [recorded] = (await newest(1)).map(told);
     expect(recorded).toEqual({
@@ -651,7 +676,7 @@ describe('the fixture backend’s games', () => {
       subjectId: id,
       userName: 'anna',
       before: null,
-      after: { game: 'Rommé', person: 'Tom', points: -20 },
+      after: { game: 'Rommé', person: 'Tom', points: -20, pending: true },
       cause: null,
     });
 
@@ -664,7 +689,7 @@ describe('the fixture backend’s games', () => {
       ...result,
       createdAt,
     });
-    await expect(getGame(romme)).resolves.toMatchObject({ resultCount: 8 });
+    await expect(getGame(romme)).resolves.toMatchObject({ resultCount: 10 });
     const [undone] = (await newest(1)).map(told);
     expect(undone).toMatchObject({
       operation: 'delete',
@@ -796,6 +821,8 @@ describe('the fixture backend’s games', () => {
     expect(
       all.items.map(({ person, points }) => [person.name, points]),
     ).toEqual([
+      ['Jule', 0],
+      ['Daniel', 14],
       ['Mara', 31],
       ['Daniel', 9],
       ['Ben', 27],
@@ -805,7 +832,14 @@ describe('the fixture backend’s games', () => {
       ['Ben', 12],
       ['Anna', 35],
     ]);
-    expect(all.items[0]?.accountName).toBe('ben');
+    expect(
+      all.items.map(({ accountName, pending }) => [accountName, pending]),
+    ).toEqual([
+      ['anna', true],
+      ['ben', true],
+      ...Array<[string, boolean]>(4).fill(['ben', false]),
+      ...Array<[string, boolean]>(4).fill(['anna', false]),
+    ]);
 
     const first = await historyPage(romme, 'results', 'limit=3');
     await restart(romme);

@@ -70,9 +70,11 @@ async function choose(outcome: Outcome) {
       secondPersonId: second.value.id,
       outcome,
     },
-    messages.spiele.savedMatch(
-      messages.spiele.pairing(first.value.name, second.value.name),
-      outcomeText(outcome, first.value.name, second.value.name),
+    messages.pending.saved(
+      messages.spiele.savedMatch(
+        messages.spiele.pairing(first.value.name, second.value.name),
+        outcomeText(outcome, first.value.name, second.value.name),
+      ),
     ),
     backToFirstStepFrom(router, matchPath(gameId.value)),
   );

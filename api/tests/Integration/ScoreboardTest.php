@@ -6,12 +6,12 @@ namespace Performance\Tests\Integration;
 
 use DateTimeImmutable;
 use Performance\Domain\DataRevision;
+use Performance\Domain\DrinkStandings;
 use Performance\Domain\Scoreboard;
 use Performance\Domain\Snapshot;
 use Performance\Tests\Support\DatabaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
-use Slim\Psr7\Factory\ServerRequestFactory;
 
 final class ScoreboardTest extends DatabaseTestCase
 {
@@ -49,12 +49,87 @@ final class ScoreboardTest extends DatabaseTestCase
                     'photoUrl' => null,
                     'score' => 7.5,
                     'count' => 6,
-                    'drinks' => [['drinkId' => 2, 'name' => 'Aperol', 'count' => 1], ['drinkId' => 1, 'name' => 'Bier', 'count' => 5]],
+                    'pendingCount' => 0,
+                    'drinks' => [['drinkId' => 2, 'name' => 'Aperol', 'count' => 1, 'recordedCount' => 1], ['drinkId' => 1, 'name' => 'Bier', 'count' => 5, 'recordedCount' => 5]],
                 ],
-                ['personId' => 2, 'name' => 'Anna', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1]]],
-            ]],
+                ['personId' => 2, 'name' => 'Anna', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1, 'recordedCount' => 1]]],
+            ], 'unranked' => []],
             $this->body($response),
         );
+    }
+
+    public function testARecordedEntryWaitsForVerificationAndCountsNeitherInScoreNorCount(): void
+    {
+        $this->add(1, 1, 2);
+        $this->record(1, 1, 3);
+        $this->record(1, 2, 1);
+
+        $rows = $this->rowsOf($this->scoreboard());
+
+        self::assertSame([[1, 2, 2]], array_map(static fn(array $row): array => [$row['personId'], $row['score'], $row['count']], $rows));
+        self::assertSame([[2, 0], [1, 2]], array_map(static fn(array $drink): array => [$drink['drinkId'], $drink['count']], self::listOf($rows[0]['drinks'])));
+    }
+
+    public function testEachDrinkCounterAlsoCountsWhatWasRecordedPendingIncludedWithItsFactor(): void
+    {
+        $this->add(1, 1, 2);
+        $this->record(1, 1, 3, 1);
+        $this->record(1, 2, 1);
+
+        $rows = $this->rowsOf($this->scoreboard());
+
+        self::assertSame(
+            [
+                ['drinkId' => 2, 'name' => 'Aperol', 'count' => 0, 'recordedCount' => 1],
+                ['drinkId' => 1, 'name' => 'Bier', 'count' => 2, 'recordedCount' => 8],
+            ],
+            $rows[0]['drinks'],
+        );
+    }
+
+    public function testEachRankedPersonCountsTheirPendingEntriesOfTheWindowAsRows(): void
+    {
+        $this->record(1, 1, 1);
+        $this->clock->advance('P1D');
+        $this->add(1, 1, 2);
+        $this->record(1, 1, 3, 1);
+        $this->record(1, 2, 4);
+        $this->add(2, 1, 1);
+
+        $rows = $this->rowsOf($this->scoreboard(from: '2026-11-14T23:00:00.000Z'));
+
+        self::assertSame([['Daniel', 2], ['Anna', 0]], array_map(static fn(array $row): array => [$row['name'], $row['pendingCount']], $rows));
+    }
+
+    public function testAPersonWhoseEntriesOfTheWindowAllWaitIsListedUnrankedWithTheirCounters(): void
+    {
+        $this->add(3, 2, 1);
+        $this->clock->advance('P1D');
+        $this->record(3, 1, 1);
+        $this->record(3, 1, 2);
+        $this->record(1, 1, 1);
+        $this->add(2, 1, 1);
+
+        $board = $this->body($this->scoreboard(from: '2026-11-14T23:00:00.000Z'));
+
+        self::assertSame(['Anna'], array_column(self::listOf($board['rows']), 'name'));
+        self::assertSame(
+            [
+                ['personId' => 3, 'name' => 'Ben', 'photoUrl' => null, 'pendingCount' => 2, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 0, 'recordedCount' => 3]]],
+                ['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'pendingCount' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 0, 'recordedCount' => 1]]],
+            ],
+            $board['unranked'],
+        );
+    }
+
+    public function testWithOnlyPendingEntriesNobodyIsRankedSoNobodyLeads(): void
+    {
+        $this->record(1, 2, 1);
+
+        $board = $this->body($this->scoreboard());
+
+        self::assertSame([], $board['rows']);
+        self::assertSame(['Daniel'], array_column(self::listOf($board['unranked']), 'name'));
     }
 
     public function testTheRevisionAndBothAggregationsReadOneSnapshot(): void
@@ -71,12 +146,12 @@ final class ScoreboardTest extends DatabaseTestCase
             $writer->exec('DELETE FROM entries');
             $writer->exec('UPDATE data_revision SET revision = revision + 1');
 
-            return [$revision, $scoreboard->since($from)];
+            return [$revision, $scoreboard->since($from)->rows];
         });
 
         self::assertCount(1, $rows, 'the standings belong to the revision that was read');
         self::assertSame(2.0, (float) $rows[0]->count);
-        self::assertSame([], $scoreboard->since($from), 'a read after the snapshot sees the change');
+        self::assertEquals(new DrinkStandings([], []), $scoreboard->since($from), 'a read after the snapshot sees the change');
         self::assertSame($revision + 1, $scoreboard->revision());
     }
 
@@ -89,7 +164,7 @@ final class ScoreboardTest extends DatabaseTestCase
         $today = $this->body($this->send('GET', '/api/scoreboard?from=2026-11-15T00:00:00Z', session: $this->session));
         $sameInstantWithOffset = $this->body($this->send('GET', '/api/scoreboard?from=' . rawurlencode('2026-11-15T01:00:00+01:00'), session: $this->session));
 
-        self::assertSame([['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1]]]], $today['rows']);
+        self::assertSame([['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1, 'recordedCount' => 1]]]], $today['rows']);
         self::assertSame($today, $sameInstantWithOffset);
     }
 
@@ -261,8 +336,7 @@ final class ScoreboardTest extends DatabaseTestCase
 
     private function scoreboard(?string $ifNoneMatch = null, string $from = '2026-11-13T23:00:00.000Z'): ResponseInterface
     {
-        $request = (new ServerRequestFactory())
-            ->createServerRequest('GET', '/api/scoreboard?from=' . rawurlencode($from))
+        $request = $this->request('GET', '/api/scoreboard?from=' . rawurlencode($from))
             ->withCookieParams(['session' => $this->session]);
         if ($ifNoneMatch !== null) {
             $request = $request->withHeader('If-None-Match', $ifNoneMatch);
@@ -283,11 +357,32 @@ final class ScoreboardTest extends DatabaseTestCase
         return $rows;
     }
 
-    private function add(int $personId, int $drinkId, int $quantity): string
+    /** Records an entry and lets it count. */
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function listOf(mixed $list): array
+    {
+        self::assertIsList($list);
+
+        /** @var list<array<string, mixed>> */
+        return $list;
+    }
+
+    private function add(int $personId, int $drinkId, int $quantity, ?int $factorId = null): string
+    {
+        $id = $this->record($personId, $drinkId, $quantity, $factorId);
+        $this->verifyDirectly('entries', $id);
+
+        return $id;
+    }
+
+    /** Records an entry, which waits for verification. */
+    private function record(int $personId, int $drinkId, int $quantity, ?int $factorId = null): string
     {
         ++$this->entries;
         $id = sprintf('00000000-0000-4000-8000-%012d', $this->entries);
-        $response = $this->send('PUT', "/api/entries/{$id}", ['personId' => $personId, 'drinkId' => $drinkId, 'quantity' => $quantity], $this->session);
+        $response = $this->send('PUT', "/api/entries/{$id}", ['personId' => $personId, 'drinkId' => $drinkId, 'quantity' => $quantity, 'factorId' => $factorId], $this->session);
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
 
         return $id;

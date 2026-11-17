@@ -15,9 +15,10 @@ use PDOException;
  * undone entry; different content under a known id is a conflict. It also lists a person's
  * entries of a day. Adding and deleting name their actor and are recorded in the audit log in
  * their own transaction, with the entry as it is then; a replay, a conflict or a failure
- * records nothing.
+ * records nothing. A new entry waits for verification; as VerifiableRows it lets Verification
+ * decide on one inside Verification's transaction.
  */
-final readonly class EntryLedger
+final readonly class EntryLedger implements VerifiableRows
 {
     public const MAX_QUANTITY = 99;
 
@@ -65,7 +66,94 @@ final readonly class EntryLedger
     }
 
     /**
-     * A person's entries since `from` (the start of the viewer's day), newest first.
+     * Locked first, like an undo, so the values recorded are the ones the decision is about;
+     * the snapshot then reads the entry's person, drink and factor under a shared lock.
+     */
+    public function lock(string $id): ?VerifiableRow
+    {
+        $locked = $this->pdo->prepare('SELECT account_id, pending FROM entries WHERE id = ? FOR UPDATE');
+        $locked->execute([$id]);
+        /** @var array{account_id: int|string|null, pending: int|string}|false $row */
+        $row = $locked->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return null;
+        }
+
+        return new VerifiableRow(
+            $row['account_id'] === null ? null : (int) $row['account_id'],
+            (int) $row['pending'] === 1,
+            EntrySnapshots::of($this->pdo, $id),
+        );
+    }
+
+    public function markVerified(string $id, int $accountId, DateTimeImmutable $at): array
+    {
+        // The account under a shared lock, which its deletion waits for; gone already, it is null.
+        $this->pdo->prepare(
+            'UPDATE entries SET pending = 0, verified_at = ?,
+                    verified_by_account_id = (SELECT a.id FROM accounts a WHERE a.id = ? LOCK IN SHARE MODE)
+              WHERE id = ?',
+        )->execute([Timestamp::of($at), $accountId, $id]);
+
+        return EntrySnapshots::of($this->pdo, $id);
+    }
+
+    public function remove(string $id): void
+    {
+        $this->pdo->prepare('DELETE FROM entries WHERE id = ?')->execute([$id]);
+    }
+
+    public function pending(int $accountId, ?PendingBound $bound, int $limit): array
+    {
+        $query = new PendingQuery($accountId, $bound);
+        $statement = $this->pdo->prepare($query->page(
+            'e.id, e.created_at, a.user_name AS account_name, e.person_id, p.name AS person_name, e.drink_id,
+                    d.name AS drink_name, e.quantity, e.factor_id, f.name AS factor_name, f.multiplier
+               FROM entries e JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
+               LEFT JOIN factors f ON f.id = e.factor_id LEFT JOIN accounts a ON a.id = e.account_id',
+            'e',
+            $limit,
+        ));
+        $statement->execute($query->parameters());
+        /** @var list<array<string, scalar|null>> $rows */
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        return array_map(self::pendingItem(...), $rows);
+    }
+
+    public function countPending(int $accountId): int
+    {
+        $query = new PendingQuery($accountId);
+        $statement = $this->pdo->prepare($query->count('entries', 'e'));
+        $statement->execute($query->parameters());
+
+        return (int) $statement->fetchColumn();
+    }
+
+    /**
+     * @param array<string, scalar|null> $row
+     */
+    private static function pendingItem(array $row): PendingItem
+    {
+        return new PendingItem(
+            VerifiableKind::Entry,
+            (string) $row['id'],
+            new DateTimeImmutable((string) $row['created_at'], new DateTimeZone('UTC')),
+            $row['account_name'] === null ? null : (string) $row['account_name'],
+            new PendingEntry(
+                (int) $row['person_id'],
+                (string) $row['person_name'],
+                (int) $row['drink_id'],
+                (string) $row['drink_name'],
+                (int) $row['quantity'],
+                $row['factor_id'] === null ? null : new HistoryFactor((int) $row['factor_id'], (string) $row['factor_name'], (string) $row['multiplier']),
+            ),
+        );
+    }
+
+    /**
+     * A person's entries since `from` (the start of the viewer's day), newest first, pending
+     * ones included and marked.
      *
      * @return list<HistoryEntry>
      *
@@ -78,7 +166,7 @@ final readonly class EntryLedger
         }
         $statement = $this->pdo->prepare(
             'SELECT e.id, e.drink_id, d.name AS drink_name, e.quantity, e.factor_id, f.name AS factor_name, f.multiplier,
-                    e.created_at, a.user_name AS account_name
+                    e.created_at, a.user_name AS account_name, e.pending
              FROM entries e JOIN drinks d ON d.id = e.drink_id
              LEFT JOIN factors f ON f.id = e.factor_id LEFT JOIN accounts a ON a.id = e.account_id
              WHERE e.person_id = ? AND e.created_at >= ?
@@ -104,6 +192,7 @@ final readonly class EntryLedger
             $row['factor_id'] === null ? null : new HistoryFactor((int) $row['factor_id'], (string) $row['factor_name'], (string) $row['multiplier']),
             new DateTimeImmutable((string) $row['created_at'], new DateTimeZone('UTC')),
             $row['account_name'] === null ? null : (string) $row['account_name'],
+            (int) $row['pending'] === 1,
         );
     }
 
@@ -112,7 +201,7 @@ final readonly class EntryLedger
         try {
             $recordedAt = $this->idempotency->write($entry->id, $fingerprint, $entry->createdAt, function () use ($entry, $actor): void {
                 $this->pdo->prepare(
-                    'INSERT INTO entries (id, person_id, drink_id, quantity, factor_id, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO entries (id, person_id, drink_id, quantity, factor_id, account_id, created_at, pending) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
                 )->execute([
                     $entry->id,
                     $entry->personId,

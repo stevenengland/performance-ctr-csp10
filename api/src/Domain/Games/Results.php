@@ -17,11 +17,14 @@ use Performance\Domain\DataRevision;
 use Performance\Domain\GameDependents;
 use Performance\Domain\Idempotency;
 use Performance\Domain\NotFound;
+use Performance\Domain\PendingResult;
 use Performance\Domain\PersonDependentCounts;
 use Performance\Domain\PersonDependents;
 use Performance\Domain\RequestConflict;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
+use Performance\Domain\VerifiableKind;
+use Performance\Domain\VerifiableRows;
 
 /**
  * The results of points games, end to end: record one idempotently on the client's UUID, undo
@@ -37,7 +40,10 @@ use Performance\Domain\ValidationFailed;
  * Every read in a write locks what it reads (ADR 0004); referenced rows only under a shared
  * lock, which an insert also takes for its foreign key checks.
  *
- * @phpstan-type ResultSnapshot array{game: string, person: string, points: int}
+ * A new result waits for verification (PRD #61): only verified results count in the
+ * standings. Its recorded rows provide Verification's port for results.
+ *
+ * @phpstan-type ResultSnapshot array{game: string, person: string, points: int, pending: bool}
  */
 final readonly class Results implements GameDependents, PersonDependents
 {
@@ -53,8 +59,13 @@ final readonly class Results implements GameDependents, PersonDependents
      * locking read locks every row it scans, so it must scan only the results the transaction
      * holds already.
      */
-    private const SNAPSHOT = 'SELECT STRAIGHT_JOIN r.id, g.name AS game, p.name AS person, r.points
+    private const SNAPSHOT = 'SELECT STRAIGHT_JOIN r.id, g.name AS game, p.name AS person, r.points, r.pending
         FROM results r FORCE INDEX (%s) JOIN games g ON g.id = r.game_id JOIN persons p ON p.id = r.person_id';
+    /** Pending results as the pending queue lists them: their game, its run, the person, the points and the recorder, names as they are now. */
+    private const PENDING = 'r.id, r.created_at, a.user_name AS account_name, r.game_id, g.name AS game_name, r.run < g.run AS earlier_run,
+                r.person_id, p.name AS person_name, r.points
+        FROM results r JOIN games g ON g.id = r.game_id JOIN persons p ON p.id = r.person_id
+        LEFT JOIN accounts a ON a.id = r.account_id';
 
     public function __construct(
         private PDO $pdo,
@@ -85,7 +96,7 @@ final readonly class Results implements GameDependents, PersonDependents
             $recordedAt = $this->idempotency->write($id, $fingerprint, $result->createdAt, function () use ($result, $actor): void {
                 $run = $this->rows()->lockGame($result->gameId, GameKind::Points)['run'];
                 $this->pdo->prepare(
-                    'INSERT INTO results (id, game_id, person_id, points, run, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO results (id, game_id, person_id, points, run, account_id, created_at, pending) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
                 )->execute([
                     $result->id,
                     $result->gameId,
@@ -121,34 +132,44 @@ final readonly class Results implements GameDependents, PersonDependents
     }
 
     /**
-     * A points game's ranking in one run: every person with a result in it, by the sum of
-     * their points (the lowest first when `$lowerWins`, else the highest), then name, then id.
+     * A points game's ranking in one run: every person with a verified result in it, by the
+     * sum of their points (the lowest first when `$lowerWins`, else the highest), then name,
+     * then id. Only verified results count (PRD #61); each person names their pending results
+     * in the run, and a person whose results in it all wait is listed apart, unranked: a total
+     * of nothing never leads a ladder, whichever way it runs and whatever the others' totals.
      *
-     * @return list<PointsRow>
+     * @return Standings<PointsRow>
      */
-    public function standings(int $gameId, int $run, bool $lowerWins): array
+    public function standings(int $gameId, int $run, bool $lowerWins): Standings
     {
         $direction = $lowerWins ? 'ASC' : 'DESC';
         $statement = $this->pdo->prepare(
-            "SELECT p.id, p.name, SUM(r.points) AS total, COUNT(*) AS results
+            "SELECT p.id, p.name, SUM(IF(r.pending = 0, r.points, 0)) AS total, SUM(r.pending = 0) AS results, SUM(r.pending = 1) AS pending_results
              FROM results r JOIN persons p ON p.id = r.person_id
              WHERE r.game_id = ? AND r.run = ?
              GROUP BY p.id, p.name
-             ORDER BY total {$direction}, p.name, p.id",
+             ORDER BY SUM(r.pending = 0) = 0, SUM(IF(r.pending = 0, r.points, 0)) {$direction}, p.name, p.id",
         );
         $statement->execute([$gameId, $run]);
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+        $ranked = [];
+        $unranked = [];
+        foreach ($rows as $row) {
+            if ((int) $row['results'] === 0) {
+                $unranked[] = new UnrankedPlayer((int) $row['id'], (string) $row['name'], (int) $row['pending_results']);
+            } else {
+                $ranked[] = new PointsRow((int) $row['id'], (string) $row['name'], (int) $row['total'], (int) $row['results'], (int) $row['pending_results']);
+            }
+        }
 
-        return array_map(
-            static fn(array $row): PointsRow => new PointsRow((int) $row['id'], (string) $row['name'], (int) $row['total'], (int) $row['results']),
-            $rows,
-        );
+        return new Standings($ranked, $unranked);
     }
 
     /**
-     * A page of a points game's Verlauf: its results of one run, newest first, with the person
-     * and the recording account's name (null once deleted).
+     * A page of a points game's Verlauf: its results of one run, newest first, with the person,
+     * the recording account's name (null once deleted) and whether the result waits for
+     * verification; pending results are listed and marked.
      *
      * @param string|null $before the `next` of the previous page; null for the newest page of the current run
      *
@@ -162,7 +183,7 @@ final readonly class Results implements GameDependents, PersonDependents
         return (new GameHistory($this->pdo))->page(
             $game,
             GameKind::Points,
-            'SELECT h.id, h.created_at, h.points, h.person_id, p.name AS person_name, a.user_name AS account_name
+            'SELECT h.id, h.created_at, h.points, h.person_id, p.name AS person_name, a.user_name AS account_name, h.pending
              FROM results h FORCE INDEX (results_game) JOIN persons p ON p.id = h.person_id
              LEFT JOIN accounts a ON a.id = h.account_id',
             $before,
@@ -227,6 +248,12 @@ final readonly class Results implements GameDependents, PersonDependents
         return $points ?? throw new LogicException('Points were checked above');
     }
 
+    /** The results as Verification reaches them (PRD #61); the composition root wires it. */
+    public function verifiableRows(): VerifiableRows
+    {
+        return $this->rows();
+    }
+
     /**
      * The mechanics results share with matches, over the results table.
      *
@@ -234,7 +261,31 @@ final readonly class Results implements GameDependents, PersonDependents
      */
     private function rows(): RecordedRows
     {
-        return new RecordedRows($this->pdo, $this->revision, $this->audit, AuditSubjectKind::Result, 'results', self::SNAPSHOT, 'r', self::snapshotOf(...));
+        return new RecordedRows(
+            $this->pdo,
+            $this->revision,
+            $this->audit,
+            AuditSubjectKind::Result,
+            'results',
+            self::SNAPSHOT,
+            'r',
+            self::snapshotOf(...),
+            new PendingRead(VerifiableKind::Result, self::PENDING, self::pendingOf(...)),
+        );
+    }
+
+    /**
+     * @param array<string, scalar|null> $row
+     */
+    private static function pendingOf(array $row): PendingResult
+    {
+        return new PendingResult(
+            (int) $row['game_id'],
+            (string) $row['game_name'],
+            (int) $row['earlier_run'] === 1,
+            new PersonRef((int) $row['person_id'], (string) $row['person_name']),
+            (int) $row['points'],
+        );
     }
 
     /**
@@ -244,7 +295,7 @@ final readonly class Results implements GameDependents, PersonDependents
      */
     private static function snapshotOf(array $row): array
     {
-        return ['game' => (string) $row['game'], 'person' => (string) $row['person'], 'points' => (int) $row['points']];
+        return ['game' => (string) $row['game'], 'person' => (string) $row['person'], 'points' => (int) $row['points'], 'pending' => (int) $row['pending'] === 1];
     }
 
     /**
@@ -258,6 +309,7 @@ final readonly class Results implements GameDependents, PersonDependents
             (int) $row['points'],
             GameHistory::instant($row['created_at']),
             $row['account_name'] === null ? null : (string) $row['account_name'],
+            (int) $row['pending'] === 1,
         );
     }
 }

@@ -10,7 +10,6 @@ use Performance\Domain\Timestamp;
 use Performance\Tests\Support\DatabaseTestCase;
 use Psr\Http\Message\ResponseInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
-use Slim\Psr7\Factory\ServerRequestFactory;
 
 final class SessionTest extends DatabaseTestCase
 {
@@ -371,7 +370,7 @@ final class SessionTest extends DatabaseTestCase
 
     public function testRequestBodiesThatAreNotJsonAre415(): void
     {
-        $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/session')
+        $request = $this->request('POST', '/api/session')
             ->withHeader('Content-Type', 'application/x-www-form-urlencoded');
         $request->getBody()->write('userName=chef&password=bootstrap-passwort');
 
@@ -385,7 +384,7 @@ final class SessionTest extends DatabaseTestCase
     public function testAFormPostWithoutASessionIs401BeforeItsBodyIsLookedAt(): void
     {
         foreach (['/api/persons', '/api/accounts'] as $path) {
-            $request = (new ServerRequestFactory())->createServerRequest('POST', $path)
+            $request = $this->request('POST', $path)
                 ->withHeader('Content-Type', 'application/x-www-form-urlencoded');
             $request->getBody()->write('name=Daniel');
 
@@ -396,7 +395,7 @@ final class SessionTest extends DatabaseTestCase
     public function testAFormPostWithASessionIs415(): void
     {
         $session = $this->signIn();
-        $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/persons')
+        $request = $this->request('POST', '/api/persons')
             ->withHeader('Content-Type', 'application/x-www-form-urlencoded')
             ->withCookieParams(['session' => $session]);
         $request->getBody()->write('name=Daniel');
@@ -406,7 +405,7 @@ final class SessionTest extends DatabaseTestCase
 
     public function testABodyWithoutAContentTypeIs415(): void
     {
-        $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/session');
+        $request = $this->request('POST', '/api/session');
         $request->getBody()->write('{"userName":"chef","password":"bootstrap-passwort"}');
 
         self::assertSame(415, $this->app()->handle($request)->getStatusCode());
@@ -414,7 +413,7 @@ final class SessionTest extends DatabaseTestCase
 
     public function testMalformedJsonIs400(): void
     {
-        $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/session')
+        $request = $this->request('POST', '/api/session')
             ->withHeader('Content-Type', 'application/json; charset=utf-8');
         $request->getBody()->write('{"userName":');
 

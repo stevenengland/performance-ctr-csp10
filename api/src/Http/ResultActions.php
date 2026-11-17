@@ -74,7 +74,7 @@ final readonly class ResultActions
     }
 
     /**
-     * @return array{id: string, person: array{id: int, name: string}, points: int, createdAt: string, accountName: string|null}
+     * @return array{id: string, person: array{id: int, name: string}, points: int, createdAt: string, accountName: string|null, pending: bool}
      */
     private static function item(ResultItem $item): array
     {
@@ -84,6 +84,7 @@ final readonly class ResultActions
             'points' => $item->points,
             'createdAt' => Instant::format($item->createdAt),
             'accountName' => $item->accountName,
+            'pending' => $item->pending,
         ];
     }
 }

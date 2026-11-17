@@ -82,7 +82,9 @@ describe('the outcome of a match', () => {
         { gameId: 1, firstPersonId: 1, secondPersonId: 2, outcome: 'first' },
       ],
     ]);
-    expect(useSnackbar().value?.text).toBe('Anna – Ben · Anna gewinnt');
+    expect(useSnackbar().value?.text).toBe(
+      'Anna – Ben · Anna gewinnt · wartet auf Bestätigung',
+    );
     expect(useSnackbar().value?.action?.label).toBe('Rückgängig');
     expect(wrapper.text()).toContain('Wer spielt?');
     expect(tileLabels(wrapper)[0]).toBe('Anna, 4,5 Punkte');
@@ -96,7 +98,9 @@ describe('the outcome of a match', () => {
     await flushPromises();
 
     expect(matches[0]?.body?.outcome).toBe('draw');
-    expect(useSnackbar().value?.text).toBe('Ben – Carla · Remis');
+    expect(useSnackbar().value?.text).toBe(
+      'Ben – Carla · Remis · wartet auf Bestätigung',
+    );
   });
 
   it('deletes the match again with Rückgängig and reads the ranking again', async () => {
@@ -149,7 +153,9 @@ describe('the outcome of a match', () => {
       matches[0]?.url,
       matches[0]?.url,
     ]);
-    expect(useSnackbar().value?.text).toBe('Anna – Ben · Anna gewinnt');
+    expect(useSnackbar().value?.text).toBe(
+      'Anna – Ben · Anna gewinnt · wartet auf Bestätigung',
+    );
   });
 
   it('turns the tapped outcome amber and holds the others while it saves', async () => {

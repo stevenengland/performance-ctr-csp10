@@ -41,7 +41,12 @@ Results: games and their rankings, recording and undoing matches and results,
 each game's Verlauf, and what a game's or a person's deletion does to them.
 */
 
-/** The game's ranking in its current run, like the API's Standings: a cleared side counts for no one. */
+/**
+The game's ranking in its current run, like the API's Standings: a cleared side
+counts for no one; only verified matches and results count, each person names
+their pending ones, and a person whose rows all wait is listed apart, unranked
+(PRD #61).
+*/
 function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
   const nameOf = (personId: number) =>
     fixtures.persons.find(({ id }) => id === personId)?.name ?? '';
@@ -52,7 +57,11 @@ function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
   const { kind, startedAt } = game;
   if (kind === 'duel') {
     const rows = new Map<number, DuelRow>();
-    const count = (personId: number | null, result: DuelResult) => {
+    const count = (
+      personId: number | null,
+      result: DuelResult,
+      pending: boolean,
+    ) => {
       if (personId === null) return;
       const row = rows.get(personId) ?? {
         personId,
@@ -62,23 +71,40 @@ function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
         draws: 0,
         losses: 0,
         played: 0,
+        pendingCount: 0,
       };
-      row[result] += 1;
-      row.played += 1;
-      row.points = row.wins + row.draws / 2;
+      if (pending) {
+        row.pendingCount += 1;
+      } else {
+        row[result] += 1;
+        row.played += 1;
+        row.points = row.wins + row.draws / 2;
+      }
       rows.set(personId, row);
     };
     for (const match of inRun(fixtures.matches, game)) {
       const [first, second] = DUEL_RESULTS[match.outcome];
-      count(match.firstPersonId, first);
-      count(match.secondPersonId, second);
+      count(match.firstPersonId, first, match.pending);
+      count(match.secondPersonId, second, match.pending);
     }
+    const all = [...rows.values()];
     return {
       kind,
       startedAt,
-      rows: [...rows.values()].sort(
-        (a, b) => b.points - a.points || b.wins - a.wins || byNameThenId(a, b),
-      ),
+      rows: all
+        .filter(({ played }) => played > 0)
+        .sort(
+          (a, b) =>
+            b.points - a.points || b.wins - a.wins || byNameThenId(a, b),
+        ),
+      unranked: all
+        .filter(({ played }) => played === 0)
+        .sort(byNameThenId)
+        .map(({ personId, name, pendingCount }) => ({
+          personId,
+          name,
+          pendingCount,
+        })),
     };
   }
   const rows = new Map<number, PointsRow>();
@@ -88,19 +114,33 @@ function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
       name: nameOf(result.personId),
       sum: 0,
       results: 0,
+      pendingCount: 0,
     };
-    row.sum += result.points;
-    row.results += 1;
+    if (result.pending) {
+      row.pendingCount += 1;
+    } else {
+      row.sum += result.points;
+      row.results += 1;
+    }
     rows.set(result.personId, row);
   }
+  const all = [...rows.values()];
   const direction = game.lowerWins ? 1 : -1;
   return {
     kind,
     startedAt,
     lowerWins: game.lowerWins,
-    rows: [...rows.values()].sort(
-      (a, b) => direction * (a.sum - b.sum) || byNameThenId(a, b),
-    ),
+    rows: all
+      .filter(({ results }) => results > 0)
+      .sort((a, b) => direction * (a.sum - b.sum) || byNameThenId(a, b)),
+    unranked: all
+      .filter(({ results }) => results === 0)
+      .sort(byNameThenId)
+      .map(({ personId, name, pendingCount }) => ({
+        personId,
+        name,
+        pendingCount,
+      })),
   };
 }
 
@@ -124,6 +164,41 @@ function inRun<T extends { gameId: number; run: number }>(
   return rows.filter(
     ({ gameId, run }) => gameId === game.id && run === game.run,
   );
+}
+
+/** A match as the audit log records it; `deleted` names a person whose deletion is being recorded. */
+export function matchSnapshot(
+  fixtures: Pick<Fixtures, 'games' | 'persons'>,
+  match: FixtureMatch,
+  deleted?: { id: number; name: string },
+): AuditSnapshot {
+  const nameOf = (personId: number | null) =>
+    [...fixtures.persons, ...(deleted ? [deleted] : [])].find(
+      ({ id }) => id === personId,
+    )?.name ?? null;
+  return {
+    game: fixtures.games.find(({ id }) => id === match.gameId)?.name ?? '',
+    first: nameOf(match.firstPersonId),
+    second: nameOf(match.secondPersonId),
+    outcome: match.outcome,
+    pending: match.pending,
+  };
+}
+
+/** A result as the audit log records it; `deleted` names a game or person whose deletion is being recorded. */
+export function resultSnapshot(
+  fixtures: Pick<Fixtures, 'games' | 'persons'>,
+  result: FixtureResult,
+  deleted: { game?: string; person?: string } = {},
+): AuditSnapshot {
+  const nameOf = (rows: { id: number; name: string }[], id: number) =>
+    rows.find((row) => row.id === id)?.name ?? '';
+  return {
+    game: deleted.game ?? nameOf(fixtures.games, result.gameId),
+    person: deleted.person ?? nameOf(fixtures.persons, result.personId),
+    points: result.points,
+    pending: result.pending,
+  };
 }
 
 /** A match or result as a game's Verlauf pages it: in its game's run, by time and id. */
@@ -296,6 +371,7 @@ function putMatch(
       run: game.run,
       accountId,
       createdAt,
+      pending: true,
     });
     return answer(createdAt, 201);
   };
@@ -356,6 +432,7 @@ function putResult(
       run: game.run,
       accountId,
       createdAt,
+      pending: true,
     });
     return answer(createdAt, 201);
   };
@@ -381,35 +458,6 @@ export function gameBackend({
   nextId,
   revision,
 }: Backend) {
-  /** A match as the audit log records it; `deleted` names a person whose deletion is being recorded. */
-  const matchSnapshot = (
-    match: FixtureMatch,
-    deleted?: { id: number; name: string },
-  ): AuditSnapshot => {
-    const nameOf = (personId: number | null) =>
-      [...fixtures.persons, ...(deleted ? [deleted] : [])].find(
-        ({ id }) => id === personId,
-      )?.name ?? null;
-    return {
-      game: fixtures.games.find(({ id }) => id === match.gameId)?.name ?? '',
-      first: nameOf(match.firstPersonId),
-      second: nameOf(match.secondPersonId),
-      outcome: match.outcome,
-    };
-  };
-  /** A result as the audit log records it; `deleted` names a game or person whose deletion is being recorded. */
-  const resultSnapshot = (
-    result: FixtureResult,
-    deleted: { game?: string; person?: string } = {},
-  ): AuditSnapshot => {
-    const nameOf = (rows: { id: number; name: string }[], id: number) =>
-      rows.find((row) => row.id === id)?.name ?? '';
-    return {
-      game: deleted.game ?? nameOf(fixtures.games, result.gameId),
-      person: deleted.person ?? nameOf(fixtures.persons, result.personId),
-      points: result.points,
-    };
-  };
   const byId = (a: { id: string }, b: { id: string }) =>
     a.id.localeCompare(b.id);
   /**
@@ -429,7 +477,7 @@ export function gameBackend({
         me,
         'delete',
         ['result', result.id],
-        resultSnapshot(result, deleted),
+        resultSnapshot(fixtures, result, deleted),
         null,
         cause,
       );
@@ -454,7 +502,7 @@ export function gameBackend({
       )
       .sort(byId);
     for (const match of named) {
-      const before = matchSnapshot(match, person);
+      const before = matchSnapshot(fixtures, match, person);
       if (match.firstPersonId === person.id) match.firstPersonId = null;
       if (match.secondPersonId === person.id) match.secondPersonId = null;
       record(
@@ -462,7 +510,7 @@ export function gameBackend({
         'update',
         ['match', match.id],
         before,
-        matchSnapshot(match),
+        matchSnapshot(fixtures, match),
         cause,
       );
     }
@@ -590,7 +638,7 @@ export function gameBackend({
           const matches = fixtures.matches
             .filter(({ gameId }) => gameId === game.id)
             .sort(byId)
-            .map((match) => [match, matchSnapshot(match)] as const);
+            .map((match) => [match, matchSnapshot(fixtures, match)] as const);
           fixtures.games.splice(fixtures.games.indexOf(game), 1);
           const cause = record(
             me,
@@ -628,6 +676,7 @@ export function gameBackend({
               outcome: match.outcome,
               createdAt: match.createdAt,
               accountName: accountNameOf(match.accountId),
+              pending: match.pending,
             }),
           );
         }),
@@ -651,6 +700,7 @@ export function gameBackend({
               points: result.points,
               createdAt: result.createdAt,
               accountName: accountNameOf(result.accountId),
+              pending: result.pending,
             }),
           );
         }),
@@ -691,7 +741,13 @@ export function gameBackend({
           );
           // Only a new match is a change: a replay answers 200 and records nothing.
           if (response.status === 201 && match) {
-            record(me, 'create', ['match', id], null, matchSnapshot(match));
+            record(
+              me,
+              'create',
+              ['match', id],
+              null,
+              matchSnapshot(fixtures, match),
+            );
           }
           return response;
         }),
@@ -703,7 +759,13 @@ export function gameBackend({
             (candidate) => candidate.id === id,
           );
           if (!match) return problem(PROBLEMS.notFound);
-          record(me, 'delete', ['match', id], matchSnapshot(match), null);
+          record(
+            me,
+            'delete',
+            ['match', id],
+            matchSnapshot(fixtures, match),
+            null,
+          );
           fixtures.matches.splice(fixtures.matches.indexOf(match), 1);
           return new Response(null, { status: 204 });
         }),
@@ -717,7 +779,13 @@ export function gameBackend({
           );
           // Only a new result is a change: a replay answers 200 and records nothing.
           if (response.status === 201 && result) {
-            record(me, 'create', ['result', id], null, resultSnapshot(result));
+            record(
+              me,
+              'create',
+              ['result', id],
+              null,
+              resultSnapshot(fixtures, result),
+            );
           }
           return response;
         }),
@@ -729,7 +797,13 @@ export function gameBackend({
             (candidate) => candidate.id === id,
           );
           if (!result) return problem(PROBLEMS.notFound);
-          record(me, 'delete', ['result', id], resultSnapshot(result), null);
+          record(
+            me,
+            'delete',
+            ['result', id],
+            resultSnapshot(fixtures, result),
+            null,
+          );
           fixtures.results.splice(fixtures.results.indexOf(result), 1);
           return new Response(null, { status: 204 });
         }),

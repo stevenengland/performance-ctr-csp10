@@ -6,19 +6,30 @@ namespace Performance\Tests\Integration;
 
 use Performance\Tests\Support\DatabaseTestCase;
 use Performance\Tests\Support\InterleavedWrites;
+use Performance\Tests\Support\ObservedVerification;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
- * Matches written by requests that run at the same moment, each in its own process on the real
- * database: whatever the interleaving, they end in exactly one consistent state.
+ * Matches written, verified and rejected by requests that run at the same moment, each in its
+ * own process on the real database: whatever the interleaving, they end in exactly one
+ * consistent state, with at most one verify or reject event (PRD #61).
  */
 final class MatchRacesTest extends DatabaseTestCase
 {
     use InterleavedWrites;
+    use ObservedVerification;
 
     private const MATCH = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
     private const SUCCEEDED = 0;
     private const NOT_FOUND = 3;
+    private const ALREADY_VERIFIED = 4;
+    /** The bootstrap admin (1) records the match; Anna (2) and Ben (3) may verify or reject it. */
+    private const ANNA = 2;
+    private const BEN = 3;
+    /** The match, verified: Schach's Verlauf shows it counting, and both players are ranked. */
+    private const VERIFIED = ['history' => [['pending' => false, 'accountName' => 'chef']], 'ranked' => ['Anna', 'Ben'], 'unranked' => []];
+    /** The match is gone, Schach is not: its Verlauf is empty, and nobody is ranked or waits. */
+    private const GONE = ['history' => [], 'ranked' => [], 'unranked' => []];
 
     protected function setUp(): void
     {
@@ -28,6 +39,8 @@ final class MatchRacesTest extends DatabaseTestCase
             $this->send('POST', '/api/persons', ['name' => $name], $session);
         }
         $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $session);
+        $this->createAccount('anna', 'annas-startpasswort');
+        $this->createAccount('ben', 'bens-startpasswort');
     }
 
     public function testParallelIdenticalRecordsCreateOneMatch(): void
@@ -249,9 +262,245 @@ final class MatchRacesTest extends DatabaseTestCase
         self::assertSame(count($events) === 1 ? 'Ben' : null, $snapshot['second'], 'the undo records the match as it found it');
     }
 
-    private function record(): void
+    public function testOfConcurrentVerificationsExactlyOneRecordsItsEventAndBumpsTheRevision(): void
     {
-        $response = $this->send('PUT', '/api/matches/' . self::MATCH, ['gameId' => 1, 'firstPersonId' => 1, 'secondPersonId' => 2, 'outcome' => 'first'], $this->signIn());
+        $this->record();
+        $revision = $this->revision();
+
+        $exitCodes = $this->interleaveOnTheMatch(['verify', 'verify-ben', 'verify']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame([['operation' => 'create'], ['operation' => 'verify']], $this->matchEvents());
+        self::assertSame($revision + 1, $this->revision());
+        self::assertSame(self::VERIFIED, $this->observed());
+        self::assertSame([self::ANNA], $this->verifiersOf(self::MATCH));
+    }
+
+    public function testOfConcurrentRejectionsExactlyOneRemovesTheMatchAndRecordsItsEvent(): void
+    {
+        $this->record();
+
+        $exitCodes = $this->interleaveOnTheMatch(['reject', 'reject-ben', 'reject']);
+
+        sort($exitCodes);
+        self::assertSame([self::SUCCEEDED, self::NOT_FOUND, self::NOT_FOUND], $exitCodes);
+        self::assertSame([['operation' => 'create'], ['operation' => 'reject']], $this->matchEvents());
+        self::assertSame(self::GONE, $this->observed());
+    }
+
+    /**
+     * Whichever locks the match first decides: a verified match can no longer be rejected
+     * (409), and a rejected one is no longer there to verify (404).
+     */
+    public function testAVerificationRacingARejectionEndsInOneConsistentState(): void
+    {
+        $this->record();
+
+        [$verify, $reject] = $this->interleaveOnTheMatch(['verify', 'reject-ben']);
+
+        self::assertContains([$verify, $reject], [[self::SUCCEEDED, self::ALREADY_VERIFIED], [self::NOT_FOUND, self::SUCCEEDED]]);
+        self::assertSame($verify === self::SUCCEEDED ? self::VERIFIED : self::GONE, $this->observed());
+        self::assertSame($verify === self::SUCCEEDED ? [self::ANNA] : [], $this->verifiersOf(self::MATCH));
+        self::assertSame(
+            [['operation' => 'create'], ['operation' => $verify === self::SUCCEEDED ? 'verify' : 'reject']],
+            $this->matchEvents(),
+        );
+    }
+
+    /** The undo removes the match whether it was verified or not; a verification after it finds nothing. */
+    public function testAVerificationRacingTheUndoEndsInOneConsistentState(): void
+    {
+        $this->record();
+
+        [$verify, $undo] = $this->interleaveOnTheMatch(['verify', 'undo']);
+
+        self::assertSame(self::SUCCEEDED, $undo);
+        self::assertContains($verify, [self::SUCCEEDED, self::NOT_FOUND]);
+        self::assertSame(
+            $verify === self::SUCCEEDED ? ['create', 'verify', 'delete'] : ['create', 'delete'],
+            array_column($this->matchEvents(), 'operation'),
+        );
+        self::assertSame(self::GONE, $this->observed());
+    }
+
+    /**
+     * The person's deletion and the verification lock the match and the person in opposite
+     * orders; the loser of the deadlock runs again. Either way the match ends verified with the
+     * person's side cleared, verified exactly once.
+     */
+    public function testAVerificationRacingAPersonsDeletionEndsVerifiedWithTheSideCleared(): void
+    {
+        $this->record();
+
+        $exitCodes = $this->interleaveOnTheMatch(['verify', 'person']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame(['history' => [['pending' => false, 'accountName' => 'chef']], 'ranked' => ['Anna'], 'unranked' => []], $this->observed());
+        self::assertSame([self::ANNA], $this->verifiersOf(self::MATCH));
+        self::assertSame([['first_person_id' => 1, 'second_person_id' => null]], $this->rows('SELECT first_person_id, second_person_id FROM matches'));
+        $operations = array_column($this->matchEvents(), 'operation');
+        self::assertContains($operations, [['create', 'verify', 'update'], ['create', 'update', 'verify']]);
+    }
+
+    /**
+     * The game's deletion and the verification lock the match and the game in opposite orders;
+     * the loser of the deadlock runs again. Either the verified match goes with the game, or
+     * the verification finds it gone.
+     */
+    public function testAVerificationRacingTheGamesDeletionEndsInOneConsistentState(): void
+    {
+        $this->record();
+
+        [$verify, $deletion] = $this->interleaveOnTheMatch(['verify', 'game']);
+
+        self::assertSame(self::SUCCEEDED, $deletion);
+        self::assertContains($verify, [self::SUCCEEDED, self::NOT_FOUND]);
+        self::assertSame(
+            $verify === self::SUCCEEDED ? ['create', 'verify', 'delete'] : ['create', 'delete'],
+            array_column($this->matchEvents(), 'operation'),
+        );
+        self::assertNull($this->observed(), 'Schach is gone');
+    }
+
+    /** The undo and the rejection both remove the match; whichever comes second finds it gone. */
+    public function testARejectionRacingTheUndoEndsInOneConsistentState(): void
+    {
+        $this->record();
+
+        [$reject, $undo] = $this->interleaveOnTheMatch(['reject', 'undo']);
+
+        self::assertContains([$reject, $undo], [[self::SUCCEEDED, self::NOT_FOUND], [self::NOT_FOUND, self::SUCCEEDED]]);
+        self::assertSame($reject === self::SUCCEEDED ? ['create', 'reject'] : ['create', 'delete'], array_column($this->matchEvents(), 'operation'));
+        self::assertSame(self::GONE, $this->observed());
+    }
+
+    /**
+     * The person's deletion and the rejection lock the match and the person in opposite
+     * orders; the loser of the deadlock runs again. Both succeed: the rejection removes the
+     * match, with Ben's side cleared if his deletion came first.
+     */
+    public function testARejectionRacingAPersonsDeletionEndsRejected(): void
+    {
+        $this->record();
+
+        $exitCodes = $this->interleaveOnTheMatch(['reject', 'person']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertContains(array_column($this->matchEvents(), 'operation'), [['create', 'reject'], ['create', 'update', 'reject']]);
+        self::assertSame(self::GONE, $this->observed());
+    }
+
+    /**
+     * The game's deletion and the rejection lock the match and the game in opposite orders;
+     * the loser of the deadlock runs again. Either the rejection removed the match before the
+     * game went, or the match went with the game and the rejection finds it gone.
+     */
+    public function testARejectionRacingTheGamesDeletionEndsInOneConsistentState(): void
+    {
+        $this->record();
+
+        [$reject, $deletion] = $this->interleaveOnTheMatch(['reject', 'game']);
+
+        self::assertSame(self::SUCCEEDED, $deletion);
+        self::assertContains($reject, [self::SUCCEEDED, self::NOT_FOUND]);
+        self::assertSame($reject === self::SUCCEEDED ? ['create', 'reject'] : ['create', 'delete'], array_column($this->matchEvents(), 'operation'));
+        self::assertNull($this->observed(), 'Schach is gone');
+    }
+
+    /**
+     * The recorder's deletion clears the match's recorder, so it locks the match as the
+     * verification does: whichever commits first, the match ends verified by Ben with its
+     * recorder unknown, since a match whose recorder was deleted may be verified by anyone.
+     */
+    public function testAVerificationRacingTheRecordersDeletionEndsVerified(): void
+    {
+        $this->record($this->signIn('anna', 'annas-startpasswort'));
+
+        $exitCodes = $this->interleaveOnTheMatch(['verify-ben', 'anna-account']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame(['create', 'verify'], array_column($this->matchEvents(), 'operation'));
+        self::assertSame(['history' => [['pending' => false, 'accountName' => null]], 'ranked' => ['Anna', 'Ben'], 'unranked' => []], $this->observed());
+        self::assertSame([self::BEN], $this->verifiersOf(self::MATCH));
+    }
+
+    /**
+     * The verification reads its own account under a shared lock, which the account's deletion
+     * waits for or holds: a verifier deleted first is recorded as unknown, the same state as one
+     * deleted a moment after it verified.
+     */
+    public function testAVerificationRacingTheVerifiersDeletionEndsVerifiedByAnUnknownAccount(): void
+    {
+        $this->record();
+
+        $exitCodes = $this->interleave('accounts', (string) self::BEN, [['delete-account', (string) self::BEN], ['verify-match', self::MATCH, self::BEN]]);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame(['create', 'verify'], array_column($this->matchEvents(), 'operation'));
+        self::assertSame(self::VERIFIED, $this->observed());
+        self::assertSame([self::BEN], $this->verifiersOf(self::MATCH), 'the audit log keeps the deleted verifier');
+        // No route shows who verified a row; read directly that the deleted verifier is unknown.
+        self::assertSame([['verified_by_account_id' => null]], $this->rows('SELECT verified_by_account_id FROM matches'));
+    }
+
+    /**
+     * The recorder's deletion clears the match's recorder, so it locks the match as the
+     * rejection does: whichever commits first, the match ends rejected, since a match whose
+     * recorder was deleted may be rejected by anyone.
+     */
+    public function testARejectionRacingTheRecordersDeletionEndsRejected(): void
+    {
+        $this->record($this->signIn('anna', 'annas-startpasswort'));
+
+        $exitCodes = $this->interleaveOnTheMatch(['reject-ben', 'anna-account']);
+
+        self::assertSame([self::SUCCEEDED, self::SUCCEEDED], $exitCodes);
+        self::assertSame(['create', 'reject'], array_column($this->matchEvents(), 'operation'));
+        self::assertSame(self::GONE, $this->observed());
+    }
+
+    /**
+     * Schach's matches as its Verlauf shows them, and who its standings rank and who they list
+     * without a rank, as the bootstrap admin sees them; null once Schach is deleted.
+     *
+     * @return array{history: list<array{pending: mixed, accountName: mixed}>, ranked: list<mixed>, unranked: list<mixed>}|null
+     */
+    private function observed(): ?array
+    {
+        $session = $this->signIn();
+        $verlauf = $this->send('GET', '/api/games/1/matches', session: $session);
+        if ($verlauf->getStatusCode() === 404) {
+            return null;
+        }
+        $items = $this->body($verlauf)['items'];
+        self::assertIsList($items);
+        $standings = $this->body($this->send('GET', '/api/games/1/standings', session: $session));
+        self::assertIsList($standings['rows']);
+        self::assertIsList($standings['unranked']);
+
+        return [
+            'history' => array_map(static function (mixed $item): array {
+                self::assertIsArray($item);
+
+                return ['pending' => $item['pending'], 'accountName' => $item['accountName']];
+            }, $items),
+            'ranked' => array_column($standings['rows'], 'name'),
+            'unranked' => array_column($standings['unranked'], 'name'),
+        ];
+    }
+
+    private function revision(): int
+    {
+        $revision = $this->rows('SELECT revision FROM data_revision')[0]['revision'];
+        self::assertIsInt($revision);
+
+        return $revision;
+    }
+
+    /** Records Anna's win over Ben in Schach, as the bootstrap admin unless another session is given; it waits for verification. */
+    private function record(?string $session = null): void
+    {
+        $response = $this->send('PUT', '/api/matches/' . self::MATCH, ['gameId' => 1, 'firstPersonId' => 1, 'secondPersonId' => 2, 'outcome' => 'first'], $session ?? $this->signIn());
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
     }
 
@@ -291,7 +540,8 @@ final class MatchRacesTest extends DatabaseTestCase
     /**
      * Runs the writes on the recorded match in the order given (InterleavedWrites).
      *
-     * @param list<'game'|'person'|'undo'> $writes
+     * @param list<'game'|'person'|'undo'|'verify'|'verify-ben'|'reject'|'reject-ben'|'anna-account'> $writes `verify` and `reject` act as Anna;
+     *                                                                                                 `anna-account` deletes her account
      *
      * @return list<int> the exit codes, in the order given
      */
@@ -301,6 +551,11 @@ final class MatchRacesTest extends DatabaseTestCase
             'game' => ['delete-game', '1'],
             'person' => ['delete-person', '2'],
             'undo' => ['undo-match', self::MATCH],
+            'verify' => ['verify-match', self::MATCH, self::ANNA],
+            'verify-ben' => ['verify-match', self::MATCH, self::BEN],
+            'reject' => ['reject-match', self::MATCH, self::ANNA],
+            'reject-ben' => ['reject-match', self::MATCH, self::BEN],
+            'anna-account' => ['delete-account', (string) self::ANNA],
         }, $writes));
     }
 

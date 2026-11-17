@@ -4,6 +4,16 @@ function counted(count: number, one: string, many: string) {
   return count === 1 ? `1 ${one}` : `${String(count)} ${many}`;
 }
 
+/** The four-eyes rule (PRD #61): a recorded row waits until another account verifies it. */
+const pending = {
+  /** The marker of a pending row in a Verlauf. */
+  marker: 'offen',
+  /** A person's pending rows beside their counters: `+2 offen`. */
+  hint: (count: number) => `+${String(count)} offen`,
+  /** Appended to a saved snackbar: `2× Bier · Daniel · wartet auf Bestätigung`. */
+  saved: (text: string) => `${text} · wartet auf Bestätigung`,
+};
+
 /** Every user-visible German text of the app. */
 export const messages = {
   appName: 'Performance',
@@ -12,6 +22,7 @@ export const messages = {
     zaehlen: 'Zählen',
     rangliste: 'Rangliste',
     spiele: 'Spiele',
+    offen: 'Offen',
     verwalten: 'Verwalten',
   },
   topBar: {
@@ -20,6 +31,7 @@ export const messages = {
     today: 'Heute',
   },
   points: { one: 'Punkt', other: 'Punkte' },
+  pending,
   zaehlen: {
     question: 'Für wen?',
     noPersons: 'Noch keine Personen.',
@@ -55,11 +67,13 @@ export const messages = {
     countsTimes: (multiplier: string) => `zählt ${multiplier}-fach`,
     /** Accessible name of a factor tile: `Happy Hour, ×2`. */
     factorTile: (name: string, multiplier: string) => `${name}, ${multiplier}`,
-    /** The saved snackbar (§6.3): `2× Bier · Happy Hour ×2 · Daniel`, without the factor part for none. */
+    /** The saved snackbar (§6.3): `2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung`, without the factor part for none. */
     saved: (quantity: number, drink: string, person: string, factor?: string) =>
-      [`${String(quantity)}× ${drink}`, factor, person]
-        .filter((part) => part !== undefined)
-        .join(' · '),
+      pending.saved(
+        [`${String(quantity)}× ${drink}`, factor, person]
+          .filter((part) => part !== undefined)
+          .join(' · '),
+      ),
     undo: 'Rückgängig',
     undone: 'Rückgängig gemacht',
     notSaved: 'Nicht gespeichert – keine Verbindung',
@@ -69,6 +83,8 @@ export const messages = {
   },
   rangliste: {
     noDrinks: 'Heute noch keine Getränke.',
+    /** The group of persons whose entries of today all wait for verification (§7f). */
+    unranked: 'Noch nicht gewertet',
     count: 'Zählen',
     /** A total count: `9 Getränke`, `1 Getränk`. */
     drinks: (formatted: string, count: number) =>
@@ -96,6 +112,33 @@ export const messages = {
     removed: 'Eintrag gelöscht',
     /** The link from a person's row under Personen: `Verlauf von Daniel`. */
     open: (person: string) => `Verlauf von ${person}`,
+  },
+  /** Offen (§7s): the rows the signed-in account may verify, of every day (PRD #61). */
+  offen: {
+    /** The navigation item's accessible name with its badge: `Offen, 3 offen`. */
+    navigation: (count: number) => `Offen, ${String(count)} ${pending.marker}`,
+    /** The list's accessible name. */
+    list: 'Zu bestätigen',
+    empty: 'Nichts zu bestätigen.',
+    /** An entry: `2× Bier für Daniel`. */
+    entry: (quantityOf: string, person: string) =>
+      `${quantityOf} für ${person}`,
+    /** A row's supporting line: `Happy Hour ×2 · 15.11., 21:00 · anna`, `Schach · 15.11., 21:00 · anna`. */
+    details: (what: string, day: string, time: string, account: string) =>
+      `${what} · ${day}, ${time} · ${account}`,
+    /** A match's or result's game when it belongs to an earlier run: `Schach · vor dem Neustart`. */
+    earlierRun: (game: string) => `${game} · vor dem Neustart`,
+    verify: 'Bestätigen',
+    /** The button's accessible name: `2× Bier für Daniel bestätigen`. */
+    verifyLabel: (what: string) => `${what} bestätigen`,
+    reject: 'Ablehnen',
+    /** The button's accessible name: `2× Bier für Daniel ablehnen`. */
+    rejectLabel: (what: string) => `${what} ablehnen`,
+    /** No answer: the row stays, nothing was verified. */
+    notVerified: 'Nicht bestätigt – keine Verbindung',
+    /** No answer: the row stays, nothing was rejected. */
+    notRejected: 'Nicht abgelehnt – keine Verbindung',
+    more: 'Ältere laden',
   },
   /** The time of the last successful refresh while the latest one failed (§6.6). */
   stand: (time: string) => `Stand: ${time}`,
@@ -146,6 +189,10 @@ export const messages = {
       create: 'Angelegt',
       update: 'Geändert',
       delete: 'Gelöscht',
+      /** Another account verified a pending row (PRD #61). */
+      verify: 'bestätigt',
+      /** Another account rejected a pending row, which removed it (PRD #61). */
+      reject: 'abgelehnt',
     },
     /** A row's subject: `Getränk Bier`. */
     subject: (kind: string, name: string) => `${kind} ${name}`,
@@ -421,6 +468,9 @@ export const messages = {
     removeTitle: (userName: string) => `Konto ${userName} löschen?`,
     removeBody: (userName: string) =>
       `Einträge von ${userName} bleiben erhalten.`,
+    /** The four-eyes rule needs a second account, which the server cannot check (PRD #61). */
+    ownAccount:
+      'Wer Einträge bestätigen soll, braucht ein eigenes Konto: eigene Einträge bestätigt immer ein anderes Konto.',
   },
   konto: {
     title: 'Konto',

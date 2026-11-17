@@ -15,9 +15,10 @@ const evening: Scoreboard = {
       photoUrl: null,
       score: 13.5,
       count: 9,
+      pendingCount: 0,
       drinks: [
-        { drinkId: 2, name: 'Bier', count: 4 },
-        { drinkId: 3, name: 'Margarita', count: 1 },
+        { drinkId: 2, name: 'Bier', count: 4, recordedCount: 4 },
+        { drinkId: 3, name: 'Margarita', count: 1, recordedCount: 1 },
       ],
     },
     {
@@ -26,9 +27,10 @@ const evening: Scoreboard = {
       photoUrl: null,
       score: 9,
       count: 6,
+      pendingCount: 0,
       drinks: [
-        { drinkId: 2, name: 'Bier', count: 3 },
-        { drinkId: 6, name: 'Wein', count: 3 },
+        { drinkId: 2, name: 'Bier', count: 3, recordedCount: 3 },
+        { drinkId: 6, name: 'Wein', count: 3, recordedCount: 3 },
       ],
     },
     {
@@ -37,14 +39,17 @@ const evening: Scoreboard = {
       photoUrl: null,
       score: 0.5,
       count: 1,
-      drinks: [{ drinkId: 4, name: 'Radler', count: 1 }],
+      pendingCount: 0,
+      drinks: [{ drinkId: 4, name: 'Radler', count: 1, recordedCount: 1 }],
     },
   ],
+  unranked: [],
 };
 
 /** The evening with Daniel's photo at `version`, or without a photo. */
 function withDanielsPhoto(version: string | null): Scoreboard {
   return {
+    ...evening,
     rows: evening.rows.map((row) =>
       row.personId === 3
         ? {
@@ -171,6 +176,89 @@ describe('the Rangliste', () => {
     expect(wrapper.text()).not.toContain('Stand');
   });
 
+  it('hints at the entries of today that wait for verification beside a place’s counters', async () => {
+    api(
+      answer({
+        ...evening,
+        rows: evening.rows.map((row) =>
+          row.personId === 6 ? row : { ...row, pendingCount: row.personId },
+        ),
+      }),
+    );
+
+    wrapper = await rangliste();
+
+    const leader = wrapper.get('[data-test="leader"]');
+    expect(leader.attributes('aria-label')).toBe(
+      'Platz 1, Daniel, 13,5 Punkte, 9 Getränke, +3 offen',
+    );
+    expect(leader.text()).toContain('+3 offen');
+    const rows = wrapper.findAll('[data-test="rank"]');
+    expect(rows.map((row) => row.attributes('aria-label'))).toEqual([
+      'Platz 2, Anna, 9 Punkte, 6 Getränke, +1 offen',
+      'Platz 3, Tom, 0,5 Punkte, 1 Getränk',
+    ]);
+    expect(rows[0]?.text()).toContain('+1 offen');
+    expect(rows[1]?.text()).not.toContain('offen');
+  });
+
+  it('lists the persons whose entries all wait apart, without a rank, and never as the leader', async () => {
+    api(
+      answer({
+        rows: [],
+        unranked: [
+          {
+            personId: 4,
+            name: 'Jule',
+            photoUrl: null,
+            pendingCount: 2,
+            drinks: [{ drinkId: 2, name: 'Bier', count: 0, recordedCount: 2 }],
+          },
+        ],
+      }),
+    );
+
+    wrapper = await rangliste();
+
+    expect(wrapper.find('[data-test="leader"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('Heute noch keine Getränke.');
+    const unranked = wrapper.get('[aria-label="Noch nicht gewertet"]');
+    const places = unranked.findAll('[data-test="unranked"]');
+    expect(places.map((place) => place.attributes('aria-label'))).toEqual([
+      'Jule, Bier 2, +2 offen',
+    ]);
+    expect(places[0]?.attributes('href')).toBe('/verlauf/4');
+    expect(places[0]?.text()).toContain('+2 offen');
+    expect(places[0]?.text()).not.toMatch(/Platz|Punkt/);
+  });
+
+  it('lists the unranked persons after the ranked ones', async () => {
+    api(
+      answer({
+        ...evening,
+        unranked: [
+          {
+            personId: 4,
+            name: 'Jule',
+            photoUrl: null,
+            pendingCount: 1,
+            drinks: [{ drinkId: 2, name: 'Bier', count: 0, recordedCount: 1 }],
+          },
+        ],
+      }),
+    );
+
+    wrapper = await rangliste();
+
+    expect(wrapper.get('[data-test="leader"]').text()).toContain('Daniel');
+    expect(wrapper.findAll('[data-test="rank"]')).toHaveLength(2);
+    expect(
+      wrapper
+        .findAll('[data-test="unranked"]')
+        .map((place) => place.attributes('aria-label')),
+    ).toEqual(['Jule, Bier 1, +1 offen']);
+  });
+
   it('shows the leader’s 64 px avatar above the name and each row’s 44 px avatar between rank and name, keeping every place’s accessible name', async () => {
     api(answer(withDanielsPhoto('d1')));
 
@@ -243,7 +331,7 @@ describe('the Rangliste', () => {
   });
 
   it('says so when nobody drank today and offers Zählen', async () => {
-    api(answer({ rows: [] }));
+    api(answer({ rows: [], unranked: [] }));
 
     wrapper = await rangliste();
 

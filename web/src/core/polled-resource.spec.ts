@@ -152,6 +152,56 @@ describe('a polled resource', () => {
     expect(resource.state.value.value).toBe('new');
   });
 
+  it('forgets the value and its ETag on reset, drops the answer still on its way and fetches anew', async () => {
+    let answerBefore: (answer: Answer) => void = () => undefined;
+    const { fetch, etags } = server(
+      value('a'),
+      () =>
+        new Promise<Answer>((resolve) => {
+          answerBefore = resolve;
+        }),
+      value('b'),
+    );
+    resource = createPolledResource(fetch);
+    resource.start();
+    await settle();
+    void resource.refresh();
+
+    resource.reset();
+    expect(resource.state.value).toEqual({ stale: false });
+    answerBefore({ value: 'old', etag: '"old"' });
+    await settle();
+
+    expect(resource.state.value.value).toBe('b');
+    expect(etags).toEqual([undefined, '"a"', undefined]);
+  });
+
+  it('forgets the value, its ETag and its staleness on clear, drops the answer on its way and asks nothing until the next refresh', async () => {
+    let answerBefore: (answer: Answer) => void = () => undefined;
+    const { fetch, etags } = server(
+      value('a'),
+      () =>
+        new Promise<Answer>((resolve) => {
+          answerBefore = resolve;
+        }),
+      value('b'),
+    );
+    resource = createPolledResource(fetch);
+    resource.start();
+    await settle();
+    void resource.refresh();
+
+    resource.clear();
+    answerBefore({ value: 'old', etag: '"old"' });
+    await wait(60);
+
+    expect(resource.state.value).toEqual({ stale: false });
+    expect(etags).toEqual([undefined, '"a"']);
+    await resource.refresh();
+    expect(resource.state.value.value).toBe('b');
+    expect(etags).toEqual([undefined, '"a"', undefined]);
+  });
+
   it('keeps the last value with the time it was confirmed when a refresh fails, and retries with backoff up to 60 s', async () => {
     const { fetch, etags } = server(value('a'), offline);
     resource = createPolledResource(fetch);

@@ -10,6 +10,7 @@ declare(strict_types=1);
  */
 
 use Performance\Domain\Accounts;
+use Performance\Domain\DataRevision;
 use Performance\Domain\LastAdmin;
 use Performance\Domain\SystemClock;
 use Performance\Http\Config;
@@ -29,7 +30,7 @@ $pdo = Database::open(new Config(
     [],
 ));
 $pdo->exec("SET time_zone = '+00:00'");
-$accounts = new Accounts($pdo, new SystemClock());
+$accounts = new Accounts($pdo, new SystemClock(), new DataRevision($pdo));
 time_sleep_until((float) $startAt);
 try {
     if ($action === 'delete') {

@@ -160,6 +160,29 @@ temporary workflow for a re-run.
 5. `archive` makes the tested tarball a GitHub Release tagged `release-YYYYMMDD-HHMM` (UTC
    minute of the archive), titled with the release id, at the deployed commit.
 
+**The migration barrier.** From the moment the API pointer switches, the new release's code
+answers, but every request first brings the schema up to date (`MigrationGate`): while one
+request runs the pending migrations, every other API route answers 503 `maintenance` with
+`Retry-After: 5`, and after a failed migration 503 `migration-failed`; only health answers. So
+no route of a release, reading or writing, runs before its migrations completed
+(`MigratorTest` › "a write arriving while another session migrates gets 503 and changes nothing
+until the migrations completed"). Requests that were already executing the previous release's
+code when the pointer switched finish with that code; a release's migrations must therefore stay
+compatible with the previous release's writes ([ADR 0006](adr/0006-rollout-compatibility.md)).
+
+Migrations may rely on that barrier, and say so where they do. The four-eyes rule (0.3.0,
+migrations `0022`, `0026`, `0029`) adds each verifier foreign key with foreign key checks off,
+which MariaDB needs to add a key in place; checks off mean the key does not validate the rows
+already there. That is safe because the previous release never writes the verifier columns and
+the new release writes them only after the barrier, so every value is null. Each step validates
+afterwards anyway, with checks back on: a `verified_by_account_id` that names no account is set to
+`NULL` (what the key's `ON DELETE SET NULL` means), and the step fails, so the API answers 503
+`migration-failed`, if one remains. The step counts as applied only when the key exists and no
+verifier is orphaned, so a crash between the key and the validation runs the validation again.
+After a cutover, `SELECT COUNT(*) FROM entries e LEFT JOIN accounts a ON a.id =
+e.verified_by_account_id WHERE e.verified_by_account_id IS NOT NULL AND a.id IS NULL` (and the
+same for `matches` and `results`) answers 0.
+
 Remote layout below the SFTP root:
 
 ```text
@@ -206,6 +229,23 @@ and refused once the floor is raised. Other callers, checked for this release:
   `DELETE` come through the fetch wrapper and stay gated.
 - Anything else, such as a manual `curl` to a route other than health, must send
   `X-Client-Version: <version at or above the floor>` once the floor passes 0.1.0.
+
+**Floor raises so far:**
+
+- **0.3.0 — four-eyes rule (PRD #61).** Every new entry, match and result waits for
+  verification by another account, and every ranking counts verified rows only, so a client
+  before 0.3.0 would tell its user that a saved row counts. `MIN_CLIENT_VERSION` and the
+  `web/package.json` version are 0.3.0: every app that is open across the deploy shows
+  `Bitte neu laden` on its next request (a refused write is not booked), and header-less
+  clients (before 0.2.0) are refused from now on. Request and response bodies of recording
+  are unchanged; the release adds `PUT` and `DELETE /api/{entries|matches|results}/{id}/verification`
+  and `GET /api/pending`, and `pending`, `pendingCount`, `recordedCount` and `unranked` to the
+  history, scoreboard and standings reads.
+  Callers checked: the deploy and `live-check.yml` read only health; the stack e2e tests send
+  the version from every request context, the extra browser contexts of the specs included;
+  a manual `curl` needs `X-Client-Version: 0.3.0`. A request that is already executing the
+  previous release when the new one goes live inserts its row without the pending flag, so
+  that row counts at once (the column default); that is accepted.
 
 Bump the `version` in `web/package.json` to at least the new floor in the same pull request:
 the artifact build and `scripts/artifact.test.ts` fail otherwise, because the freshly deployed
@@ -301,6 +341,20 @@ cleared) and one delete per result of theirs (the results go with them); a game'
 records one delete per match and per result of the game; those are read in one go. Deletions run
 one at a time; one that waits more than 10 s for the one before it answers 500 and changes
 nothing. A write that loses a deadlock is run again, up to three times (ADR 0004, decision 4).
+
+**Deleting an account while its rows wait (four-eyes rule, PRD #61):** a deleted account's
+drinks, matches and results stay; the rows keep no recording account (`account_id` becomes
+`NULL`), so Verlauf shows `gelöschtes Konto`. Rows of that account that still wait for
+verification can from then on be verified or rejected by **any** other account: nobody is the
+recorder any more, and the server cannot tell who the account belonged to. This is the PRD's
+decision (user story 21), not an accident. Before deleting an account, an admin who wants the
+second pair of eyes kept for its waiting rows should have them decided first (they are in every
+other account's `Offen`). The audit log keeps the provenance: the `create` event of each row
+names the recording account by its id and its user name as it was then
+(`actor_account_id`, `actor_user_name`, no foreign key), and the `verify` or `reject` event names
+the account that decided. Deleting the account changes none of these events; only the user
+name in the log stays the old one, it is a copy, not a reference. Proven by
+`DeletedRecorderDecisionTest` (every kind, verify and reject).
 
 ## Live check
 

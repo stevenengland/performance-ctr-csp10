@@ -155,6 +155,12 @@ onMounted(async () => {
             <span class="type-row-title list__title">{{ row.title }}</span>
             <span class="type-support list__support">{{ row.details }}</span>
           </span>
+          <span
+            v-if="row.pending"
+            class="assist-chip type-caption"
+            data-test="pending"
+            >{{ row.pending }}</span
+          >
           <v-btn
             :icon="mdiDeleteOutline"
             :aria-label="row.removeLabel"

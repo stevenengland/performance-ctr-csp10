@@ -93,7 +93,7 @@ async function save() {
   saving.value = true;
   await saver.save(
     { gameId: gameId.value, personId: chosen.id, points: points.value },
-    resultText(chosen.name, points.value),
+    messages.pending.saved(resultText(chosen.name, points.value)),
     backToFirstStepFrom(router, resultPath(gameId.value)),
   );
   saving.value = false;

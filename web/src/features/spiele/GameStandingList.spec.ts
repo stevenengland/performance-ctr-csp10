@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import { createAppVuetify } from '../../theme';
 import GameStandingList from './GameStandingList.vue';
-import type { GameStanding } from './game-view';
+import type { GameStanding, UnrankedGameStanding } from './game-view';
 
 const standing = (
   rank: number,
@@ -20,9 +20,12 @@ const standing = (
   label: `Platz ${String(rank)}, ${name}`,
 });
 
-function list(standings: GameStanding[]) {
+function list(
+  standings: GameStanding[],
+  unranked: UnrankedGameStanding[] = [],
+) {
   return mount(GameStandingList, {
-    props: { standings, label: 'Schach' },
+    props: { standings, unranked, label: 'Schach' },
     global: { plugins: [createAppVuetify()] },
   });
 }
@@ -55,5 +58,68 @@ describe('a game’s ranking list', () => {
       ['2', 'Ben', '4 Partien · 2 S · 0 R · 2 N', '2'],
       ['3', 'Tom', '3 Partien · 0 S · 1 R · 2 N', '0,5'],
     ]);
+  });
+
+  it('shows +n offen on the card and in a row while rows of the run wait', () => {
+    const wrapper = list([
+      {
+        ...standing(1, 'Anna', '1', '1 Partie · 1 S · 0 R · 0 N'),
+        pending: '+1 offen',
+      },
+      {
+        ...standing(2, 'Ben', '0', '1 Partie · 0 S · 0 R · 1 N'),
+        pending: '+2 offen',
+      },
+      standing(3, 'Tom', '0', '1 Partie · 0 S · 0 R · 1 N'),
+    ]);
+
+    expect(wrapper.get('.game-leader').text()).toContain('+1 offen');
+    expect(
+      wrapper
+        .findAll('.game-rank')
+        .map(
+          (row) =>
+            row.find('.assist-chip').exists() && row.get('.assist-chip').text(),
+        ),
+    ).toEqual(['+2 offen', false]);
+  });
+
+  it('lists the persons whose rows all wait under Noch nicht gewertet, without rank or value', () => {
+    const wrapper = list(
+      [standing(1, 'Anna', '1', '1 Partie · 1 S · 0 R · 0 N')],
+      [
+        {
+          personId: 4,
+          name: 'Jule',
+          pending: '+2 offen',
+          label: 'Jule, +2 offen',
+        },
+      ],
+    );
+
+    expect(wrapper.get('h2').text()).toBe('Noch nicht gewertet');
+    const unranked = wrapper.get('[data-test="game-unranked"]');
+    expect(unranked.attributes('aria-label')).toBe('Jule, +2 offen');
+    expect(unranked.get('.game-rank__position').text()).toBe('');
+    expect(unranked.text()).toContain('Jule');
+    expect(unranked.get('.assist-chip').text()).toBe('+2 offen');
+    expect(unranked.find('.game-rank__value').exists()).toBe(false);
+  });
+
+  it('shows no leader when every person of the run waits', () => {
+    const wrapper = list(
+      [],
+      [
+        {
+          personId: 4,
+          name: 'Jule',
+          pending: '+1 offen',
+          label: 'Jule, +1 offen',
+        },
+      ],
+    );
+
+    expect(wrapper.find('.game-leader').exists()).toBe(false);
+    expect(wrapper.findAll('[data-test="game-unranked"]')).toHaveLength(1);
   });
 });

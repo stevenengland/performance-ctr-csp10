@@ -14,6 +14,14 @@ import {
   getDrink,
   getFactor,
   getHealth,
+  getPending,
+  listPending,
+  verifyEntry,
+  rejectEntry,
+  verifyMatch,
+  rejectMatch,
+  verifyResult,
+  rejectResult,
   getScoreboard,
   getStandings,
   getPerson,
@@ -703,6 +711,101 @@ describe('the API client', () => {
       expect.objectContaining({
         headers: expect.objectContaining({ 'If-None-Match': '"7-1"' }),
       }),
+    );
+  });
+
+  it('verifies an entry with an empty JSON body at its verification', async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(
+      verifyEntry('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5'),
+    ).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/entries/6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5/verification',
+      expect.objectContaining({ method: 'PUT', body: '{}' }),
+    );
+  });
+
+  it('rejects an entry with a DELETE of its verification', async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(
+      rejectEntry('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5'),
+    ).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/entries/6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5/verification',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('verifies and rejects a match at its verification', async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+
+    await verifyMatch('0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b');
+    await rejectMatch('0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b');
+
+    expect(fetch.mock.calls).toEqual([
+      [
+        '/api/matches/0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b/verification',
+        expect.objectContaining({ method: 'PUT', body: '{}' }),
+      ],
+      [
+        '/api/matches/0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b/verification',
+        expect.objectContaining({ method: 'DELETE' }),
+      ],
+    ]);
+  });
+
+  it('verifies and rejects a pending result at its verification', async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+
+    await verifyResult('1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c');
+    await rejectResult('1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c');
+
+    expect(fetch.mock.calls).toEqual([
+      [
+        '/api/results/1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c/verification',
+        expect.objectContaining({ method: 'PUT', body: '{}' }),
+      ],
+      [
+        '/api/results/1c9a6f4b-2d3e-4f5a-8b1c-2d3e4f5a6b7c/verification',
+        expect.objectContaining({ method: 'DELETE' }),
+      ],
+    ]);
+  });
+
+  it('reads the first page of the pending queue with its ETag, on condition of the last one', async () => {
+    const page = { items: [], next: null, count: 0 };
+    const fetch = respond(page, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ETag: '"7-2"' },
+    });
+
+    await expect(getPending()).resolves.toEqual({ page, etag: '"7-2"' });
+    expect(fetch).toHaveBeenCalledWith('/api/pending', expect.anything());
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 304 })),
+    );
+    await expect(getPending('"7-2"')).resolves.toBe('unchanged');
+  });
+
+  it('reads a later page of the pending queue at its cursor', async () => {
+    const page = { items: [], next: null, count: 21 };
+    const fetch = respond(page, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await expect(listPending('abc-_')).resolves.toEqual(page);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/pending?cursor=abc-_',
+      expect.anything(),
     );
   });
 });

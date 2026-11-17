@@ -34,6 +34,8 @@ export type MatchItem = components['schemas']['MatchItem'];
 export type MatchPage = components['schemas']['MatchPage'];
 export type ResultItem = components['schemas']['ResultItem'];
 export type ResultPage = components['schemas']['ResultPage'];
+export type PendingPage = components['schemas']['PendingPage'];
+export type PendingItem = components['schemas']['PendingItem'];
 export type ApiPath = keyof paths;
 /** Field errors of a 422 problem, keyed by the API field name. */
 export type FieldErrors = Readonly<Record<string, string>>;
@@ -505,6 +507,83 @@ export function deleteEntry(id: string): Promise<void> {
     method: 'DELETE',
     params: { id },
   });
+}
+
+/** Lets another account's pending entry count; the API takes an empty JSON object as its body. */
+export function verifyEntry(id: string): Promise<void> {
+  return request<undefined>('/api/entries/{id}/verification', {
+    method: 'PUT',
+    params: { id },
+    body: {},
+  });
+}
+
+/** Removes another account's pending entry, so that it never counts. */
+export function rejectEntry(id: string): Promise<void> {
+  return request<undefined>('/api/entries/{id}/verification', {
+    method: 'DELETE',
+    params: { id },
+  });
+}
+
+/** Lets another account's pending match count on both sides; the API takes an empty JSON object as its body. */
+export function verifyMatch(id: string): Promise<void> {
+  return request<undefined>('/api/matches/{id}/verification', {
+    method: 'PUT',
+    params: { id },
+    body: {},
+  });
+}
+
+/** Removes another account's pending match, so that it never counts. */
+export function rejectMatch(id: string): Promise<void> {
+  return request<undefined>('/api/matches/{id}/verification', {
+    method: 'DELETE',
+    params: { id },
+  });
+}
+
+/** Lets another account's pending result count. */
+export function verifyResult(id: string): Promise<void> {
+  return request<undefined>('/api/results/{id}/verification', {
+    method: 'PUT',
+    params: { id },
+    body: {},
+  });
+}
+
+/** Removes another account's pending result, so that it never counts. */
+export function rejectResult(id: string): Promise<void> {
+  return request<undefined>('/api/results/{id}/verification', {
+    method: 'DELETE',
+    params: { id },
+  });
+}
+
+/** The first page of the pending queue with the ETag that names it, to ask on condition of next time. */
+export interface PendingAnswer {
+  page: PendingPage;
+  etag: string | undefined;
+}
+
+/**
+The first page of the rows the signed-in account may verify, with the count of
+all of them. With the ETag of the page already shown, `unchanged` means it still holds.
+*/
+export async function getPending(
+  etag?: string,
+): Promise<PendingAnswer | 'unchanged'> {
+  const response = await send('/api/pending', { ifNoneMatch: etag });
+  if (response.status === NOT_MODIFIED) return 'unchanged';
+  return {
+    page: (await response.json()) as PendingPage,
+    etag: response.headers.get('ETag') ?? undefined,
+  };
+}
+
+/** A later page of the pending queue, at the previous page's `next`. */
+export function listPending(cursor: string): Promise<PendingPage> {
+  return request<PendingPage>('/api/pending', { query: { cursor } });
 }
 
 /** A page of the audit log, newest first (admins only); `before` (an event id, the previous page's `next`) reads older events. */

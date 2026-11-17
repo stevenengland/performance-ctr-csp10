@@ -16,11 +16,14 @@ use Performance\Domain\DataRevision;
 use Performance\Domain\GameDependents;
 use Performance\Domain\Idempotency;
 use Performance\Domain\NotFound;
+use Performance\Domain\PendingMatch;
 use Performance\Domain\PersonDependentCounts;
 use Performance\Domain\PersonDependents;
 use Performance\Domain\RequestConflict;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
+use Performance\Domain\VerifiableKind;
+use Performance\Domain\VerifiableRows;
 
 /**
  * The matches of duel games, end to end: record one idempotently on the client's UUID, undo
@@ -36,7 +39,10 @@ use Performance\Domain\ValidationFailed;
  * Every read in a write locks what it reads (ADR 0004); referenced rows only under a shared
  * lock, which an insert also takes for its foreign key checks.
  *
- * @phpstan-type MatchSnapshot array{game: string, first: string|null, second: string|null, outcome: string}
+ * A new match waits for verification (PRD #61): only verified matches count in the standings,
+ * on both sides at once. Its recorded rows provide Verification's port for matches.
+ *
+ * @phpstan-type MatchSnapshot array{game: string, first: string|null, second: string|null, outcome: string, pending: bool}
  */
 final readonly class Matches implements GameDependents, PersonDependents
 {
@@ -51,9 +57,15 @@ final readonly class Matches implements GameDependents, PersonDependents
      * that order: a locking read locks every row it scans, so it must scan only the matches the
      * transaction holds already.
      */
-    private const SNAPSHOT = 'SELECT STRAIGHT_JOIN m.id, g.name AS game, f.name AS first, s.name AS second, m.outcome
+    private const SNAPSHOT = 'SELECT STRAIGHT_JOIN m.id, g.name AS game, f.name AS first, s.name AS second, m.outcome, m.pending
         FROM matches m FORCE INDEX (%s) JOIN games g ON g.id = m.game_id
         LEFT JOIN persons f ON f.id = m.first_person_id LEFT JOIN persons s ON s.id = m.second_person_id';
+    /** Pending matches as the pending queue lists them: their game, its run, both sides and the recorder, names as they are now. */
+    private const PENDING = 'm.id, m.created_at, a.user_name AS account_name, m.game_id, g.name AS game_name, m.run < g.run AS earlier_run,
+                m.first_person_id, f.name AS first_name, m.second_person_id, s.name AS second_name, m.outcome
+        FROM matches m JOIN games g ON g.id = m.game_id
+        LEFT JOIN persons f ON f.id = m.first_person_id LEFT JOIN persons s ON s.id = m.second_person_id
+        LEFT JOIN accounts a ON a.id = m.account_id';
 
     public function __construct(
         private PDO $pdo,
@@ -93,8 +105,8 @@ final readonly class Matches implements GameDependents, PersonDependents
                     throw new ValidationFailed(['outcome' => 'Remis ist in diesem Spiel nicht möglich.']);
                 }
                 $this->pdo->prepare(
-                    'INSERT INTO matches (id, game_id, first_person_id, second_person_id, outcome, run, account_id, created_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO matches (id, game_id, first_person_id, second_person_id, outcome, run, account_id, created_at, pending)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)',
                 )->execute([
                     $match->id,
                     $match->gameId,
@@ -132,53 +144,63 @@ final readonly class Matches implements GameDependents, PersonDependents
     }
 
     /**
-     * A duel game's ranking in one run: every person with a match in it, by points (win 1,
-     * draw ½, loss 0), then wins, then name, then id. It is computed from each match's stored
+     * A duel game's ranking in one run: every person with a verified match in it, by points
+     * (win 1, draw ½, loss 0), then wins, then name, then id. Only verified matches count
+     * (PRD #61); each person names their pending matches in the run, and a person whose matches
+     * in it all wait is listed apart, unranked. It is computed from each match's stored
      * outcome, so a side that was cleared (a deleted person) counts for no one and never
      * changes the other side's result.
      *
-     * @return list<DuelRow>
+     * @return Standings<DuelRow>
      */
-    public function standings(int $gameId, int $run): array
+    public function standings(int $gameId, int $run): Standings
     {
         $statement = $this->pdo->prepare(
             "SELECT p.id, p.name,
-                    SUM(CASE r.result WHEN 'win' THEN 1 WHEN 'draw' THEN 0.5 ELSE 0 END) AS points,
-                    SUM(r.result = 'win') AS wins, SUM(r.result = 'draw') AS draws, SUM(r.result = 'loss') AS losses,
-                    COUNT(*) AS played
+                    SUM(IF(r.pending = 0, CASE r.result WHEN 'win' THEN 1 WHEN 'draw' THEN 0.5 ELSE 0 END, 0)) AS points,
+                    SUM(r.pending = 0 AND r.result = 'win') AS wins, SUM(r.pending = 0 AND r.result = 'draw') AS draws,
+                    SUM(r.pending = 0 AND r.result = 'loss') AS losses, SUM(r.pending = 0) AS played, SUM(r.pending = 1) AS pending_matches
              FROM (
-                 SELECT first_person_id AS person_id,
+                 SELECT first_person_id AS person_id, pending,
                         CASE outcome WHEN 'first' THEN 'win' WHEN 'second' THEN 'loss' ELSE 'draw' END AS result
                  FROM matches WHERE game_id = ? AND run = ? AND first_person_id IS NOT NULL
                  UNION ALL
-                 SELECT second_person_id,
+                 SELECT second_person_id, pending,
                         CASE outcome WHEN 'second' THEN 'win' WHEN 'first' THEN 'loss' ELSE 'draw' END
                  FROM matches WHERE game_id = ? AND run = ? AND second_person_id IS NOT NULL
              ) r JOIN persons p ON p.id = r.person_id
              GROUP BY p.id, p.name
-             ORDER BY points DESC, wins DESC, p.name, p.id",
+             ORDER BY SUM(r.pending = 0) = 0, points DESC, wins DESC, p.name, p.id",
         );
         $statement->execute([$gameId, $run, $gameId, $run]);
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+        $ranked = [];
+        $unranked = [];
+        foreach ($rows as $row) {
+            if ((int) $row['played'] === 0) {
+                $unranked[] = new UnrankedPlayer((int) $row['id'], (string) $row['name'], (int) $row['pending_matches']);
+            } else {
+                $ranked[] = new DuelRow(
+                    (int) $row['id'],
+                    (string) $row['name'],
+                    (string) $row['points'],
+                    (int) $row['wins'],
+                    (int) $row['draws'],
+                    (int) $row['losses'],
+                    (int) $row['played'],
+                    (int) $row['pending_matches'],
+                );
+            }
+        }
 
-        return array_map(
-            static fn(array $row): DuelRow => new DuelRow(
-                (int) $row['id'],
-                (string) $row['name'],
-                (string) $row['points'],
-                (int) $row['wins'],
-                (int) $row['draws'],
-                (int) $row['losses'],
-                (int) $row['played'],
-            ),
-            $rows,
-        );
+        return new Standings($ranked, $unranked);
     }
 
     /**
      * A page of a duel game's Verlauf: its matches of one run, newest first, with each side's
-     * person (null once deleted) and the recording account's name (null once deleted).
+     * person (null once deleted), the recording account's name (null once deleted) and whether
+     * the match waits for verification; pending matches are listed and marked.
      *
      * @param string|null $before the `next` of the previous page; null for the newest page of the current run
      *
@@ -193,7 +215,7 @@ final readonly class Matches implements GameDependents, PersonDependents
             $game,
             GameKind::Duel,
             'SELECT h.id, h.created_at, h.outcome, h.first_person_id, f.name AS first_name,
-                    h.second_person_id, s.name AS second_name, a.user_name AS account_name
+                    h.second_person_id, s.name AS second_name, a.user_name AS account_name, h.pending
              FROM matches h FORCE INDEX (matches_game)
              LEFT JOIN persons f ON f.id = h.first_person_id LEFT JOIN persons s ON s.id = h.second_person_id
              LEFT JOIN accounts a ON a.id = h.account_id',
@@ -242,7 +264,7 @@ final readonly class Matches implements GameDependents, PersonDependents
         // Each side through its own index, so the locks cover exactly the person's matches.
         $rows = $this->rows();
         foreach (self::SIDES as $side => $index) {
-            $rows->lock($index, "{$side}_person_id", $personId);
+            $rows->lockReferencing($index, "{$side}_person_id", $personId);
         }
         $changes = [];
         foreach (self::SIDES as $side => $index) {
@@ -273,6 +295,12 @@ final readonly class Matches implements GameDependents, PersonDependents
         return $errors === [] && $valid !== null ? $valid : throw new ValidationFailed($errors);
     }
 
+    /** The matches as Verification reaches them (PRD #61); the composition root wires it. */
+    public function verifiableRows(): VerifiableRows
+    {
+        return $this->rows();
+    }
+
     /**
      * The mechanics matches share with results, over the matches table.
      *
@@ -280,7 +308,32 @@ final readonly class Matches implements GameDependents, PersonDependents
      */
     private function rows(): RecordedRows
     {
-        return new RecordedRows($this->pdo, $this->revision, $this->audit, AuditSubjectKind::Match, 'matches', self::SNAPSHOT, 'm', self::snapshotOf(...));
+        return new RecordedRows(
+            $this->pdo,
+            $this->revision,
+            $this->audit,
+            AuditSubjectKind::Match,
+            'matches',
+            self::SNAPSHOT,
+            'm',
+            self::snapshotOf(...),
+            new PendingRead(VerifiableKind::Match, self::PENDING, self::pendingOf(...)),
+        );
+    }
+
+    /**
+     * @param array<string, scalar|null> $row
+     */
+    private static function pendingOf(array $row): PendingMatch
+    {
+        return new PendingMatch(
+            (int) $row['game_id'],
+            (string) $row['game_name'],
+            (int) $row['earlier_run'] === 1,
+            self::personOf($row['first_person_id'], $row['first_name']),
+            self::personOf($row['second_person_id'], $row['second_name']),
+            Outcome::from((string) $row['outcome']),
+        );
     }
 
     /**
@@ -295,6 +348,7 @@ final readonly class Matches implements GameDependents, PersonDependents
             'first' => $row['first'] === null ? null : (string) $row['first'],
             'second' => $row['second'] === null ? null : (string) $row['second'],
             'outcome' => (string) $row['outcome'],
+            'pending' => (int) $row['pending'] === 1,
         ];
     }
 
@@ -310,6 +364,7 @@ final readonly class Matches implements GameDependents, PersonDependents
             Outcome::from((string) $row['outcome']),
             GameHistory::instant($row['created_at']),
             $row['account_name'] === null ? null : (string) $row['account_name'],
+            (int) $row['pending'] === 1,
         );
     }
 

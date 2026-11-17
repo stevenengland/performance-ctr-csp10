@@ -133,6 +133,16 @@ describe('Verwalten → Konten', () => {
     expect(buttonIn(document, 'Aktionen für ben')).toBeTruthy();
   });
 
+  it('says that everyone who should verify entries needs an own account', async () => {
+    accountsApi([anna(), ben()]);
+
+    wrapper = await page();
+
+    expect(wrapper.get('[data-test="own-account-note"]').text()).toBe(
+      'Wer Einträge bestätigen soll, braucht ein eigenes Konto: eigene Einträge bestätigt immer ein anderes Konto.',
+    );
+  });
+
   it('offers resetting, admin rights and deleting in the menu', async () => {
     accountsApi([anna(), ben()]);
     wrapper = await page();

@@ -6,7 +6,7 @@
 > written back here in the same pull request. Design follows spec.
 >
 > **Source of truth.** Product rules come from PRD #1 (user stories, scoring, delete semantics,
-> day window) and PRD #14 (the audit log). The API contract is `api/openapi.yaml`. This document surfaces those rules; it
+> day window), PRD #14 (the audit log) and PRD #61 (the four-eyes rule). The API contract is `api/openapi.yaml`. This document surfaces those rules; it
 > never invents domain rules.
 >
 > **Review surface.** The fixture preview (§12) — the real app on canned answers, published as
@@ -27,10 +27,19 @@ connection. One or two of them are admins.
 **Top jobs.**
 
 1. *Log a drink fast* — name, drink, quantity, factor: four taps, no typing.
-2. *See who leads tonight* — one glance at the ranking, current to within seconds.
+2. *See who leads tonight* — one glance at the ranking, which counts verified rows only and
+   follows a verification within seconds.
 3. *Fix a mistake* — undo immediately, or delete a single entry later the same day.
 4. *Set up the evening* — add a person, a drink with its points, or a "Happy Hour ×2" factor in
    a few seconds.
+
+**Four-eyes rule (PRD #61).** Every new entry, match and result starts as `offen` (pending):
+it is saved and shown, marked, and does not count until an account other than the one that
+recorded it verifies it (`Bestätigen`) or rejects it (`Ablehnen`). Recording stays four taps;
+the saved snackbar says the row waits. Vocabulary: the state `offen`; the actions
+`Bestätigen`, `Ablehnen`; a person's pending rows `+n offen`; snackbar suffix
+`· wartet auf Bestätigung`; Protokoll `bestätigt`, `abgelehnt`. Rows that existed before the
+rule count as verified.
 
 **Principles.**
 
@@ -39,10 +48,12 @@ connection. One or two of them are admins.
 - **One decision per screen.** The add flow asks exactly one question per step and saves on the
   last answer. No confirm button on the happy path; undo instead.
 - **Today only.** Every view covers the current day, from 00:00 in the browser's time zone. No
-  view shows other days — with two recorded exceptions: Protokoll (§7l), the admins' audit log,
-  covers all days, since looking up what happened yesterday or last week is its purpose; and a
+  view shows other days — with three recorded exceptions: Protokoll (§7l), the admins' audit log,
+  covers all days, since looking up what happened yesterday or last week is its purpose; a
   game (§7n, §7o) covers its current run, from its last (re)start (`seit 15.09.`), since a
-  chess ladder runs for weeks. The server owns the run; drink views keep local midnight.
+  chess ladder runs for weeks; and `Offen` (§7s) lists every row still waiting for
+  verification, of any day, since a row must never stay pending only because the day changed.
+  The server owns the run; drink views keep local midnight.
 - **Honest state.** The UI never claims a save that did not happen: offline blocks saving,
   failures say so, stale data shows its age.
 - **Readable across the table.** Names and numbers are set large in a condensed display face;
@@ -232,6 +243,7 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
 /spiele/:gameId/ergebnis                    points step 1 — Für wen?
 /spiele/:gameId/ergebnis/:personId          points step 2 — Wie viele Punkte? (Speichern)
 /spiele/:gameId/verlauf                     a game's matches or results since the start
+/offen                                      rows to verify, all days [nav: Offen]
 /verwalten                                  hub                     [nav: Verwalten]
 /verwalten/personen | getraenke | faktoren  master data
 /verwalten/spiele                           games: create, edit, delete (?anlegen opens create)
@@ -240,10 +252,10 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
 /konto                                      own account (top app bar)
 ```
 
-- **Navigation bar** (compact) or **navigation rail** (medium and up) with four destinations:
+- **Navigation bar** (compact) or **navigation rail** (medium and up) with five destinations:
   Zählen (`mdiGlassMugVariant`), Rangliste (`mdiPodium`), Spiele (`mdiCardsPlayingOutline`),
-  Verwalten (`mdiCogOutline`). Konto is reached from the top app bar's account icon. The bar
-  splits its width into four equal columns.
+  Offen (`mdiEyeCheckOutline`), Verwalten (`mdiCogOutline`). Konto is reached from the top app
+  bar's account icon. The bar splits its width into five equal columns.
 - `/` redirects to `/zaehlen`. Unknown routes redirect to `/zaehlen`.
 - The add flow's, the duel flow's and the points flow's steps are routes, so the system back
   gesture and the back arrow step back one level.
@@ -281,16 +293,24 @@ button on every screen below a navigation destination, and the account icon on t
 (4 dp high, filled segments in `primary`; three segments when no factors exist); the duel flow
 (§7p) always has three, the points flow (§7q) two. On add-flow
 steps 2–4 the bar also shows, right-aligned before the account icon, the chosen person's
-total score for today — all drinks, factors applied — as a numeral (`title`) over the caption
-`Punkte heute` (from the scoreboard feed; `0` when there are no entries). On the
-Rangliste and a game's page (§7o) the bar also shows `Stand: HH:mm` in `error` when data is
-stale (§6.6).
+total score for today — all drinks, factors applied, verified entries only (§7f) — as a
+numeral (`title`) over the caption `Punkte heute` (from the scoreboard feed; `0` when no entry
+of today counts yet). On the
+Rangliste, a game's page (§7o) and Offen (§7s) the bar also shows `Stand: HH:mm` in `error`
+when data is stale (§6.6).
 
 ### 6.2 Navigation bar / rail
 
-Four destinations (§4) on `surface-container`. The active destination's icon sits in a
+Five destinations (§4) on `surface-container`. The active destination's icon sits in a
 `secondary-container` pill and its label is `on-surface`; the others are `on-surface-variant`.
 Hidden on `/anmelden`.
+
+Offen carries a badge: the number of rows the signed-in account may verify (the queue's
+`count`), on the icon's top right in `error` / `on-error` (Vuetify's badge, `99+` above 99), and
+none at 0. The destination is then named `Offen, 3 offen`. The badge is fed by the pending queue,
+polled like the rankings (every 10 s while visible, on condition of the last ETag) on every
+screen of the shell; another account signing in resets it at once, and an answer started under
+the previous session is dropped.
 
 ### 6.3 Snackbar
 
@@ -301,12 +321,14 @@ an older one.
 
 | Trigger | Text | Action |
 |---|---|---|
-| Entry saved | `2× Bier · Happy Hour ×2 · Daniel` (factor part omitted for "Kein Faktor") | `Rückgängig` |
-| Match saved (§7p) | `Anna – Ben · Anna gewinnt`, `Ben – Carla · Remis` | `Rückgängig` |
-| Result saved (§7q) | `Daniel · −20 Punkte`, `Anna · 1 Punkt` | `Rückgängig` |
+| Entry saved | `2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung` (factor part omitted for "Kein Faktor") | `Rückgängig` |
+| Match saved (§7p) | `Anna – Ben · Anna gewinnt · wartet auf Bestätigung`, `Ben – Carla · Remis · wartet auf Bestätigung` | `Rückgängig` |
+| Result saved (§7q) | `Daniel · −20 Punkte · wartet auf Bestätigung`, `Anna · 1 Punkt · wartet auf Bestätigung` | `Rückgängig` |
 | Entry, match or result undone | `Rückgängig gemacht` | — |
 | Save failed (network) | `Nicht gespeichert – keine Verbindung` | `Erneut versuchen` (same UUID, this attempt only; returns to the names — or to `Wer spielt?` / `Für wen?` — only while the step is still shown) |
 | Undo failed (network) | `Nicht rückgängig gemacht – keine Verbindung` | `Erneut versuchen` |
+| Verification failed (network, Offen §7s) | `Nicht bestätigt – keine Verbindung` | — |
+| Rejection failed (network, Offen §7s) | `Nicht abgelehnt – keine Verbindung` | — |
 | Route item gone (§4) | `Nicht mehr vorhanden` | — |
 | Problem response | the problem's `title` | — |
 | Deleted item | `<Name> gelöscht` | — |
@@ -326,12 +348,12 @@ left-aligned. Pressed or saving: `primary-container` / `on-primary-container`, e
 
 - **Person tile:** the person's avatar (§6.12, 40 dp) and, 8 dp to its right, the name
   (`tile-name`) at the top; at the bottom `Punkte heute` in `support` on the left and the
-  person's total score for today (`numeral`) on the right, or just `noch nichts` in `support`
-  when there are no entries today. No tally marks here. The avatar comes through the tile's
+  person's total score for today (`numeral`, verified entries only, §7f) on the right, or just
+  `noch nichts` in `support` while no entry of today counts. No tally marks here. The avatar comes through the tile's
   generic `leading` slot, which sits left of the name; the tile knows nothing about photos.
   The avatar adds nothing to the accessible name (`Daniel, 13,5 Punkte heute`).
 - **Drink tile:** top row — name left, today's counter for the chosen person right (`numeral`,
-  omitted at 0); bottom row — points in `support` (`1 Punkt`, `3 Punkte`, `0,5 Punkte`) left,
+  omitted at 0; everything recorded today, entries that wait for verification included); bottom row — points in `support` (`1 Punkt`, `3 Punkte`, `0,5 Punkte`) left,
   tally (18 dp) right.
 - **Quantity stepper** (step 3, replaces fixed quantity tiles — owner decision 2026-11-15): a
   row of a `−` tile (88 dp square), the count in the display face (128 dp) with the caption
@@ -414,6 +436,8 @@ states the consequence, buttons `Abbrechen` (text) and the destructive action (f
 | Account | `Konto anna löschen?` | `Einträge von anna bleiben erhalten.` |
 | Restart (not a delete; action `Neu starten`) | `Schach neu starten?` | `Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.` |
 
+The counts in these dialogs include the rows that wait for verification (§1).
+
 ### 6.10 Empty and loading states
 
 - **Loading:** skeleton placeholders in the shape of the content; no spinner on the first paint
@@ -486,8 +510,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 - Title bar: `Daniel` with the context line `Bier`; step indicator at 3. Question `Wie viele?`.
 - **Quantity stepper** (§6.4), replacing the 1–5 buttons and `Andere Anzahl` named in PRD #1
   and the slice issues (owner decision 2026-11-15; this section wins). The count starts at
-  what is already booked today for this person and drink (the counter from the scoreboard
-  feed, factors applied); `+` adds one new drink, `−` takes one new drink back. `−` is
+  what is already booked today for this person and drink (the recorded counter from the
+  scoreboard feed, `recordedCount`: factors applied, entries that wait for verification
+  included, so the number matches what was logged); `+` adds one new drink, `−` takes one new drink back. `−` is
   disabled at the booked count — booked drinks are corrected with `Rückgängig` or in the
   Verlauf — and `+` stops at 99 new drinks. The button reads `Weiter` (or `Speichern` when
   no factors exist, in which case it saves) and is disabled until at least one drink is new
@@ -524,7 +549,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 ### 7f. Rangliste `/rangliste`
 
 - Title `Rangliste` with the context line `Heute`.
-- Persons with entries today, ranked by score (ties by name):
+- Persons with verified entries today, ranked by score (ties by name); score, total count and
+  per-drink counters count verified entries only:
   - **Rank 1 — leader card:** `primary-container`, corner 18 dp. On the left the avatar
     (§6.12, 64 dp, with a 3 dp ring in `on-primary-container`), under it the name
     (`name-hero`) and the tally of the total count (26 dp); score (`score-hero`) on the right;
@@ -536,17 +562,32 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     per-drink counters beneath (`support`), and on the right the score (`numeral`) with the
     total count beneath (12 dp, Text 400, `on-surface-variant`, as in the mockup).
   - The rank is the position in the API's order (score, ties by name); tied persons get
-    consecutive ranks. Per-drink counters are listed alphabetically, as the API sends them.
-    A total count of one reads `1 Getränk`.
+    consecutive ranks. Per-drink counters are listed alphabetically, as the API sends them,
+    without drinks whose verified counter is 0. A total count of one reads `1 Getränk`.
+  - **`+n offen`:** while some of a person's entries of today wait for verification
+    (`pendingCount` > 0), an assist chip `+2 offen` (§7j's `Admin` chip) sits on the card
+    beside the total count and in a row under the total count. It counts entries (rows), not
+    drinks.
+- **Unranked group** `Noch nicht gewertet`: persons whose entries of today all wait for
+  verification (the API's `unranked`), below the ranked places under a `label` heading in
+  `on-surface-variant`, by name. Each is a row like ranks 2+ with an empty rank column, the
+  avatar, the name with the recorded per-drink counters beneath, and on the right only the
+  `+2 offen` chip — no score, no count. They have no rank and never take the leader card,
+  even when nobody else has entries. Accessible name `Jule, Aperol 1 · Bier 2, +2 offen`; the
+  row opens the person's Verlauf.
 - Card and rows form one ordered list `Rangliste`; each place has the accessible name
-  `Platz 1, Daniel, 13,5 Punkte, 9 Getränke` (avatars are decorative, §10). The card and each row are links with that name
+  `Platz 1, Daniel, 13,5 Punkte, 9 Getränke` (avatars are decorative, §10), followed by
+  `, +2 offen` while entries wait. The card and each row are links with that name
   (inside their list items) and open `/verlauf/:personId`.
 - Loading: a skeleton card and three skeleton rows.
 - Persons without entries today are not listed.
+- Zählen's person tiles (§7b) show the verified score too, so a person whose entries all wait
+  reads `noch nichts` there.
 - Photos come from versioned URLs the browser caches, so a running app keeps showing the photos
   it has loaded when the connection drops (best effort; reopening the app offline is not
   promised). A photo changed on another phone shows with the next refresh.
-- Empty: `Heute noch keine Getränke.` + button `Zählen` → `/zaehlen`.
+- Empty (no ranked and no unranked person): `Heute noch keine Getränke.` + button `Zählen` →
+  `/zaehlen`.
 - Stale indicator (§6.6) in the top app bar.
 
 ### 7g. Verlauf `/verlauf/:personId`
@@ -561,7 +602,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   `outline-variant` hairlines: primary `2× Bier` (`row-title`), secondary
   `Happy Hour ×2 · 23:41 · anna` (`support`; the factor with its current multiplier,
   `Kein Faktor` when none or deleted; the local time; the account's user name, or
-  `gelöschtes Konto` when the account is gone); trailing delete icon button named
+  `gelöschtes Konto` when the account is gone); an entry that waits for verification carries
+  the assist chip `offen` (§7j's `Admin` chip) before the delete button; trailing delete icon
+  button named
   `2× Bier um 23:41 löschen`, opening the confirmation dialog (§6.9).
 - After `Löschen`: the snackbar `Eintrag gelöscht`, the list is read again and the scoreboard
   feed refreshes at once, so counters and the Rangliste follow. An entry already deleted on
@@ -670,11 +713,21 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   account's sessions end; its entries stay and Verlauf shows them as `gelöschtes Konto`
   (§7g). Resetting one's own password or deleting one's own account signs this device out
   too, which leads to Anmelden (§9, 401).
+- Deleting an account relaxes the four-eyes rule for its rows that still wait: they have no
+  recording account any more, so any other account may verify or reject them in `Offen` (PRD
+  #61, user story 21). The Protokoll keeps who recorded each row (the `create` event names the
+  account and its user name as it was then) and who verified or rejected it. An admin who wants
+  a second pair of eyes on them has them decided before deleting the account (runbook,
+  *Audit log*).
 - Extended FAB `Konto anlegen`: dialog `Konto anlegen` with `Benutzername` and `Startpasswort`
   (with show/hide; 10 characters to 72 bytes), buttons `Abbrechen` and `Speichern`. Field errors
   inline (§6.11): 422 under its field, and a taken user name (409) under `Benutzername` as the
   problem title `Benutzername ist bereits vergeben.` On success the dialog closes and the list
   reloads.
+- Below the list the note (`support`, `on-surface-variant`)
+  `Wer Einträge bestätigen soll, braucht ein eigenes Konto: eigene Einträge bestätigt immer ein
+  anderes Konto.` Accounts and persons stay unlinked, so the server cannot check that a second
+  person verifies: everyone who should verify needs an own account.
 - Last admin: while exactly one admin is listed, that account's `Adminrechte entziehen` and
   `Löschen` are disabled (dimmed) with the supporting text `Letzter Admin`;
   `Passwort zurücksetzen` stays available. The server enforces it regardless, also against
@@ -700,8 +753,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 
 ### 7l. Protokoll `/verwalten/protokoll` (admins only)
 
-- The audit log: every create, change and delete of an entry, a person, a drink or a factor,
-  with the account that did it. Title `Protokoll` with a back button; the navigation keeps
+- The audit log: every create, change and delete of an entry, a person, a drink, a factor, a
+  game, a match or a result, and every verification and rejection of an entry, a match or a
+  result, with the account that did it. Title `Protokoll` with a back button; the navigation keeps
   `Verwalten` active. Non-admins never see it: the row is missing on the hub and
   `/verwalten/protokoll` sends them to `/verwalten`.
 - **All days** — the one exception to "today only" (§1). Events newest first under day
@@ -732,7 +786,12 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   - then (`support`): the local time and the user name the event recorded, `23:41 · anna`
     (kept after the account is deleted);
   - trailing, an outlined assist chip (corner 8 dp, `caption`) with the operation: `Angelegt`,
-    `Geändert`, or `Gelöscht` in `error`.
+    `Geändert`, `Gelöscht` in `error`, or `bestätigt` for a verification (§7s) — named like any
+    event of its subject (`Eintrag 2× Bier für Daniel`), with the verifying account in the
+    supporting line and no change line, since only the pending state changed — or `abgelehnt`
+    in `error` for a rejection (§7s), with the rejecting account and the row's values as a
+    deletion shows them. A row deleted or undone through its delete route is always `Gelöscht`,
+    pending or not.
 - A consequential event — an entry removed by the deletion of its person or drink, or an entry
   that lost its factor when the factor was deleted, a match or result removed with its game, a
   match side cleared or a result removed with its person — is indented by 20 dp and its supporting
@@ -790,7 +849,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   context line — the kind and since when its ranking counts: `Duell · seit 15.09.`,
   `Punktespiel · seit heute, 19:30` (§3.5). Under it, 6 dp apart, in `label`, the game's
   leader with the value of its ranking (§7o): `1. Anna · 4 Punkte`, `1. Daniel · −11 Punkte`, or
-  `noch keine Ergebnisse` before anything was recorded since the start; the line keeps its
+  `noch keine Ergebnisse` while nothing since the start counts (rows that wait for verification
+  lead nothing); the line keeps its
   height (20 dp) until the rankings have loaded. The tiles form the list `Spiele`.
 - Loading: three skeleton tiles. Empty: `Noch keine Spiele.` + button `Spiel anlegen` →
   `/verwalten/spiele?anlegen` (Verwalten → Spiele with its create dialog open).
@@ -819,18 +879,32 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     `on-surface-variant`), and the value (`numeral`) on the right.
   - A **duel**'s value is the points (win 1, draw ½, loss 0) in German format (`3,5`); its
     details are the record, `5 Partien · 3 S · 1 R · 1 N` (one: `1 Partie`). Order: points,
-    then wins, then name, as the API sends it.
+    then wins, then name, as the API sends it. Only verified matches count (§1), on both
+    sides at once.
+  - **`+n offen`**: while matches or results of the person in the run wait for verification
+    (`pendingCount` > 0), the assist chip `+2 offen` (as on the Rangliste, §7f) sits on the
+    card beside the value with its unit and in a row under the value. A pending match counts
+    once for each player that still exists; a pending result once for its person.
   - A **points game**'s value is the sum with a real minus sign (`−11`); its details are
     `2 Ergebnisse` (one: `1 Ergebnis`). Order: the sum in the game's direction (lowest first
-    when `Niedrigste Summe gewinnt`), then name, as the API sends it.
+    when `Niedrigste Summe gewinnt`), then name, as the API sends it. Only verified results
+    count (§1): a pending result adds neither to the sum nor to the count of results.
   - The value's unit: `1 Punkt`, otherwise `Punkte` (`0,5 Punkte`, `−1 Punkt`). Tied persons
     get consecutive ranks, as on the Rangliste. Persons without a match or result since the
     start are not listed; a person deleted since counts for no one, and the other side keeps
     its win, draw or loss.
   - Card and rows form one ordered list named after the game; each place has the accessible
-    name `Platz 1, Anna, 4 Punkte, 5 Partien · 3 S · 2 R · 0 N`. Places are not links.
-- Empty: `Seit dem Start noch keine Partien.` for a duel, `Seit dem Start noch keine
-  Ergebnisse.` for a points game.
+    name `Platz 1, Anna, 4 Punkte, 5 Partien · 3 S · 2 R · 0 N`, followed by `, +2 offen`
+    while matches or results wait. Places are not links.
+  - **Unranked group** `Noch nicht gewertet`: persons whose matches or results in the run
+    all wait for verification (the API's `unranked`), below the ranked places under a `label`
+    heading in `on-surface-variant`, by name, as on the Rangliste (§7f). Each is a row like
+    ranks 2+ with an empty rank column, the name, and on the right only the `+2 offen` chip —
+    no value, no record. They have no rank and never take the leader card, even when nobody
+    else has a verified row — in a points game whichever way it ranks: a pending `0` never
+    leads `Niedrigste Summe gewinnt` nor beats negative sums. Accessible name `Jule, +1 offen`.
+- Empty (no ranked and no unranked person): `Seit dem Start noch keine Partien.` for a duel,
+  `Seit dem Start noch keine Ergebnisse.` for a points game.
 - The ranking (`GET /api/games/{id}/standings`) is kept current like the Rangliste (§6.6):
   read when the page opens, every 10 s while visible with `If-None-Match` (304 keeps it), at
   once on focus and after the device's own writes. A failed read keeps what is shown with
@@ -875,8 +949,10 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   factor tile, only while the game allows draws) and `Ben gewinnt` (`1 Punkt für den Sieg`).
 - Tapping an outcome saves (`PUT /api/matches/{uuid}`): the tapped tile turns amber and the
   others dim; then the app returns to `Wer spielt?` for the next match, the two walked steps
-  leave the history, the snackbar shows `Anna – Ben · Anna gewinnt` with `Rückgängig` (§6.3) and
-  the ranking is read again. `Rückgängig` deletes the match (`DELETE /api/matches/{uuid}`, 404
+  leave the history, the snackbar shows `Anna – Ben · Anna gewinnt · wartet auf Bestätigung`
+  with `Rückgängig` (§6.3) and the ranking is read again. The match waits for verification
+  (§1): until another account verifies it, it counts for neither player, so the tiles keep
+  their verified standing. `Rückgängig` deletes the match (`DELETE /api/matches/{uuid}`, 404
   counts as undone) and reads the ranking again.
 - Save failure, a late answer and offline behave as on the factor step (§7e): stay on the step
   with `Erneut versuchen` (same UUID), never move the user once they left the step, and the
@@ -912,8 +988,10 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     until a digit is typed and while offline (§6.5).
 - `Speichern` saves (`PUT /api/results/{uuid}`, the button shows its spinner); then the app
   returns to `Für wen?` for the next player, the walked step leaves the history, the snackbar
-  shows `Daniel · −20 Punkte` with `Rückgängig` (§6.3) and the ranking is read again, so the
-  tiles and the game's page show the new sum. `Rückgängig` deletes the result
+  shows `Daniel · −20 Punkte · wartet auf Bestätigung` with `Rückgängig` (§6.3) and the ranking
+  is read again. The result waits for verification (§1): until another account verifies it,
+  it stays out of the sum, so the tiles keep their verified standing and the game's page shows
+  `+1 offen`. `Rückgängig` deletes the result
   (`DELETE /api/results/{uuid}`, 404 counts as undone) and reads the ranking again.
 - Save failure and a late answer behave as in the duel flow: the step stays with what was
   typed and `Erneut versuchen` (same UUID); a late success never moves a user who left.
@@ -928,9 +1006,11 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   rows on `outline-variant` hairlines (as §7g):
   - **Match:** primary the pairing `Anna – Ben` (`row-title`), secondary
     `Anna gewinnt · 15.11., 21:00 · anna` (`support`: the outcome, `Remis` for a draw; the local
-    date and time; the recording account).
+    date and time; the recording account). A match that waits for verification carries the
+    assist chip `offen` (as §7g) before the delete button.
   - **Result:** primary `Daniel · −20 Punkte` (real minus sign; `1 Punkt`), secondary
-    `15.11., 22:12 · anna`.
+    `15.11., 22:12 · anna`. A result that waits for verification carries the assist chip
+    `offen` like a match.
   - A person deleted since reads `gelöschte Person` (`gelöschte Person – Ben`,
     `gelöschte Person gewinnt`); an account deleted since reads `gelöschtes Konto`.
   - Trailing delete icon button named `Anna – Ben vom 15.11. löschen` /
@@ -951,10 +1031,60 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 - A game that no longer exists (deleted on another phone): back to Spiele with
   `Nicht mehr vorhanden` (§9).
 
+### 7s. Offen `/offen`
+
+- The rows the signed-in account may verify (four-eyes rule, §1): every pending row recorded by
+  another account, or by one deleted since, **of every day** — the third exception to "today
+  only" (§1). A destination of its own (§6.2) with the badge of their number. Title `Offen`.
+- List `Zu bestätigen`, newest first (then by kind, then by id), rows on `outline-variant`
+  hairlines (as §7g):
+  - **Entry:** primary `2× Bier für Daniel` (`row-title`), secondary
+    `Happy Hour ×2 · 15.11., 21:00 · anna` (`support`: the factor or `Kein Faktor`, the local
+    date and time of the recording, the recording account or `gelöschtes Konto`).
+  - **Match:** primary `Anna – Ben · Anna gewinnt` (`row-title`; `Remis` for a draw,
+    `gelöschte Person` for a side deleted since), secondary `Schach · 15.11., 21:00 · anna`
+    (`support`: the game, the local date and time of the recording, the recording account). A
+    match of an earlier run of its game (recorded before a restart) reads
+    `Schach · vor dem Neustart · 15.11., 21:00 · anna`; verifying it leaves the current ranking
+    as it is. A match is verified or rejected as a whole, both sides together.
+  - **Result:** primary `Daniel · −20 Punkte` (`row-title`; real minus sign, `1 Punkt`),
+    secondary `Rommé · 15.11., 22:12 · anna` (`support`: the game, the local date and time of
+    the recording, the recording account); one of an earlier run reads
+    `Rommé · vor dem Neustart · …` like a match.
+  - Trailing, the text button `Ablehnen` and the tonal button `Bestätigen` (both corner 10 dp,
+    `row-title`), named `2× Bier für Daniel ablehnen` and `2× Bier für Daniel bestätigen`
+    (`Anna – Ben · Anna gewinnt bestätigen` for a match, `Daniel · −20 Punkte bestätigen` for a
+    result). One tap each, no confirm dialog; while one is under way the other is disabled.
+- `Bestätigen` verifies the row: it leaves the list, the badge and the rankings follow at once
+  (the queue and the scoreboard feed are read again; a game's ranking is read when its page or
+  flow is open, §6.6), and nothing else is said. A row that is
+  gone already — verified by someone else, deleted or undone meanwhile (404) — leaves the list
+  the same way, without an error. A refusal (403: the account recorded the row itself) or any
+  other problem shows its title in the snackbar and keeps the row; without an answer the
+  snackbar says `Nicht bestätigt – keine Verbindung` and the row stays.
+- `Ablehnen` rejects the row: it is removed, so it never counts, and it leaves the list the same
+  way; Protokoll keeps it as `abgelehnt` (§7l). A row that is gone already (404) or that someone
+  verified meanwhile (409) leaves the list as handled, without an error. A refusal (403) or any
+  other problem shows its title and keeps the row; without an answer the snackbar says
+  `Nicht abgelehnt – keine Verbindung`. A rejected row is not shown anywhere else, and its
+  recorder is not told.
+- Offline, `Bestätigen` and `Ablehnen` are disabled under the banner, like saving (§6.5): the
+  app never claims a verification or a rejection that did not happen.
+- The first page (20 rows) is the polled queue that also feeds the badge. While more rows wait,
+  the tonal button `Ältere laden` below the list appends the next page; the pages go on after
+  the last row shown, so rows verified meanwhile never hide later ones. A new first page (after a
+  decision here or any write elsewhere) reads the appended rows again from where it ends, about
+  as many as were shown: rows handled meanwhile leave, the others stay. If that read fails, the
+  rows shown stay until the next one.
+- While the latest refresh of the queue failed, the top bar shows `Stand: HH:mm`, when the list
+  was last confirmed, as the Rangliste does (§6.6).
+- Loading: three skeleton rows. Empty: `Nichts zu bestätigen.`
+
 ## 8. Key flows
 
 1. **Log two beers in happy hour:** Zählen → Daniel → Bier → 2 → Happy Hour ×2 → back on
-   Namen, snackbar `2× Bier · Happy Hour ×2 · Daniel` with `Rückgängig`.
+   Namen, snackbar `2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung` with
+   `Rückgängig`; the beers count once another account verifies them in Offen (flow 12).
 2. **Undo:** tap `Rückgängig` within 8 s → entry deleted, snackbar `Rückgängig gemacht`, counters
    back.
 3. **Lost response:** save fails → `Erneut versuchen` → same UUID → server returns the original
@@ -967,16 +1097,23 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 7. **First run:** sign in with the bootstrap admin → Verwalten → Konten → `Konto anlegen` for a
    friend.
 8. **Record a match:** Spiele → Schach → `Partie eintragen` → Anna → Ben → `Anna gewinnt` → back
-   on `Wer spielt?`, snackbar `Anna – Ben · Anna gewinnt` with `Rückgängig`, Anna's tile one
-   point up.
+   on `Wer spielt?`, snackbar `Anna – Ben · Anna gewinnt · wartet auf Bestätigung` with
+   `Rückgängig`; Anna and Ben show `+1 offen` on Schach's page until another account verifies
+   the match in Offen, then Anna's tile is one point up.
 9. **Record a Rommé round:** Spiele → Rommé → `Ergebnis eintragen` → Daniel → `2`, `0`, `±` →
-   `Speichern` → back on `Für wen?`, snackbar `Daniel · −20 Punkte` with `Rückgängig`, Daniel's
-   tile and the game's ranking show the new sum; next player.
+   `Speichern` → back on `Für wen?`, snackbar `Daniel · −20 Punkte · wartet auf Bestätigung`
+   with `Rückgängig`; Daniel shows `+1 offen` on Rommé's page until another account verifies the
+   result in Offen, then his tile and the game's ranking show the new sum; next player.
 10. **Fix a game later:** Spiele → Schach → `Verlauf` → delete the match → confirm →
     `Partie gelöscht`, the ranking without it.
 11. **Start a new season:** Spiele → Schach → `Neu starten` → confirm → `Schach neu
     gestartet`, an empty ranking and Verlauf, `Duell · seit heute, 19:30`; the old matches stay
     stored but are no longer shown.
+12. **Verify:** Offen (badge `3`) → `Bestätigen` on `2× Bier für Daniel` → the row leaves the
+    list, the badge shows `2`, Daniel's score counts the beers within seconds on every phone.
+13. **Reject:** Offen (badge `2`) → `Ablehnen` on `1× Wein für Mara` → the row leaves the list,
+    the badge shows `1`, the entry is gone from Mara's Verlauf and her `+1 offen`; Protokoll
+    shows it `abgelehnt` by the rejecting account.
 
 ## 9. States and edge cases (every data view defines these)
 
@@ -1021,24 +1158,25 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 | Konto | `GET /api/session`, `PUT /api/session/password`, `DELETE /api/session`, `GET /api/health` | |
 | Namen | `GET /api/persons`, scoreboard feed | Scores from the feed |
 | Getränk | `GET /api/drinks`, scoreboard feed | Counters from the feed |
-| Anzahl | scoreboard feed, `PUT /api/entries/{uuid}` | Booked count from the feed; saves while no factors exist |
+| Anzahl | scoreboard feed, `PUT /api/entries/{uuid}` | Booked count from the feed (`recordedCount`, pending entries included); saves while no factors exist |
 | Faktor | `GET /api/factors`, `PUT /api/entries/{uuid}` | Choice saves |
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
-| Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window |
-| Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt` and `accountName` (or `null`); 404 → person gone; after a delete the scoreboard feed refreshes |
+| Rangliste | `GET /api/scoreboard?from=` (ETag, `If-None-Match` → 304) | Feed polls every 10 s while visible; ETag = data revision + window. `rows` rank verified entries (`score`, `count`, each drink's `count`) with `pendingCount`; each drink also has `recordedCount`; `unranked` lists persons whose entries all wait |
+| Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=`, `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt`, `accountName` (or `null`) and `pending`; 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count (a person also `matchCount` and `resultCount`); `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Personen (photo) | `PUT /api/persons/{id}/photo`, `DELETE /api/persons/{id}/photo` | Any member, any person; never a field of the person `PATCH`. `PUT` body `{image}`: base64 of a 256 × 256 JPEG of at most 64 KiB; answers the person (200). A body over 96 KiB is 413 `Foto zu groß.`, an invalid photo 422 on `image`. `DELETE` is 204, also without a photo. The same photo again and removing none change nothing |
 | Photo display | `GET /api/persons/{id}/photo?v=<version>` | Loaded by `<img>`, outside the fetch wrapper. 200 `image/jpeg` with `Cache-Control: private, max-age=31536000, immutable` only while `v` is the stored version; a missing, malformed or stale `v`, no photo and an unknown person are 404, every error `no-store`. The client never builds this URL |
 | Verwalten | `GET /api/{persons,drinks,factors,games}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
-| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` (ETag, `If-None-Match` → 304) | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. The game's page polls every 10 s while visible, Spiele reads on open and on focus; ETag = data revision. Standings of the current run, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played}`, a points game's `{personId, name, sum, results}` with `lowerWins` |
+| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` (ETag, `If-None-Match` → 304) | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. The game's page polls every 10 s while visible, Spiele reads on open and on focus; ETag = data revision. Standings of the current run, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played, pendingCount}` over verified matches, with `unranked` `{personId, name, pendingCount}` for persons whose matches all wait; a points game's `{personId, name, sum, results, pendingCount}` over verified results with `lowerWins`, and `unranked` like a duel's |
 | Verwalten → Spiele | `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/{id}` | Game: `id`, `name`, `kind` (`duel` \| `points`), `drawsAllowed`, `lowerWins`, `startedAt`. `POST` takes `name`, `kind` and the kind's setting; `PATCH` takes `name` and the setting (the kind is fixed); `GET …/{id}` adds `matchCount` and `resultCount` (every run) |
 | Partie eintragen | `GET /api/games`, `GET /api/persons`, `GET /api/games/{id}/standings`, `PUT /api/matches/{uuid}` | Body `{gameId, firstPersonId, secondPersonId, outcome}` with `outcome` `first` \| `second` \| `draw`; 201 new, 200 replay; the same UUID with other content is 409 `request-conflict` |
 | Snackbar `Rückgängig` (match) | `DELETE /api/matches/{uuid}` | 404 counts as undone; the ranking is read again |
 | Ergebnis eintragen | `GET /api/games`, `GET /api/persons`, `GET /api/games/{id}/standings`, `PUT /api/results/{uuid}` | Body `{gameId, personId, points}` with whole `points` from −9 999 to 9 999; 201 new, 200 replay; the same UUID with other content is 409 `request-conflict` |
 | Snackbar `Rückgängig` (result) | `DELETE /api/results/{uuid}` | 404 counts as undone; the ranking is read again |
-| Verlauf of a game | `GET /api/games`, `GET /api/games/{id}/matches?before=` or `GET /api/games/{id}/results?before=`, `DELETE /api/matches/{uuid}` or `DELETE /api/results/{uuid}` | By the game's kind. Answer `{items, next}`, newest first, 20 a page; `next` is the opaque `before` of `Ältere laden` (the cursor keeps its run), null on the last page. A match item: `id`, `first` / `second` (`{id, name}` or `null` once deleted), `outcome`, `createdAt`, `accountName` (or `null`); a result item: `id`, `person` `{id, name}`, `points`, `createdAt`, `accountName`. 404 → game gone; a delete's 404 counts as deleted; after a delete the ranking is read again. No polling |
+| Verlauf of a game | `GET /api/games`, `GET /api/games/{id}/matches?before=` or `GET /api/games/{id}/results?before=`, `DELETE /api/matches/{uuid}` or `DELETE /api/results/{uuid}` | By the game's kind. Answer `{items, next}`, newest first, 20 a page; `next` is the opaque `before` of `Ältere laden` (the cursor keeps its run), null on the last page. A match item: `id`, `first` / `second` (`{id, name}` or `null` once deleted), `outcome`, `createdAt`, `accountName` (or `null`), `pending`; a result item: `id`, `person` `{id, name}`, `points`, `createdAt`, `accountName`, `pending`. 404 → game gone; a delete's 404 counts as deleted; after a delete the ranking is read again. No polling |
 | Konten | `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/{id}` | Admins only |
-| Protokoll | `GET /api/audit?before=` | Admins only (401/403). Answer `{events, next}`, newest first; `next` is the `before` of `Ältere laden`, null on the last page. Each event: `occurredAt`, `operation`, `subjectKind`, `actor.userName`, snapshots `before`/`after` (names and values as they were), `cause` (`{id, subjectKind, name}` or null). No polling |
+| Offen and its badge | `GET /api/pending` (ETag, `If-None-Match` → 304), `GET /api/pending?cursor=`, `PUT` / `DELETE /api/entries/{uuid}/verification`, `PUT` / `DELETE /api/matches/{uuid}/verification`, `PUT` / `DELETE /api/results/{uuid}/verification` | Answer `{items, next, count}`: kind-tagged items newest first (then kind, then id), 20 a page; `next` is the opaque `cursor` of `Ältere laden`, null on the last page; `count` (the badge) covers every page. An entry item: `id`, `createdAt`, `accountName` (or `null`), `person`, `drink` (`{id, name}`), `quantity`, `factor` (or `null`). A match item: `id`, `createdAt`, `accountName`, `game` (`{id, name}`), `earlierRun`, `first` / `second` (`{id, name}` or `null`), `outcome`. A result item: `id`, `createdAt`, `accountName`, `game`, `earlierRun`, `person` (`{id, name}`), `points`. The first page polls every 10 s while visible; ETag = data revision + account, so another account never gets a 304 for it. Verify: body `{}`, 204; 403 `own-row` for the recorder, 404 for a row gone; verifying a verified row succeeds again and changes nothing. Reject: 204, the row is removed; 403 `own-row` for the recorder, 404 for a row gone, 409 `already-verified` for a row that counts already; the app treats only 404, and 409 on reject, as handled |
+| Protokoll | `GET /api/audit?before=` | Admins only (401/403). Answer `{events, next}`, newest first; `next` is the `before` of `Ältere laden`, null on the last page. Each event: `occurredAt`, `operation`, `subjectKind`, `actor.userName`, snapshots `before`/`after` (names and values as they were, an entry's, a match's and a result's with `pending`), `cause` (`{id, subjectKind, name}` or null); `operation` `create`, `update`, `delete`, `verify` or `reject`. No polling |
 | Update / reload floor | `GET /api/health`; every request | `minClientVersion` at start-up; afterwards 400 `client-outdated` on any request but health (the app version goes along in `X-Client-Version`) |
 
 `from` is always local midnight of the current day in the browser's time zone, as a UTC instant.
@@ -1060,7 +1198,12 @@ the shareable page a UI change is reviewed on before it reaches the host.
   (marked as sample data: persons, drinks, factors and entries timed relative to now, so the
   preview never ages out of "today"; Anna, Daniel and Mara have illustrated sample photos — no
   real people — bundled as hashed assets in place of the API's versioned photo URL, the others
-  show their initials), keeps writes in memory for the session (adds, undo,
+  show their initials; its last three entries wait for verification — one of Mara's, shown as
+  `+1 offen`, and Jule's only two, so she is listed under `Noch nicht gewertet` — and every
+  entry the viewer adds waits too; `anna` recorded Mara's, so her `Offen` lists Jule's two,
+  tonight's Rommé result `Daniel · 14 Punkte` (recorded by `ben`) and last night's Tischtennis
+  match `Jule – Tom · Tom gewinnt` (recorded by `mara`) with the badge `4`, and verifying one there lets it count, rejecting one removes it, by the API's rules,
+  `verify` and `reject` events included), keeps writes in memory for the session (adds, undo,
   deletes, CRUD; an uploaded photo is kept as a `data:` URL in place of the versioned URL —
   the artifact host allows `data:` images, the production CSP never sees them — and checked
   only for base64 that starts like a JPEG), and answers anything else with 503. Its games are `Rommé` (points, lowest
@@ -1068,9 +1211,12 @@ the shareable page a UI change is reviewed on before it reaches the host.
   without draws, three weeks) — on Spiele `Punktespiel · seit heute, 00:00`, `Duell · seit …`; they
   are served by the API's rules (name, kind and setting
   validation, the kind fixed, restart starting the next run from now). Schach holds nine
-  sample matches (one with a person deleted since) and Tischtennis three, on evenings before
-  today; Rommé holds tonight's eight results. Both rankings are computed like the API's
-  (current run only); matches and results are recorded and undone by the API's rules
+  sample matches (one with a person deleted since) and Tischtennis four, on evenings before
+  today, the last of them pending (Jule and Tom show `+1 offen`); Rommé holds tonight's ten
+  results, the last two pending: Daniel's `14` (`+1 offen`) and Jule's only one, a `0` that
+  `anna` recorded, so Jule is listed under `Noch nicht gewertet` instead of leading. Both
+  rankings are computed like the API's (current run only; verified matches and results only,
+  with `pendingCount` and `unranked`); every match and result the viewer records waits too; matches and results are recorded and undone by the API's rules
   (idempotent on the UUID, which is unique across entries, matches and results; a match only
   in a duel, `Remis` only where allowed, two different persons; a result only in a points
   game, whole points from −9 999 to 9 999); deleting a game takes its matches and results along, deleting a
@@ -1097,7 +1243,7 @@ the shareable page a UI change is reviewed on before it reaches the host.
 
 ## 13. Out of scope (this spec)
 
-- Views of other days (Protokoll, §7l, excepted), all-time totals, statistics or charts.
+- Views of other days (Protokoll, §7l, and Offen, §7s, excepted), all-time totals, statistics or charts.
 - Filters, search or export of the Protokoll; restoring data from it.
 - Theme switch, custom colours per person.
 - English UI.

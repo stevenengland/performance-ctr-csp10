@@ -113,6 +113,9 @@ onMounted(load);
         <span class="skeleton" />
       </li>
     </ul>
+    <p class="type-support konten__note" data-test="own-account-note">
+      {{ messages.konten.ownAccount }}
+    </p>
     <AppFab :label="messages.konten.create" @click="creating = true" />
     <CreateAccountDialog v-model="creating" @created="load" />
     <ResetPasswordDialog
@@ -138,5 +141,10 @@ onMounted(load);
 .konten {
   /* Room for the FAB under the last row. */
   padding-bottom: 88px;
+}
+
+.konten__note {
+  margin: 20px 4px 0;
+  color: rgb(var(--v-theme-on-surface-variant));
 }
 </style>

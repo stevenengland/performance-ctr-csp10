@@ -9,14 +9,15 @@ use PDO;
 
 /**
  * Entries as the audit log keeps them, their references resolved as they are now: the person's
- * name, the drink's name and points, the quantity, and the factor's name and multiplier or null.
+ * name, the drink's name and points, the quantity, the factor's name and multiplier or null, and
+ * whether the entry waits for verification.
  *
  * Every read here locks what it reads (ADR 0004): a write transaction never reads without a lock,
  * so it opens no read view that would make its later locking reads fail under MariaDB's snapshot
  * isolation. The referenced person, drink and factor are read under a shared lock only, which an
  * entry insert also takes for its foreign key checks, so the two never wait on each other there.
  *
- * @phpstan-type EntrySnapshot array{person: string, drink: string, points: string, quantity: int, factor: array{name: string, multiplier: string}|null}
+ * @phpstan-type EntrySnapshot array{person: string, drink: string, points: string, quantity: int, factor: array{name: string, multiplier: string}|null, pending: bool}
  */
 final class EntrySnapshots
 {
@@ -28,7 +29,7 @@ final class EntrySnapshots
      * table and reached the entries through the person's index would lock, and wait for, entries
      * other requests are inserting at that moment, while they wait for a row this one holds.
      */
-    private const SELECT = 'SELECT STRAIGHT_JOIN e.id, p.name AS person, d.name AS drink, d.points, e.quantity, f.name AS factor, f.multiplier
+    private const SELECT = 'SELECT STRAIGHT_JOIN e.id, p.name AS person, d.name AS drink, d.points, e.quantity, f.name AS factor, f.multiplier, e.pending
         FROM entries e FORCE INDEX (PRIMARY) JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id
         LEFT JOIN factors f ON f.id = e.factor_id';
 
@@ -119,6 +120,7 @@ final class EntrySnapshots
             'points' => (string) $row['points'],
             'quantity' => (int) $row['quantity'],
             'factor' => $row['factor'] === null ? null : ['name' => (string) $row['factor'], 'multiplier' => (string) $row['multiplier']],
+            'pending' => (int) $row['pending'] === 1,
         ];
     }
 }

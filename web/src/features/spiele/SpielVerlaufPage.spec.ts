@@ -55,6 +55,7 @@ function schach(): MatchItem[] {
       outcome: 'first',
       createdAt: '2026-11-15T20:00:00.000Z',
       accountName: 'anna',
+      pending: false,
     },
     {
       id: 'm2',
@@ -63,6 +64,7 @@ function schach(): MatchItem[] {
       outcome: 'draw',
       createdAt: '2026-11-08T20:00:00.000Z',
       accountName: null,
+      pending: false,
     },
     {
       id: 'm1',
@@ -71,6 +73,7 @@ function schach(): MatchItem[] {
       outcome: 'second',
       createdAt: '2026-11-01T20:00:00.000Z',
       accountName: 'daniel',
+      pending: false,
     },
   ];
 }
@@ -84,6 +87,7 @@ function romme(): ResultItem[] {
       points: -20,
       createdAt: '2026-11-15T21:12:00.000Z',
       accountName: 'anna',
+      pending: false,
     },
     {
       id: 'r1',
@@ -91,6 +95,7 @@ function romme(): ResultItem[] {
       points: 35,
       createdAt: '2026-11-15T20:05:00.000Z',
       accountName: 'ben',
+      pending: false,
     },
   ];
 }
@@ -134,7 +139,12 @@ function api(
         });
       }
       if (/^\/api\/games\/\d+\/standings$/.test(url)) {
-        return json({ kind: 'duel', startedAt: STARTED, rows: [] });
+        return json({
+          kind: 'duel',
+          startedAt: STARTED,
+          rows: [],
+          unranked: [],
+        });
       }
       const removed = /^\/api\/(matches|results)\/(\w+)$/.exec(url);
       if (method === 'DELETE' && removed) {
@@ -266,6 +276,36 @@ describe('a game’s Verlauf', () => {
       'Daniel · −20 Punkte15.11., 22:12 · anna',
       'Anna · 35 Punkte15.11., 21:05 · ben',
     ]);
+  });
+
+  it('marks a match that waits for verification offen', async () => {
+    const [waiting, ...rest] = schach();
+    api({ matches: [{ ...(waiting as MatchItem), pending: true }, ...rest] });
+
+    wrapper = await verlauf(2);
+
+    const marked = wrapper
+      .findAll('[data-test="game-history-row"]')
+      .map((row) => row.find('[data-test="pending"]'));
+    expect(marked.map((marker) => marker.exists())).toEqual([
+      true,
+      false,
+      false,
+    ]);
+    expect(marked[0]?.text()).toBe('offen');
+  });
+
+  it('marks a result that waits for verification offen', async () => {
+    const [waiting, ...rest] = romme();
+    api({ results: [{ ...(waiting as ResultItem), pending: true }, ...rest] });
+
+    wrapper = await verlauf(1);
+
+    const marked = wrapper
+      .findAll('[data-test="game-history-row"]')
+      .map((row) => row.find('[data-test="pending"]'));
+    expect(marked.map((marker) => marker.exists())).toEqual([true, false]);
+    expect(marked[0]?.text()).toBe('offen');
   });
 
   it('reads a deleted side as “gelöschte Person” and a deleted account as “gelöschtes Konto”', async () => {

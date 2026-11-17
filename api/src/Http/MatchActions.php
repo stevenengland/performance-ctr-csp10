@@ -77,7 +77,7 @@ final readonly class MatchActions
     }
 
     /**
-     * @return array{id: string, first: array{id: int, name: string}|null, second: array{id: int, name: string}|null, outcome: string, createdAt: string, accountName: string|null}
+     * @return array{id: string, first: array{id: int, name: string}|null, second: array{id: int, name: string}|null, outcome: string, createdAt: string, accountName: string|null, pending: bool}
      */
     private static function item(MatchItem $item): array
     {
@@ -88,6 +88,7 @@ final readonly class MatchActions
             'outcome' => $item->outcome->value,
             'createdAt' => Instant::format($item->createdAt),
             'accountName' => $item->accountName,
+            'pending' => $item->pending,
         ];
     }
 

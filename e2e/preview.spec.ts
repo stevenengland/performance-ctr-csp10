@@ -72,6 +72,7 @@ test('the preview marker covers no control of any screen', async ({ page }) => {
     ['spiele/2/verlauf', 'Verlauf'],
     ['verwalten/konten', 'Konten'],
     ['verlauf/3', 'Daniel'],
+    ['offen', 'Offen'],
   ] as const) {
     await page.goto(`/index.html#/${screen}`);
     await expect(
@@ -101,7 +102,7 @@ test('the preview marker covers no control of any screen', async ({ page }) => {
   }
 });
 
-test('the fixture preview counts a drink with Happy Hour ×2 on its sample evening and undoes it', async ({
+test('the fixture preview counts a drink with Happy Hour ×2 on its sample evening, where it waits for verification, and undoes it', async ({
   page,
 }) => {
   await page.goto('/index.html');
@@ -113,14 +114,16 @@ test('the fixture preview counts a drink with Happy Hour ×2 on its sample eveni
   await page.getByRole('button', { name: 'Happy Hour, ×2' }).click();
 
   await expect(
-    page.getByText('2× Bier · Happy Hour ×2 · Daniel'),
+    page.getByText('2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung'),
   ).toBeVisible();
+  // It waits: the score stays, the drink's counter shows what was recorded.
+  await page.getByRole('button', { name: 'Daniel, 13,5 Punkte heute' }).click();
   await expect(
-    page.getByRole('button', { name: 'Daniel, 17,5 Punkte heute' }),
+    page.getByRole('button', { name: 'Bier, 1 Punkt, heute 8' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Rückgängig' }).click();
   await expect(
-    page.getByRole('button', { name: 'Daniel, 13,5 Punkte heute' }),
+    page.getByRole('button', { name: 'Bier, 1 Punkt, heute 4' }),
   ).toBeVisible();
 });
 
@@ -158,7 +161,7 @@ test('the fixture preview renames a drink and deletes a person with their entrie
   await page.goto('/index.html#/verwalten/personen');
   await page.getByRole('button', { name: 'Daniel löschen' }).click();
   await expect(dialog).toContainText(
-    'Daniel, 5 Einträge und 2 Ergebnisse werden gelöscht.',
+    'Daniel, 5 Einträge und 3 Ergebnisse werden gelöscht.',
   );
   await dialog.getByRole('button', { name: 'Löschen' }).click();
   await expect(page.getByText('Daniel gelöscht')).toBeVisible();
@@ -183,6 +186,63 @@ test('the fixture preview ranks its sample evening on the Rangliste', async ({
   await expect(places.last()).toHaveAccessibleName(
     'Platz 5, Tom, 0,5 Punkte, 1 Getränk',
   );
+  await expect(places.nth(2)).toHaveAccessibleName(
+    'Platz 3, Mara, 6 Punkte, 4 Getränke, +1 offen',
+  );
+  await expect(
+    page.getByRole('list', { name: 'Noch nicht gewertet' }).getByRole('link'),
+  ).toHaveAccessibleName('Jule, Aperol 1 · Bier 2, +2 offen');
+});
+
+test('the fixture preview lists what anna may verify under Offen with its badge; Bestätigen lets it count, Ablehnen removes it', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/offen');
+  const navigation = page.getByRole('navigation', { name: 'Hauptnavigation' });
+  await expect(
+    navigation.getByRole('link', { name: 'Offen, 4 offen' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('list', { name: 'Zu bestätigen' }).getByRole('listitem'),
+  ).toHaveText([
+    /^2× Bier für Jule.* · ben/,
+    /^1× Aperol für Jule.* · mara/,
+    /^Daniel · 14 Punkte\s*Rommé · \d\d\.\d\d\., \d\d:\d\d · ben/,
+    /^Jule – Tom · Tom gewinnt\s*Tischtennis · \d\d\.\d\d\., 21:00 · mara/,
+  ]);
+
+  await page
+    .getByRole('button', { name: '2× Bier für Jule bestätigen' })
+    .click();
+
+  await expect(
+    page.getByRole('list', { name: 'Zu bestätigen' }).getByRole('listitem'),
+  ).toHaveText([/^1× Aperol für Jule/, /^Daniel · 14 Punkte/, /^Jule – Tom/]);
+  await expect(
+    navigation.getByRole('link', { name: 'Offen, 3 offen' }),
+  ).toBeVisible();
+
+  await page
+    .getByRole('button', { name: '1× Aperol für Jule ablehnen' })
+    .click();
+  await expect(
+    navigation.getByRole('link', { name: 'Offen, 2 offen' }),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Daniel · 14 Punkte ablehnen' })
+    .click();
+  await expect(
+    navigation.getByRole('link', { name: 'Offen, 1 offen' }),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Jule – Tom · Tom gewinnt bestätigen' })
+    .click();
+
+  await expect(page.getByText('Nichts zu bestätigen.')).toBeVisible();
+  await page.goto('/index.html#/rangliste');
+  await expect(
+    page.getByRole('link', { name: /^Platz \d+, Jule, 2 Punkte, 2 Getränke$/ }),
+  ).toBeVisible();
 });
 
 test('the fixture preview shows and deletes entries on a person’s Verlauf', async ({
@@ -232,7 +292,10 @@ test('the fixture preview opens another person’s Verlauf as a new screen', asy
   await page.goto('/index.html#/verlauf/4');
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Jule');
-  await expect(page.getByText('Heute keine Einträge.')).toBeVisible();
+  const entries = page
+    .getByRole('list', { name: 'Einträge von Jule' })
+    .getByRole('listitem');
+  await expect(entries).toHaveText([/^2× Bier.*offen/, /^1× Aperol.*offen/]);
 });
 
 test('the fixture preview lists its sample games with their leaders under Spiele and opens one’s ranking', async ({
@@ -241,7 +304,7 @@ test('the fixture preview lists its sample games with their leaders under Spiele
   await page.goto('/index.html#/zaehlen');
   await expect(
     page.getByRole('navigation', { name: 'Hauptnavigation' }).getByRole('link'),
-  ).toHaveText(['Zählen', 'Rangliste', 'Spiele', 'Verwalten']);
+  ).toHaveText(['Zählen', 'Rangliste', 'Spiele', /Offen$/, 'Verwalten']);
   await page
     .getByRole('navigation', { name: 'Hauptnavigation' })
     .getByRole('link', { name: 'Spiele' })
@@ -295,20 +358,21 @@ test('the fixture preview records a Schach match in three taps and undoes it', a
   await expect(page.getByRole('button', { name: 'Remis' })).toBeVisible();
   await page.getByRole('button', { name: 'Daniel gewinnt' }).click();
 
-  await expect(page.getByText('Daniel – Tom · Daniel gewinnt')).toBeVisible();
+  await expect(
+    page.getByText('Daniel – Tom · Daniel gewinnt · wartet auf Bestätigung'),
+  ).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Wer spielt?' }),
   ).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: 'Daniel, 1,5 Punkte' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Rückgängig' }).click();
+  // The match waits for another account, so Daniel's standing stays as it was.
   await expect(
     page.getByRole('button', { name: 'Daniel, 0,5 Punkte' }),
   ).toBeVisible();
+  await page.getByRole('button', { name: 'Rückgängig' }).click();
+  await expect(page.getByText('Rückgängig gemacht')).toBeVisible();
 });
 
-test('the fixture preview records a Rommé result on its number pad and ranks it', async ({
+test('the fixture preview records a Rommé result on its number pad, where it waits unranked', async ({
   page,
 }) => {
   await page.goto('/index.html#/spiele/1');
@@ -333,17 +397,26 @@ test('the fixture preview records a Rommé result on its number pad and ranks it
   await expect(page.locator('output')).toHaveText('−20');
   await page.getByRole('button', { name: 'Speichern' }).click();
 
-  await expect(page.getByText('Tom · −20 Punkte')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Für wen?' })).toBeVisible();
   await expect(
-    page.getByRole('button', { name: 'Tom, −20 Punkte' }),
+    page.getByText('Tom · −20 Punkte · wartet auf Bestätigung'),
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Für wen?' })).toBeVisible();
+  // The result waits for another account, so Tom has no counted result yet.
+  await expect(
+    page.getByRole('button', { name: 'Tom, noch nichts' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Zurück' }).click();
   await expect(
     page.getByRole('listitem', {
-      name: 'Platz 1, Tom, −20 Punkte, 1 Ergebnis',
+      name: 'Platz 1, Daniel, −11 Punkte, 2 Ergebnisse, +1 offen',
     }),
   ).toBeVisible();
+  const unranked = page
+    .getByRole('list', { name: 'Noch nicht gewertet' })
+    .getByRole('listitem');
+  await expect(unranked).toHaveCount(2);
+  await expect(unranked.nth(0)).toHaveAccessibleName('Jule, +1 offen');
+  await expect(unranked.nth(1)).toHaveAccessibleName('Tom, +1 offen');
 });
 
 test('the fixture preview opens Schach’s Verlauf and deletes a match from it', async ({
@@ -592,8 +665,12 @@ test('the fixture preview shows avatars on the Zählen tiles and the Rangliste',
   expect(ring).toBe(`${ink} 0px 0px 0px 3px`);
   const rows = page.locator('[data-test="rank"]');
   await expect(rows).toHaveCount(4);
-  const sizes = await avatars(page.locator('.rank'))();
+  const sizes = await avatars(rows)();
   expect(sizes.map((avatar) => avatar.size)).toEqual([44, 44, 44, 44]);
+  const unranked = page.locator('[data-test="unranked"]');
+  await expect(unranked).toHaveCount(1);
+  const unrankedSizes = await avatars(unranked)();
+  expect(unrankedSizes.map((avatar) => avatar.size)).toEqual([44]);
 });
 
 test('the fixture preview removes a person’s photo in Person bearbeiten', async ({

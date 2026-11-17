@@ -5,7 +5,7 @@ import {
   type APIRequestContext,
   type Page,
 } from './support/playwright.ts';
-import { signIn, uniqueName } from './support/session.ts';
+import { signIn, uniqueName, verifierOn } from './support/session.ts';
 
 /*
 Persons and drinks are shared by everyone on the stack, and both window projects
@@ -34,16 +34,20 @@ async function create(
   return item;
 }
 
+/** Records the entry `times` times, each verified by another account so it counts. */
 async function addEntries(
   request: APIRequestContext,
   entry: { personId: number; drinkId: number; quantity: number },
   times: number,
+  verify: (id: string) => Promise<void>,
 ) {
   for (let count = 0; count < times; count += 1) {
-    const response = await request.put(`/api/entries/${randomUUID()}`, {
+    const id = randomUUID();
+    const response = await request.put(`/api/entries/${id}`, {
       data: entry,
     });
     expect(response.status()).toBe(201);
+    await verify(id);
   }
 }
 
@@ -118,12 +122,14 @@ test('a person is renamed under Verwalten → Personen and the list stays alphab
 
 test('deleting a person after a dialog that names the entries removes them from the scoreboard', async ({
   page,
+  request,
 }) => {
   const { person, drink } = await evening(page.request);
   await addEntries(
     page.request,
     { personId: person.id, drinkId: drink.id, quantity: 1 },
     3,
+    await verifierOn(request),
   );
   await page.goto('/zaehlen');
   await expect(personTile(page, person.name)).toHaveAccessibleName(
@@ -151,12 +157,14 @@ test('deleting a person after a dialog that names the entries removes them from 
 
 test('editing a drink’s name and points changes today’s score of its entries', async ({
   page,
+  request,
 }) => {
   const { person, drink } = await evening(page.request);
   await addEntries(
     page.request,
     { personId: person.id, drinkId: drink.id, quantity: 2 },
     1,
+    await verifierOn(request),
   );
   const renamed = uniqueName('Helles');
 
@@ -185,12 +193,14 @@ test('editing a drink’s name and points changes today’s score of its entries
 
 test('deleting a drink after a dialog that names the entries removes its counters and score', async ({
   page,
+  request,
 }) => {
   const { person, drink } = await evening(page.request);
   await addEntries(
     page.request,
     { personId: person.id, drinkId: drink.id, quantity: 1 },
     12,
+    await verifierOn(request),
   );
 
   await page.goto('/verwalten/getraenke');

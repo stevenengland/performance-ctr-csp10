@@ -42,12 +42,13 @@ const game = (
 
 const noRows = (subject: Game): Standings =>
   subject.kind === 'duel'
-    ? { kind: 'duel', startedAt: subject.startedAt, rows: [] }
+    ? { kind: 'duel', startedAt: subject.startedAt, rows: [], unranked: [] }
     : {
         kind: 'points',
         startedAt: subject.startedAt,
         lowerWins: subject.lowerWins,
         rows: [],
+        unranked: [],
       };
 
 /** The API with the games and each game's ranking (none recorded unless given). */
@@ -82,6 +83,7 @@ const SCHACH: Standings = {
       draws: 1,
       losses: 1,
       played: 5,
+      pendingCount: 0,
     },
     {
       personId: 2,
@@ -91,6 +93,7 @@ const SCHACH: Standings = {
       draws: 0,
       losses: 2,
       played: 4,
+      pendingCount: 0,
     },
     {
       personId: 6,
@@ -100,8 +103,10 @@ const SCHACH: Standings = {
       draws: 1,
       losses: 2,
       played: 3,
+      pendingCount: 0,
     },
   ],
+  unranked: [],
 };
 
 let router: Router;
@@ -171,6 +176,30 @@ describe('a game’s page', () => {
     expect(wrapper.get('.top-bar__context').text()).toBe('Duell · seit 15.09.');
     expect(wrapper.get('.spiel__rule').text()).toBe('Remis möglich');
     expect(wrapper.text()).toContain('Seit dem Start noch keine Partien.');
+  });
+
+  it('lists the players whose matches all wait under Noch nicht gewertet instead of saying none were played', async () => {
+    api([game(1, 'Schach', 'duel')], {
+      1: {
+        kind: 'duel',
+        startedAt: STARTED,
+        rows: [],
+        unranked: [
+          { personId: 1, name: 'Anna', pendingCount: 1 },
+          { personId: 2, name: 'Ben', pendingCount: 1 },
+        ],
+      },
+    });
+
+    wrapper = await spiel(1);
+
+    expect(wrapper.text()).not.toContain('Seit dem Start noch keine Partien.');
+    expect(wrapper.find('.game-leader').exists()).toBe(false);
+    expect(
+      wrapper
+        .findAll('[data-test="game-unranked"]')
+        .map((row) => row.attributes('aria-label')),
+    ).toEqual(['Anna, +1 offen', 'Ben, +1 offen']);
   });
 
   it('shows a points game started today with its rule and no results yet', async () => {
@@ -248,9 +277,16 @@ describe('a game’s page', () => {
         startedAt: STARTED,
         lowerWins: true,
         rows: [
-          { personId: 3, name: 'Daniel', sum: -11, results: 2 },
-          { personId: 2, name: 'Ben', sum: 39, results: 2 },
+          {
+            personId: 3,
+            name: 'Daniel',
+            sum: -11,
+            results: 2,
+            pendingCount: 0,
+          },
+          { personId: 2, name: 'Ben', sum: 39, results: 2, pendingCount: 0 },
         ],
+        unranked: [],
       },
     });
 
@@ -265,6 +301,44 @@ describe('a game’s page', () => {
       'Platz 2, Ben, 39 Punkte, 2 Ergebnisse',
     ]);
     expect(wrapper.get('.game-leader__value').text()).toBe('−11');
+  });
+
+  it('ranks only who has a counting result and lists who only waits apart, even on a pending zero in a lowest-wins game', async () => {
+    api([game(2, 'Rommé', 'points', { lowerWins: true })], {
+      2: {
+        kind: 'points',
+        startedAt: STARTED,
+        lowerWins: true,
+        rows: [
+          {
+            personId: 3,
+            name: 'Daniel',
+            sum: -11,
+            results: 2,
+            pendingCount: 1,
+          },
+          { personId: 2, name: 'Ben', sum: 39, results: 2, pendingCount: 0 },
+        ],
+        unranked: [{ personId: 4, name: 'Jule', pendingCount: 1 }],
+      },
+    });
+
+    wrapper = await spiel(2);
+
+    expect(
+      wrapper
+        .findAll('[data-test="game-place"]')
+        .map((place) => place.attributes('aria-label')),
+    ).toEqual([
+      'Platz 1, Daniel, −11 Punkte, 2 Ergebnisse, +1 offen',
+      'Platz 2, Ben, 39 Punkte, 2 Ergebnisse',
+    ]);
+    expect(wrapper.get('.game-leader__value').text()).toBe('−11');
+    expect(
+      wrapper
+        .findAll('[data-test="game-unranked"]')
+        .map((row) => row.attributes('aria-label')),
+    ).toEqual(['Jule, +1 offen']);
   });
 
   it('shows maintenance in the snackbar when the ranking cannot be read', async () => {
@@ -407,6 +481,7 @@ describe('keeping a game’s page current', () => {
       startedAt: '2026-11-15T21:00:00.000Z',
       lowerWins: true,
       rows: [],
+      unranked: [],
     };
     await vi.advanceTimersByTimeAsync(10_000);
 
@@ -564,7 +639,12 @@ describe('restarting a game', () => {
         if (url === `/api/games/${String(subject.id)}/standings`) {
           return json(
             restarted
-              ? { kind: 'duel', startedAt: current.startedAt, rows: [] }
+              ? {
+                  kind: 'duel',
+                  startedAt: current.startedAt,
+                  rows: [],
+                  unranked: [],
+                }
               : SCHACH,
           );
         }

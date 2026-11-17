@@ -22,6 +22,7 @@ import {
   ruleLine,
   settingLine,
   sinceLabel,
+  unrankedGameStandings,
 } from './game-view';
 
 const game = (
@@ -85,6 +86,7 @@ describe('a game in words', () => {
         startedAt: restarted,
         lowerWins: true,
         rows: [],
+        unranked: [],
       }),
     ).toEqual(game('points', { startedAt: restarted, lowerWins: true }));
     expect(
@@ -92,6 +94,7 @@ describe('a game in words', () => {
         kind: 'duel',
         startedAt: restarted,
         rows: [],
+        unranked: [],
       }),
     ).toEqual(game('duel', { drawsAllowed: false, startedAt: restarted }));
     expect(gameAsRanked(game('duel'), undefined)).toEqual(game('duel'));
@@ -111,8 +114,10 @@ describe('a game in words', () => {
           draws: 0,
           losses: 0,
           played: 1,
+          pendingCount: 0,
         },
       ],
+      unranked: [],
     };
     const ownRestart = game('duel', { startedAt: restarted });
 
@@ -120,6 +125,7 @@ describe('a game in words', () => {
       kind: 'duel',
       startedAt: restarted,
       rows: [],
+      unranked: [],
     });
     expect(gameAsRanked(ownRestart, currentRun(ownRestart, older))).toEqual(
       ownRestart,
@@ -128,6 +134,27 @@ describe('a game in words', () => {
     const remote = { ...older, startedAt: restarted };
     expect(currentRun(game('duel'), remote)).toBe(remote);
     expect(currentRun(game('duel'), undefined)).toBeUndefined();
+  });
+
+  it('counts a points ranking read before the game’s known start as the new run, with no one waiting', () => {
+    const restarted = '2026-11-15T21:00:00.000Z';
+    const older = {
+      kind: 'points' as const,
+      startedAt: '2026-09-15T10:00:00Z',
+      lowerWins: false,
+      rows: [pointsRow(1, 'Anna', 20, 1)],
+      unranked: [{ personId: 2, name: 'Ben', pendingCount: 1 }],
+    };
+
+    expect(currentRun(game('points', { startedAt: restarted }), older)).toEqual(
+      {
+        kind: 'points',
+        startedAt: restarted,
+        lowerWins: false,
+        rows: [],
+        unranked: [],
+      },
+    );
   });
 
   it('keeps the setting line of Verwalten → Spiele', () => {
@@ -150,13 +177,15 @@ const duelRow = (
   draws,
   losses,
   played: wins + draws + losses,
+  pendingCount: 0,
 });
 const pointsRow = (
   personId: number,
   name: string,
   sum: number,
   results: number,
-): PointsRow => ({ personId, name, sum, results });
+  pendingCount = 0,
+): PointsRow => ({ personId, name, sum, results, pendingCount });
 
 describe('a game’s ranking in words', () => {
   it('ranks a duel’s places in the API’s order with points in German format and the record', () => {
@@ -164,6 +193,7 @@ describe('a game’s ranking in words', () => {
       kind: 'duel',
       startedAt: STARTED,
       rows: [duelRow(1, 'Anna', [3, 1, 1]), duelRow(2, 'Ben', [1, 0, 0])],
+      unranked: [],
     });
 
     expect(places).toEqual([
@@ -190,11 +220,73 @@ describe('a game’s ranking in words', () => {
     ]);
   });
 
+  it('adds +n offen to a place while matches of the run wait, and lists who only waits without a rank', () => {
+    const standings = {
+      kind: 'duel' as const,
+      startedAt: STARTED,
+      rows: [
+        { ...duelRow(1, 'Anna', [1, 0, 0]), pendingCount: 2 },
+        duelRow(2, 'Ben', [0, 0, 1]),
+      ],
+      unranked: [{ personId: 3, name: 'Jule', pendingCount: 1 }],
+    };
+
+    expect(
+      gameStandings(standings).map(({ pending, label }) => [pending, label]),
+    ).toEqual([
+      [
+        '+2 offen',
+        'Platz 1, Anna, 1 Punkt, 1 Partie · 1 S · 0 R · 0 N, +2 offen',
+      ],
+      [undefined, 'Platz 2, Ben, 0 Punkte, 1 Partie · 0 S · 0 R · 1 N'],
+    ]);
+    expect(unrankedGameStandings(standings)).toEqual([
+      {
+        personId: 3,
+        name: 'Jule',
+        pending: '+1 offen',
+        label: 'Jule, +1 offen',
+      },
+    ]);
+    expect(leaderLine({ ...standings, rows: [] })).toBe(
+      'noch keine Ergebnisse',
+    );
+  });
+
+  it('adds +n offen to a points place while results of the run wait, and lists who only waits without a rank', () => {
+    const standings = {
+      kind: 'points' as const,
+      startedAt: STARTED,
+      lowerWins: true,
+      rows: [pointsRow(1, 'Anna', -3, 1, 1), pointsRow(2, 'Ben', 12, 1)],
+      unranked: [{ personId: 3, name: 'Jule', pendingCount: 2 }],
+    };
+
+    expect(
+      gameStandings(standings).map(({ pending, label }) => [pending, label]),
+    ).toEqual([
+      ['+1 offen', 'Platz 1, Anna, −3 Punkte, 1 Ergebnis, +1 offen'],
+      [undefined, 'Platz 2, Ben, 12 Punkte, 1 Ergebnis'],
+    ]);
+    expect(unrankedGameStandings(standings)).toEqual([
+      {
+        personId: 3,
+        name: 'Jule',
+        pending: '+2 offen',
+        label: 'Jule, +2 offen',
+      },
+    ]);
+    expect(leaderLine({ ...standings, rows: [] })).toBe(
+      'noch keine Ergebnisse',
+    );
+  });
+
   it('gives tied places consecutive ranks, as the drink Rangliste does', () => {
     const places = gameStandings({
       kind: 'duel',
       startedAt: STARTED,
       rows: [duelRow(1, 'Anna', [1, 0, 0]), duelRow(2, 'Ben', [1, 0, 0])],
+      unranked: [],
     });
 
     expect(places.map(({ rank }) => rank)).toEqual([1, 2]);
@@ -210,6 +302,7 @@ describe('a game’s ranking in words', () => {
         pointsRow(1, 'Anna', 1, 1),
         pointsRow(2, 'Ben', 39, 2),
       ],
+      unranked: [],
     });
 
     expect(
@@ -235,6 +328,7 @@ describe('a game’s ranking in words', () => {
         kind: 'duel',
         startedAt: STARTED,
         rows: [duelRow(1, 'Anna', [4, 0, 1]), duelRow(2, 'Ben', [1, 0, 4])],
+        unranked: [],
       }),
     ).toBe('1. Anna · 4 Punkte');
     expect(
@@ -243,11 +337,12 @@ describe('a game’s ranking in words', () => {
         startedAt: STARTED,
         lowerWins: false,
         rows: [pointsRow(4, 'Mara', -20, 1)],
+        unranked: [],
       }),
     ).toBe('1. Mara · −20 Punkte');
-    expect(leaderLine({ kind: 'duel', startedAt: STARTED, rows: [] })).toBe(
-      'noch keine Ergebnisse',
-    );
+    expect(
+      leaderLine({ kind: 'duel', startedAt: STARTED, rows: [], unranked: [] }),
+    ).toBe('noch keine Ergebnisse');
   });
 
   it('puts a match’s outcome in words', () => {
@@ -298,6 +393,7 @@ describe('a game’s Verlauf in words', () => {
         outcome: 'first',
         createdAt: '2026-11-15T20:00:00.000Z',
         accountName: 'anna',
+        pending: false,
       },
       {
         id: 'm1',
@@ -306,6 +402,7 @@ describe('a game’s Verlauf in words', () => {
         outcome: 'draw',
         createdAt: '2026-11-08T20:30:00.000Z',
         accountName: 'ben',
+        pending: false,
       },
     ];
 
@@ -327,6 +424,54 @@ describe('a game’s Verlauf in words', () => {
     ]);
   });
 
+  it('marks a match that waits for verification offen', () => {
+    const [waiting, counting] = matchRows([
+      {
+        id: 'm2',
+        first: anna,
+        second: ben,
+        outcome: 'first',
+        createdAt: '2026-11-15T20:00:00.000Z',
+        accountName: 'anna',
+        pending: true,
+      },
+      {
+        id: 'm1',
+        first: anna,
+        second: ben,
+        outcome: 'draw',
+        createdAt: '2026-11-15T19:00:00.000Z',
+        accountName: 'anna',
+        pending: false,
+      },
+    ]);
+
+    expect([waiting?.pending, counting?.pending]).toEqual(['offen', undefined]);
+  });
+
+  it('marks a result that waits for verification offen', () => {
+    const [waiting, counting] = resultRows([
+      {
+        id: 'r2',
+        person: anna,
+        points: -4,
+        createdAt: '2026-11-15T20:00:00.000Z',
+        accountName: 'anna',
+        pending: true,
+      },
+      {
+        id: 'r1',
+        person: ben,
+        points: 9,
+        createdAt: '2026-11-15T19:00:00.000Z',
+        accountName: 'anna',
+        pending: false,
+      },
+    ]);
+
+    expect([waiting?.pending, counting?.pending]).toEqual(['offen', undefined]);
+  });
+
   it('names a deleted side “gelöschte Person” and a deleted account “gelöschtes Konto”', () => {
     const [row] = matchRows([
       {
@@ -336,6 +481,7 @@ describe('a game’s Verlauf in words', () => {
         outcome: 'first',
         createdAt: '2026-11-15T20:00:00.000Z',
         accountName: null,
+        pending: false,
       },
     ]);
 
@@ -353,6 +499,7 @@ describe('a game’s Verlauf in words', () => {
         points: -20,
         createdAt: '2026-11-15T21:12:00.000Z',
         accountName: 'anna',
+        pending: false,
       },
       {
         id: 'r1',
@@ -360,6 +507,7 @@ describe('a game’s Verlauf in words', () => {
         points: 1,
         createdAt: '2026-11-15T20:05:00.000Z',
         accountName: null,
+        pending: false,
       },
     ];
 

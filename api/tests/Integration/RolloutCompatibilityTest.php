@@ -119,6 +119,31 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
     }
 
     /**
+     * The four-eyes release drops the check that limited audit operations to create, update and
+     * delete (PRD #61). The previous release keeps recording its events as before, and a reader
+     * of the log gets them next to this release's verifications.
+     */
+    public function testThePreviousReleaseKeepsRecordingItsEventsNextToVerifications(): void
+    {
+        $session = $this->signIn();
+        $this->send('POST', '/api/persons', ['name' => 'Daniel'], $session);
+        $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $session);
+        $this->send('PUT', '/api/entries/' . self::ENTRY, ['personId' => 1, 'drinkId' => 1, 'quantity' => 1], $session);
+        $this->createAccount('anna', 'annas-startpasswort');
+        $verified = $this->send('PUT', '/api/entries/' . self::ENTRY . '/verification', [], $this->signIn('anna', 'annas-startpasswort'));
+        self::assertSame(204, $verified->getStatusCode(), (string) $verified->getBody());
+        $this->otherSession()->prepare(self::PREVIOUS_AUDIT_EVENT)->execute([Timestamp::of($this->clock->now())]);
+
+        /** @var list<array<string, mixed>> $events */
+        $events = $this->body($this->send('GET', '/api/audit?limit=2', session: $session))['events'];
+
+        self::assertSame(
+            [['person', 'create'], ['entry', 'verify']],
+            array_map(static fn(array $event): array => [$event['subjectKind'], $event['operation']], $events),
+        );
+    }
+
+    /**
      * The matches migration adds a table the previous release does not know. Its foreign keys
      * still act when the previous release deletes a person or an account: the match stays,
      * with that side and the recording account cleared, and nothing the previous release does
@@ -204,6 +229,128 @@ final class RolloutCompatibilityTest extends DatabaseTestCase
         self::assertSame([['id' => '1', 'name' => 'Anna'], ['id' => '2', 'name' => 'Ben']], $listed);
         self::assertSame([['id' => '1', 'name' => 'Berta']], $this->rows('SELECT CAST(id AS CHAR) AS id, name FROM persons'));
         self::assertSame([['person_id' => '1']], $this->rows('SELECT CAST(person_id AS CHAR) AS person_id FROM person_photos'));
+    }
+
+    /**
+     * The verification migrations add `pending` with the default 0 (PRD #61). An entry the
+     * previous release still inserts names no `pending`, so it counts at once, as it did there;
+     * an entry this release records waits for verification next to it.
+     */
+    public function testAnEntryThePreviousReleaseInsertsCountsNextToAPendingOne(): void
+    {
+        $session = $this->signIn();
+        $this->send('POST', '/api/persons', ['name' => 'Daniel'], $session);
+        $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $session);
+        $this->otherSession()->prepare('INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at) VALUES (?, 1, 1, 2, 1, ?)')
+            ->execute([self::ENTRY, Timestamp::of($this->clock->now())]);
+        $recorded = $this->send('PUT', '/api/entries/0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b', ['personId' => 1, 'drinkId' => 1, 'quantity' => 3], $session);
+        self::assertSame(201, $recorded->getStatusCode(), (string) $recorded->getBody());
+
+        $board = $this->body($this->send('GET', '/api/scoreboard?from=2026-11-14T00:00:00Z', session: $session));
+
+        self::assertIsList($board['rows']);
+        self::assertCount(1, $board['rows']);
+        self::assertIsArray($board['rows'][0]);
+        self::assertSame(['score' => 2, 'count' => 2], array_intersect_key($board['rows'][0], ['score' => 0, 'count' => 0]));
+    }
+
+    /**
+     * The verification migrations add `pending` to matches with the default 0 (PRD #61). A match
+     * the previous release still inserts names no `pending`, so it counts at once, as it did
+     * there; a match this release records waits for verification next to it and counts for
+     * neither player.
+     */
+    public function testAMatchThePreviousReleaseInsertsCountsNextToAPendingOne(): void
+    {
+        $session = $this->signIn();
+        foreach (['Anna', 'Ben'] as $name) {
+            $this->send('POST', '/api/persons', ['name' => $name], $session);
+        }
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $session);
+        $this->otherSession()->prepare(
+            "INSERT INTO matches (id, game_id, first_person_id, second_person_id, outcome, run, account_id, created_at) VALUES (?, 1, 1, 2, 'first', 1, 1, ?)",
+        )->execute([self::ENTRY, Timestamp::of($this->clock->now())]);
+        $recorded = $this->send('PUT', '/api/matches/0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b', ['gameId' => 1, 'firstPersonId' => 1, 'secondPersonId' => 2, 'outcome' => 'second'], $session);
+        self::assertSame(201, $recorded->getStatusCode(), (string) $recorded->getBody());
+
+        $standings = $this->body($this->send('GET', '/api/games/1/standings', session: $session));
+
+        self::assertIsList($standings['rows']);
+        self::assertSame(
+            [['name' => 'Anna', 'points' => 1, 'played' => 1, 'pendingCount' => 1], ['name' => 'Ben', 'points' => 0, 'played' => 1, 'pendingCount' => 1]],
+            array_map(static fn(mixed $row): array => is_array($row) ? array_intersect_key($row, ['name' => 0, 'points' => 0, 'played' => 0, 'pendingCount' => 0]) : [], $standings['rows']),
+        );
+    }
+
+    /**
+     * The verification migrations add `pending` to results with the default 0 (PRD #61). A
+     * result the previous release still inserts names no `pending`, so it counts at once, as it
+     * did there; a result this release records waits for verification next to it and stays out
+     * of the sum.
+     */
+    public function testAResultThePreviousReleaseInsertsCountsNextToAPendingOne(): void
+    {
+        $session = $this->signIn();
+        $this->send('POST', '/api/persons', ['name' => 'Anna'], $session);
+        $this->send('POST', '/api/games', ['name' => 'Wizard', 'kind' => 'points'], $session);
+        $this->otherSession()->prepare(
+            'INSERT INTO results (id, game_id, person_id, points, run, account_id, created_at) VALUES (?, 1, 1, 30, 1, 1, ?)',
+        )->execute([self::ENTRY, Timestamp::of($this->clock->now())]);
+        $recorded = $this->send('PUT', '/api/results/0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b', ['gameId' => 1, 'personId' => 1, 'points' => -50], $session);
+        self::assertSame(201, $recorded->getStatusCode(), (string) $recorded->getBody());
+
+        $standings = $this->body($this->send('GET', '/api/games/1/standings', session: $session));
+
+        self::assertSame([['personId' => 1, 'name' => 'Anna', 'sum' => 30, 'results' => 1, 'pendingCount' => 1]], $standings['rows']);
+    }
+
+    /**
+     * Rows the previous release inserts without `pending` are confirmed rows, of every kind: no
+     * other account is asked to verify them, and rejecting one is refused as already confirmed.
+     * The rows this release records next to them wait in that account's queue.
+     */
+    public function testRowsThePreviousReleaseInsertsOfEveryKindWaitForNobody(): void
+    {
+        $session = $this->signIn();
+        foreach (['Anna', 'Ben'] as $name) {
+            $this->send('POST', '/api/persons', ['name' => $name], $session);
+        }
+        $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1], $session);
+        $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $session);
+        $this->send('POST', '/api/games', ['name' => 'Wizard', 'kind' => 'points'], $session);
+        $at = Timestamp::of($this->clock->now());
+        $previous = [
+            'entries' => ['a1000000-0000-4000-8000-000000000001', 'INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at) VALUES (?, 1, 1, 1, 1, ?)'],
+            'matches' => ['a1000000-0000-4000-8000-000000000002', "INSERT INTO matches (id, game_id, first_person_id, second_person_id, outcome, run, account_id, created_at) VALUES (?, 1, 1, 2, 'draw', 1, 1, ?)"],
+            'results' => ['a1000000-0000-4000-8000-000000000003', 'INSERT INTO results (id, game_id, person_id, points, run, account_id, created_at) VALUES (?, 2, 1, 12, 1, 1, ?)'],
+        ];
+        foreach ($previous as [$id, $insert]) {
+            $this->otherSession()->prepare($insert)->execute([$id, $at]);
+        }
+        $current = [
+            'entries' => ['b2000000-0000-4000-8000-000000000001', ['personId' => 1, 'drinkId' => 1, 'quantity' => 1]],
+            'matches' => ['b2000000-0000-4000-8000-000000000002', ['gameId' => 1, 'firstPersonId' => 1, 'secondPersonId' => 2, 'outcome' => 'draw']],
+            'results' => ['b2000000-0000-4000-8000-000000000003', ['gameId' => 2, 'personId' => 2, 'points' => 4]],
+        ];
+        foreach ($current as $rows => [$id, $row]) {
+            $recorded = $this->send('PUT', "/api/{$rows}/{$id}", $row, $session);
+            self::assertSame(201, $recorded->getStatusCode(), (string) $recorded->getBody());
+        }
+        $this->createAccount('anna', 'annas-startpasswort');
+        $anna = $this->signIn('anna', 'annas-startpasswort');
+
+        $queue = $this->body($this->send('GET', '/api/pending', session: $anna));
+
+        self::assertIsList($queue['items']);
+        self::assertSame(
+            array_column($current, 0),
+            array_column($queue['items'], 'id'),
+        );
+        self::assertSame(3, $queue['count']);
+        foreach ($previous as $rows => [$id]) {
+            $rejected = $this->send('DELETE', "/api/{$rows}/{$id}/verification", session: $anna);
+            self::assertSame(409, $rejected->getStatusCode(), "the previous release's {$rows} row is confirmed");
+        }
     }
 
     private function previousReleaseReserves(): void

@@ -162,7 +162,7 @@ final class CatalogManageTest extends DatabaseTestCase
         self::assertSame([['id' => 2, 'name' => 'Wein', 'points' => 2]], $this->body($this->send('GET', '/api/drinks', session: $this->session))['drinks']);
         self::assertSame([['drink_id' => '2']], $this->rows('SELECT CAST(drink_id AS CHAR) AS drink_id FROM entries'));
         self::assertSame(
-            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 2, 'count' => 1, 'drinks' => [['drinkId' => 2, 'name' => 'Wein', 'count' => 1]]]],
+            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 2, 'count' => 1, 'pendingCount' => 0, 'drinks' => [['drinkId' => 2, 'name' => 'Wein', 'count' => 1, 'recordedCount' => 1]]]],
             $this->standings(),
         );
     }
@@ -188,7 +188,7 @@ final class CatalogManageTest extends DatabaseTestCase
         $this->send('PATCH', '/api/drinks/1', ['name' => 'Helles', 'points' => 1.5], $this->session);
 
         self::assertSame('Dani', $this->standings()[0]['name']);
-        self::assertSame([['drinkId' => 1, 'name' => 'Helles', 'count' => 1]], $this->standings()[0]['drinks']);
+        self::assertSame([['drinkId' => 1, 'name' => 'Helles', 'count' => 1, 'recordedCount' => 1]], $this->standings()[0]['drinks']);
     }
 
     /**
@@ -234,12 +234,14 @@ final class CatalogManageTest extends DatabaseTestCase
         $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => 1.5], $this->session);
     }
 
+    /** Records an entry and lets it count. */
     private function add(int $personId, int $drinkId, int $quantity): ResponseInterface
     {
         ++$this->entries;
         $id = sprintf('00000000-0000-4000-8000-%012d', $this->entries);
         $response = $this->send('PUT', "/api/entries/{$id}", ['personId' => $personId, 'drinkId' => $drinkId, 'quantity' => $quantity], $this->session);
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        $this->verifyDirectly('entries', $id);
 
         return $response;
     }

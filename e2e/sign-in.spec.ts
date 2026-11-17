@@ -23,7 +23,12 @@ async function fillSignIn(page: Page, userName: string, password: string) {
 
 /** A second device: a fresh browser context with the window settings of the project. */
 async function otherDevice(browser: Browser, baseURL: string | undefined) {
-  const context = await browser.newContext({ baseURL, locale: 'de-DE' });
+  // The tests' own API calls name the client version, as the config's contexts do.
+  const context = await browser.newContext({
+    baseURL,
+    locale: 'de-DE',
+    extraHTTPHeaders: test.info().project.use.extraHTTPHeaders,
+  });
   return { context, page: await context.newPage() };
 }
 

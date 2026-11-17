@@ -22,6 +22,8 @@ use Performance\Domain\Migrator;
 use Performance\Domain\Scoreboard;
 use Performance\Domain\Sessions;
 use Performance\Domain\Snapshot;
+use Performance\Domain\VerifiableKind;
+use Performance\Domain\Verification;
 
 /**
  * Opens the request's database session, and the domain modules that work on it,
@@ -44,6 +46,7 @@ final class Database
     private ?Games $games = null;
     private ?Matches $matches = null;
     private ?Results $results = null;
+    private ?Verification $verification = null;
 
     public function __construct(
         private readonly Config $config,
@@ -62,7 +65,7 @@ final class Database
 
     public function accounts(): Accounts
     {
-        return $this->accounts ??= new Accounts($this->pdo(), $this->clock);
+        return $this->accounts ??= new Accounts($this->pdo(), $this->clock, $this->revision());
     }
 
     public function sessions(): Sessions
@@ -100,6 +103,16 @@ final class Database
     public function results(): Results
     {
         return $this->results ??= new Results($this->pdo(), $this->clock, $this->revision(), $this->audit(), $this->idempotency());
+    }
+
+    /** The four-eyes rule with the owner of each kind of row it applies to. */
+    public function verification(): Verification
+    {
+        return $this->verification ??= new Verification($this->revision(), $this->audit(), $this->clock, [
+            VerifiableKind::Entry->value => $this->entries(),
+            VerifiableKind::Match->value => $this->matches()->verifiableRows(),
+            VerifiableKind::Result->value => $this->results()->verifiableRows(),
+        ]);
     }
 
     public function scoreboard(): Scoreboard

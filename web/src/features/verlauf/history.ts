@@ -19,6 +19,8 @@ export interface HistoryRow {
   removeLabel: string;
   /** The confirmation dialog's body (§6.9): `2× Bier · Happy Hour ×2 um 23:41`. */
   removeBody: string;
+  /** `offen` while the entry waits for verification. */
+  pending?: string;
 }
 
 /** The API's entries, newest first, as Verlauf shows them; times in the browser's time zone unless one is given. */
@@ -42,6 +44,7 @@ export function historyRows(
       ),
       removeLabel: messages.verlauf.remove(title, time),
       removeBody: messages.verlauf.removeBody(title, time, factor),
+      pending: entry.pending ? messages.pending.marker : undefined,
     };
   });
 }

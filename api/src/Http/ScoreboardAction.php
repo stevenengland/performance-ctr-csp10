@@ -6,12 +6,15 @@ namespace Performance\Http;
 
 use DateTimeImmutable;
 use Performance\Domain\DrinkCount;
+use Performance\Domain\DrinkStandings;
 use Performance\Domain\ScoreRow;
+use Performance\Domain\UnrankedRow;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * `GET /api/scoreboard?from=<instant>`: the standings since `from`, the start of the viewer's day.
+ * `GET /api/scoreboard?from=<instant>`: the standings since `from`, the start of the viewer's day:
+ * the ranked `rows` and the `unranked` persons whose entries all wait for verification.
  * The ETag names the data revision and the window, so `If-None-Match` with an
  * unchanged revision answers 304 before anything is aggregated. The revision and
  * the standings are read in one snapshot, so the tag always names what is sent.
@@ -33,10 +36,7 @@ final readonly class ScoreboardAction
             $request,
             $response,
             self::tag($scoreboard->revision(), $from),
-            static fn(ResponseInterface $response): ResponseInterface => Json::write(
-                $response,
-                ['rows' => array_map(static fn(ScoreRow $row): array => self::row($row, $photoUrl), $scoreboard->since($from))],
-            ),
+            static fn(ResponseInterface $response): ResponseInterface => Json::write($response, self::standings($scoreboard->since($from), $photoUrl)),
         ));
     }
 
@@ -47,9 +47,20 @@ final readonly class ScoreboardAction
     }
 
     /**
+     * @return array{rows: list<array<string, mixed>>, unranked: list<array<string, mixed>>}
+     */
+    private static function standings(DrinkStandings $standings, PhotoUrl $photoUrl): array
+    {
+        return [
+            'rows' => array_map(static fn(ScoreRow $row): array => self::row($row, $photoUrl), $standings->rows),
+            'unranked' => array_map(static fn(UnrankedRow $row): array => self::unranked($row, $photoUrl), $standings->unranked),
+        ];
+    }
+
+    /**
      * A person's standing, with the URL of their photo.
      *
-     * @return array{personId: int, name: string, photoUrl: string|null, score: int|float, count: int|float, drinks: list<array{drinkId: int, name: string, count: int|float}>}
+     * @return array{personId: int, name: string, photoUrl: string|null, score: int|float, count: int|float, pendingCount: int, drinks: list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float}>}
      */
     private static function row(ScoreRow $row, PhotoUrl $photoUrl): array
     {
@@ -59,10 +70,42 @@ final readonly class ScoreboardAction
             'photoUrl' => $photoUrl->of($row->personId, $row->photoVersion),
             'score' => Decimal::json($row->score),
             'count' => Decimal::json($row->count),
-            'drinks' => array_map(
-                static fn(DrinkCount $drink): array => ['drinkId' => $drink->drinkId, 'name' => $drink->name, 'count' => Decimal::json($drink->count)],
-                $row->drinks,
-            ),
+            'pendingCount' => $row->pendingCount,
+            'drinks' => self::drinks($row->drinks),
         ];
+    }
+
+    /**
+     * A person without a rank, with the URL of their photo.
+     *
+     * @return array{personId: int, name: string, photoUrl: string|null, pendingCount: int, drinks: list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float}>}
+     */
+    private static function unranked(UnrankedRow $row, PhotoUrl $photoUrl): array
+    {
+        return [
+            'personId' => $row->personId,
+            'name' => $row->name,
+            'photoUrl' => $photoUrl->of($row->personId, $row->photoVersion),
+            'pendingCount' => $row->pendingCount,
+            'drinks' => self::drinks($row->drinks),
+        ];
+    }
+
+    /**
+     * @param list<DrinkCount> $drinks
+     *
+     * @return list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float}>
+     */
+    private static function drinks(array $drinks): array
+    {
+        return array_map(
+            static fn(DrinkCount $drink): array => [
+                'drinkId' => $drink->drinkId,
+                'name' => $drink->name,
+                'count' => Decimal::json($drink->count),
+                'recordedCount' => Decimal::json($drink->recordedCount),
+            ],
+            $drinks,
+        );
     }
 }

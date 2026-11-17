@@ -77,7 +77,7 @@ describe('the fixture backend', () => {
     const { health } = sampleEvening();
 
     expect(health.migration).toBe('ok');
-    expect(health.minClientVersion).toBe('0.1.0');
+    expect(health.minClientVersion).toBe('0.3.0');
   });
 
   it('starts signed in as an admin', async () => {
@@ -252,7 +252,9 @@ describe('the fixture backend', () => {
       ['Ben', 5],
       ['Tom', 0.5],
     ]);
-    expect(rows[3]?.drinks).toEqual([{ drinkId: 2, name: 'Bier', count: 5 }]);
+    expect(rows[3]?.drinks).toEqual([
+      { drinkId: 2, name: 'Bier', count: 5, recordedCount: 5 },
+    ]);
     expect(await listFactors()).toEqual([
       { id: 1, name: 'Geburtstag', multiplier: 1.5 },
       { id: 2, name: 'Happy Hour', multiplier: 2 },
@@ -261,7 +263,42 @@ describe('the fixture backend', () => {
       drinkId: 2,
       name: 'Bier',
       count: 4,
+      recordedCount: 4,
     });
+  });
+
+  it('serves entries that wait for verification like the API: counted as recorded, hinted at, and unranked when all of a person’s wait', async () => {
+    installFixtureBackend(sampleEvening());
+
+    const { rows, unranked } = await standings(todayFrom());
+
+    const mara = rows.find(({ name }) => name === 'Mara');
+    expect(mara).toMatchObject({ score: 6, count: 4, pendingCount: 1 });
+    expect(mara?.drinks).toContainEqual({
+      drinkId: 6,
+      name: 'Wein',
+      count: 0,
+      recordedCount: 1,
+    });
+    expect(rows.map(({ name }) => name)).not.toContain('Jule');
+    expect(unranked).toEqual([
+      {
+        personId: 4,
+        name: 'Jule',
+        photoUrl: null,
+        pendingCount: 2,
+        drinks: [
+          { drinkId: 1, name: 'Aperol', count: 0, recordedCount: 1 },
+          { drinkId: 2, name: 'Bier', count: 0, recordedCount: 2 },
+        ],
+      },
+    ]);
+    expect(
+      (await listEntries(4, todayFrom())).map(({ pending }) => pending),
+    ).toEqual([true, true]);
+    expect(
+      (await listEntries(5, todayFrom())).map(({ pending }) => pending),
+    ).toEqual([true, false, false]);
   });
 
   it('counts only entries since from', async () => {
@@ -269,7 +306,10 @@ describe('the fixture backend', () => {
 
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    expect(await standings(tomorrow.toISOString())).toEqual({ rows: [] });
+    expect(await standings(tomorrow.toISOString())).toEqual({
+      rows: [],
+      unranked: [],
+    });
   });
 
   it('answers the scoreboard with ETags from its in-memory revision', async () => {
@@ -297,13 +337,18 @@ describe('the fixture backend', () => {
   it('adds entries idempotently and never brings an undone one back', async () => {
     installFixtureBackend(sampleEvening());
     const id = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5';
-    const twoBeers = { personId: 4, drinkId: 2, quantity: 2 };
+    const twoBeers = { personId: 6, drinkId: 2, quantity: 2 };
+    const tom = async () =>
+      (await standings(todayFrom())).rows.find((row) => row.name === 'Tom');
+    const counted = async () => {
+      const row = await tom();
+      return [row?.count, row?.pendingCount, row?.drinks.length];
+    };
 
     const first = await putEntry(id, twoBeers);
     await expect(putEntry(id, twoBeers)).resolves.toEqual(first);
-    const jule = async () =>
-      (await standings(todayFrom())).rows.find((row) => row.name === 'Jule');
-    expect((await jule())?.count).toBe(2);
+    // The new entry waits: it is recorded, but Tom's count stays.
+    expect(await counted()).toEqual([1, 1, 2]);
 
     await expect(
       putEntry(id, { ...twoBeers, quantity: 3 }),
@@ -311,7 +356,7 @@ describe('the fixture backend', () => {
     await deleteEntry(id);
     // A replay answers the original instant, like the API's retry keys.
     await expect(putEntry(id, twoBeers)).resolves.toEqual(first);
-    expect(await jule()).toBeUndefined();
+    expect(await counted()).toEqual([1, 0, 1]);
     await expect(deleteEntry(id)).rejects.toMatchObject({ status: 404 });
     await expect(
       putEntry('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e6', {
@@ -357,8 +402,8 @@ describe('the fixture backend', () => {
     installFixtureBackend(sampleEvening());
     const id = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e8';
 
-    const added = await putEntry(id, { personId: 4, drinkId: 2, quantity: 1 });
-    const [jule] = await listEntries(4, todayFrom());
+    const added = await putEntry(id, { personId: 6, drinkId: 2, quantity: 1 });
+    const [tom] = await listEntries(6, todayFrom());
     await deleteEntry(id);
 
     expect(Object.keys(added).sort()).toEqual([
@@ -369,8 +414,15 @@ describe('the fixture backend', () => {
       'personId',
       'quantity',
     ]);
-    expect(jule).toMatchObject({ id, accountName: 'anna', factor: null });
-    await expect(listEntries(4, todayFrom())).resolves.toEqual([]);
+    expect(tom).toMatchObject({
+      id,
+      accountName: 'anna',
+      factor: null,
+      pending: true,
+    });
+    expect(
+      (await listEntries(6, todayFrom())).map((entry) => entry.id),
+    ).not.toContain(id);
   });
 
   it('refuses an entry list for an unknown person, a malformed person id or instant', async () => {
@@ -523,7 +575,8 @@ describe('the fixture backend', () => {
   });
 
   it('manages factors with the API’s validation and applies their current multiplier', async () => {
-    installFixtureBackend(sampleEvening());
+    const fixtures = sampleEvening();
+    installFixtureBackend(fixtures);
 
     await expect(createFactor('happy hour', 3)).rejects.toMatchObject({
       status: 409,
@@ -540,6 +593,8 @@ describe('the fixture backend', () => {
       quantity: 2,
       factorId: 3,
     });
+    // Verified by another account, so it counts.
+    for (const entry of fixtures.entries) entry.pending = false;
     expect((await standings(todayFrom())).rows.at(-1)).toMatchObject({
       name: 'Tom',
       score: 1,
@@ -925,6 +980,7 @@ describe('the fixture backend’s audit log', () => {
         points: 1,
         quantity: 2,
         factor: { name: 'Happy Hour', multiplier: 2 },
+        pending: false,
       },
       after: {
         person: 'Ben',
@@ -932,6 +988,7 @@ describe('the fixture backend’s audit log', () => {
         points: 1,
         quantity: 2,
         factor: null,
+        pending: false,
       },
       cause: { subjectKind: 'factor', name: 'Happy Hour' },
     });
@@ -977,6 +1034,7 @@ describe('the fixture backend’s audit log', () => {
       points: 2,
       quantity: 2,
       factor: { name: 'Geburtstag', multiplier: 1.5 },
+      pending: true,
     };
     expect(fixtures.audit).toHaveLength(seeded + 2);
     expect((await newest(2)).map(told).reverse()).toEqual([

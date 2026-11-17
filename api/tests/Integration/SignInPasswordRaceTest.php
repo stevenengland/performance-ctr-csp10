@@ -6,6 +6,7 @@ namespace Performance\Tests\Integration;
 
 use PDO;
 use Performance\Domain\Accounts;
+use Performance\Domain\DataRevision;
 use Performance\Domain\InvalidCredentials;
 use Performance\Domain\Sessions;
 use Performance\Domain\SystemClock;
@@ -113,7 +114,7 @@ final class SignInPasswordRaceTest extends DatabaseTestCase
         $pdo = $this->otherSession();
         $pdo->exec("SET time_zone = '+00:00'");
         $clock = new SystemClock();
-        $accounts = new Accounts($pdo, $clock);
+        $accounts = new Accounts($pdo, $clock, new DataRevision($pdo));
 
         return [$accounts, new Sessions($pdo, $accounts, $clock)];
     }

@@ -10,7 +10,10 @@ import { createAppVuetify } from '../../theme';
 
 const HAPPY_HOUR: Factor = { id: 1, name: 'Happy Hour', multiplier: 2 };
 const BIRTHDAY: Factor = { id: 2, name: 'Geburtstag', multiplier: 1.5 };
-/** Daniel has booked 4 beers today, 13,5 points in all. */
+/**
+Daniel has booked 4 beers today that count and 2 more that wait for
+verification, 13,5 points in all; Ben has recorded 3 beers, all waiting.
+*/
 const BOARD: Scoreboard = {
   rows: [
     {
@@ -19,7 +22,17 @@ const BOARD: Scoreboard = {
       photoUrl: null,
       score: 13.5,
       count: 9,
-      drinks: [{ drinkId: 2, name: 'Bier', count: 4 }],
+      pendingCount: 1,
+      drinks: [{ drinkId: 2, name: 'Bier', count: 4, recordedCount: 6 }],
+    },
+  ],
+  unranked: [
+    {
+      personId: 4,
+      name: 'Ben',
+      photoUrl: null,
+      pendingCount: 2,
+      drinks: [{ drinkId: 2, name: 'Bier', count: 0, recordedCount: 3 }],
     },
   ],
 };
@@ -41,7 +54,10 @@ function api(factors: Factor[], saving: () => Response | Promise<Response>) {
       }
       const answers: Record<string, unknown> = {
         '/api/persons': {
-          persons: [{ id: 3, name: 'Daniel', photoUrl: null }],
+          persons: [
+            { id: 3, name: 'Daniel', photoUrl: null },
+            { id: 4, name: 'Ben', photoUrl: null },
+          ],
         },
         '/api/drinks': { drinks: [{ id: 2, name: 'Bier', points: 1 }] },
         '/api/factors': { factors },
@@ -132,6 +148,20 @@ describe('the quantity and factor steps', () => {
     vi.restoreAllMocks();
   });
 
+  it('starts the stepper at everything recorded today, entries that wait for verification included', async () => {
+    api([HAPPY_HOUR], saved);
+    wrapper = (await flow('/zaehlen/3/2')).wrapper;
+
+    expect(wrapper.text()).toContain('bisher 6, neu dazu 0');
+  });
+
+  it('starts the stepper at what a person without a place recorded today', async () => {
+    api([HAPPY_HOUR], saved);
+    wrapper = (await flow('/zaehlen/4/2')).wrapper;
+
+    expect(wrapper.text()).toContain('bisher 3, neu dazu 0');
+  });
+
   it('goes on with Weiter to the factor step once factors exist', async () => {
     api([BIRTHDAY, HAPPY_HOUR], saved);
     const opened = await flow('/zaehlen/3/2');
@@ -182,7 +212,7 @@ describe('the quantity and factor steps', () => {
     };
 
     await tap('Daniel, 13,5 Punkte heute');
-    await tap('Bier, 1 Punkt, heute 4');
+    await tap('Bier, 1 Punkt, heute 6');
     await button(wrapper, 'Eins mehr').trigger('click');
     await button(wrapper, 'Eins mehr').trigger('click');
     await tap('Weiter');
@@ -194,7 +224,9 @@ describe('the quantity and factor steps', () => {
     expect(puts.map(({ body }) => body)).toEqual([
       { personId: 3, drinkId: 2, quantity: 2, factorId: 1 },
     ]);
-    expect(useSnackbar().value?.text).toBe('2× Bier · Happy Hour ×2 · Daniel');
+    expect(useSnackbar().value?.text).toBe(
+      '2× Bier · Happy Hour ×2 · Daniel · wartet auf Bestätigung',
+    );
     expect(useSnackbar().value?.action?.label).toBe('Rückgängig');
   });
 
@@ -208,7 +240,9 @@ describe('the quantity and factor steps', () => {
     expect(puts.map(({ body }) => body)).toEqual([
       { personId: 3, drinkId: 2, quantity: 2, factorId: null },
     ]);
-    expect(useSnackbar().value?.text).toBe('2× Bier · Daniel');
+    expect(useSnackbar().value?.text).toBe(
+      '2× Bier · Daniel · wartet auf Bestätigung',
+    );
   });
 
   it('turns the tapped tile amber and holds the others while it saves', async () => {
@@ -275,6 +309,8 @@ describe('the quantity and factor steps', () => {
     expect(puts.map(({ body }) => body)).toEqual([
       { personId: 3, drinkId: 2, quantity: 1, factorId: null },
     ]);
-    expect(useSnackbar().value?.text).toBe('1× Bier · Daniel');
+    expect(useSnackbar().value?.text).toBe(
+      '1× Bier · Daniel · wartet auf Bestätigung',
+    );
   });
 });

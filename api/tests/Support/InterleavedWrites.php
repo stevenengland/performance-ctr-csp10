@@ -15,11 +15,11 @@ trait InterleavedWrites
      * Holds the row under a shared lock, starts the first write and waits until it waits, then
      * the next and waits until it waits too, and so on, then lets go of the row.
      *
-     * @param 'matches'|'results'|'persons' $table
-     * @param string|list<string>           $ids the row held, or the rows held when the writes start on different rows
-     * @param list<array{string, string}>  $writes each one's role and id, as concurrent-write.php takes them
+     * @param 'matches'|'results'|'persons'|'entries'|'accounts' $table
+     * @param string|list<string>                     $ids    the row held, or the rows held when the writes start on different rows
+     * @param list<array{0: string, 1: string, 2?: int}> $writes each one's role, id and acting account (1 unless named), as concurrent-write.php takes them
      *
-     * @return list<int> the exit codes, in the order given: 0 succeeded, 3 found its row gone
+     * @return list<int> the exit codes, in the order given: 0 succeeded, 3 found its row gone, 4 found it verified already
      */
     private function interleave(string $table, string|array $ids, array $writes): array
     {
@@ -29,9 +29,9 @@ trait InterleavedWrites
             $holder->prepare("SELECT id FROM {$table} WHERE id = ? LOCK IN SHARE MODE")->execute([$id]);
         }
         $started = [];
-        foreach ($writes as [$role, $subject]) {
+        foreach ($writes as $write) {
             $process = proc_open(
-                [PHP_BINARY, __DIR__ . '/concurrent-write.php', $role, $subject, '1'],
+                [PHP_BINARY, __DIR__ . '/concurrent-write.php', $write[0], $write[1], (string) ($write[2] ?? 1)],
                 [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
                 $pipes,
             );
@@ -80,7 +80,7 @@ trait InterleavedWrites
         fclose($pipes[1]);
         fclose($pipes[2]);
         $exitCode = proc_close($process);
-        self::assertContains($exitCode, [0, 3], (string) $output);
+        self::assertContains($exitCode, [0, 3, 4], (string) $output);
 
         return $exitCode;
     }

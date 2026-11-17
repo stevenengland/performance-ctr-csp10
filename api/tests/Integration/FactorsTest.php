@@ -179,7 +179,7 @@ final class FactorsTest extends DatabaseTestCase
         self::assertSame(201, $saved->getStatusCode(), (string) $saved->getBody());
         self::assertSame(1, $this->body($saved)['factorId']);
         self::assertSame(
-            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 7.5, 'count' => 5, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 5]]]],
+            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 7.5, 'count' => 5, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 5, 'recordedCount' => 5]]]],
             $this->standings(),
         );
     }
@@ -252,17 +252,23 @@ final class FactorsTest extends DatabaseTestCase
         $this->send('POST', '/api/drinks', ['name' => 'Bier', 'points' => $points], $this->session);
     }
 
+    /** Records an entry and, once it is recorded, lets it count. */
     private function add(int $personId, int $drinkId, int $quantity, ?int $factorId = null): ResponseInterface
     {
         ++$this->entries;
         $id = sprintf('00000000-0000-4000-8000-%012d', $this->entries);
 
-        return $this->send(
+        $response = $this->send(
             'PUT',
             "/api/entries/{$id}",
             ['personId' => $personId, 'drinkId' => $drinkId, 'quantity' => $quantity, 'factorId' => $factorId],
             $this->session,
         );
+        if ($response->getStatusCode() === 201) {
+            $this->verifyDirectly('entries', $id);
+        }
+
+        return $response;
     }
 
     /**

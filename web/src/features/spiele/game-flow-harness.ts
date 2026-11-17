@@ -47,6 +47,7 @@ export const RANKING: Extract<Standings, { kind: 'duel' }> = {
       draws: 1,
       losses: 1,
       played: 5,
+      pendingCount: 0,
     },
     {
       personId: 2,
@@ -56,8 +57,10 @@ export const RANKING: Extract<Standings, { kind: 'duel' }> = {
       draws: 0,
       losses: 2,
       played: 4,
+      pendingCount: 0,
     },
   ],
+  unranked: [],
 };
 
 /** Rommé so far: Carla 25 from 3 results, Ben −11 from 2; Anna has played none. */
@@ -66,9 +69,10 @@ export const POINTS_RANKING: Extract<Standings, { kind: 'points' }> = {
   startedAt: ROMME.startedAt,
   lowerWins: false,
   rows: [
-    { personId: 3, name: 'Carla', sum: 25, results: 3 },
-    { personId: 2, name: 'Ben', sum: -11, results: 2 },
+    { personId: 3, name: 'Carla', sum: 25, results: 3, pendingCount: 0 },
+    { personId: 2, name: 'Ben', sum: -11, results: 2, pendingCount: 0 },
   ],
+  unranked: [],
 };
 
 interface RouterViewSlot {

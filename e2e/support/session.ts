@@ -43,3 +43,42 @@ export async function createAccount(
     );
   }
 }
+
+/**
+The account that verifies what the bootstrap admin records (PRD #61): the
+four-eyes rule needs a second account. Shared by every test and kept between
+runs, like the bootstrap admin.
+*/
+export const VERIFIER = {
+  userName: 'e2e-pruefer',
+  password: 'e2e-pruefer-passwort',
+};
+
+/** The rows the four-eyes rule applies to, by their route. */
+export type VerifiableRows = 'entries' | 'matches' | 'results';
+
+/**
+Signs a request context of its own in as the verifier, creating that account
+first when it is missing, and returns how it verifies a row: an entry by
+default, or a match or result; the row then counts.
+*/
+export async function verifierOn(
+  request: APIRequestContext,
+): Promise<(id: string, rows?: VerifiableRows) => Promise<void>> {
+  await signInVia(request);
+  const created = await request.post('/api/accounts', { data: VERIFIER });
+  if (![201, 409].includes(created.status())) {
+    throw new Error(
+      `creating the verifier failed: ${String(created.status())}`,
+    );
+  }
+  await signInVia(request, VERIFIER);
+  return async (id, rows = 'entries') => {
+    const verified = await request.put(`/api/${rows}/${id}/verification`, {
+      data: {},
+    });
+    if (verified.status() !== 204) {
+      throw new Error(`verifying ${id} failed: ${String(verified.status())}`);
+    }
+  };
+}

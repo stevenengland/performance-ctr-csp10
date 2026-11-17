@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Performance API
-  version: 0.2.0
+  version: 0.3.0
   description: >-
     JSON API of the Performance drink counter. Fields are camelCase, timestamps
     ISO-8601 UTC, decimals JSON numbers rounded to two places. Every error is
@@ -14,8 +14,8 @@ info:
     with 400 `client-outdated` before it processes anything; the client then
     shows `Bitte neu laden`. A request without the header counts as version
     0.1.0, the last client that sent none, so it is refused once the floor
-    passes 0.1.0. (Not 426: that status requires an `Upgrade` protocol, and an
-    app version is none.)
+    passes 0.1.0, as it has since 0.3.0. (Not 426: that status requires an
+    `Upgrade` protocol, and an app version is none.)
 
     Every route except health and sign-in requires the session cookie that
     sign-in sets (`HttpOnly; Secure; SameSite=Strict`, 180 days, renewed on
@@ -212,7 +212,9 @@ paths:
       summary: Delete an account (admins only)
       description: >-
         Its sessions end; the entries it logged stay, without the account
-        (`accountName` null). Deleting the last admin is refused with 409.
+        (`accountName` null), and so do the entries it verified, which keep counting.
+        The deletion bumps the data revision, since the pending queue names recorders.
+        Deleting the last admin is refused with 409.
       responses:
         '204':
           description: Deleted
@@ -730,6 +732,125 @@ paths:
           $ref: '#/components/responses/Problem'
         '404':
           $ref: '#/components/responses/Problem'
+  /api/entries/{id}/verification:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - name: id
+        in: path
+        required: true
+        description: The entry's UUID; anything that is not a lower-case UUID v4 is 404
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    put:
+      operationId: verifyEntry
+      summary: Verify a pending entry, so that it counts (four-eyes rule)
+      description: >-
+        Any signed-in account other than the one that recorded the entry may verify it;
+        admin rights give no extra right. An entry whose recording account was deleted may
+        be verified by any account. The recording account is refused with 403 `own-row` and
+        the entry stays pending. Verifying an entry that counts already succeeds again
+        without an audit event and without changing the data revision; the first
+        verification records a `verify` event with the entry before and after and bumps
+        the revision. An entry that no longer exists (deleted, or never recorded) is 404.
+        The body is an empty JSON object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '204':
+          description: The entry counts
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: rejectEntry
+      summary: Reject a pending entry, so that it never counts (four-eyes rule)
+      description: >-
+        Any signed-in account other than the one that recorded the entry may reject it, by
+        the same rule as verifying; an entry whose recording account was deleted may be
+        rejected by any account. Rejecting removes the entry and records one `reject` event
+        with the entry before, never a `delete`, and bumps the data revision. The recording
+        account is refused with 403 `own-row` and withdraws its own entry through
+        `DELETE /api/entries/{id}` instead. An entry that counts already is refused with
+        409 `already-verified` and stays; only that delete removes it. An entry that no
+        longer exists (rejected, deleted, or never recorded) is 404. Its id stays known for
+        the seven days of the retry window, so a late retry of the recording cannot bring
+        it back.
+      responses:
+        '204':
+          description: The entry is removed
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+  /api/pending:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+    get:
+      operationId: listPending
+      summary: A page of the rows the signed-in account may verify, and how many there are
+      description: >-
+        Every pending row the account may verify, entries, matches and results: recorded by another
+        account, or by one deleted since. All days and game runs, newest first by recording instant, then by kind, then by id,
+        20 per page. `next` is the `cursor` of the next page (null on the last one); a page
+        goes on after the last row of the one before, so rows verified, rejected or deleted
+        meanwhile never make later rows unreachable. `count` is the number of all eligible
+        rows, whatever the page: the badge of `Offen`. The first page answers
+        conditionally: its ETag names the data revision and the account, since every
+        account has its own queue, and `If-None-Match` with it answers 304 while both are
+        unchanged. The revision, the items and the count are read in one snapshot. A
+        `cursor` that names no position is 422.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: The `next` of the previous page, unchanged; omitted for the first page
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          required: false
+          description: The ETag of the first page the client already shows
+          schema:
+            type: string
+            examples: ['"42-3"']
+      responses:
+        '200':
+          description: A page of the queue
+          headers:
+            ETag:
+              description: Data revision and account of the first page; a later page has none
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingPage'
+        '304':
+          description: The first page is unchanged since the one named in `If-None-Match`
+          headers:
+            ETag:
+              description: The same ETag
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
   /api/scoreboard:
     parameters:
       - $ref: '#/components/parameters/ClientVersion'
@@ -740,8 +861,12 @@ paths:
         Persons with entries since `from`, ranked by score (ties by name). score =
         Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink
         counters likewise. The multiplier is the factor's current one, 1 without a
-        factor. The ETag names the data revision, which every write of entries,
-        persons, drinks and factors bumps in its own transaction, and the window: `If-None-Match` with the
+        factor. Only verified entries count: a recorded entry waits for verification
+        by another account, and until then it counts in `recordedCount` and
+        `pendingCount` only. A person whose entries since `from` all wait is listed in
+        `unranked`. The ETag names the data revision, which every write of entries,
+        persons, drinks and factors, every verification and every account deletion bumps
+        in its own transaction, and the window: `If-None-Match` with the
         last ETag answers 304 without aggregating while the revision is unchanged.
         Each row names the person's photo by `photoUrl`; a photo write that changes it
         bumps the revision too, so the next conditional request gets the new URL.
@@ -1035,7 +1160,8 @@ paths:
       summary: Record a match of a duel game, idempotently on its id
       description: >-
         The match is recorded in the game's current run, with the account and the server time
-        (UTC). A repeated request with the same id and content answers 200 with the original
+        (UTC). It waits for verification by another account and counts for neither player
+        until then (PRD #61); the response is the same either way. A repeated request with the same id and content answers 200 with the original
         match and records nothing, even after the match was deleted or its game deleted; the
         same id with other content, or an id already used for an entry, answers 409
         `request-conflict`. Ids are remembered for seven days. An unknown game is 404; the
@@ -1080,6 +1206,61 @@ paths:
           $ref: '#/components/responses/Problem'
         '404':
           $ref: '#/components/responses/Problem'
+  /api/matches/{id}/verification:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - name: id
+        in: path
+        required: true
+        description: The match's UUID; anything that is not a lower-case UUID v4 is 404
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    put:
+      operationId: verifyMatch
+      summary: Verify a pending match, so that it counts on both sides (four-eyes rule)
+      description: >-
+        The same rule and answers as `PUT /api/entries/{id}/verification`. A match is
+        verified as a whole: it counts for both players at once, and a side cleared by a
+        person's deletion stays cleared. Verifying a match of an earlier run leaves the
+        current standings unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '204':
+          description: The match counts
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: rejectMatch
+      summary: Reject a pending match, so that it never counts (four-eyes rule)
+      description: >-
+        The same rule and answers as `DELETE /api/entries/{id}/verification`: removes the
+        match with one `reject` event, 403 `own-row` for the recording account (which undoes
+        it through `DELETE /api/matches/{id}` instead), 409 `already-verified` for a match
+        that counts already, 404 for one that no longer exists.
+      responses:
+        '204':
+          description: The match is removed
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
   /api/results/{id}:
     parameters:
       - $ref: '#/components/parameters/ClientVersion'
@@ -1089,7 +1270,9 @@ paths:
       summary: Record one person's points in a points game, idempotently on its id
       description: >-
         The result is recorded in the game's current run, with the account and the server time
-        (UTC). Replays and conflicts as for matches: a repeated request with the same id and
+        (UTC). It waits for verification by another account and stays out of the standings
+        until then (PRD #61); the response is the same either way. Replays and conflicts as
+        for matches: a repeated request with the same id and
         content answers 200 with the original result and records nothing, even after the result
         was deleted or its game deleted; the same id with other content, or an id already used
         for an entry or a match, answers 409 `request-conflict`. Ids are remembered for seven
@@ -1134,6 +1317,59 @@ paths:
           $ref: '#/components/responses/Problem'
         '404':
           $ref: '#/components/responses/Problem'
+  /api/results/{id}/verification:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - name: id
+        in: path
+        required: true
+        description: The result's UUID; anything that is not a lower-case UUID v4 is 404
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    put:
+      operationId: verifyResult
+      summary: Verify a pending result, so that it counts in the standings (four-eyes rule)
+      description: >-
+        The same rule and answers as `PUT /api/entries/{id}/verification`. Verifying a result
+        of an earlier run leaves the current standings unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '204':
+          description: The result counts
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+    delete:
+      operationId: rejectResult
+      summary: Reject a pending result, so that it never counts (four-eyes rule)
+      description: >-
+        The same rule and answers as `DELETE /api/entries/{id}/verification`: removes the
+        result with one `reject` event, 403 `own-row` for the recording account (which undoes
+        it through `DELETE /api/results/{id}` instead), 409 `already-verified` for a result
+        that counts already, 404 for one that no longer exists.
+      responses:
+        '204':
+          description: The result is removed
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
   /api/audit:
     parameters:
       - $ref: '#/components/parameters/ClientVersion'
@@ -1145,7 +1381,9 @@ paths:
         delete of a person, a drink, a factor or a game (a restart is an update of its `run`
         and `startedAt`), and every entry counted or deleted and every match or result recorded
         or deleted (a game's deletion records one for each of its matches or results, caused by
-        it; a person's deletion one for each of their results), recorded in the transaction of
+        it; a person's deletion one for each of their results), and every entry, match or
+        result verified by another account (`verify`, with the row before and after) or
+        rejected by one (`reject`, with the row before), recorded in the transaction of
         the change with the acting account and the values before and after. A write that fails,
         a replayed entry, match or result request, and an update that changes no
         value record nothing. No route changes or deletes an event (other methods on this
@@ -1201,7 +1439,7 @@ components:
         as 0.1.0.
       schema:
         type: string
-        examples: ['0.2.0+3f2a1bc']
+        examples: ['0.3.0+3f2a1bc']
     GameId:
       name: id
       in: path
@@ -1547,7 +1785,7 @@ components:
     HistoryEntry:
       type: object
       additionalProperties: false
-      required: [id, drink, quantity, factor, createdAt, accountName]
+      required: [id, drink, quantity, factor, createdAt, accountName, pending]
       properties:
         id:
           type: string
@@ -1584,20 +1822,206 @@ components:
         accountName:
           type: [string, 'null']
           description: User name of the account that logged it; null once that account was deleted
+        pending:
+          type: boolean
+          description: Whether the entry still waits for verification by another account; a pending entry does not count
+    PendingPage:
+      type: object
+      additionalProperties: false
+      required: [items, next, count]
+      properties:
+        items:
+          type: array
+          description: Newest first by recording instant, then by kind, then by id
+          items:
+            $ref: '#/components/schemas/PendingItem'
+        next:
+          type: [string, 'null']
+          description: The `cursor` of the next page; null on the last page
+        count:
+          type: integer
+          minimum: 0
+          description: How many rows the account may verify in all, whatever the page
+    PendingItem:
+      description: A row the account may verify, tagged with its kind
+      oneOf:
+        - $ref: '#/components/schemas/PendingEntry'
+        - $ref: '#/components/schemas/PendingMatch'
+        - $ref: '#/components/schemas/PendingResult'
+      discriminator:
+        propertyName: kind
+        mapping:
+          entry: '#/components/schemas/PendingEntry'
+          match: '#/components/schemas/PendingMatch'
+          result: '#/components/schemas/PendingResult'
+    PendingEntry:
+      type: object
+      additionalProperties: false
+      required:
+        [kind, id, createdAt, accountName, person, drink, quantity, factor]
+      properties:
+        kind:
+          type: string
+          const: entry
+        id:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the recording, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: User name of the account that recorded it; null once that account was deleted
+        person:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        drink:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        quantity:
+          $ref: '#/components/schemas/Quantity'
+        factor:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [id, name, multiplier]
+              properties:
+                id:
+                  type: integer
+                name:
+                  type: string
+                multiplier:
+                  type: number
+          description: The factor with its current multiplier; null for none or a deleted factor
+    PendingMatch:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          kind,
+          id,
+          createdAt,
+          accountName,
+          game,
+          earlierRun,
+          first,
+          second,
+          outcome,
+        ]
+      properties:
+        kind:
+          type: string
+          const: match
+        id:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the recording, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: User name of the account that recorded it; null once that account was deleted
+        game:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        earlierRun:
+          type: boolean
+          description: >-
+            The match belongs to an earlier run of its game (recorded before a restart);
+            verifying it leaves the current standings unchanged
+        first:
+          description: Null once that person was deleted (`gelöschte Person`)
+          oneOf:
+            - $ref: '#/components/schemas/PersonRef'
+            - type: 'null'
+        second:
+          description: Null once that person was deleted (`gelöschte Person`)
+          oneOf:
+            - $ref: '#/components/schemas/PersonRef'
+            - type: 'null'
+        outcome:
+          $ref: '#/components/schemas/Outcome'
+    PendingResult:
+      type: object
+      additionalProperties: false
+      required:
+        [kind, id, createdAt, accountName, game, earlierRun, person, points]
+      properties:
+        kind:
+          type: string
+          const: result
+        id:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: Server time of the recording, UTC
+          examples: ['2026-11-14T22:41:07.123Z']
+        accountName:
+          type: [string, 'null']
+          description: User name of the account that recorded it; null once that account was deleted
+        game:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+        earlierRun:
+          type: boolean
+          description: >-
+            The result belongs to an earlier run of its game (recorded before a restart);
+            verifying it leaves the current standings unchanged
+        person:
+          $ref: '#/components/schemas/PersonRef'
+        points:
+          $ref: '#/components/schemas/GamePoints'
     Scoreboard:
       type: object
       additionalProperties: false
-      required: [rows]
+      required: [rows, unranked]
       properties:
         rows:
           type: array
-          description: Ranked by score, ties by name; persons without entries are absent
+          description: >-
+            Persons with at least one verified entry since `from`, ranked by score, ties by
+            name; persons without entries are absent
           items:
             $ref: '#/components/schemas/ScoreRow'
+        unranked:
+          type: array
+          description: >-
+            Persons whose entries since `from` all wait for verification, by name: they have
+            no rank and never lead
+          items:
+            $ref: '#/components/schemas/UnrankedRow'
     ScoreRow:
       type: object
       additionalProperties: false
-      required: [personId, name, photoUrl, score, count, drinks]
+      required: [personId, name, photoUrl, score, count, pendingCount, drinks]
       properties:
         personId:
           type: integer
@@ -1607,17 +2031,43 @@ components:
           $ref: '#/components/schemas/PhotoUrl'
         score:
           type: number
+          description: Verified entries only
         count:
           type: number
+          description: Verified entries only
+        pendingCount:
+          type: integer
+          minimum: 0
+          description: The number of the person's entries since `from` that wait for verification (rows, not quantities)
         drinks:
           type: array
-          description: By drink name; only drinks with entries
+          description: By drink name; only drinks with entries, pending ones included
+          items:
+            $ref: '#/components/schemas/DrinkCount'
+    UnrankedRow:
+      type: object
+      additionalProperties: false
+      required: [personId, name, photoUrl, pendingCount, drinks]
+      properties:
+        personId:
+          type: integer
+        name:
+          type: string
+        photoUrl:
+          $ref: '#/components/schemas/PhotoUrl'
+        pendingCount:
+          type: integer
+          minimum: 1
+          description: The number of the person's entries since `from`, all waiting for verification
+        drinks:
+          type: array
+          description: By drink name; each `count` is 0
           items:
             $ref: '#/components/schemas/DrinkCount'
     DrinkCount:
       type: object
       additionalProperties: false
-      required: [drinkId, name, count]
+      required: [drinkId, name, count, recordedCount]
       properties:
         drinkId:
           type: integer
@@ -1625,6 +2075,12 @@ components:
           type: string
         count:
           type: number
+          description: Σ quantity × multiplier over the verified entries, which rank
+        recordedCount:
+          type: number
+          description: >-
+            Σ quantity × multiplier over every recorded entry, pending ones included: what
+            the recording flow shows
     GameKind:
       type: string
       enum: [duel, points]
@@ -1808,7 +2264,7 @@ components:
     MatchItem:
       type: object
       additionalProperties: false
-      required: [id, first, second, outcome, createdAt, accountName]
+      required: [id, first, second, outcome, createdAt, accountName, pending]
       properties:
         id:
           type: string
@@ -1831,6 +2287,9 @@ components:
         accountName:
           type: [string, 'null']
           description: The account that recorded the match; null once it was deleted
+        pending:
+          type: boolean
+          description: The match waits for verification (`offen`) and counts for neither player
     MatchPage:
       type: object
       additionalProperties: false
@@ -1849,7 +2308,7 @@ components:
     ResultItem:
       type: object
       additionalProperties: false
-      required: [id, person, points, createdAt, accountName]
+      required: [id, person, points, createdAt, accountName, pending]
       properties:
         id:
           type: string
@@ -1864,6 +2323,9 @@ components:
         accountName:
           type: [string, 'null']
           description: The account that recorded the result; null once it was deleted
+        pending:
+          type: boolean
+          description: The result waits for verification (`offen`) and is not in the standings
     ResultPage:
       type: object
       additionalProperties: false
@@ -1891,7 +2353,7 @@ components:
     DuelStandings:
       type: object
       additionalProperties: false
-      required: [kind, startedAt, rows]
+      required: [kind, startedAt, rows, unranked]
       properties:
         kind:
           type: string
@@ -1902,13 +2364,37 @@ components:
           description: When the current run began, UTC
         rows:
           type: array
-          description: Ranked by points, then wins, then name; persons without a match in the run are absent
+          description: >-
+            Persons with at least one verified match in the run, ranked by points, then wins,
+            then name; only verified matches count. Persons without a match in the run are
+            absent
           items:
             $ref: '#/components/schemas/DuelRow'
+        unranked:
+          type: array
+          description: >-
+            Persons whose matches in the run all wait for verification, by name: they have no
+            rank and never lead
+          items:
+            $ref: '#/components/schemas/UnrankedPlayer'
+    UnrankedPlayer:
+      type: object
+      additionalProperties: false
+      required: [personId, name, pendingCount]
+      properties:
+        personId:
+          type: integer
+        name:
+          type: string
+        pendingCount:
+          type: integer
+          minimum: 1
+          description: The person's pending rows in the run (`+n offen`)
     DuelRow:
       type: object
       additionalProperties: false
-      required: [personId, name, points, wins, draws, losses, played]
+      required:
+        [personId, name, points, wins, draws, losses, played, pendingCount]
       properties:
         personId:
           type: integer
@@ -1925,10 +2411,17 @@ components:
           type: integer
         played:
           type: integer
+          description: Verified matches; `wins`, `draws` and `losses` count verified ones too
+        pendingCount:
+          type: integer
+          minimum: 0
+          description: >-
+            The person's matches in the run that wait for verification (`+n offen`); a pending
+            match counts once for each player that still exists
     PointsStandings:
       type: object
       additionalProperties: false
-      required: [kind, startedAt, lowerWins, rows]
+      required: [kind, startedAt, lowerWins, rows, unranked]
       properties:
         kind:
           type: string
@@ -1941,13 +2434,23 @@ components:
           type: boolean
         rows:
           type: array
-          description: Ranked by the sum in the game's direction, then name; persons without a result in the run are absent
+          description: >-
+            Persons with at least one verified result in the run, ranked by the sum in the
+            game's direction, then name; only verified results count. Persons without a result
+            in the run are absent
           items:
             $ref: '#/components/schemas/PointsRow'
+        unranked:
+          type: array
+          description: >-
+            Persons whose results in the run all wait for verification, by name: they have no
+            rank and never lead, whichever way the game ranks and whatever the others' sums
+          items:
+            $ref: '#/components/schemas/UnrankedPlayer'
     PointsRow:
       type: object
       additionalProperties: false
-      required: [personId, name, sum, results]
+      required: [personId, name, sum, results, pendingCount]
       properties:
         personId:
           type: integer
@@ -1955,10 +2458,14 @@ components:
           type: string
         sum:
           type: integer
-          description: The sum of the person's points in the run
+          description: The sum of the person's verified points in the run
         results:
           type: integer
-          description: How many results make up the sum
+          description: How many verified results make up the sum
+        pendingCount:
+          type: integer
+          minimum: 0
+          description: The person's results in the run that wait for verification (`+n offen`)
     AuditPage:
       type: object
       additionalProperties: false
@@ -2002,7 +2509,12 @@ components:
           examples: ['2026-11-14T22:41:07.123Z']
         operation:
           type: string
-          enum: [create, update, delete]
+          enum: [create, update, delete, verify, reject]
+          description: >-
+            `verify`: another account let a pending row count; `before` and `after` are the
+            row with `pending` true and false. `reject`: another account removed a pending
+            row; `before` is the row with `pending` true, `after` is null. A row removed
+            through its delete route is always `delete`
         subjectKind:
           type: string
           enum: [entry, person, drink, factor, game, match, result]
@@ -2056,12 +2568,15 @@ components:
         `{name, photo}` with the photo's version or null (events recorded before photos
         existed have only `name`), a drink `{name, points}`, a factor `{name, multiplier}`, an entry
         `{person, drink, points, quantity, factor}` with the person's and the drink's names,
-        the drink's points, and the factor `{name, multiplier}` or null, a game
+        the drink's points, the factor `{name, multiplier}` or null, and `pending` (whether it
+        waited for verification; events recorded before the four-eyes rule have none), a game
         `{name, kind, drawsAllowed, run, startedAt}` for a duel game and
         `{name, kind, lowerWins, run, startedAt}` for a points game, a match
-        `{game, first, second, outcome}` with the game's and both persons' names (a person
-        deleted before is null), a result `{game, person, points}` with the game's and the
-        person's names. Keys are only ever
+        `{game, first, second, outcome, pending}` with the game's and both persons' names (a
+        person deleted before is null) and whether it waited for verification (events
+        recorded before the four-eyes rule have none), a result `{game, person, points, pending}`
+        with the game's and the person's names and whether it waited for verification (events
+        recorded before the four-eyes rule have none). Keys are only ever
         added, never renamed, removed or given a new meaning; a reader treats a key it does
         not know, or a missing one, as unknown.
       additionalProperties: true
@@ -2100,6 +2615,9 @@ components:
           type: [string, 'null']
         outcome:
           $ref: '#/components/schemas/Outcome'
+        pending:
+          type: boolean
+          description: Whether the row waited for verification at the time of the event
         factor:
           oneOf:
             - type: 'null'
@@ -2168,6 +2686,8 @@ components:
             - urn:performance:problem:unauthenticated
             - urn:performance:problem:invalid-credentials
             - urn:performance:problem:forbidden
+            - urn:performance:problem:own-row
+            - urn:performance:problem:already-verified
             - urn:performance:problem:duplicate-user-name
             - urn:performance:problem:duplicate-name
             - urn:performance:problem:last-admin

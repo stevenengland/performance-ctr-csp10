@@ -147,14 +147,25 @@ describe('Spiele', () => {
               draws: 0,
               losses: 1,
               played: 5,
+              pendingCount: 0,
             },
           ],
+          unranked: [],
         },
         3: {
           kind: 'points',
           startedAt: started,
           lowerWins: true,
-          rows: [{ personId: 3, name: 'Daniel', sum: -11, results: 2 }],
+          rows: [
+            {
+              personId: 3,
+              name: 'Daniel',
+              sum: -11,
+              results: 2,
+              pendingCount: 0,
+            },
+          ],
+          unranked: [],
         },
       },
     );
@@ -220,8 +231,10 @@ describe('Spiele', () => {
               draws: 0,
               losses: 0,
               played: 1,
+              pendingCount: 0,
             },
           ],
+          unranked: [],
         });
         answer.headers.set('ETag', `"${leader}"`);
         return answer;
@@ -261,8 +274,10 @@ describe('Spiele', () => {
           draws: 0,
           losses: 0,
           played: 2,
+          pendingCount: 0,
         },
       ],
+      unranked: [],
     };
     api([game(42, 'Schach', 'duel', started)], { 42: anna });
     wrapper = await spiele();

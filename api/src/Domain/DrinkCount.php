@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace Performance\Domain;
 
-/** A person's counter for one drink in a day window. */
+/**
+ * A person's counters for one drink in a day window, each Σ quantity × multiplier: `count` over
+ * the verified entries, which rank, and `recordedCount` over every recorded entry, pending
+ * included, which the recording flow shows.
+ */
 final readonly class DrinkCount
 {
     public function __construct(
         public int $drinkId,
         public string $name,
         public string $count,
+        public string $recordedCount,
     ) {}
 }

@@ -43,6 +43,18 @@ final readonly class Problem
         return new self('forbidden', 'Nur für Admins', 403);
     }
 
+    /** The acting account recorded the row; only another account may verify it (PRD #61). */
+    public static function ownRow(): self
+    {
+        return new self('own-row', 'Das muss ein anderes Konto bestätigen.', 403);
+    }
+
+    /** The row counts already, so it can no longer be rejected (PRD #61). */
+    public static function alreadyVerified(): self
+    {
+        return new self('already-verified', 'Wurde schon bestätigt.', 409);
+    }
+
     public static function duplicateUserName(): self
     {
         return new self('duplicate-user-name', 'Benutzername ist bereits vergeben.', 409);

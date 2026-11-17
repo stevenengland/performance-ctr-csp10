@@ -31,13 +31,14 @@ final class GameHistoryTest extends DatabaseTestCase
         $this->send('POST', '/api/games', ['name' => 'Rommé', 'kind' => 'points'], $this->session);
     }
 
-    public function testListsADuelGamesMatchesNewestFirstWithPersonsOutcomeTimeAndAccount(): void
+    public function testListsADuelGamesMatchesNewestFirstWithPersonsOutcomeTimeAccountAndWhetherTheyWait(): void
     {
         $this->createAccount('anna', 'annas-startpasswort');
         $anna = $this->signIn('anna', 'annas-startpasswort');
         $older = $this->record(1, 2, 'first');
         $this->clock->advance('PT1M');
         $newer = $this->record(3, 1, 'draw', $anna);
+        $this->send('PUT', "/api/matches/{$newer}/verification", [], $this->session);
 
         $response = $this->history('matches');
 
@@ -51,6 +52,7 @@ final class GameHistoryTest extends DatabaseTestCase
                     'outcome' => 'draw',
                     'createdAt' => '2026-11-14T20:01:00.000Z',
                     'accountName' => 'anna',
+                    'pending' => false,
                 ],
                 [
                     'id' => $older,
@@ -59,17 +61,20 @@ final class GameHistoryTest extends DatabaseTestCase
                     'outcome' => 'first',
                     'createdAt' => '2026-11-14T20:00:00.000Z',
                     'accountName' => self::ADMIN,
+                    'pending' => true,
                 ],
             ],
             'next' => null,
         ], $this->body($response));
     }
 
-    public function testListsAPointsGamesResultsNewestFirstWithPersonPointsTimeAndAccount(): void
+    public function testListsAPointsGamesResultsNewestFirstWithPersonPointsTimeAccountAndPending(): void
     {
+        $this->createAccount('anna', 'annas-startpasswort');
         $older = $this->score(2, -20);
         $this->clock->advance('PT1M');
         $newer = $this->score(1, 45);
+        $this->send('PUT', "/api/results/{$newer}/verification", [], $this->signIn('anna', 'annas-startpasswort'));
 
         $response = $this->history('results', game: self::ROMME);
 
@@ -82,6 +87,7 @@ final class GameHistoryTest extends DatabaseTestCase
                     'points' => 45,
                     'createdAt' => '2026-11-14T20:01:00.000Z',
                     'accountName' => self::ADMIN,
+                    'pending' => false,
                 ],
                 [
                     'id' => $older,
@@ -89,6 +95,7 @@ final class GameHistoryTest extends DatabaseTestCase
                     'points' => -20,
                     'createdAt' => '2026-11-14T20:00:00.000Z',
                     'accountName' => self::ADMIN,
+                    'pending' => true,
                 ],
             ],
             'next' => null,

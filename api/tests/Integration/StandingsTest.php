@@ -14,7 +14,6 @@ use Performance\Domain\Snapshot;
 use Performance\Tests\Support\DatabaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
-use Slim\Psr7\Factory\ServerRequestFactory;
 
 /** A game's ranking at `GET /api/games/{id}/standings`, with its ETag. */
 final class StandingsTest extends DatabaseTestCase
@@ -22,6 +21,8 @@ final class StandingsTest extends DatabaseTestCase
     private const NOW = '2026-11-14T20:00:00.000Z';
 
     private string $session;
+    /** Another account's session, which verifies what the bootstrap admin records. */
+    private string $verifier;
     private int $writes = 0;
 
     protected function setUp(): void
@@ -33,6 +34,8 @@ final class StandingsTest extends DatabaseTestCase
         }
         $this->send('POST', '/api/games', ['name' => 'Schach', 'kind' => 'duel'], $this->session);
         $this->send('POST', '/api/games', ['name' => 'Rommé', 'kind' => 'points', 'lowerWins' => true], $this->session);
+        $this->createAccount('pruefer', 'pruefers-passwort');
+        $this->verifier = $this->signIn('pruefer', 'pruefers-passwort');
     }
 
     /**
@@ -62,6 +65,7 @@ final class StandingsTest extends DatabaseTestCase
                     self::row(2, 'Ben', 2, 1, 2, 1),
                     self::row(4, 'Daniel', 1, 1, 0, 2),
                 ],
+                'unranked' => [],
             ],
             $this->body($response),
         );
@@ -82,7 +86,7 @@ final class StandingsTest extends DatabaseTestCase
 
     public function testANewGameHasNoRows(): void
     {
-        self::assertSame(['kind' => 'duel', 'startedAt' => self::NOW, 'rows' => []], $this->body($this->standings()));
+        self::assertSame(['kind' => 'duel', 'startedAt' => self::NOW, 'rows' => [], 'unranked' => []], $this->body($this->standings()));
     }
 
     public function testANewPointsGameAnswersItsKindWithNoRows(): void
@@ -90,7 +94,7 @@ final class StandingsTest extends DatabaseTestCase
         $response = $this->standings(game: 2);
 
         self::assertSame(200, $response->getStatusCode());
-        self::assertSame(['kind' => 'points', 'startedAt' => self::NOW, 'lowerWins' => true, 'rows' => []], $this->body($response));
+        self::assertSame(['kind' => 'points', 'startedAt' => self::NOW, 'lowerWins' => true, 'rows' => [], 'unranked' => []], $this->body($response));
     }
 
     /**
@@ -115,10 +119,11 @@ final class StandingsTest extends DatabaseTestCase
                 'startedAt' => self::NOW,
                 'lowerWins' => true,
                 'rows' => [
-                    ['personId' => 2, 'name' => 'Ben', 'sum' => 15, 'results' => 2],
-                    ['personId' => 3, 'name' => 'Carla', 'sum' => 15, 'results' => 2],
-                    ['personId' => 1, 'name' => 'Anna', 'sum' => 30, 'results' => 2],
+                    ['personId' => 2, 'name' => 'Ben', 'sum' => 15, 'results' => 2, 'pendingCount' => 0],
+                    ['personId' => 3, 'name' => 'Carla', 'sum' => 15, 'results' => 2, 'pendingCount' => 0],
+                    ['personId' => 1, 'name' => 'Anna', 'sum' => 30, 'results' => 2, 'pendingCount' => 0],
                 ],
+                'unranked' => [],
             ],
             $this->body($response),
         );
@@ -151,7 +156,7 @@ final class StandingsTest extends DatabaseTestCase
         $body = $this->body($this->standings(game: 2));
 
         self::assertSame('2026-11-14T21:00:00.000Z', $body['startedAt']);
-        self::assertSame([['personId' => 2, 'name' => 'Ben', 'sum' => 7, 'results' => 1]], $body['rows']);
+        self::assertSame([['personId' => 2, 'name' => 'Ben', 'sum' => 7, 'results' => 1, 'pendingCount' => 0]], $body['rows']);
     }
 
     /**
@@ -260,16 +265,16 @@ final class StandingsTest extends DatabaseTestCase
             );
             $writer->exec('UPDATE data_revision SET revision = revision + 1');
 
-            return [$read, $matches->standings(1, 1)];
+            return [$read, $matches->standings(1, 1)->rows];
         });
 
         self::assertSame(['Anna', 'Ben'], array_map(static fn(DuelRow $row): string => $row->name, $rows), 'the ranking belongs to the revision that was read');
-        self::assertCount(4, $matches->standings(1, 1), 'a read after the snapshot sees the write');
+        self::assertCount(4, $matches->standings(1, 1)->rows, 'a read after the snapshot sees the write');
         self::assertSame($read + 1, $revision->current());
     }
 
     /**
-     * @return array{personId: int, name: string, points: int|float, wins: int, draws: int, losses: int, played: int}
+     * @return array{personId: int, name: string, points: int|float, wins: int, draws: int, losses: int, played: int, pendingCount: int}
      */
     private static function row(int $personId, string $name, int|float $points, int $wins, int $draws, int $losses): array
     {
@@ -281,6 +286,7 @@ final class StandingsTest extends DatabaseTestCase
             'draws' => $draws,
             'losses' => $losses,
             'played' => $wins + $draws + $losses,
+            'pendingCount' => 0,
         ];
     }
 
@@ -305,27 +311,31 @@ final class StandingsTest extends DatabaseTestCase
         return $rows;
     }
 
-    /** Records a result in Rommé, numbered with the matches. */
+    /** Records a result in Rommé, numbered with the matches, and another account verifies it, so it counts. */
     private function score(int $person, int $points): void
     {
         ++$this->writes;
         $id = sprintf('00000000-0000-4000-8000-%012d', $this->writes);
         $response = $this->send('PUT', "/api/results/{$id}", ['gameId' => 2, 'personId' => $person, 'points' => $points], $this->session);
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        $verified = $this->send('PUT', "/api/results/{$id}/verification", [], $this->verifier);
+        self::assertSame(204, $verified->getStatusCode(), (string) $verified->getBody());
     }
 
+    /** Records a match in Schach, and another account verifies it, so it counts. */
     private function record(int $first, int $second, string $outcome): void
     {
         ++$this->writes;
         $id = sprintf('00000000-0000-4000-8000-%012d', $this->writes);
         $response = $this->send('PUT', "/api/matches/{$id}", ['gameId' => 1, 'firstPersonId' => $first, 'secondPersonId' => $second, 'outcome' => $outcome], $this->session);
         self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        $verified = $this->send('PUT', "/api/matches/{$id}/verification", [], $this->verifier);
+        self::assertSame(204, $verified->getStatusCode(), (string) $verified->getBody());
     }
 
     private function standings(?string $ifNoneMatch = null, int $game = 1): ResponseInterface
     {
-        $request = (new ServerRequestFactory())
-            ->createServerRequest('GET', "/api/games/{$game}/standings")
+        $request = $this->request('GET', "/api/games/{$game}/standings")
             ->withCookieParams(['session' => $this->session]);
         if ($ifNoneMatch !== null) {
             $request = $request->withHeader('If-None-Match', $ifNoneMatch);

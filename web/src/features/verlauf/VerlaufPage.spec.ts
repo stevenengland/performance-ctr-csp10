@@ -36,6 +36,7 @@ function evening(): HistoryEntry[] {
       factor: { id: 1, name: 'Happy Hour', multiplier: 2 },
       createdAt: '2026-11-15T22:41:00.000Z',
       accountName: 'anna',
+      pending: true,
     },
     {
       id: 'e2',
@@ -44,6 +45,7 @@ function evening(): HistoryEntry[] {
       factor: null,
       createdAt: '2026-11-15T21:58:00.000Z',
       accountName: 'daniel',
+      pending: false,
     },
     {
       id: 'e1',
@@ -52,6 +54,7 @@ function evening(): HistoryEntry[] {
       factor: null,
       createdAt: '2026-11-15T21:10:00.000Z',
       accountName: null,
+      pending: false,
     },
   ];
 }
@@ -175,13 +178,26 @@ describe('Verlauf', () => {
       url: '/api/entries?personId=3&from=2026-11-14T23%3A00%3A00.000Z',
     });
     expect(rows(wrapper)).toEqual([
-      '2× BierHappy Hour ×2 · 23:41 · anna',
+      '2× BierHappy Hour ×2 · 23:41 · annaoffen',
       '1× MargaritaKein Faktor · 22:58 · daniel',
       '2× SchnapsKein Faktor · 22:10 · gelöschtes Konto',
     ]);
     expect(wrapper.find('ul[aria-label="Einträge von Daniel"]').exists()).toBe(
       true,
     );
+  });
+
+  it('marks the entries that wait for verification as offen', async () => {
+    api(evening());
+
+    wrapper = await verlauf(3);
+
+    expect(
+      wrapper.findAll('[data-test="entry"]').map((row) => {
+        const marker = row.find('[data-test="pending"]');
+        return marker.exists() ? marker.text() : null;
+      }),
+    ).toEqual(['offen', null, null]);
   });
 
   it('shows the new day’s entries once the page is used again after midnight', async () => {

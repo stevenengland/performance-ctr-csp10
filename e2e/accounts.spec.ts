@@ -26,7 +26,12 @@ async function member(request: Parameters<typeof createAccount>[0]) {
 
 /** A second device: a fresh browser context with the window settings of the project. */
 async function otherDevice(browser: Browser, baseURL: string | undefined) {
-  const context = await browser.newContext({ baseURL, locale: 'de-DE' });
+  // The tests' own API calls name the client version, as the config's contexts do.
+  const context = await browser.newContext({
+    baseURL,
+    locale: 'de-DE',
+    extraHTTPHeaders: test.info().project.use.extraHTTPHeaders,
+  });
   return { context, page: await context.newPage() };
 }
 
@@ -153,11 +158,17 @@ test('deleting an account after the dialog ends its sessions and keeps its entri
     })
   ).json()) as { id: number; name: string };
   created.push(`/api/drinks/${String(drink.id)}`);
-  const logged = await device.context.request.put(
-    `/api/entries/${randomUUID()}`,
-    { data: { personId: person.id, drinkId: drink.id, quantity: 2 } },
-  );
+  const entryId = randomUUID();
+  const logged = await device.context.request.put(`/api/entries/${entryId}`, {
+    data: { personId: person.id, drinkId: drink.id, quantity: 2 },
+  });
   expect(logged.status()).toBe(201);
+  // The admin is another account than the member, so it may verify the entry.
+  const verified = await page.request.put(
+    `/api/entries/${entryId}/verification`,
+    { data: {} },
+  );
+  expect(verified.status()).toBe(204);
   const from = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const score = async () => {
     const board = (await (
