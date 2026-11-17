@@ -1066,8 +1066,10 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   app never claims a verification or a rejection that did not happen.
 - The first page (20 rows) is the polled queue that also feeds the badge. While more rows wait,
   the tonal button `Ältere laden` below the list appends the next page; the pages go on after
-  the last row shown, so rows verified meanwhile never hide later ones. A new first page starts
-  the list anew.
+  the last row shown, so rows verified meanwhile never hide later ones. A new first page (after a
+  decision here or any write elsewhere) reads the appended rows again from where it ends, about
+  as many as were shown: rows handled meanwhile leave, the others stay. If that read fails, the
+  rows shown stay until the next one.
 - Loading: three skeleton rows. Empty: `Nichts zu bestätigen.`
 
 ## 8. Key flows

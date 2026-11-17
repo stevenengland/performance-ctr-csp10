@@ -10,6 +10,7 @@ import {
   problem,
   rows,
 } from '../verwalten/manage-page-harness';
+import { refreshPending } from '../../core/pending-queue';
 import OffenPage from './OffenPage.vue';
 
 const OWN_ROW = {
@@ -67,15 +68,30 @@ function result(n: number): PendingItem {
 
 type Reply = () => Response | Promise<Response>;
 
+/** Every fake API answers with ETags of its own, so the shared queue never takes one test's ETag into the next. */
+let apis = 0;
+
 /**
-A fake API over the queue: the first page holds `pageSize` rows, a cursor `p<n>`
-reads on from the n-th row; a verification or rejection takes the next given
-reply or succeeds and removes the row. The scoreboard answers empty.
+A fake API over the queue, answering like the real one: the first page holds
+`pageSize` rows with the ETag of the data revision and answers 304 while the
+revision stays; a cursor `p<n>` reads on from the n-th row. A verification or
+rejection takes the next given reply or succeeds, removes the row and bumps the
+revision. A queue read takes the next given `reads` reply first, if any (an
+`undefined` one reads the queue). The scoreboard answers empty. `elsewhere`
+bumps the revision, as any write on another phone does, after removing the
+given rows (verified by someone else).
 */
 function api(
   queue: PendingItem[],
-  { pageSize = 20, replies = [] as Reply[] } = {},
+  {
+    pageSize = 20,
+    replies = [] as Reply[],
+    reads = [] as (Reply | undefined)[],
+  } = {},
 ) {
+  apis += 1;
+  const prefix = String(apis);
+  let revision = 1;
   const verified: string[] = [];
   const rejected: string[] = [];
   /** Each decision's method and path, in order. */
@@ -87,13 +103,22 @@ function api(
       if (pathname === '/api/scoreboard')
         return json({ rows: [], unranked: [] });
       if (pathname === '/api/pending') {
-        const from = Number(searchParams.get('cursor')?.slice(1) ?? 0);
+        const read = reads.shift();
+        if (read) return read();
+        const cursor = searchParams.get('cursor');
+        const etag = `"${prefix}.${String(revision)}-1"`;
+        const headers = new Headers(init.headers);
+        if (!cursor && headers.get('If-None-Match') === etag)
+          return new Response(null, { status: 304, headers: { ETag: etag } });
+        const from = Number(cursor?.slice(1) ?? 0);
         const end = from + pageSize;
-        return json({
+        const answer = json({
           items: queue.slice(from, end),
           next: end < queue.length ? `p${String(end)}` : null,
           count: queue.length,
         });
+        if (!cursor) answer.headers.set('ETag', etag);
+        return answer;
       }
       const id =
         /\/api\/(?:entries|matches|results)\/([^/]+)\/verification$/.exec(
@@ -109,10 +134,20 @@ function api(
         queue.findIndex((item) => item.id === id),
         1,
       );
+      revision += 1;
       return new Response(null, { status: 204 });
     }),
   );
-  return { verified, rejected, sent };
+  function elsewhere(...gone: PendingItem[]) {
+    for (const item of gone) {
+      queue.splice(
+        queue.findIndex(({ id }) => id === item.id),
+        1,
+      );
+    }
+    revision += 1;
+  }
+  return { verified, rejected, sent, elsewhere };
 }
 
 const snackbar = useSnackbar();
@@ -384,5 +419,93 @@ describe('Offen', () => {
 
     expect(rows(wrapper)).toHaveLength(3);
     expect(() => buttonIn(document, 'Ältere laden')).toThrow();
+  });
+
+  it('keeps the loaded older rows after verifying one of them', async () => {
+    api([entry(6), entry(5), entry(4), entry(3), entry(2), entry(1)], {
+      pageSize: 2,
+    });
+    wrapper = await mountPage('/offen', OffenPage);
+    await click(buttonIn(document, 'Ältere laden'));
+    await flushPromises();
+    await click(buttonIn(document, 'Ältere laden'));
+    await flushPromises();
+    expect(rows(wrapper)).toHaveLength(6);
+
+    await click(buttonIn(document, '3× Bier für Daniel bestätigen'));
+    await flushPromises();
+
+    expect(rows(wrapper)).toEqual(
+      [6, 5, 4, 2, 1].map((n) =>
+        expect.stringContaining(`${String(n)}× Bier für Daniel`),
+      ),
+    );
+  });
+
+  it('keeps the loaded older rows when another member records something elsewhere', async () => {
+    const { elsewhere } = api(
+      [entry(6), entry(5), entry(4), entry(3), entry(2), entry(1)],
+      { pageSize: 2 },
+    );
+    wrapper = await mountPage('/offen', OffenPage);
+    await click(buttonIn(document, 'Ältere laden'));
+    await flushPromises();
+    expect(rows(wrapper)).toHaveLength(4);
+
+    // A drink recorded on another phone: the queue itself stays as it was.
+    elsewhere();
+    await refreshPending();
+    await flushPromises();
+
+    expect(rows(wrapper)).toEqual(
+      [6, 5, 4, 3].map((n) =>
+        expect.stringContaining(`${String(n)}× Bier für Daniel`),
+      ),
+    );
+    buttonIn(document, 'Ältere laden');
+  });
+
+  it('drops a loaded older row someone else verified, keeping its neighbours', async () => {
+    const { elsewhere } = api(
+      [entry(6), entry(5), entry(4), entry(3), entry(2), entry(1)],
+      { pageSize: 2 },
+    );
+    wrapper = await mountPage('/offen', OffenPage);
+    await click(buttonIn(document, 'Ältere laden'));
+    await flushPromises();
+    await click(buttonIn(document, 'Ältere laden'));
+    await flushPromises();
+    expect(rows(wrapper)).toHaveLength(6);
+
+    elsewhere(entry(3));
+    await refreshPending();
+    await flushPromises();
+
+    expect(rows(wrapper)).toEqual(
+      [6, 5, 4, 2, 1].map((n) =>
+        expect.stringContaining(`${String(n)}× Bier für Daniel`),
+      ),
+    );
+  });
+
+  it('keeps the loaded older rows when reading them again fails', async () => {
+    const reads: (Reply | undefined)[] = [];
+    const { elsewhere } = api(
+      [entry(6), entry(5), entry(4), entry(3), entry(2), entry(1)],
+      { pageSize: 2, reads },
+    );
+    wrapper = await mountPage('/offen', OffenPage);
+    await click(buttonIn(document, 'Ältere laden'));
+    await flushPromises();
+
+    elsewhere();
+    reads.push(undefined, () =>
+      Promise.reject(new TypeError('Failed to fetch')),
+    );
+    await refreshPending();
+    await flushPromises();
+
+    expect(rows(wrapper)).toHaveLength(4);
+    expect(snackbar.value).toBeUndefined();
   });
 });
