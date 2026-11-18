@@ -473,7 +473,7 @@ test('requests shaped like the previous release’s answer as before: today’s 
   );
   expect(board.status()).toBe(200);
   expect(board.headers().etag).toMatch(
-    new RegExp(`^"\\d+-${String(today.start.getTime())}"$`),
+    new RegExp(`^"\\d+-${String(today.start.getTime())}-v2"$`),
   );
   const { rows } = (await board.json()) as {
     rows: Record<string, unknown>[];

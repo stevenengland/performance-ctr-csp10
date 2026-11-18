@@ -376,7 +376,7 @@ test('the scoreboard answers 304 through Apache while nothing changed', async ({
   const url = `/api/scoreboard?from=${encodeURIComponent(new Date().toISOString())}`;
   const first = await page.request.get(url);
   const etag = first.headers().etag ?? '';
-  expect(etag).toMatch(/^"\d+-\d+"$/);
+  expect(etag).toMatch(/^"\d+-\d+-v2"$/);
 
   const again = await page.request.get(url, {
     headers: { 'If-None-Match': etag },

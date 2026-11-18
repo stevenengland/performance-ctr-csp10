@@ -61,6 +61,11 @@ at most the API's 87 384 characters. Unlike the API it does not walk the JPEG.
 const BASE64_JPEG =
   /^\/9j\/(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MAX_PHOTO_CHARACTERS = 87_384;
+/**
+The scoreboard body's version in its ETag, like the API's
+`ScoreboardAction::REPRESENTATION`: raised there with every change to the body.
+*/
+const SCOREBOARD_REPRESENTATION = 2;
 
 /**
 Successful writes that changed nothing, so they leave the revision as it is,
@@ -766,8 +771,9 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       guarded((_me, _body, { query, headers }) => {
         const interval = windowOrAllTime(query);
         if (interval instanceof Response) return interval;
-        // Like the API: the revision and the selection, so another window never answers 304.
-        const etag = `"${String(revision())}-${tagOf(interval)}"`;
+        // Like the API: the revision, the selection and the body's version, so another
+        // window, or a body of another version, never answers 304.
+        const etag = `"${String(revision())}-${tagOf(interval)}-v${String(SCOREBOARD_REPRESENTATION)}"`;
         if (headers.get('If-None-Match') === etag) {
           return new Response(null, { status: 304, headers: { ETag: etag } });
         }

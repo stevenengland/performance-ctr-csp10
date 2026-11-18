@@ -16,12 +16,21 @@ use Psr\Http\Message\ServerRequestInterface;
  * `GET /api/scoreboard?from=<instant>[&to=<instant>]` or `?scope=all`: the standings in the
  * window `[from, to)` (from the start of the viewer's day when there is no end) or of all time:
  * the ranked `rows` and the `unranked` persons whose entries all wait for verification.
- * The ETag names the data revision and the selection, so `If-None-Match` with an
- * unchanged revision and the same selection answers 304 before anything is aggregated. The revision and
+ * The ETag names the data revision, the selection and the representation, so `If-None-Match`
+ * with an unchanged revision and the same selection answers 304 before anything is aggregated. The revision and
  * the standings are read in one snapshot, so the tag always names what is sent.
  */
 final readonly class ScoreboardAction
 {
+    /**
+     * The version of the body's shape, named in the ETag. A 304 is answered before the body is
+     * built, so a validator of an earlier shape would keep that body current across a release:
+     * raise it with every change to the body that the same data revision would not show (a field
+     * added, renamed or computed otherwise). 1 was the body before the pure counts (PRD #83),
+     * whose tag named no version.
+     */
+    private const REPRESENTATION = 2;
+
     public function __construct(private Database $database, private PhotoUrl $photoUrl) {}
 
     public function __invoke(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
@@ -40,10 +49,13 @@ final readonly class ScoreboardAction
         ));
     }
 
-    /** The interval is part of the tag: the same revision means other standings for another day. */
+    /**
+     * The interval is part of the tag: the same revision means other standings for another day.
+     * The representation follows it, so a tag of an earlier body never matches.
+     */
     private static function tag(int $revision, Interval $interval): string
     {
-        return sprintf('"%d-%s"', $revision, IntervalQuery::tag($interval));
+        return sprintf('"%d-%s-v%d"', $revision, IntervalQuery::tag($interval), self::REPRESENTATION);
     }
 
     /**

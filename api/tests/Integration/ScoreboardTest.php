@@ -62,7 +62,8 @@ final class ScoreboardTest extends DatabaseTestCase
 
     /**
      * Installed clients send only `from`: their answer, body and ETag, is pinned byte for byte
-     * as it was before windows had an end, grown only by the fields added since (the pure counts).
+     * as it was before windows had an end, grown only by the fields added since (the pure counts)
+     * and by the representation they made the ETag name.
      */
     public function testARequestWithOnlyFromAnswersByteForByteAsBeforeWindowsHadAnEnd(): void
     {
@@ -76,11 +77,35 @@ final class ScoreboardTest extends DatabaseTestCase
         $response = $this->scoreboard(from: '2026-11-14T23:00:00.000Z');
 
         self::assertSame(200, $response->getStatusCode());
-        self::assertSame('"11-1794697200000"', $response->getHeaderLine('ETag'));
+        self::assertSame('"11-1794697200000-v2"', $response->getHeaderLine('ETag'));
         self::assertSame(
             '{"rows":[{"personId":1,"name":"Daniel","photoUrl":null,"score":6.5,"count":5,"rawCount":3,"pendingCount":1,"drinks":[{"drinkId":2,"name":"Aperol","count":1,"recordedCount":1,"rawCount":1,"rawRecordedCount":1},{"drinkId":1,"name":"Bier","count":4,"recordedCount":5,"rawCount":2,"rawRecordedCount":3}]}],"unranked":[{"personId":2,"name":"Anna","photoUrl":null,"pendingCount":1,"drinks":[{"drinkId":2,"name":"Aperol","count":0,"recordedCount":3,"rawCount":0,"rawRecordedCount":3}]}]}',
             (string) $response->getBody(),
         );
+    }
+
+    /**
+     * The ETag names the representation too: a client or cache that revalidates the previous
+     * release's body, which had no pure counts, with its validator (the same revision and
+     * selection, without the representation) gets the new body, never 304.
+     */
+    public function testAValidatorOfThePreviousRepresentationGetsTheBodyWithThePureCounts(): void
+    {
+        $this->add(1, 1, 2, 1);
+        $current = $this->scoreboard();
+
+        $previous = $this->scoreboard('"7-1794610800000"');
+        $unchanged = $this->scoreboard($current->getHeaderLine('ETag'));
+
+        self::assertSame('"7-1794610800000-v2"', $current->getHeaderLine('ETag'));
+        self::assertSame([200, '"7-1794610800000-v2"'], [$previous->getStatusCode(), $previous->getHeaderLine('ETag')]);
+        $rows = $this->rowsOf($previous);
+        self::assertSame([['count' => 4, 'rawCount' => 2]], array_map(static fn(array $row): array => array_intersect_key($row, ['count' => 0, 'rawCount' => 0]), $rows));
+        self::assertSame(
+            [['drinkId' => 1, 'name' => 'Bier', 'count' => 4, 'recordedCount' => 4, 'rawCount' => 2, 'rawRecordedCount' => 2]],
+            $rows[0]['drinks'],
+        );
+        self::assertSame(304, $unchanged->getStatusCode());
     }
 
     public function testARecordedEntryWaitsForVerificationAndCountsNeitherInScoreNorCount(): void

@@ -410,7 +410,7 @@ describe('the fixture backend', () => {
     });
     const after = await getScoreboard({ from: todayFrom() }, first.etag);
     expect(after).not.toBe('unchanged');
-    expect(first.etag).toMatch(/^"\d+-\d+"$/);
+    expect(first.etag).toMatch(/^"\d+-\d+-v2"$/);
   });
 
   it('adds entries idempotently and never brings an undone one back', async () => {
