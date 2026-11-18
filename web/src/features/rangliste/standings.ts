@@ -4,7 +4,8 @@ import { formatNumber, formatPoints } from '../../core/format';
 import { messages } from '../../core/messages';
 
 type DrinkCounters = DeepReadonly<Scoreboard['rows'][number]['drinks']>;
-type DrinkCounter = 'count' | 'recordedCount' | 'rawCount' | 'rawRecordedCount';
+type DrinkCounterKey =
+  'count' | 'recordedCount' | 'rawCount' | 'rawRecordedCount';
 
 /** How the Rangliste counts drinks: with their factors (the default) or the pure quantities. */
 export type Counting = 'factored' | 'raw';
@@ -15,7 +16,10 @@ what an unranked person recorded. Score and order stay factor-based in both.
 */
 const COUNTERS: Record<
   Counting,
-  { counted: 'count' | 'rawCount'; recorded: DrinkCounter }
+  {
+    counted: 'count' | 'rawCount';
+    recorded: 'recordedCount' | 'rawRecordedCount';
+  }
 > = {
   factored: { counted: 'count', recorded: 'recordedCount' },
   raw: { counted: 'rawCount', recorded: 'rawRecordedCount' },
@@ -57,7 +61,7 @@ export interface UnrankedStanding {
 }
 
 /** `Bier 4 · Margarita 1` from the chosen counter, leaving out drinks at 0. */
-function drinksText(drinks: DrinkCounters, counter: DrinkCounter): string {
+function drinksText(drinks: DrinkCounters, counter: DrinkCounterKey): string {
   return drinks
     .filter((drink) => drink[counter] > 0)
     .map((drink) => `${drink.name} ${formatNumber(drink[counter])}`)
@@ -102,7 +106,10 @@ export function standingsOf(
   });
 }
 
-/** The persons whose entries of today all wait, by name, as the Rangliste lists them apart, counted as chosen. */
+/**
+The persons whose entries of today all wait, by name, as the Rangliste lists them
+apart, counted as chosen.
+*/
 export function unrankedOf(
   board: DeepReadonly<Scoreboard>,
   counting: Counting,
