@@ -334,7 +334,8 @@ function onVisibilityChange() {
   margin: 0 0 12px;
 }
 
-/* A 32 dp chip (draft) whose touch target reaches 48 dp. */
+/* A 32 dp chip (draft) whose touch target reaches 48 dp, without reaching
+   into the day/week bar 6 px above. */
 .measure__option {
   position: relative;
   min-height: 32px;
@@ -348,7 +349,7 @@ function onVisibilityChange() {
 
 .measure__option::after {
   position: absolute;
-  inset: -8px 0;
+  inset: -6px 0 -10px;
   content: '';
 }
 

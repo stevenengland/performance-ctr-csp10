@@ -988,7 +988,8 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 - **Measure chips** (a points game under `Woche` and `Gesamt` only; never under `Aktuell` or
   `Tag`, never on a duel). Between the picker (with its `Gesamt` line) and the rule line, a
   group named `Wertung` of two chips, `Summe` | `Ø pro Ergebnis` (`caption`, 32 dp high with
-  a 48 dp touch target, corner 8 dp, 8 dp apart, 12 dp below): the chosen one is pressed
+  a 48 dp touch target that reaches 6 dp up and 10 dp down, so it never overlaps the
+  day/week bar 6 dp above; corner 8 dp, 8 dp apart, 12 dp below): the chosen one is pressed
   (`aria-pressed`) in `secondary-container`, the other outlined in `outline` with
   `on-surface-variant` text. `Summe` is chosen whenever the page opens; the choice is kept
   while switching between `Woche`, `Tag` and `Gesamt` (`Tag` itself ranks by the sum without

@@ -681,7 +681,27 @@ test('the fixture preview ranks Rommé’s Woche and Gesamt by Summe or Ø pro E
     measures.getByRole('button', { name: 'Ø pro Ergebnis' }),
   ).toHaveAttribute('aria-pressed', 'true');
   await expect(ranking.first()).toHaveAccessibleName(/ · Summe −?\d+/);
+
+  // The chips' touch targets end where the week bar's buttons begin.
+  for (const name of ['Vorherige Woche', /^Tag wählen: /]) {
+    const button = page
+      .locator('[data-test="day-bar"]')
+      .getByRole('button', { name });
+    expect(await ownsItsBottomRow(button), String(name)).toBe(true);
+  }
 });
+
+/** Whether a tap on the bottom row of the button, at its middle, reaches it. */
+function ownsItsBottomRow(button: Locator): Promise<boolean> {
+  return button.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      box.x + box.width / 2,
+      box.bottom - 1,
+    );
+    return hit !== null && element.contains(hit);
+  });
+}
 
 test('the fixture preview records a Schach match in three taps and undoes it', async ({
   page,
