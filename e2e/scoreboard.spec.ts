@@ -20,7 +20,7 @@ const POLL_MS = 10_000;
 
 async function created(
   request: APIRequestContext,
-  path: '/api/persons' | '/api/drinks',
+  path: '/api/persons' | '/api/drinks' | '/api/factors',
   data: Record<string, unknown>,
 ): Promise<number> {
   const response = await request.post(path, { data });
@@ -34,10 +34,11 @@ async function addEntry(
   personId: number,
   drinkId: number,
   quantity: number,
+  factorId?: number,
 ): Promise<string> {
   const id = randomUUID();
   const response = await request.put(`/api/entries/${id}`, {
-    data: { personId, drinkId, quantity },
+    data: { personId, drinkId, quantity, factorId },
   });
   expect(response.status()).toBe(201);
   return id;
@@ -162,6 +163,63 @@ test('the Rangliste ranks today’s persons by score with their counters, German
       )?.[1],
     );
   expect(await rank(ben)).toBeLessThan(await rank(anna));
+});
+
+test('Ohne Faktor counts the pure quantities on the Rangliste with the same score, kept in the URL across a reload', async ({
+  page,
+  request,
+}) => {
+  const verify = await verifierOn(request);
+  const ben = uniqueName('Ben');
+  const bier = uniqueName('Bier');
+  const benId = await created(page.request, '/api/persons', { name: ben });
+  const bierId = await created(page.request, '/api/drinks', {
+    name: bier,
+    points: 1,
+  });
+  const factorId = await created(page.request, '/api/factors', {
+    name: uniqueName('Fünffach'),
+    multiplier: 5,
+  });
+  await verify(await addEntry(page.request, benId, bierId, 4, factorId));
+  await verify(await addEntry(page.request, benId, bierId, 2));
+  const counting = page.getByRole('group', { name: 'Zählung' });
+
+  try {
+    await page.goto('/rangliste');
+    // 4 × 5 + 2 × 1 = 22 with the factor, 4 + 2 = 6 without; 22 Punkte in both.
+    await expect(
+      counting.getByRole('button', { name: 'Mit Faktor' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(place(page, ben)).toHaveAccessibleName(
+      new RegExp(`^Platz \\d+, ${ben}, 22 Punkte, 22 Getränke$`),
+    );
+    await expect(place(page, ben)).toContainText(`${bier} 22`);
+
+    await counting.getByRole('button', { name: 'Ohne Faktor' }).click();
+    await expect(page).toHaveURL(/\/rangliste\?zaehlung=roh$/);
+    await expect(place(page, ben)).toHaveAccessibleName(
+      new RegExp(`^Platz \\d+, ${ben}, 22 Punkte, 6 Getränke$`),
+    );
+    await expect(place(page, ben)).toContainText(`${bier} 6`);
+
+    await page.reload();
+    await expect(
+      counting.getByRole('button', { name: 'Ohne Faktor' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(place(page, ben)).toHaveAccessibleName(
+      new RegExp(`^Platz \\d+, ${ben}, 22 Punkte, 6 Getränke$`),
+    );
+
+    await counting.getByRole('button', { name: 'Mit Faktor' }).click();
+    await expect(page).toHaveURL(/\/rangliste$/);
+    await expect(place(page, ben)).toHaveAccessibleName(
+      new RegExp(`^Platz \\d+, ${ben}, 22 Punkte, 22 Getränke$`),
+    );
+  } finally {
+    // Factors are shared by everyone on the stack (see `factors.spec.ts`).
+    await page.request.delete(`/api/factors/${String(factorId)}`);
+  }
 });
 
 test('the Rangliste lists today’s persons whose entries all wait without a rank, with what they recorded, German-style', async ({
