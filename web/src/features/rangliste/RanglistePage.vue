@@ -63,12 +63,12 @@ const shown = computed(() => {
 });
 
 const standings = computed(() =>
-  shown.value.board ? standingsOf(shown.value.board) : undefined,
+  shown.value.board ? standingsOf(shown.value.board, 'factored') : undefined,
 );
 const leader = computed(() => standings.value?.[0]);
 const others = computed(() => standings.value?.slice(1) ?? []);
 const unranked = computed(() =>
-  shown.value.board ? unrankedOf(shown.value.board) : [],
+  shown.value.board ? unrankedOf(shown.value.board, 'factored') : [],
 );
 /** The day a place's Verlauf shows: the past day shown, else today (from `Woche` and `Gesamt` too). */
 const verlaufDay = computed(() =>
