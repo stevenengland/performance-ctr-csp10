@@ -599,15 +599,21 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     browses back freely, never past the current month. Picking a day closes the dialog and
     shows that day, or its week under `Woche`. Actions: `Abbrechen` (text) closes it unchanged,
     `Heute` (filled `primary`) shows today (under `Woche` the current week) and closes it.
-  - **Dots** come from `GET /api/scoreboard/days`: the start instants of the 15-minute UTC
-    buckets with an entry that counts, which the client buckets into the viewer's local days
-    (every UTC offset is a multiple of 15 minutes). A dot means "something counted here": a day
-    whose entries all wait has none, although its ranking shows the unranked group.
+  - **Dots** come from `GET /api/scoreboard/days?from=&to=` for the month shown: its window is
+    local midnight of the month's first day to that of the next month's (built by calendar
+    addition, at most 35 days; the API rejects a longer one), and the answer is the evenings
+    with an entry that counts as UTC spans `[from, to)` of 15-minute buckets (a pause shorter
+    than 6 hours does not end one). The client finds its local days in them (every UTC offset
+    is a multiple of 15 minutes and every local day longer than 6 hours, so a span touches
+    exactly the days its quarter hours lie on; one over midnight touches both). A dot means
+    "something counted here": a day whose entries all wait has none, although its ranking
+    shows the unranked group.
   - **`Gesamt`** has no bar; in its place a line in `support` (`on-surface-variant`, margin
-    12 / 4 / 10 dp) says since when and over how many evenings it counts, from the same days:
-    `Alle Tage seit 27.10.2026 · 15 Abende` (`1 Abend`) — the first day with a dot and the
-    number of days with one. Until a day counts (or while the days are not read yet), a 12 dp
-    gap stands in its place.
+    12 / 4 / 10 dp) says since when and over how many evenings it counts, from the all-time
+    read `GET /api/scoreboard/days?scope=all` (the same spans, one per evening ever):
+    `Alle Tage seit 27.10.2026 · 15 Abende` (`1 Abend`) — the first local day with data and the
+    number of local days with data. Until a day counts (or while the spans are not read yet),
+    a 12 dp gap stands in its place.
   - The chosen period is kept while the app runs, so returning from a person's Verlauf shows it
     again; a fresh start opens on today. Today is followed across midnight (a Rangliste left on
     `Heute` shows the new day); a past day is held as its local calendar date, so after
@@ -628,12 +634,19 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   them never changes what Zählen shows. The current week and `Gesamt` contain the present and
   are polled like today; a past day or week is read when shown, on focus, when the page becomes visible and after the device's
   own writes, and is not polled. Data and ETags are kept per period: an answer for a period no
-  longer shown is dropped, and an ETag is only sent with the period it came from. The days read
-  runs only while the calendar is open or `Gesamt` is shown: read then, on focus, when the page
-  becomes visible and after the device's own writes, on condition of its ETag (the bare data
-  revision); under `Gesamt` it is polled every 10 s like the ranking, so the line stays live with
-  it, while the calendar alone does not poll it; the days last read show at once when the
-  calendar opens again.
+  longer shown is dropped, and an ETag is only sent with the period it came from. The month read
+  runs only while the calendar is open: read on opening, when the calendar shows another month,
+  on focus, when the page becomes visible and after the device's own writes, on condition of
+  that month's ETag (data revision and window), never polled; the last three months shown keep
+  their spans, so browsing back shows their dots at once. The all-time read runs only while
+  `Gesamt` is shown, polled every 10 s like its ranking on condition of its ETag (`"<rev>-all"`),
+  so the line stays live and the server reads nothing while nothing changed.
+- **Cost of the days reads.** Measured with `api/tests/Benchmark/DaysReadBenchmark.php` on five
+  years of evenings (26 000 entries, MariaDB 10.11): a month's read seeks its window in the
+  verified entries' index and answers about 400 bytes in about 2 ms; the all-time read scans
+  that index once (about 27 ms, 44 kB, one span per evening), a fifth of what the `Gesamt`
+  ranking it accompanies costs, and only after the data revision changed — so its 10 s poll is
+  kept.
 - Persons with verified entries in the period, ranked by score (ties by name); score, total
   count and per-drink counters count verified entries only:
   - **Rank 1 — leader card:** `primary-container`, corner 18 dp. On the left the avatar
@@ -975,10 +988,11 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   only the 12 dp gap. `Tag` and `Woche` bring the day/week bar and the calendar dialog
   `Tag wählen` exactly as on the Rangliste (a `Tag` left on `Heute` follows midnight). The
   calendar dots the days the game was played — a verified match or result of any run counts
-  (`GET /api/games/{id}/standings/days`, the same 15-minute buckets as the Rangliste's), and a
-  dotted day's button is described as `Gespielt` for screen readers. `Gesamt` has no bar; in its
-  place the line `Alle Läufe seit 28.10.2026 · 6 Spieltage` (`1 Spieltag`) — the first day
-  with a dot and the number of days with one — or the 12 dp gap until a day counts.
+  (`GET /api/games/{id}/standings/days?from=&to=` for the month shown, the same spans as the
+  Rangliste's), and a dotted day's button is described as `Gespielt` for screen readers.
+  `Gesamt` has no bar; in its place the line `Alle Läufe seit 28.10.2026 · 6 Spieltage`
+  (`1 Spieltag`) from the all-time read (`?scope=all`) — the first local day with data and the
+  number of local days with data — or the 12 dp gap until a day counts.
 - **What a period ranks.** `Tag`, `Woche` and `Gesamt` rank every verified match or result of
   the game recorded in that local day, ISO week or ever, whatever its run: restarts do not
   matter there, so earlier runs count. A duel accumulates each match's win, draw or loss for
@@ -1068,9 +1082,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   stale indicator); a past day or week is read when shown, on focus, when the page becomes
   visible and after the device's own writes (recording or undoing a match or result, a
   restart), and is not polled. While another period is shown the current run is not polled;
-  it is read again when `Aktuell` is chosen. The days read runs while the calendar is open or
-  `Gesamt` is shown (polled under `Gesamt`, so its line stays live), and is read again after
-  the device's own writes. Leaving the page forgets the period: the next opening is `Aktuell`.
+  it is read again when `Aktuell` is chosen. The month read runs while the calendar is open
+  (never polled) and the all-time read while `Gesamt` is shown (polled, so its line stays
+  live), each read again after the device's own writes, as on the Rangliste. Leaving the page forgets the period: the next opening is `Aktuell`.
 - Below the ranking (or the empty state) a row of text buttons (`row-title`, normal case):
   `Verlauf` (`mdiHistory`) opens the game's Verlauf (§7r); `Neu starten` (`mdiRestart`) opens
   the confirmation dialog (§6.9) `Schach neu starten?` – `Aktuell beginnt wieder bei null.
@@ -1318,13 +1332,13 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 | Anzahl | scoreboard feed, `PUT /api/entries/{uuid}` | Booked count from the feed (`recordedCount`, pending entries included); saves while no factors exist |
 | Faktor | `GET /api/factors`, `PUT /api/entries/{uuid}` | Choice saves |
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
-| Rangliste | `GET /api/scoreboard?from=` (today), `?from=&to=` (a past day, a week), `?scope=all` (`Gesamt`) (ETag, `If-None-Match` → 304); `GET /api/scoreboard/days` (calendar dots, `Gesamt` line; ETag `"<rev>"`) | Today's feed polls every 10 s while visible, as do the current week and `Gesamt`; a past day or week is read on show, focus and after own writes; ETag = data revision + selection (`"<rev>-<fromMs>"`, `"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`). `rows` rank verified entries (`score`, `count`, each drink's `count`) with `pendingCount`; each drink also has `recordedCount`; `unranked` lists persons whose entries all wait |
+| Rangliste | `GET /api/scoreboard?from=` (today), `?from=&to=` (a past day, a week), `?scope=all` (`Gesamt`) (ETag, `If-None-Match` → 304); `GET /api/scoreboard/days?from=&to=` (the calendar's month, at most 35 days) and `?scope=all` (`Gesamt` line): `{spans: [{from, to}]}`, the evenings with counted entries (ETag `"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`) | Today's feed polls every 10 s while visible, as do the current week and `Gesamt`; a past day or week is read on show, focus and after own writes; ETag = data revision + selection (`"<rev>-<fromMs>"`, `"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`). `rows` rank verified entries (`score`, `count`, each drink's `count`) with `pendingCount`; each drink also has `recordedCount`; `unranked` lists persons whose entries all wait |
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=` (a past day `&to=`), `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt`, `accountName` (or `null`) and `pending`; 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count (a person also `matchCount` and `resultCount`); `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Personen (photo) | `PUT /api/persons/{id}/photo`, `DELETE /api/persons/{id}/photo` | Any member, any person; never a field of the person `PATCH`. `PUT` body `{image}`: base64 of a 256 × 256 JPEG of at most 64 KiB; answers the person (200). A body over 96 KiB is 413 `Foto zu groß.`, an invalid photo 422 on `image`. `DELETE` is 204, also without a photo. The same photo again and removing none change nothing |
 | Photo display | `GET /api/persons/{id}/photo?v=<version>` | Loaded by `<img>`, outside the fetch wrapper. 200 `image/jpeg` with `Cache-Control: private, max-age=31536000, immutable` only while `v` is the stored version; a missing, malformed or stale `v`, no photo and an unknown person are 404, every error `no-store`. The client never builds this URL |
 | Verwalten | `GET /api/{persons,drinks,factors,games}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
-| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` (current run; on the game's page also `?from=&to=` for a day or week and `?scope=all` for `Gesamt`; ETag, `If-None-Match` → 304), `GET /api/games/{id}/standings/days` (calendar dots, `Gesamt` line; ETag `"<rev>"`) | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. The game's page polls every 10 s while visible (the current run, today, the current week and `Gesamt`; a past day or week on show, focus and after own writes), Spiele reads on open and on focus; ETag = data revision (`"<rev>"`), plus the selection for a window or all time (`"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`) and `-average` when the average ranks. A window or all time ranks every run's verified matches or results, a points row also carrying `average` (rounded half away from zero to one decimal, display only); a points game's week and `Gesamt` send `measure=sum\|average` (422 on a duel or without a window or `scope=all`). Standings of any selection, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played, pendingCount}` over verified matches, with `unranked` `{personId, name, pendingCount}` for persons whose matches all wait; a points game's `{personId, name, sum, results, pendingCount}` over verified results with `lowerWins`, and `unranked` like a duel's |
+| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` (current run; on the game's page also `?from=&to=` for a day or week and `?scope=all` for `Gesamt`; ETag, `If-None-Match` → 304), `GET /api/games/{id}/standings/days?from=&to=` / `?scope=all` (calendar's month, `Gesamt` line; spans and ETags as the Rangliste's) | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. The game's page polls every 10 s while visible (the current run, today, the current week and `Gesamt`; a past day or week on show, focus and after own writes), Spiele reads on open and on focus; ETag = data revision (`"<rev>"`), plus the selection for a window or all time (`"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`) and `-average` when the average ranks. A window or all time ranks every run's verified matches or results, a points row also carrying `average` (rounded half away from zero to one decimal, display only); a points game's week and `Gesamt` send `measure=sum\|average` (422 on a duel or without a window or `scope=all`). Standings of any selection, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played, pendingCount}` over verified matches, with `unranked` `{personId, name, pendingCount}` for persons whose matches all wait; a points game's `{personId, name, sum, results, pendingCount}` over verified results with `lowerWins`, and `unranked` like a duel's |
 | Verwalten → Spiele | `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/{id}` | Game: `id`, `name`, `kind` (`duel` \| `points`), `drawsAllowed`, `lowerWins`, `startedAt`. `POST` takes `name`, `kind` and the kind's setting; `PATCH` takes `name` and the setting (the kind is fixed); `GET …/{id}` adds `matchCount` and `resultCount` (every run) |
 | Partie eintragen | `GET /api/games`, `GET /api/persons`, `GET /api/games/{id}/standings`, `PUT /api/matches/{uuid}` | Body `{gameId, firstPersonId, secondPersonId, outcome}` with `outcome` `first` \| `second` \| `draw`; 201 new, 200 replay; the same UUID with other content is 409 `request-conflict` |
 | Snackbar `Rückgängig` (match) | `DELETE /api/matches/{uuid}` | 404 counts as undone; the ranking is read again |
@@ -1357,15 +1371,18 @@ the shareable page a UI change is reviewed on before it reaches the host.
   `from`/`to` on the entry list) like the API's `IntervalQuery`, rejects the same invalid windows
   with the same problems and tags each selection like the API; its specs
   (`web/preview/fixtureInterval.spec.ts`) run the API integration tests' cases. It answers
-  `GET /api/scoreboard/days` like the API's `QuarterHours` (verified entries of persons and
-  drinks that still exist, 15-minute UTC buckets, ETag `"<rev>"`), its spec
-  (`web/preview/fixtureDays.spec.ts`) running `ScoreboardDaysTest`'s cases; the sample's
+  `GET /api/scoreboard/days` like the API's `QuarterHours` and `DaysActions` (a window of at
+  most 35 days or `scope=all`, verified entries of persons and drinks that still exist, spans
+  of 15-minute UTC buckets with pauses shorter than 6 hours, ETag `"<rev>-<selection>"`), its
+  spec (`web/preview/fixtureDays.spec.ts`) running `ScoreboardDaysTest`'s cases and the days
+  cases of `IntervalQueryTest`, and proving on generated quarter hours in several time zones
+  that the client's local days of the spans are those of the quarter hours; the sample's
   calendar dots today, yesterday and the evenings four, seven and nine days back, and `Gesamt`
   reads `Alle Tage seit … · 5 Abende`. A game's standings take nothing (its current run), a
   window or `scope=all` the same way, with the API's ETags (`"<rev>"`, `"<rev>-<window>"`,
   `"<rev>-all"`, `"<rev>-<window or all>-average"`) and averages on a window's points rows, a
   points game's window or all time ranked by `measure=sum|average` and rejected like the API, and `GET /api/games/{id}/standings/days`
-  answers the quarter hours with verified matches or results of every run; its specs
+  answers the spans with verified matches or results of every run; its specs
   (`web/preview/fixtureStandings.spec.ts`) run `StandingsWindowTest`'s,
   `StandingsMeasureTest`'s and `StandingsDaysTest`'s cases.
 - **Behaviour.** The fixture backend starts signed in as the admin `anna` (the sample
