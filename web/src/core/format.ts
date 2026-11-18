@@ -38,6 +38,65 @@ export function formatDay(instant: Date, timeZone?: string): string {
   }).format(instant);
 }
 
+/** A span of days without the year: `02.11.–08.11.`, in the browser's time zone unless one is given. */
+export function formatDayRange(
+  first: Date,
+  last: Date,
+  timeZone?: string,
+): string {
+  return `${formatDay(first, timeZone)}–${formatDay(last, timeZone)}`;
+}
+
+/** A day with its short weekday, without the year: `Sa., 14.11.`, in the browser's time zone unless one is given. */
+export function formatWeekdayDay(instant: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat('de-DE', {
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+    timeZone,
+  }).format(instant);
+}
+
+/** A day in full: `Montag, 16.11.2026`, in the browser's time zone unless one is given. */
+export function formatFullDay(instant: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat('de-DE', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone,
+  }).format(instant);
+}
+
+/** A date with its year: `27.10.2026`, in the browser's time zone unless one is given. */
+export function formatDate(instant: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone,
+  }).format(instant);
+}
+
+/** A calendar day by name, as the calendar's days are read out: `Freitag, 13. November`. */
+export function formatCalendarDay(instant: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat('de-DE', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone,
+  }).format(instant);
+}
+
+/** A month with its year, as the calendar heads it: `November 2026`. */
+export function formatMonth(instant: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat('de-DE', {
+    month: 'long',
+    year: 'numeric',
+    timeZone,
+  }).format(instant);
+}
+
 /** Game points can be negative: `−20` with a real minus sign, `0`, `35`. */
 export function formatSigned(value: number): string {
   return value < 0 ? `−${formatNumber(-value)}` : formatNumber(value);

@@ -81,8 +81,42 @@ export const messages = {
     retry: 'Erneut versuchen',
     gone: 'Nicht mehr vorhanden',
   },
+  /** The period a ranking covers and the shared picker that chooses it (PRD #70). */
+  period: {
+    /** The switch's accessible name. */
+    label: 'Zeitraum',
+    kinds: { day: 'Tag', week: 'Woche', all: 'Gesamt', run: 'Aktuell' },
+    today: 'Heute',
+    yesterday: 'Gestern',
+    previousDay: 'Vorheriger Tag',
+    nextDay: 'Nächster Tag',
+    thisWeek: 'Diese Woche',
+    lastWeek: 'Letzte Woche',
+    previousWeek: 'Vorherige Woche',
+    nextWeek: 'Nächste Woche',
+    /** An ISO calendar week by its number and days: `KW 45 · 02.11.–08.11.`. */
+    week: (number: number, days: string) => `KW ${String(number)} · ${days}`,
+    /** The calendar dialog's title, and the bar's day that opens it: `Tag wählen: Gestern`. */
+    pickDay: 'Tag wählen',
+    pickDayFrom: (shown: string) => `Tag wählen: ${shown}`,
+    previousMonth: 'Vorheriger Monat',
+    nextMonth: 'Nächster Monat',
+    /** The calendar's column heads, Monday first. */
+    weekdays: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'],
+  },
   rangliste: {
     noDrinks: 'Heute noch keine Getränke.',
+    /** A past day without any entry, counted or pending. */
+    noDrinksThatDay: 'An diesem Tag wurde nichts gezählt.',
+    /** A week without any entry, counted or pending. */
+    noDrinksThatWeek: 'In dieser Woche wurde nichts gezählt.',
+    /** All time without any entry. */
+    noDrinksEver: 'Noch keine Getränke.',
+    /** The `Gesamt` line: `Alle Tage seit 27.10.2026 · 15 Abende`, `1 Abend`. */
+    allDaysSince: (since: string, days: number) =>
+      `Alle Tage seit ${since} · ${String(days)} ${days === 1 ? 'Abend' : 'Abende'}`,
+    /** What a calendar day's dot says to a screen reader: entries counted that day. */
+    counted: 'Gezählt',
     /** The group of persons whose entries of today all wait for verification (§7f). */
     unranked: 'Noch nicht gewertet',
     count: 'Zählen',
@@ -98,6 +132,8 @@ export const messages = {
     /** The list's accessible name: `Einträge von Daniel`. */
     list: (person: string) => `Einträge von ${person}`,
     empty: 'Heute keine Einträge.',
+    /** A past day's Verlauf without entries: it names no `Heute`. */
+    emptyThatDay: 'An diesem Tag keine Einträge.',
     /** The logging account once it is deleted. */
     deletedAccount: 'gelöschtes Konto',
     /** A row's supporting line: `Happy Hour ×2 · 23:41 · anna`. */
@@ -359,11 +395,31 @@ export const messages = {
     /** A points place's count: `3 Ergebnisse`. */
     resultCount: (count: number) =>
       `${String(count)} ${count === 1 ? 'Ergebnis' : 'Ergebnisse'}`,
+    /** The chips that choose what a points game's week or all time is ranked by. */
+    measure: 'Wertung',
+    measures: { sum: 'Summe', average: 'Ø pro Ergebnis' },
+    /** An average per result: `Ø 12,3`. */
+    average: (formatted: string) => `Ø ${formatted}`,
+    /** A sum beside the average: `Summe 172`. */
+    sum: (formatted: string) => `Summe ${formatted}`,
+    /** A points place's count with the measure not ranked by: `14 Ergebnisse · Ø 12,3`. */
+    withOther: (count: string, other: string) => `${count} · ${other}`,
     /** Accessible name of a place: `Platz 1, Anna, 3,5 Punkte, 5 Partien · …`. */
     place: (rank: number, name: string, value: string, details: string) =>
       `Platz ${String(rank)}, ${name}, ${value}, ${details}`,
     noneYetDuel: 'Seit dem Start noch keine Partien.',
     noneYetPoints: 'Seit dem Start noch keine Ergebnisse.',
+    /** A past day without any match or result, counted or pending. */
+    nothingPlayedThatDay: 'An diesem Tag wurde nichts gespielt.',
+    /** A week without any match or result, counted or pending. */
+    nothingPlayedThatWeek: 'In dieser Woche wurde nichts gespielt.',
+    /** All time without any match or result. */
+    nothingPlayedEver: 'Noch nichts gespielt.',
+    /** A game's `Gesamt` line: `Alle Läufe seit 28.10.2026 · 6 Spieltage`, `1 Spieltag`. */
+    allRunsSince: (since: string, days: number) =>
+      `Alle Läufe seit ${since} · ${String(days)} ${days === 1 ? 'Spieltag' : 'Spieltage'}`,
+    /** What a calendar day's dot says to a screen reader: the game was played that day. */
+    playedThatDay: 'Gespielt',
     /** A duel player's tile: `5 Partien`. */
     played: (count: number) =>
       `${String(count)} ${count === 1 ? 'Partie' : 'Partien'}`,
@@ -396,7 +452,7 @@ export const messages = {
     restart: 'Neu starten',
     restartTitle: (name: string) => `${name} neu starten?`,
     restartBody:
-      'Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.',
+      'Aktuell beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert und zählen unter Tag, Woche und Gesamt weiter.',
     restarted: (name: string) => `${name} neu gestartet`,
     /** The Verlauf's context line: `Schach · seit 15.09.`. */
     historyContext: (game: string, since: string) => `${game} · ${since}`,

@@ -102,8 +102,8 @@ function api(
 
 let router: Router;
 
-/** Verlauf in the shell's top bar, opened from the Rangliste. */
-async function verlauf(personId: number): Promise<VueWrapper> {
+/** Verlauf in the shell's top bar, opened from the Rangliste (with `?tag=…` from a past day). */
+async function verlauf(personId: number, query = ''): Promise<VueWrapper> {
   router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -131,7 +131,7 @@ async function verlauf(personId: number): Promise<VueWrapper> {
     ],
   });
   await router.push('/rangliste');
-  await router.push(`/verlauf/${String(personId)}`);
+  await router.push(`/verlauf/${String(personId)}${query}`);
   const shell = defineComponent(() => () => [h(AppTopBar), h(RouterView)]);
   const wrapper = mount(shell, {
     global: { plugins: [router, createAppVuetify()] },
@@ -218,6 +218,32 @@ describe('Verlauf', () => {
     expect(wrapper.text()).toContain('Heute keine Einträge.');
   });
 
+  it('drops a late answer for the day before once the new day has been read', async () => {
+    let answerYesterday: (response: Response) => void = () => undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url === '/api/persons') return json({ persons });
+        if (url.includes('from=2026-11-14T23')) {
+          return new Promise<Response>((resolve) => {
+            answerYesterday = resolve;
+          });
+        }
+        return json({ entries: [] });
+      }),
+    );
+    wrapper = await verlauf(3);
+
+    vi.setSystemTime(new Date('2026-11-16T00:05:00Z'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+    answerYesterday(json({ entries: evening() }));
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Heute keine Einträge.');
+    expect(rows(wrapper)).toEqual([]);
+  });
+
   it('says so when the person has no entries today', async () => {
     api([]);
 
@@ -302,5 +328,103 @@ describe('Verlauf', () => {
       expect(router.currentRoute.value.path).toBe('/rangliste');
     });
     expect(useSnackbar().value?.text).toBe('Nicht mehr vorhanden');
+  });
+  describe('of a past day', () => {
+    /** Saturday 14.11.2026 in Berlin: `[13.11. 23:00Z, 14.11. 23:00Z)`. */
+    const SATURDAY =
+      '/api/entries?personId=3&from=2026-11-13T23%3A00%3A00.000Z&to=2026-11-14T23%3A00%3A00.000Z';
+    const TODAY = '/api/entries?personId=3&from=2026-11-14T23%3A00%3A00.000Z';
+    const reads = (calls: Call[]) =>
+      calls.filter(({ url }) => url.startsWith('/api/entries?'));
+
+    it('lists the person’s entries of the day its tag names, read with that day’s local window, and names the day in the context line', async () => {
+      const calls = api(evening());
+
+      wrapper = await verlauf(3, '?tag=2026-11-14');
+
+      expect(wrapper.get('h1').text()).toBe('Daniel');
+      expect(wrapper.get('.top-bar__context').text()).toBe(
+        'Samstag, 14.11.2026',
+      );
+      expect(reads(calls)).toEqual([{ method: 'GET', url: SATURDAY }]);
+      expect(rows(wrapper)).toHaveLength(3);
+      expect(
+        wrapper.get('[data-test="entry"] [data-test="pending"]').text(),
+      ).toBe('offen');
+    });
+
+    it.each([
+      ['a future day', '?tag=2026-11-16'],
+      ['no date', '?tag=gestern'],
+      ['an impossible date', '?tag=2026-02-30'],
+      ['an empty tag', '?tag='],
+    ])('shows today for %s', async (_case, query) => {
+      const calls = api(evening());
+
+      wrapper = await verlauf(3, query);
+
+      expect(wrapper.get('.top-bar__context').text()).toBe('Heute');
+      expect(reads(calls)).toEqual([{ method: 'GET', url: TODAY }]);
+    });
+
+    it('says the day had no entries without naming Heute', async () => {
+      api([]);
+
+      wrapper = await verlauf(3, '?tag=2026-11-14');
+
+      const text = wrapper.get('section').text();
+      expect(text).toBe('An diesem Tag keine Einträge.');
+    });
+
+    it('deletes an entry of the day, reads the day again and refreshes the scoreboard', async () => {
+      const calls = api(evening());
+      wrapper = await verlauf(3, '?tag=2026-11-14');
+
+      await click(buttonIn(document, '2× Bier um 23:41 löschen'));
+      await click(buttonIn(dialog(), 'Löschen'));
+
+      expect(calls).toContainEqual({
+        method: 'DELETE',
+        url: '/api/entries/e3',
+      });
+      expect(reads(calls)).toEqual([
+        { method: 'GET', url: SATURDAY },
+        { method: 'GET', url: SATURDAY },
+      ]);
+      expect(rows(wrapper)).toHaveLength(2);
+      expect(calls.some(({ url }) => url.startsWith('/api/scoreboard'))).toBe(
+        true,
+      );
+    });
+
+    it('keeps the day as its calendar date, its window rebuilt for a new time zone', async () => {
+      const calls = api(evening());
+      wrapper = await verlauf(3, '?tag=2026-11-14');
+
+      process.env.TZ = 'America/New_York';
+      await click(buttonIn(document, '2× Bier um 23:41 löschen'));
+      await click(buttonIn(dialog(), 'Löschen'));
+
+      expect(reads(calls).at(-1)?.url).toBe(
+        '/api/entries?personId=3&from=2026-11-14T05%3A00%3A00.000Z&to=2026-11-15T05%3A00%3A00.000Z',
+      );
+      expect(wrapper.get('.top-bar__context').text()).toBe(
+        'Samstag, 14.11.2026',
+      );
+    });
+
+    it('stays on the day when midnight passes', async () => {
+      const calls = api(evening());
+      wrapper = await verlauf(3, '?tag=2026-11-14');
+
+      vi.setSystemTime(new Date('2026-11-16T00:05:00Z'));
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flushPromises();
+
+      expect(reads(calls)).toEqual([{ method: 'GET', url: SATURDAY }]);
+      expect(wrapper.get('.top-bar__context').text()).toBe(
+        'Samstag, 14.11.2026',
+      );
+    });
   });
 });

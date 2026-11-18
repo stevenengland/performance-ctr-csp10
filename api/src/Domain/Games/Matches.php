@@ -15,11 +15,14 @@ use Performance\Domain\DatabaseError;
 use Performance\Domain\DataRevision;
 use Performance\Domain\GameDependents;
 use Performance\Domain\Idempotency;
+use Performance\Domain\Interval;
 use Performance\Domain\NotFound;
 use Performance\Domain\PendingMatch;
 use Performance\Domain\PersonDependentCounts;
 use Performance\Domain\PersonDependents;
+use Performance\Domain\QuarterHours;
 use Performance\Domain\RequestConflict;
+use Performance\Domain\Span;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
 use Performance\Domain\VerifiableKind;
@@ -144,35 +147,29 @@ final readonly class Matches implements GameDependents, PersonDependents
     }
 
     /**
-     * A duel game's ranking in one run: every person with a verified match in it, by points
-     * (win 1, draw ½, loss 0), then wins, then name, then id. Only verified matches count
-     * (PRD #61); each person names their pending matches in the run, and a person whose matches
-     * in it all wait is listed apart, unranked. It is computed from each match's stored
-     * outcome, so a side that was cleared (a deleted person) counts for no one and never
-     * changes the other side's result.
+     * A duel game's ranking in its current run or an interval: every person with a verified
+     * match in it, by points (win 1, draw ½, loss 0), then wins, then name, then id. Across
+     * runs it simply accumulates: each verified match adds its result to both its players once.
+     * Only verified matches count (PRD #61); each person names their pending matches in the
+     * selection, and a person whose matches in it all wait is listed apart, unranked. It is
+     * computed from each match's stored outcome, so a side that was cleared (a deleted person)
+     * counts for no one and never changes the other side's result.
      *
      * @return Standings<DuelRow>
      */
-    public function standings(int $gameId, int $run): Standings
+    public function standings(Game $game, Interval|CurrentRun $selection): Standings
     {
+        [$condition, $parameters] = $game->rowsIn($selection);
         $statement = $this->pdo->prepare(
             "SELECT p.id, p.name,
                     SUM(IF(r.pending = 0, CASE r.result WHEN 'win' THEN 1 WHEN 'draw' THEN 0.5 ELSE 0 END, 0)) AS points,
                     SUM(r.pending = 0 AND r.result = 'win') AS wins, SUM(r.pending = 0 AND r.result = 'draw') AS draws,
                     SUM(r.pending = 0 AND r.result = 'loss') AS losses, SUM(r.pending = 0) AS played, SUM(r.pending = 1) AS pending_matches
-             FROM (
-                 SELECT first_person_id AS person_id, pending,
-                        CASE outcome WHEN 'first' THEN 'win' WHEN 'second' THEN 'loss' ELSE 'draw' END AS result
-                 FROM matches WHERE game_id = ? AND run = ? AND first_person_id IS NOT NULL
-                 UNION ALL
-                 SELECT second_person_id, pending,
-                        CASE outcome WHEN 'second' THEN 'win' WHEN 'first' THEN 'loss' ELSE 'draw' END
-                 FROM matches WHERE game_id = ? AND run = ? AND second_person_id IS NOT NULL
-             ) r JOIN persons p ON p.id = r.person_id
+             FROM " . self::sides($condition) . "
              GROUP BY p.id, p.name
              ORDER BY SUM(r.pending = 0) = 0, points DESC, wins DESC, p.name, p.id",
         );
-        $statement->execute([$gameId, $run, $gameId, $run]);
+        $statement->execute([...$parameters, ...$parameters]);
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
         $ranked = [];
@@ -195,6 +192,28 @@ final readonly class Matches implements GameDependents, PersonDependents
         }
 
         return new Standings($ranked, $unranked);
+    }
+
+    /**
+     * The days the duel game was played in the interval: the sessions of 15-minute UTC buckets
+     * with a verified match of any run, by its recording instant. A match counts once while one
+     * of its sides still names a person (a deleted person's side is cleared), as in the
+     * ranking; once neither does, it counts for no one. Read from the matches themselves, once
+     * each: a window seeks the verified matches by time (`matches_pending`: pending, recording
+     * instant) and keeps the game's.
+     *
+     * @return list<Span>
+     */
+    public function days(int $gameId, Interval $interval): array
+    {
+        return QuarterHours::spans(
+            $this->pdo,
+            'matches m',
+            'm.created_at',
+            'm.game_id = ? AND m.pending = 0 AND (m.first_person_id IS NOT NULL OR m.second_person_id IS NOT NULL) AND '
+                . $interval->condition('m.created_at'),
+            [$gameId, ...$interval->parameters()],
+        );
     }
 
     /**
@@ -274,6 +293,25 @@ final readonly class Matches implements GameDependents, PersonDependents
         }
         ksort($changes, SORT_STRING);
         $this->audit->recordCaused($actor, $cause, AuditOperation::Update, AuditSubjectKind::Match, array_values($changes));
+    }
+
+    /**
+     * The selected matches as the ranking counts them, `r` joined with its person `p`: one row
+     * per side that names a person, with that side's result (`win`, `draw`, `loss`), whether
+     * the match waits and its recording instant. `$selection` filters the matches, without
+     * `WHERE`; its placeholders are bound twice, once per side.
+     */
+    private static function sides(string $selection): string
+    {
+        return "(
+                 SELECT first_person_id AS person_id, pending, created_at,
+                        CASE outcome WHEN 'first' THEN 'win' WHEN 'second' THEN 'loss' ELSE 'draw' END AS result
+                 FROM matches WHERE {$selection} AND first_person_id IS NOT NULL
+                 UNION ALL
+                 SELECT second_person_id, pending, created_at,
+                        CASE outcome WHEN 'second' THEN 'win' WHEN 'first' THEN 'loss' ELSE 'draw' END
+                 FROM matches WHERE {$selection} AND second_person_id IS NOT NULL
+             ) r JOIN persons p ON p.id = r.person_id";
     }
 
     /**

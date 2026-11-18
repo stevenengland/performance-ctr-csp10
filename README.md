@@ -1,6 +1,7 @@
 # Performance
 
-Drink counter PWA with today's scoreboard for a group of friends: Vue 3 + Vuetify in
+Drink counter PWA for a group of friends, with a scoreboard of today, any earlier day, a
+calendar week or all time (PRD #70), and game rankings by run, day, week or all time: Vue 3 + Vuetify in
 `web/`, a Slim 4 PHP API in `api/`, the deploy CLI in `deploy/`, Playwright in `e2e/`.
 Product rules: PRD #1. UI target: [`docs/design/webapp-design-spec.md`](docs/design/webapp-design-spec.md)
 and [`docs/design/mockup.html`](docs/design/mockup.html). Decisions: [`docs/adr/`](docs/adr/).
@@ -32,7 +33,7 @@ Enable the hooks once: `git config core.hooksPath .githooks` (pre-commit: secret
 | `npm run build:artifact` | The one deployable artifact: `dist/artifact/` (with its deploy `manifest.json`) and `dist/performance-<release>.tar.gz` + `.sha256` |
 | `cd api && composer test` | PHPUnit against MariaDB (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`; it drops and recreates `DB_NAME`, default `performance_test`) |
 | `cd api && composer analyse && composer cs` | PHPStan (max) and PHP-CS-Fixer (PER-CS) |
-| `npm run test:e2e` | Playwright against the stack (`E2E_BASE_URL`, default `http://localhost:8080`); with `E2E_PREVIEW=1` it also serves `web/dist-preview/` for the preview projects |
+| `npm run test:e2e` | Playwright against the stack (`E2E_BASE_URL`, default `http://localhost:8080`); with `E2E_PREVIEW=1` it also serves `web/dist-preview/` for the preview projects. `e2e/periods.spec.ts` moves its rows to earlier days in the stack's database through `docker compose -f e2e/stack/compose.yml exec db mariadb`; for a stack on another database set `E2E_STACK_SQL` to its client command (SQL on stdin) |
 | `npx lhci autorun` | Lighthouse on the stack: Zählen, Rangliste and Verwalten signed in, Anmelden signed out (`e2e/support/lighthouse-sign-in.cjs` seeds a sample evening into an empty stack; run it before the e2e suite). Uses `/usr/bin/google-chrome`; override with `LHCI_COLLECT__CHROME_PATH` |
 | `npm run test:deploy` | Deploy proof: the deploy CLI with the built artifact's PHP release against SFTP + Apache/PHP + MariaDB containers (`tests/support/compose.yml`); build the artifact first |
 | `npm run lint:workflows` | actionlint and zizmor from digest-pinned images |

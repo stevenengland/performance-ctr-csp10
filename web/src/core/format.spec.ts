@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatCalendarDay,
+  formatDate,
   formatDay,
+  formatDayRange,
   formatDecimalInput,
+  formatFullDay,
+  formatMonth,
   formatMultiplier,
   formatNumber,
   formatPoints,
   formatSigned,
   formatTime,
+  formatWeekdayDay,
   parseDecimal,
 } from './format';
 
@@ -40,6 +46,35 @@ describe('de-DE formatting', () => {
     const instant = new Date('2026-09-14T22:30:00Z');
     expect(formatDay(instant, 'Europe/Berlin')).toBe('15.09.');
     expect(formatDay(instant, 'America/Mexico_City')).toBe('14.09.');
+  });
+
+  it('shows a span of days as dd.MM.–dd.MM. without the year, across a year end', () => {
+    expect(
+      formatDayRange(
+        new Date('2025-12-28T23:00:00Z'),
+        new Date('2026-01-03T23:00:00Z'),
+        'Europe/Berlin',
+      ),
+    ).toBe('29.12.–04.01.');
+  });
+
+  it('shows a day with its short weekday and without the year, and in full', () => {
+    const instant = new Date('2026-11-15T23:30:00Z');
+    expect(formatWeekdayDay(instant, 'Europe/Berlin')).toBe('Mo., 16.11.');
+    expect(formatFullDay(instant, 'Europe/Berlin')).toBe('Montag, 16.11.2026');
+    expect(formatFullDay(instant, 'America/Mexico_City')).toBe(
+      'Sonntag, 15.11.2026',
+    );
+  });
+
+  it('shows a date with its year, a calendar day by name and a month with its year', () => {
+    const instant = new Date('2026-10-26T23:30:00Z');
+    expect(formatDate(instant, 'Europe/Berlin')).toBe('27.10.2026');
+    expect(formatDate(instant, 'America/Mexico_City')).toBe('26.10.2026');
+    expect(formatCalendarDay(instant, 'Europe/Berlin')).toBe(
+      'Dienstag, 27. Oktober',
+    );
+    expect(formatMonth(instant, 'Europe/Berlin')).toBe('Oktober 2026');
   });
 
   it('shows times as HH:mm in the given time zone', () => {

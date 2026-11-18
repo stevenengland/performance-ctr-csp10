@@ -1,5 +1,5 @@
 import { requireReload } from '../../pwa/reload-floor';
-import type { components, paths } from './schema';
+import type { components, operations, paths } from './schema';
 
 export type Health = components['schemas']['Health'];
 export type Account = components['schemas']['Account'];
@@ -30,6 +30,10 @@ export type Result = components['schemas']['Result'];
 export type Standings = components['schemas']['Standings'];
 export type DuelRow = components['schemas']['DuelRow'];
 export type PointsRow = components['schemas']['PointsRow'];
+/** What a points game's window or all time is ranked by: the sum or the average per result. */
+export type Measure = NonNullable<
+  NonNullable<operations['getStandings']['parameters']['query']>['measure']
+>;
 export type MatchItem = components['schemas']['MatchItem'];
 export type MatchPage = components['schemas']['MatchPage'];
 export type ResultItem = components['schemas']['ResultItem'];
@@ -407,15 +411,23 @@ export interface StandingsAnswer {
 }
 
 /**
-A game's ranking in its current run, tagged with the game's kind. With the ETag
-of the ranking already shown, `unchanged` means it still holds.
+A game's ranking, tagged with the game's kind: in its current run, or of a
+selection, a window or all time, over every run; a points game's selection by a
+`measure` (only there: anywhere else it is 422). With the ETag of the same
+selection's and measure's ranking already shown, `unchanged` means it still holds.
 */
 export async function getStandings(
   gameId: number,
   etag?: string,
+  selection?: ScoreboardSelection,
+  measure?: Measure,
 ): Promise<StandingsAnswer | 'unchanged'> {
   const response = await send('/api/games/{id}/standings', {
     params: { id: String(gameId) },
+    query: selection && {
+      ...queryOfSelection(selection),
+      ...(measure && { measure }),
+    },
     ifNoneMatch: etag,
   });
   if (response.status === NOT_MODIFIED) return 'unchanged';
@@ -490,14 +502,14 @@ export function putEntry(id: string, entry: NewEntry): Promise<Entry> {
   });
 }
 
-/** A person's entries since `from`, the start of the viewer's day as a UTC instant, newest first. */
+/** A person's entries of a window (without `to`, since `from`, e.g. the start of the viewer's day), newest first. */
 export async function listEntries(
   personId: number,
-  from: string,
+  window: TimeWindow,
 ): Promise<HistoryEntry[]> {
   return (
     await request<{ entries: HistoryEntry[] }>('/api/entries', {
-      query: { personId: String(personId), from },
+      query: { personId: String(personId), ...window },
     })
   ).entries;
 }
@@ -600,15 +612,38 @@ export interface ScoreboardAnswer {
 }
 
 /**
-Standings since `from`, the start of the viewer's day as a UTC instant. With the
-ETag of the standings already shown, `unchanged` means they still hold.
+A window `[from, to)` of UTC instants; without `to`, everything since `from`.
+*/
+export interface TimeWindow {
+  from: string;
+  to?: string;
+}
+
+/** What the scoreboard ranks: a window or all time. */
+export type ScoreboardSelection = TimeWindow | { scope: 'all' };
+
+/** A selection's query parameters, those it leaves out omitted. */
+function queryOfSelection(
+  selection: ScoreboardSelection | DaysSelection,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(selection).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
+}
+
+/**
+The standings of a selection, e.g. since `from`, the start of the viewer's day as a
+UTC instant. With the ETag of the same selection's standings already shown,
+`unchanged` means they still hold.
 */
 export async function getScoreboard(
-  from: string,
+  selection: ScoreboardSelection,
   etag?: string,
 ): Promise<ScoreboardAnswer | 'unchanged'> {
   const response = await send('/api/scoreboard', {
-    query: { from },
+    query: queryOfSelection(selection),
     ifNoneMatch: etag,
   });
   if (response.status === NOT_MODIFIED) return 'unchanged';
@@ -616,4 +651,64 @@ export async function getScoreboard(
     board: (await response.json()) as Scoreboard,
     etag: response.headers.get('ETag') ?? undefined,
   };
+}
+
+/** A session with data that counts: `[from, to)`, UTC instants on quarter hours. */
+export type Span = components['schemas']['Span'];
+
+/** What a days read covers: a window `[from, to)` of at most 35 days (a month), or all time. */
+export type DaysSelection = Required<TimeWindow> | { scope: 'all' };
+
+/** The sessions with data that counts, with the ETag that names them, to ask on condition of next time. */
+export interface DaysAnswer {
+  /** Ascending and disjoint. */
+  spans: Span[];
+  etag: string | undefined;
+}
+
+async function daysAnswer(
+  response: Response,
+): Promise<DaysAnswer | 'unchanged'> {
+  if (response.status === NOT_MODIFIED) return 'unchanged';
+  const { spans } =
+    (await response.json()) as components['schemas']['DaysWithData'];
+  return { spans, etag: response.headers.get('ETag') ?? undefined };
+}
+
+/**
+The sessions with drinks that count in a month's window or all time: what the
+calendar marks and the `Gesamt` line count, as local days found by the client. With
+the ETag of the same selection's answer already shown, `unchanged` means it still
+holds.
+*/
+export async function getScoreboardDays(
+  selection: DaysSelection,
+  etag?: string,
+): Promise<DaysAnswer | 'unchanged'> {
+  return daysAnswer(
+    await send('/api/scoreboard/days', {
+      query: queryOfSelection(selection),
+      ifNoneMatch: etag,
+    }),
+  );
+}
+
+/**
+The sessions with matches or results of the game that count, of every run, in a
+month's window or all time: what the game's calendar marks and its `Gesamt` line
+count. With the ETag of the same selection's answer already shown, `unchanged` means
+it still holds.
+*/
+export async function getStandingsDays(
+  gameId: number,
+  selection: DaysSelection,
+  etag?: string,
+): Promise<DaysAnswer | 'unchanged'> {
+  return daysAnswer(
+    await send('/api/games/{id}/standings/days', {
+      params: { id: String(gameId) },
+      query: queryOfSelection(selection),
+      ifNoneMatch: etag,
+    }),
+  );
 }

@@ -13,7 +13,7 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * `/api/entries/{id}`: add an entry idempotently on the client's id, and delete it.
- * `/api/entries?personId=&from=`: a person's entries since `from`, newest first.
+ * `/api/entries?personId=&from=&to=`: a person's entries in `[from, to)`, `to` optional, newest first.
  */
 final readonly class EntryActions
 {
@@ -24,14 +24,13 @@ final readonly class EntryActions
 
     public function list(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
-        parse_str($request->getUri()->getQuery(), $query);
-        $personId = is_string($query['personId'] ?? null) ? $query['personId'] : '';
+        $personId = Query::text($request, 'personId') ?? '';
         if (preg_match('/^' . CatalogActions::ID_PATTERN . '$/D', $personId) !== 1) {
             throw new ValidationFailed(['personId' => 'Person nicht gefunden.']);
         }
-        $from = Instant::parse('from', is_string($query['from'] ?? null) ? $query['from'] : '');
+        $interval = IntervalQuery::window($request);
 
-        $entries = $this->database->entries()->ofPersonSince((int) $personId, $from);
+        $entries = $this->database->entries()->ofPerson((int) $personId, $interval);
 
         return Json::write($response, ['entries' => array_map(self::historyEntry(...), $entries)]);
     }

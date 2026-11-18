@@ -5,12 +5,14 @@ import type {
   MatchItem,
   PointsRow,
   ResultItem,
+  Standings,
 } from '../../core/api-client';
 import {
   contextLine,
   currentRun,
   gameAsRanked,
   gameHistoryPath,
+  type GameStanding,
   gameStandings,
   historyContextLine,
   leaderLine,
@@ -67,6 +69,28 @@ describe('a game in words', () => {
     expect(contextLine(game('duel'), now)).toBe('Duell · seit 15.09.');
     expect(contextLine(game('points'), now)).toBe('Punktespiel · seit 15.09.');
   });
+
+  it.each([
+    [{ kind: 'run' } as const, 'Duell · seit 15.09.'],
+    [{ kind: 'all' } as const, 'Duell · Gesamt'],
+    [
+      { kind: 'day', date: { year: 2026, month: 11, day: 15 } } as const,
+      'Duell · Heute',
+    ],
+    [
+      { kind: 'day', date: { year: 2026, month: 11, day: 14 } } as const,
+      'Duell · Samstag, 14.11.2026',
+    ],
+    [
+      { kind: 'week', date: { year: 2026, month: 11, day: 9 } } as const,
+      'Duell · KW 46 · 09.11.–15.11.',
+    ],
+  ])(
+    'puts the kind before the period %o in the context line, the start under Aktuell',
+    (period, line) => {
+      expect(contextLine(game('duel'), now, period)).toBe(line);
+    },
+  );
 
   it.each([
     [game('duel'), 'Remis möglich'],
@@ -320,6 +344,91 @@ describe('a game’s ranking in words', () => {
     ]);
     expect(places[0]?.label).toBe('Platz 1, Daniel, −11 Punkte, 2 Ergebnisse');
     expect(places[0]?.short).toBe('2 Ergebnisse');
+  });
+
+  describe('of a points game’s week or all time by a measure', () => {
+    /** Rows in the API's order for the average, which is not the sums' order. */
+    const byAverage: Standings = {
+      kind: 'points',
+      startedAt: STARTED,
+      lowerWins: true,
+      rows: [
+        { ...pointsRow(3, 'Daniel', -1, 4), average: -0.3 },
+        { ...pointsRow(2, 'Ben', 172, 14), average: 12.3 },
+        { ...pointsRow(1, 'Anna', 12, 1, 1), average: 12 },
+      ],
+      unranked: [],
+    };
+    const shown = (places: GameStanding[]) =>
+      places.map(({ name, value, valueText, details, label }) => [
+        name,
+        value,
+        valueText,
+        details,
+        label,
+      ]);
+
+    it('shows the sum as the value and the average in the details', () => {
+      expect(shown(gameStandings(byAverage, 'sum'))).toEqual([
+        [
+          'Daniel',
+          '−1',
+          '−1 Punkt',
+          '4 Ergebnisse · Ø −0,3',
+          'Platz 1, Daniel, −1 Punkt, 4 Ergebnisse · Ø −0,3',
+        ],
+        [
+          'Ben',
+          '172',
+          '172 Punkte',
+          '14 Ergebnisse · Ø 12,3',
+          'Platz 2, Ben, 172 Punkte, 14 Ergebnisse · Ø 12,3',
+        ],
+        [
+          'Anna',
+          '12',
+          '12 Punkte',
+          '1 Ergebnis · Ø 12',
+          'Platz 3, Anna, 12 Punkte, 1 Ergebnis · Ø 12, +1 offen',
+        ],
+      ]);
+    });
+
+    it('shows the average as the value and the sum in the details, in the API’s order', () => {
+      expect(shown(gameStandings(byAverage, 'average'))).toEqual([
+        [
+          'Daniel',
+          '−0,3',
+          'Ø −0,3 Punkte',
+          '4 Ergebnisse · Summe −1',
+          'Platz 1, Daniel, Ø −0,3 Punkte, 4 Ergebnisse · Summe −1',
+        ],
+        [
+          'Ben',
+          '12,3',
+          'Ø 12,3 Punkte',
+          '14 Ergebnisse · Summe 172',
+          'Platz 2, Ben, Ø 12,3 Punkte, 14 Ergebnisse · Summe 172',
+        ],
+        [
+          'Anna',
+          '12',
+          'Ø 12 Punkte',
+          '1 Ergebnis · Summe 12',
+          'Platz 3, Anna, Ø 12 Punkte, 1 Ergebnis · Summe 12, +1 offen',
+        ],
+      ]);
+    });
+
+    it('takes a row without its average as a broken answer, not as 0', () => {
+      const broken: Standings = {
+        ...byAverage,
+        rows: [pointsRow(1, 'Anna', 12, 1)],
+      };
+
+      expect(() => gameStandings(broken, 'average')).toThrow(/average/);
+      expect(() => gameStandings(broken, 'sum')).toThrow(/average/);
+    });
   });
 
   it('names the leader for the Spiele list, or that nothing was recorded yet', () => {

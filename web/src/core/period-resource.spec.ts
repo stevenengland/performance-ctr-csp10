@@ -1,0 +1,446 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { effectScope, nextTick, ref } from 'vue';
+import type { ScoreboardSelection } from './api-client';
+import { calendarDateOf, isLive, type Period, periodKey } from './period';
+import {
+  createPeriodResource,
+  type PeriodResource,
+  usePeriodResource,
+  windowedRead,
+} from './period-resource';
+import type { ConditionalFetch } from './polled-resource';
+import { useToday } from './today';
+
+type Answer = Awaited<ReturnType<ConditionalFetch<string>>>;
+
+/** A request the test answers when it chooses, so answers can arrive out of order. */
+interface Request {
+  selection: string;
+  etag: string | undefined;
+  answer(reply: Answer): Promise<void>;
+}
+
+/** A fake server for selections named by strings; `live` ones contain the present. */
+function server(live: string[] = [], keeps = 0) {
+  const requests: Request[] = [];
+  const resource = createPeriodResource<string, string>(
+    {
+      key: (selection) => selection,
+      live: (selection) => live.includes(selection),
+      read: (selection) => (etag) =>
+        new Promise<Answer>((resolve) => {
+          requests.push({
+            selection,
+            etag,
+            answer: async (reply) => {
+              resolve(reply);
+              await vi.advanceTimersByTimeAsync(0);
+            },
+          });
+        }),
+    },
+    { keeps },
+  );
+  const sent = () => requests.map(({ selection, etag }) => [selection, etag]);
+  return { resource, requests, sent };
+}
+
+const settle = () => vi.advanceTimersByTimeAsync(0);
+
+describe('a period resource', () => {
+  let resource: PeriodResource<string, string> | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: new Date('2026-11-15T22:41:00Z') });
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible',
+    });
+  });
+
+  afterEach(() => {
+    resource?.stop();
+    resource = undefined;
+    vi.useRealTimers();
+  });
+
+  it('reads the shown selection when a screen starts it and shows nothing of another selection while the new one loads', async () => {
+    const fake = server();
+    resource = fake.resource;
+    resource.show('gestern');
+    resource.start();
+    await settle();
+    await fake.requests[0]?.answer({ value: 'G', etag: '"g"' });
+    expect(resource.state.value).toMatchObject({ value: 'G', stale: false });
+
+    resource.show('vorgestern');
+    await settle();
+
+    expect(resource.state.value.value).toBeUndefined();
+    await fake.requests[1]?.answer({ value: 'V', etag: '"v"' });
+    expect(resource.state.value.value).toBe('V');
+    expect(fake.sent()).toEqual([
+      ['gestern', undefined],
+      ['vorgestern', undefined],
+    ]);
+  });
+
+  it('drops the answers for selections no longer shown, whatever order they arrive in', async () => {
+    const fake = server();
+    resource = fake.resource;
+    resource.start();
+    resource.show('a');
+    resource.show('b');
+    resource.show('a');
+    await settle();
+    const [firstA, b, secondA] = fake.requests;
+
+    await secondA?.answer({ value: 'A2', etag: '"a2"' });
+    await b?.answer({ value: 'B', etag: '"b"' });
+    await firstA?.answer({ value: 'A1', etag: '"a1"' });
+
+    expect(fake.sent()).toEqual([
+      ['a', undefined],
+      ['b', undefined],
+      ['a', undefined],
+    ]);
+    expect(resource.state.value.value).toBe('A2');
+  });
+
+  it('sends an ETag only with the selection it came from and applies a 304 only to it', async () => {
+    const fake = server();
+    resource = fake.resource;
+    resource.start();
+    resource.show('a');
+    await settle();
+    await fake.requests[0]?.answer({ value: 'A', etag: '"a"' });
+
+    void resource.refresh();
+    await settle();
+    resource.show('b');
+    await settle();
+    await fake.requests[1]?.answer('unchanged');
+
+    expect(resource.state.value.value).toBeUndefined();
+    await fake.requests[2]?.answer({ value: 'B', etag: '"b"' });
+    void resource.refresh();
+    await settle();
+    await fake.requests[3]?.answer('unchanged');
+    expect(resource.state.value.value).toBe('B');
+    expect(fake.sent()).toEqual([
+      ['a', undefined],
+      ['a', '"a"'],
+      ['b', undefined],
+      ['b', '"b"'],
+    ]);
+  });
+
+  it('polls a selection that contains the present, and reads a closed one only when shown, on focus and after the device’s own writes', async () => {
+    const fake = server(['heute']);
+    resource = fake.resource;
+    resource.start();
+    resource.show('gestern');
+    await settle();
+    await fake.requests[0]?.answer({ value: 'G', etag: '"g"' });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fake.requests).toHaveLength(1);
+    window.dispatchEvent(new Event('focus'));
+    await settle();
+    await fake.requests[1]?.answer('unchanged');
+    void resource.refresh();
+    await settle();
+    await fake.requests[2]?.answer({ value: 'G2', etag: '"g2"' });
+    expect(resource.state.value.value).toBe('G2');
+
+    resource.show('heute');
+    await settle();
+    await fake.requests[3]?.answer({ value: 'H', etag: '"h"' });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fake.sent().slice(1)).toEqual([
+      ['gestern', '"g"'],
+      ['gestern', '"g"'],
+      ['heute', undefined],
+      ['heute', '"h"'],
+    ]);
+  });
+
+  it('reads nothing while no selection is shown', async () => {
+    const fake = server(['heute']);
+    resource = fake.resource;
+    resource.start();
+    resource.show('heute');
+    await settle();
+    await fake.requests[0]?.answer({ value: 'H', etag: '"h"' });
+
+    resource.show(undefined);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await resource.refresh();
+
+    expect(fake.requests).toHaveLength(1);
+    expect(resource.state.value).toEqual({ stale: false });
+  });
+
+  it('keeps the shown value while no screen runs it and asks on condition of its ETag when one starts it again', async () => {
+    const fake = server();
+    resource = fake.resource;
+    resource.show('gestern');
+    resource.start();
+    await settle();
+    await fake.requests[0]?.answer({ value: 'G', etag: '"g"' });
+
+    resource.stop();
+    resource.show('gestern');
+    resource.start();
+
+    expect(resource.state.value.value).toBe('G');
+    await settle();
+    expect(fake.sent()).toEqual([
+      ['gestern', undefined],
+      ['gestern', '"g"'],
+    ]);
+  });
+
+  it('shows what the calling screen selects while its scope lives', async () => {
+    const fake = server();
+    resource = fake.resource;
+    const selection = ref<string | undefined>('gestern');
+    const scope = effectScope();
+    const state = scope.run(() => usePeriodResource(fake.resource, selection));
+    await settle();
+    await fake.requests[0]?.answer({ value: 'G', etag: '"g"' });
+    expect(state?.value.value).toBe('G');
+
+    selection.value = 'vorgestern';
+    await nextTick();
+    await settle();
+    scope.stop();
+    window.dispatchEvent(new Event('focus'));
+    await settle();
+
+    expect(fake.sent()).toEqual([
+      ['gestern', undefined],
+      ['vorgestern', undefined],
+    ]);
+  });
+  describe('that keeps the identities shown last', () => {
+    it('shows a kept one again at once and asks on condition of its ETag; while hidden it is not read', async () => {
+      const fake = server([], 1);
+      resource = fake.resource;
+      resource.start();
+      resource.show('summe');
+      await settle();
+      await fake.requests[0]?.answer({ value: 'S', etag: '"s"' });
+      resource.show('schnitt');
+      await settle();
+      await fake.requests[1]?.answer({ value: 'D', etag: '"d"' });
+      window.dispatchEvent(new Event('focus'));
+      await settle();
+      await fake.requests[2]?.answer('unchanged');
+
+      resource.show('summe');
+
+      expect(resource.state.value).toMatchObject({ value: 'S', stale: false });
+      await settle();
+      await fake.requests[3]?.answer('unchanged');
+      expect(resource.state.value.value).toBe('S');
+      resource.show('schnitt');
+      expect(resource.state.value.value).toBe('D');
+      expect(fake.sent()).toEqual([
+        ['summe', undefined],
+        ['schnitt', undefined],
+        ['schnitt', '"d"'],
+        ['summe', '"s"'],
+        ['schnitt', '"d"'],
+      ]);
+    });
+
+    it('keeps no more than it is asked to: the one shown longest ago is forgotten', async () => {
+      const fake = server([], 1);
+      resource = fake.resource;
+      resource.start();
+      resource.show('a');
+      await settle();
+      await fake.requests[0]?.answer({ value: 'A', etag: '"a"' });
+      resource.show('b');
+      resource.show('c');
+
+      resource.show('a');
+
+      expect(resource.state.value.value).toBeUndefined();
+      await settle();
+      expect(fake.sent().at(-1)).toEqual(['a', undefined]);
+    });
+
+    it('shows the answer of the identity shown last, whatever order the answers arrive in', async () => {
+      const fake = server([], 2);
+      resource = fake.resource;
+      resource.start();
+      resource.show('summe');
+      resource.show('schnitt');
+      resource.show('summe');
+      await settle();
+      const [firstSum, average, secondSum] = fake.requests;
+
+      await secondSum?.answer({ value: 'S2', etag: '"s2"' });
+      await average?.answer({ value: 'D', etag: '"d"' });
+      await firstSum?.answer({ value: 'S1', etag: '"s1"' });
+
+      expect(resource.state.value.value).toBe('S2');
+      resource.show('schnitt');
+      expect(resource.state.value.value).toBe('D');
+    });
+
+    it('keeps nothing once it is told to forget', async () => {
+      const fake = server([], 2);
+      resource = fake.resource;
+      resource.start();
+      resource.show('a');
+      await settle();
+      await fake.requests[0]?.answer({ value: 'A', etag: '"a"' });
+      resource.show('b');
+
+      resource.forget();
+      resource.show('a');
+
+      expect(resource.state.value.value).toBeUndefined();
+      await settle();
+      expect(fake.sent().at(-1)).toEqual(['a', undefined]);
+    });
+  });
+});
+
+describe('a period resource of today across midnight', () => {
+  const zone = process.env.TZ;
+
+  beforeEach(() => {
+    process.env.TZ = 'Europe/Berlin';
+    // Sunday 15.11., 23:59:45 in Berlin.
+    vi.useFakeTimers({ now: new Date('2026-11-15T22:59:45Z') });
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible',
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    process.env.TZ = zone;
+  });
+
+  it('drops the 304 of a conditional request for today that was on its way at midnight, and reads the new today without that ETag', async () => {
+    const requests: {
+      selection: ScoreboardSelection;
+      etag: string | undefined;
+      answer: (reply: Answer) => void;
+    }[] = [];
+    const resource = createPeriodResource<
+      Extract<Period, { kind: 'day' }>,
+      string
+    >({
+      key: periodKey,
+      live: (period) => isLive(period, calendarDateOf(new Date())),
+      read: (period) =>
+        windowedRead(
+          period,
+          (selection, etag) =>
+            new Promise<Answer>((answer) => {
+              requests.push({ selection, etag, answer });
+            }),
+        ),
+    });
+    const scope = effectScope();
+    const state = scope.run(() => {
+      const today = useToday();
+      return usePeriodResource(resource, () => ({
+        kind: 'day' as const,
+        date: calendarDateOf(today.value),
+      }));
+    });
+    await settle();
+    requests[0]?.answer({ value: 'Sonntag', etag: '"so"' });
+    await settle();
+
+    // The poll at 23:59:55 asks on condition of Sunday's ETag; midnight comes before its answer.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(requests).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await nextTick();
+    await settle();
+    requests[1]?.answer('unchanged');
+    await settle();
+    requests[2]?.answer({ value: 'Montag', etag: '"mo"' });
+    await settle();
+
+    expect(
+      requests.map(({ selection, etag }) => [
+        'from' in selection ? selection.from : selection,
+        etag,
+      ]),
+    ).toEqual([
+      ['2026-11-14T23:00:00.000Z', undefined],
+      ['2026-11-14T23:00:00.000Z', '"so"'],
+      ['2026-11-15T23:00:00.000Z', undefined],
+    ]);
+    expect(state?.value).toMatchObject({ value: 'Montag', stale: false });
+    scope.stop();
+  });
+
+  it('reads a kept past day for its window in the time zone that changed meanwhile, showing the kept ranking until the answer', async () => {
+    const requests: {
+      selection: ScoreboardSelection;
+      etag: string | undefined;
+      answer: (reply: Answer) => void;
+    }[] = [];
+    const resource = createPeriodResource<
+      Extract<Period, { kind: 'day' }>,
+      string
+    >(
+      {
+        key: periodKey,
+        live: () => false,
+        read: (period) =>
+          windowedRead(
+            period,
+            (selection, etag) =>
+              new Promise<Answer>((answer) => {
+                requests.push({ selection, etag, answer });
+              }),
+          ),
+      },
+      { keeps: 1 },
+    );
+    const saturday = {
+      kind: 'day' as const,
+      date: { year: 2026, month: 11, day: 14 },
+    };
+    resource.start();
+    resource.show(saturday);
+    await settle();
+    requests[0]?.answer({ value: 'Samstag in Berlin', etag: '"sa"' });
+    await settle();
+    resource.show({ kind: 'day', date: { year: 2026, month: 11, day: 13 } });
+    await settle();
+
+    process.env.TZ = 'America/New_York';
+    resource.show(saturday);
+    const shownAtOnce = resource.state.value.value;
+    await settle();
+    requests[2]?.answer({ value: 'Samstag in New York', etag: '"sa-ny"' });
+    await settle();
+
+    expect(shownAtOnce).toBe('Samstag in Berlin');
+    expect(
+      requests.map(({ selection, etag }) => [
+        'from' in selection ? selection.from : selection,
+        etag,
+      ]),
+    ).toEqual([
+      ['2026-11-13T23:00:00.000Z', undefined],
+      ['2026-11-12T23:00:00.000Z', undefined],
+      ['2026-11-14T05:00:00.000Z', '"sa"'],
+    ]);
+    expect(resource.state.value.value).toBe('Samstag in New York');
+    resource.stop();
+  });
+});

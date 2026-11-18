@@ -173,12 +173,12 @@ export async function openFlow(path: string, from = '/spiele/1') {
   const router = createRouter({ history: createMemoryHistory(), routes });
   await router.push(from);
   if (path !== from) await router.push(path);
-  // Like the app's shell: a new path is a new screen.
+  // Like the app's shell: a new path or query is a new screen.
   const shell = defineComponent(() => () => [
     h(AppTopBar),
     h(RouterView, null, {
       default: ({ Component, route }: RouterViewSlot) =>
-        h(Component, { key: route.path }),
+        h(Component, { key: route.fullPath }),
     }),
   ]);
   const wrapper = mount(shell, {

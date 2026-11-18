@@ -49,6 +49,16 @@ export interface PolledResource<T> {
   reset(): void;
 }
 
+export interface PolledOptions {
+  /**
+  Whether the value can still change on its own, e.g. a ranking of a period that
+  contains the present (default: always). While it cannot, a successful read is not
+  followed by polling; focus, visibility, the device's own writes and the retry
+  after a failure still read it.
+  */
+  polls?: () => boolean;
+}
+
 /** Waits after the n-th failure in a row: 5, 10, 20, 40, then 60 s. */
 function backoff(failures: number): number {
   return Math.min(FIRST_RETRY_MS * 2 ** (failures - 1), MAX_RETRY_MS);
@@ -74,6 +84,7 @@ screen can leave. Without a screen, `refresh` reads once and never polls.
 */
 export function createPolledResource<T>(
   fetch: ConditionalFetch<T>,
+  { polls = () => true }: PolledOptions = {},
 ): PolledResource<T> {
   const state = shallowRef<PolledState<T>>({ stale: false });
   let etag: string | undefined;
@@ -108,7 +119,8 @@ export function createPolledResource<T>(
       if (answer !== 'unchanged') etag = answer.etag;
       const value = answer === 'unchanged' ? state.value.value : answer.value;
       state.value = { value, updatedAt: new Date(), stale: false };
-      schedule(POLL_INTERVAL_MS);
+      if (polls()) schedule(POLL_INTERVAL_MS);
+      else cancel();
     } catch (failure) {
       if (request !== latest) return;
       if (failure instanceof ApiProblem && failure.status === 404) {

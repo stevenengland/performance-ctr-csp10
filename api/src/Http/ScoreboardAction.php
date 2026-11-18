@@ -4,19 +4,20 @@ declare(strict_types=1);
 
 namespace Performance\Http;
 
-use DateTimeImmutable;
 use Performance\Domain\DrinkCount;
 use Performance\Domain\DrinkStandings;
+use Performance\Domain\Interval;
 use Performance\Domain\ScoreRow;
 use Performance\Domain\UnrankedRow;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * `GET /api/scoreboard?from=<instant>`: the standings since `from`, the start of the viewer's day:
+ * `GET /api/scoreboard?from=<instant>[&to=<instant>]` or `?scope=all`: the standings in the
+ * window `[from, to)` (from the start of the viewer's day when there is no end) or of all time:
  * the ranked `rows` and the `unranked` persons whose entries all wait for verification.
- * The ETag names the data revision and the window, so `If-None-Match` with an
- * unchanged revision answers 304 before anything is aggregated. The revision and
+ * The ETag names the data revision and the selection, so `If-None-Match` with an
+ * unchanged revision and the same selection answers 304 before anything is aggregated. The revision and
  * the standings are read in one snapshot, so the tag always names what is sent.
  */
 final readonly class ScoreboardAction
@@ -25,8 +26,7 @@ final readonly class ScoreboardAction
 
     public function __invoke(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
-        parse_str($request->getUri()->getQuery(), $query);
-        $from = Instant::parse('from', is_string($query['from'] ?? null) ? $query['from'] : '');
+        $interval = IntervalQuery::windowOrAllTime($request);
         $scoreboard = $this->database->scoreboard();
         $photoUrl = $this->photoUrl;
 
@@ -35,15 +35,15 @@ final readonly class ScoreboardAction
         return $this->database->snapshot()->read(static fn(): ResponseInterface => ConditionalGet::respond(
             $request,
             $response,
-            self::tag($scoreboard->revision(), $from),
-            static fn(ResponseInterface $response): ResponseInterface => Json::write($response, self::standings($scoreboard->since($from), $photoUrl)),
+            self::tag($scoreboard->revision(), $interval),
+            static fn(ResponseInterface $response): ResponseInterface => Json::write($response, self::standings($scoreboard->in($interval), $photoUrl)),
         ));
     }
 
-    /** The window is part of the tag: the same revision means other standings for another day. */
-    private static function tag(int $revision, DateTimeImmutable $from): string
+    /** The interval is part of the tag: the same revision means other standings for another day. */
+    private static function tag(int $revision, Interval $interval): string
     {
-        return sprintf('"%d-%s"', $revision, $from->format('Uv'));
+        return sprintf('"%d-%s"', $revision, IntervalQuery::tag($interval));
     }
 
     /**

@@ -23,7 +23,9 @@ import {
   verifyResult,
   rejectResult,
   getScoreboard,
+  getScoreboardDays,
   getStandings,
+  getStandingsDays,
   getPerson,
   getSession,
   listAuditEvents,
@@ -405,11 +407,28 @@ describe('the API client', () => {
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
 
-    await expect(listEntries(3, '2026-11-14T23:00:00.000Z')).resolves.toEqual(
-      entries,
-    );
+    await expect(
+      listEntries(3, { from: '2026-11-14T23:00:00.000Z' }),
+    ).resolves.toEqual(entries);
     expect(fetch).toHaveBeenCalledWith(
       '/api/entries?personId=3&from=2026-11-14T23%3A00%3A00.000Z',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('lists a person’s entries of a window with an end', async () => {
+    const fetch = respond(
+      { entries: [] },
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+    await listEntries(3, {
+      from: '2026-11-13T23:00:00.000Z',
+      to: '2026-11-14T23:00:00.000Z',
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/entries?personId=3&from=2026-11-13T23%3A00%3A00.000Z&to=2026-11-14T23%3A00%3A00.000Z',
       expect.objectContaining({ method: 'GET' }),
     );
   });
@@ -673,6 +692,90 @@ describe('the API client', () => {
     );
   });
 
+  it.each([
+    [
+      { from: '2026-11-14T23:00:00.000Z', to: '2026-11-15T23:00:00.000Z' },
+      '?from=2026-11-14T23%3A00%3A00.000Z&to=2026-11-15T23%3A00%3A00.000Z',
+    ],
+    [{ scope: 'all' } as const, '?scope=all'],
+  ])(
+    'asks for a game’s ranking of the selection %o on condition of its ETag',
+    async (selection, query) => {
+      const fetch = vi.fn(
+        async () =>
+          new Response(null, { status: 304, headers: { ETag: '"42-all"' } }),
+      );
+      vi.stubGlobal('fetch', fetch);
+
+      await expect(getStandings(2, '"42-all"', selection)).resolves.toBe(
+        'unchanged',
+      );
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/games/2/standings${query}`,
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'If-None-Match': '"42-all"' }),
+        }),
+      );
+    },
+  );
+
+  it.each([
+    ['average', '?scope=all&measure=average'],
+    ['sum', '?scope=all&measure=sum'],
+  ] as const)(
+    'asks for a points game’s ranking of all time by the measure %s',
+    async (measure, query) => {
+      const fetch = respond(
+        { kind: 'points', startedAt: '2026-09-15T10:00:00.000Z', rows: [] },
+        { status: 200, headers: { ETag: '"42-all-average"' } },
+      );
+
+      await getStandings(2, undefined, { scope: 'all' }, measure);
+
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/games/2/standings${query}`,
+        expect.anything(),
+      );
+    },
+  );
+
+  it('reads the sessions a game was played in a window with their ETag, on condition of the last one; 304 means unchanged', async () => {
+    const spans = [
+      { from: '2026-11-14T20:00:00.000Z', to: '2026-11-14T22:15:00.000Z' },
+    ];
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ spans }), {
+          status: 200,
+          headers: { ETag: '"7-1-2"' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 304, headers: { ETag: '"7-1-2"' } }),
+      );
+    vi.stubGlobal('fetch', fetch);
+    const november = {
+      from: '2026-10-31T23:00:00.000Z',
+      to: '2026-11-30T23:00:00.000Z',
+    };
+
+    await expect(getStandingsDays(2, november)).resolves.toEqual({
+      spans,
+      etag: '"7-1-2"',
+    });
+    await expect(getStandingsDays(2, november, '"7-1-2"')).resolves.toBe(
+      'unchanged',
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/games/2/standings/days?from=2026-10-31T23%3A00%3A00.000Z&to=2026-11-30T23%3A00%3A00.000Z',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'If-None-Match': '"7-1-2"' }),
+      }),
+    );
+  });
+
   it('asks the scoreboard for the given start of the day and keeps its ETag', async () => {
     const fetch = respond(
       { rows: [] },
@@ -682,7 +785,9 @@ describe('the API client', () => {
       },
     );
 
-    await expect(getScoreboard('2026-11-14T23:00:00.000Z')).resolves.toEqual({
+    await expect(
+      getScoreboard({ from: '2026-11-14T23:00:00.000Z' }),
+    ).resolves.toEqual({
       board: { rows: [] },
       etag: '"7-1"',
     });
@@ -696,6 +801,27 @@ describe('the API client', () => {
     );
   });
 
+  it('asks the scoreboard for a window with an end, or for all time with scope=all', async () => {
+    const fetch = respond({ rows: [] }, { status: 200 });
+
+    await getScoreboard({
+      from: '2026-11-13T23:00:00.000Z',
+      to: '2026-11-14T23:00:00.000Z',
+    });
+    await getScoreboard({ scope: 'all' });
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      '/api/scoreboard?from=2026-11-13T23%3A00%3A00.000Z&to=2026-11-14T23%3A00%3A00.000Z',
+      expect.anything(),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/scoreboard?scope=all',
+      expect.anything(),
+    );
+  });
+
   it('asks for the scoreboard on condition of the last ETag; 304 means unchanged', async () => {
     const fetch = vi.fn(
       async () =>
@@ -704,12 +830,54 @@ describe('the API client', () => {
     vi.stubGlobal('fetch', fetch);
 
     await expect(
-      getScoreboard('2026-11-14T23:00:00.000Z', '"7-1"'),
+      getScoreboard({ from: '2026-11-14T23:00:00.000Z' }, '"7-1"'),
     ).resolves.toBe('unchanged');
     expect(fetch).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
         headers: expect.objectContaining({ 'If-None-Match': '"7-1"' }),
+      }),
+    );
+  });
+
+  it('reads the sessions with drinks that count of all time with their ETag, on condition of the last one; 304 means unchanged', async () => {
+    const spans = [
+      { from: '2026-11-14T20:00:00.000Z', to: '2026-11-14T20:30:00.000Z' },
+    ];
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ spans }), {
+          status: 200,
+          headers: { ETag: '"7-all"' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 304, headers: { ETag: '"7-all"' } }),
+      );
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(getScoreboardDays({ scope: 'all' })).resolves.toEqual({
+      spans,
+      etag: '"7-all"',
+    });
+    await expect(getScoreboardDays({ scope: 'all' }, '"7-all"')).resolves.toBe(
+      'unchanged',
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      '/api/scoreboard/days?scope=all',
+      expect.objectContaining({
+        headers: expect.not.objectContaining({
+          'If-None-Match': expect.anything(),
+        }),
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/scoreboard/days?scope=all',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'If-None-Match': '"7-all"' }),
       }),
     );
   });

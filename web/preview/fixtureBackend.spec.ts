@@ -32,16 +32,20 @@ import {
   listAuditEvents,
   signIn,
   signOut,
+  type ScoreboardSelection,
 } from '../src/core/api-client';
 import { todayFrom } from '../src/core/day-window';
+import { addDays, calendarDateOf, queryOf } from '../src/core/period';
 import { auditDays } from '../src/features/verwalten/protokoll/audit-rows';
 import { installFixtureBackend } from './fixtureBackend';
 import { newest, told } from './fixtureTesting';
 import { SAMPLE_PASSWORD, sampleEvening } from './fixtures';
 
-/** The standings since `from`, asked without condition. */
-async function standings(from: string) {
-  const answer = await getScoreboard(from);
+/** The standings since `from` (or of another selection), asked without condition. */
+async function standings(selection: string | ScoreboardSelection) {
+  const answer = await getScoreboard(
+    typeof selection === 'string' ? { from: selection } : selection,
+  );
   if (answer === 'unchanged') throw new Error('asked without condition');
   return answer.board;
 }
@@ -195,7 +199,7 @@ describe('the fixture backend', () => {
 
   it('deletes accounts, keeping their entries without the account, but never the last admin', async () => {
     installFixtureBackend(sampleEvening());
-    const before = await listEntries(3, todayFrom());
+    const before = await listEntries(3, { from: todayFrom() });
 
     await expect(deleteAccount(1)).rejects.toMatchObject({ status: 409 });
     await deleteAccount(2);
@@ -205,7 +209,7 @@ describe('the fixture backend', () => {
       'daniel',
       'mara',
     ]);
-    const after = await listEntries(3, todayFrom());
+    const after = await listEntries(3, { from: todayFrom() });
     expect(after.map(({ id }) => id)).toEqual(before.map(({ id }) => id));
     expect(
       after
@@ -294,11 +298,60 @@ describe('the fixture backend', () => {
       },
     ]);
     expect(
-      (await listEntries(4, todayFrom())).map(({ pending }) => pending),
+      (await listEntries(4, { from: todayFrom() })).map(
+        ({ pending }) => pending,
+      ),
     ).toEqual([true, true]);
     expect(
-      (await listEntries(5, todayFrom())).map(({ pending }) => pending),
+      (await listEntries(5, { from: todayFrom() })).map(
+        ({ pending }) => pending,
+      ),
     ).toEqual([true, false, false]);
+  });
+
+  it('serves earlier evenings: a ranked yesterday, an empty day, a day whose entries all wait, and all time over every evening', async () => {
+    installFixtureBackend(sampleEvening());
+    const today = calendarDateOf(new Date());
+    const daysBack = async (days: number) => {
+      const query = queryOf({ kind: 'day', date: addDays(today, -days) });
+      if (!('from' in query)) throw new Error('no window');
+      return standings(query);
+    };
+    const scores = ({ rows }: { rows: { name: string; score: number }[] }) =>
+      rows.map(({ name, score }) => [name, score]);
+
+    const yesterday = await daysBack(1);
+    expect(scores(yesterday)).toEqual([
+      ['Anna', 4],
+      ['Ben', 3],
+      ['Tom', 3],
+      ['Mara', 2],
+      ['Daniel', 1],
+    ]);
+    expect(yesterday.rows[0]?.pendingCount).toBe(1);
+    expect(await daysBack(2)).toEqual({ rows: [], unranked: [] });
+    const waiting = await daysBack(3);
+    expect(waiting.rows).toEqual([]);
+    expect(
+      waiting.unranked.map(({ name, pendingCount }) => [name, pendingCount]),
+    ).toEqual([
+      ['Ben', 1],
+      ['Jule', 1],
+    ]);
+    expect(scores(await daysBack(4))).toEqual([
+      ['Daniel', 10.5],
+      ['Tom', 7],
+    ]);
+    const allTime = await standings({ scope: 'all' });
+    expect(scores(allTime)).toEqual([
+      ['Daniel', 28],
+      ['Anna', 15],
+      ['Mara', 12],
+      ['Ben', 11],
+      ['Tom', 10.5],
+      ['Jule', 4],
+    ]);
+    expect(allTime.unranked).toEqual([]);
   });
 
   it('counts only entries since from', async () => {
@@ -314,22 +367,22 @@ describe('the fixture backend', () => {
 
   it('answers the scoreboard with ETags from its in-memory revision', async () => {
     installFixtureBackend(sampleEvening());
-    const first = await getScoreboard(todayFrom());
+    const first = await getScoreboard({ from: todayFrom() });
     if (first === 'unchanged') throw new Error('asked without condition');
 
-    await expect(getScoreboard(todayFrom(), first.etag)).resolves.toBe(
-      'unchanged',
-    );
+    await expect(
+      getScoreboard({ from: todayFrom() }, first.etag),
+    ).resolves.toBe('unchanged');
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    await expect(getScoreboard(tomorrow, first.etag)).resolves.not.toBe(
-      'unchanged',
-    );
+    await expect(
+      getScoreboard({ from: tomorrow }, first.etag),
+    ).resolves.not.toBe('unchanged');
     await putEntry('6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e7', {
       personId: 1,
       drinkId: 2,
       quantity: 1,
     });
-    const after = await getScoreboard(todayFrom(), first.etag);
+    const after = await getScoreboard({ from: todayFrom() }, first.etag);
     expect(after).not.toBe('unchanged');
     expect(first.etag).toMatch(/^"\d+-\d+"$/);
   });
@@ -372,7 +425,7 @@ describe('the fixture backend', () => {
   it('lists a person’s entries since from, newest first, with drink, factor and account', async () => {
     installFixtureBackend(sampleEvening());
 
-    const daniel = await listEntries(3, todayFrom());
+    const daniel = await listEntries(3, { from: todayFrom() });
 
     expect(
       daniel.map(({ quantity, drink, factor, accountName }) => [
@@ -395,7 +448,7 @@ describe('the fixture backend', () => {
     const times = daniel.map(({ createdAt }) => createdAt);
     expect(times).toEqual([...times].sort().reverse());
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    await expect(listEntries(3, tomorrow)).resolves.toEqual([]);
+    await expect(listEntries(3, { from: tomorrow })).resolves.toEqual([]);
   });
 
   it('records the signed-in account with a new entry and forgets a deleted one, like the API', async () => {
@@ -403,7 +456,7 @@ describe('the fixture backend', () => {
     const id = '6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e8';
 
     const added = await putEntry(id, { personId: 6, drinkId: 2, quantity: 1 });
-    const [tom] = await listEntries(6, todayFrom());
+    const [tom] = await listEntries(6, { from: todayFrom() });
     await deleteEntry(id);
 
     expect(Object.keys(added).sort()).toEqual([
@@ -421,21 +474,21 @@ describe('the fixture backend', () => {
       pending: true,
     });
     expect(
-      (await listEntries(6, todayFrom())).map((entry) => entry.id),
+      (await listEntries(6, { from: todayFrom() })).map((entry) => entry.id),
     ).not.toContain(id);
   });
 
   it('refuses an entry list for an unknown person, a malformed person id or instant', async () => {
     installFixtureBackend(sampleEvening());
 
-    await expect(listEntries(99, todayFrom())).rejects.toMatchObject({
+    await expect(listEntries(99, { from: todayFrom() })).rejects.toMatchObject({
       status: 404,
     });
-    await expect(listEntries(0, todayFrom())).rejects.toMatchObject({
+    await expect(listEntries(0, { from: todayFrom() })).rejects.toMatchObject({
       status: 422,
       errors: { personId: 'Person nicht gefunden.' },
     });
-    await expect(listEntries(3, 'gestern')).rejects.toMatchObject({
+    await expect(listEntries(3, { from: 'gestern' })).rejects.toMatchObject({
       status: 422,
       errors: { from: 'Zeitpunkt nach ISO 8601 mit Zeitzone.' },
     });
@@ -498,20 +551,20 @@ describe('the fixture backend', () => {
     const image = '/9j/2Q==';
     await putPersonPhoto(2, image);
     await deletePersonPhoto(4);
-    const first = await getScoreboard(todayFrom());
+    const first = await getScoreboard({ from: todayFrom() });
     if (first === 'unchanged') throw new Error('asked without condition');
 
     // The same photo again, and a removal where there is none.
     await putPersonPhoto(2, image);
     await deletePersonPhoto(4);
 
-    await expect(getScoreboard(todayFrom(), first.etag)).resolves.toBe(
-      'unchanged',
-    );
+    await expect(
+      getScoreboard({ from: todayFrom() }, first.etag),
+    ).resolves.toBe('unchanged');
     await putPersonPhoto(2, '/9j/2Q+=');
-    await expect(getScoreboard(todayFrom(), first.etag)).resolves.not.toBe(
-      'unchanged',
-    );
+    await expect(
+      getScoreboard({ from: todayFrom() }, first.etag),
+    ).resolves.not.toBe('unchanged');
   });
 
   it('keeps an uploaded photo as a data: URL on the person and their scoreboard row', async () => {
@@ -755,7 +808,7 @@ describe('the fixture backend’s audit log', () => {
     expect(events.some(({ actor }) => !accounts.includes(actor.userName))).toBe(
       true,
     );
-    // Tonight's entries were counted, so the log has them.
+    // Every entry was counted, so the log has them.
     const entryIds = new Set(events.map(({ subjectId }) => subjectId));
     expect(fixtures.entries.every(({ id }) => entryIds.has(id))).toBe(true);
     // A photo change, as Protokoll shows it.

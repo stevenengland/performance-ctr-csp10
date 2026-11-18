@@ -34,6 +34,15 @@ import type {
   FixtureResult,
   Fixtures,
 } from './fixtures';
+import { daysAnswer, LONGEST_DAYS_WINDOW } from './fixtureDays';
+import {
+  boundedWindowOrAllTime,
+  contains,
+  type Interval,
+  queryText,
+  tagOf,
+  windowAllTimeOrCurrentRun,
+} from './fixtureInterval';
 
 /*
 The games side of the fixture backend, like the API's Games, Matches and
@@ -42,12 +51,19 @@ each game's Verlauf, and what a game's or a person's deletion does to them.
 */
 
 /**
-The game's ranking in its current run, like the API's Standings: a cleared side
-counts for no one; only verified matches and results count, each person names
-their pending ones, and a person whose rows all wait is listed apart, unranked
-(PRD #61).
+The game's ranking, like the API's Standings: in its current run, or over a window
+or all time across every run (`selection`). A cleared side counts for no one; only
+verified matches and results count, each person names their pending ones, and a
+person whose rows all wait is listed apart, unranked (PRD #61). The rows of a
+window or all time carry the average per result beside the sum; a points game
+ranks them by the `measure`, the average by its exact value.
 */
-function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
+function standingsOf(
+  fixtures: Fixtures,
+  game: FixtureGame,
+  selection: Interval | 'run' = 'run',
+  measure: Measure = 'sum',
+): Standings {
   const nameOf = (personId: number) =>
     fixtures.persons.find(({ id }) => id === personId)?.name ?? '';
   const byNameThenId = (
@@ -82,7 +98,7 @@ function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
       }
       rows.set(personId, row);
     };
-    for (const match of inRun(fixtures.matches, game)) {
+    for (const match of selected(fixtures.matches, game, selection)) {
       const [first, second] = DUEL_RESULTS[match.outcome];
       count(match.firstPersonId, first, match.pending);
       count(match.secondPersonId, second, match.pending);
@@ -108,7 +124,7 @@ function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
     };
   }
   const rows = new Map<number, PointsRow>();
-  for (const result of inRun(fixtures.results, game)) {
+  for (const result of selected(fixtures.results, game, selection)) {
     const row = rows.get(result.personId) ?? {
       personId: result.personId,
       name: nameOf(result.personId),
@@ -126,13 +142,30 @@ function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
   }
   const all = [...rows.values()];
   const direction = game.lowerWins ? 1 : -1;
+  // Like the API: the average compares exactly, by cross-multiplication.
+  const compare: Record<Measure, (a: PointsRow, b: PointsRow) => number> = {
+    sum: (a, b) => a.sum - b.sum,
+    average: (a, b) => a.sum * b.results - b.sum * a.results,
+  };
   return {
     kind,
     startedAt,
     lowerWins: game.lowerWins,
     rows: all
       .filter(({ results }) => results > 0)
-      .sort((a, b) => direction * (a.sum - b.sum) || byNameThenId(a, b)),
+      .sort((a, b) => direction * compare[measure](a, b) || byNameThenId(a, b))
+      .map((row) =>
+        selection === 'run'
+          ? row
+          : {
+              personId: row.personId,
+              name: row.name,
+              sum: row.sum,
+              average: averageOf(row),
+              results: row.results,
+              pendingCount: row.pendingCount,
+            },
+      ),
     unranked: all
       .filter(({ results }) => results === 0)
       .sort(byNameThenId)
@@ -142,6 +175,35 @@ function standingsOf(fixtures: Fixtures, game: FixtureGame): Standings {
         pendingCount,
       })),
   };
+}
+
+/** The average per result, like the API's: rounded half away from zero to one decimal, in whole numbers. */
+function averageOf({ sum, results }: { sum: number; results: number }): number {
+  const tenths = Math.floor((20 * Math.abs(sum) + results) / (2 * results));
+  return (Math.sign(sum) * tenths) / 10;
+}
+
+/** What a points game's window or all time is ranked by, like the API's `Measure`. */
+type Measure = 'sum' | 'average';
+
+/**
+The measure the query names, like the API's `StandingsAction::measure`: none, or a 422
+for another value than `sum` or `average` (also empty or a list), or for one in the
+current run. Whether the game is a duel waits for the game.
+*/
+function measureOf(
+  query: URLSearchParams,
+  selection: Interval | 'run',
+): Measure | undefined | Response {
+  const measure = queryText(query, 'measure');
+  if (measure === undefined) return undefined;
+  if (measure !== 'sum' && measure !== 'average') {
+    return validation({ measure: 'Nur sum oder average.' });
+  }
+  if (selection === 'run') {
+    return validation({ measure: 'Nur mit from oder scope=all.' });
+  }
+  return measure;
 }
 
 type DuelRow = Extract<Standings, { kind: 'duel' }>['rows'][number];
@@ -156,13 +218,18 @@ const DUEL_RESULTS: Record<FixtureMatch['outcome'], [DuelResult, DuelResult]> =
     draw: ['draws', 'draws'],
   };
 
-/** The game's rows of its current run. */
-function inRun<T extends { gameId: number; run: number }>(
+/** The game's rows of its current run, or of every run recorded in the interval. */
+function selected<T extends { gameId: number; run: number; createdAt: string }>(
   rows: T[],
   game: FixtureGame,
+  selection: Interval | 'run',
 ): T[] {
   return rows.filter(
-    ({ gameId, run }) => gameId === game.id && run === game.run,
+    (row) =>
+      row.gameId === game.id &&
+      (selection === 'run'
+        ? row.run === game.run
+        : contains(selection, row.createdAt)),
   );
 }
 
@@ -707,17 +774,61 @@ export function gameBackend({
       ],
       [
         'GET /api/games/{id}/standings',
-        guarded((_me, _body, { id, headers }) => {
+        guarded((_me, _body, { id, headers, query }) => {
+          // Like the API: the selection and the measure are checked before the game is looked for.
+          const selection = windowAllTimeOrCurrentRun(query);
+          if (selection instanceof Response) return selection;
+          const measure = measureOf(query, selection);
+          if (measure instanceof Response) return measure;
           const game = find(id);
           if (!game) return problem(PROBLEMS.notFound);
-          // Like the API: the data revision names the ranking.
-          const etag = `"${String(revision())}"`;
+          if (measure !== undefined && game.kind === 'duel') {
+            return validation({ measure: 'Nur bei Punktespielen.' });
+          }
+          // Like the API: the data revision and, for a window or all time, the selection and the average.
+          const etag =
+            selection === 'run'
+              ? `"${String(revision())}"`
+              : `"${String(revision())}-${tagOf(selection)}${measure === 'average' ? '-average' : ''}"`;
           if (headers.get('If-None-Match') === etag) {
             return new Response(null, { status: 304, headers: { ETag: etag } });
           }
-          const response = json(standingsOf(fixtures, game));
+          const response = json(
+            standingsOf(fixtures, game, selection, measure ?? 'sum'),
+          );
           response.headers.set('ETag', etag);
           return response;
+        }),
+      ],
+      [
+        'GET /api/games/{id}/standings/days',
+        guarded((_me, _body, request) => {
+          // Like the API: the selection is checked before the game is looked up.
+          const interval = boundedWindowOrAllTime(
+            request.query,
+            LONGEST_DAYS_WINDOW,
+          );
+          if (interval instanceof Response) return interval;
+          const game = find(request.id);
+          if (!game) return problem(PROBLEMS.notFound);
+          // Like the API: a verified match counts once while a side names a person.
+          const counted = [
+            ...fixtures.matches.filter(
+              (match) =>
+                match.gameId === game.id &&
+                !match.pending &&
+                (match.firstPersonId !== null || match.secondPersonId !== null),
+            ),
+            ...fixtures.results.filter(
+              (result) => result.gameId === game.id && !result.pending,
+            ),
+          ];
+          return daysAnswer(
+            request.headers,
+            interval,
+            revision(),
+            counted.map(({ createdAt }) => createdAt),
+          );
         }),
       ],
     ];

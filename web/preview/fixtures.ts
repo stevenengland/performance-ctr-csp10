@@ -146,19 +146,22 @@ const FACTORS: [string, number][] = [
 const FORMER_ACCOUNT = { accountId: 5, userName: 'jonas' };
 
 /**
-Games beside the drinks: name, kind, `drawsAllowed`, `lowerWins` and the days
-since their run started — a chess ladder over two months, table tennis without
-draws over three weeks, and tonight's Rommé, where the lowest sum wins.
+Games beside the drinks: name, kind, `drawsAllowed`, `lowerWins` and the days ago
+each run started, oldest first (the last is the current run's start) — a chess
+ladder over two months, restarted once before it, table tennis without draws over
+three weeks, and Rommé, where the lowest sum wins, restarted twice before
+tonight's run. A match or result belongs to the run that had started by its day.
 */
-const GAMES: [string, Game['kind'], boolean, boolean, number][] = [
-  ['Rommé', 'points', true, true, 0],
-  ['Schach', 'duel', true, false, 62],
-  ['Tischtennis', 'duel', false, false, 21],
+const GAMES: [string, Game['kind'], boolean, boolean, number[]][] = [
+  ['Rommé', 'points', true, true, [20, 9, 0]],
+  ['Schach', 'duel', true, false, [80, 62]],
+  ['Tischtennis', 'duel', false, false, [21]],
 ];
 /**
 Schach and Tischtennis: game, first, second (`null`: a person deleted since),
 outcome, days ago, the recording account (`null`: deleted since) and whether the
-match still waits for verification. Last night's Tischtennis match, which `mara`
+match still waits for verification. The last four, Schach's oldest, are of its
+earlier run, which Tom led. Last night's Tischtennis match, which `mara`
 recorded, waits: Jule and Tom each get `+1 offen` beside their verified matches,
 and it is in Offen as a row of an earlier day.
 */
@@ -184,6 +187,10 @@ const MATCHES: [
   ['Tischtennis', 'Jule', 'Tom', 'first', 12, 'mara'],
   ['Tischtennis', 'Mara', 'Tom', 'second', 5, 'daniel'],
   ['Tischtennis', 'Jule', 'Tom', 'second', 1, 'mara', true],
+  ['Schach', 'Tom', 'Anna', 'first', 78, 'mara'],
+  ['Schach', 'Tom', 'Ben', 'first', 74, 'ben'],
+  ['Schach', 'Tom', 'Daniel', 'first', 70, 'daniel'],
+  ['Schach', 'Daniel', 'Tom', 'second', 66, 'daniel'],
 ];
 /**
 Tonight's Rommé, two rounds so far and the third begun: person, penalty points
@@ -205,7 +212,62 @@ const RESULTS: [string, number, string, boolean?][] = [
   ['Jule', 0, 'anna', true],
 ];
 
-/** The games with their matches (evenings at 21:00) and tonight's results, spread between midnight and now. */
+/**
+Rommé's earlier evenings, every result verified: days ago, then person and points
+in the order recorded (from 20:00, ten minutes apart). Tom, who is not at tonight's
+table, has the lowest sum of all time with the fewest results.
+*/
+const EARLIER_RESULTS: [number, [string, number][]][] = [
+  [
+    20,
+    [
+      ['Anna', 25],
+      ['Ben', 18],
+      ['Daniel', 31],
+      ['Mara', 40],
+    ],
+  ],
+  [
+    13,
+    [
+      ['Ben', 22],
+      ['Daniel', 15],
+      ['Mara', 35],
+      ['Tom', 10],
+    ],
+  ],
+  [
+    9,
+    [
+      ['Anna', 12],
+      ['Daniel', 28],
+      ['Tom', 8],
+      ['Mara', 30],
+    ],
+  ],
+  [
+    6,
+    [
+      ['Anna', 19],
+      ['Ben', 24],
+      ['Tom', 14],
+    ],
+  ],
+  [
+    2,
+    [
+      ['Ben', 9],
+      ['Daniel', 21],
+      ['Mara', 26],
+      ['Tom', -20],
+    ],
+  ],
+];
+
+/**
+The games with their matches (evenings at 21:00), Rommé's earlier evenings and
+tonight's results, spread between midnight and now.
+*/
 function sampleGames(
   now: Date,
   persons: Person[],
@@ -213,18 +275,23 @@ function sampleGames(
 ): Pick<Fixtures, 'games' | 'matches' | 'results'> {
   const midnight = startOfToday(now).getTime();
   const games = GAMES.map(
-    ([name, kind, drawsAllowed, lowerWins, daysAgo], index) => ({
+    ([name, kind, drawsAllowed, lowerWins, starts], index) => ({
       id: index + 1,
       name,
       kind,
       drawsAllowed,
       lowerWins,
-      run: 1,
-      startedAt: new Date(midnight - daysAgo * DAY).toISOString(),
+      run: starts.length,
+      startedAt: new Date(midnight - (starts.at(-1) ?? 0) * DAY).toISOString(),
     }),
   );
   const gameOf = (name: string) =>
     games.find((game) => game.name === name)?.id ?? 0;
+  /** The run of the game that had started by the day `daysAgo`. */
+  const runOf = (name: string, daysAgo: number) =>
+    GAMES.find((game) => game[0] === name)?.[4].filter(
+      (start) => start >= daysAgo,
+    ).length ?? 1;
   const personOf = (name: string | null) =>
     persons.find((person) => person.name === name)?.id ?? null;
   const accountOf = (userName: string | null) =>
@@ -237,7 +304,7 @@ function sampleGames(
     ) => ({
       id: `00000000-0000-4000-a000-${String(index + 1).padStart(12, '0')}`,
       gameId: gameOf(game),
-      run: 1,
+      run: runOf(game, daysAgo),
       firstPersonId: personOf(first),
       secondPersonId: personOf(second),
       outcome,
@@ -246,11 +313,31 @@ function sampleGames(
       pending,
     }),
   );
+  const earlier = EARLIER_RESULTS.flatMap(([daysAgo, played]) =>
+    played.map(([person, points], round) => ({
+      person,
+      points,
+      account: round % 2 === 0 ? 'anna' : 'ben',
+      daysAgo,
+      createdAt: new Date(
+        midnight - daysAgo * DAY + 20 * HOUR + round * 10 * MINUTE,
+      ).toISOString(),
+    })),
+  ).map(({ person, points, account, daysAgo, createdAt }, index) => ({
+    id: `00000000-0000-4000-b100-${String(index + 1).padStart(12, '0')}`,
+    gameId: gameOf('Rommé'),
+    run: runOf('Rommé', daysAgo),
+    personId: personOf(person) ?? 0,
+    points,
+    accountId: accountOf(account),
+    createdAt,
+    pending: false,
+  }));
   const span = now.getTime() - midnight;
-  const results = RESULTS.map(([person, points, account, pending], index) => ({
+  const tonight = RESULTS.map(([person, points, account, pending], index) => ({
     id: `00000000-0000-4000-b000-${String(index + 1).padStart(12, '0')}`,
     gameId: gameOf('Rommé'),
-    run: 1,
+    run: runOf('Rommé', 0),
     personId: personOf(person) ?? 0,
     points,
     accountId: accountOf(account),
@@ -259,6 +346,7 @@ function sampleGames(
     ).toISOString(),
     pending: pending ?? false,
   }));
+  const results = [...tonight, ...earlier];
   return { games, matches, results };
 }
 
@@ -319,6 +407,98 @@ function sampleEntries(
       pending: pending ?? false,
     }),
   );
+}
+
+/**
+Earlier evenings, from 19:00 every 25 minutes: days ago, then each entry like
+tonight's log. Yesterday is ranked; two days ago nothing is left (the Sekt of that
+evening went with the drink, see the audit log); three days ago every entry still
+waits, so nobody leads; and older evenings fill the all-time ranking. Their pending
+entries were logged by `anna`, so they are not in her `Offen`. The audit log does
+not repeat them.
+*/
+const EVENINGS: [
+  number,
+  [string, string, number, string | null, string, boolean?][],
+][] = [
+  [
+    1,
+    [
+      ['Ben', 'Bier', 3, null, 'ben'],
+      ['Anna', 'Wein', 2, null, 'anna'],
+      ['Tom', 'Bier', 2, null, 'mara'],
+      ['Mara', 'Aperol', 1, null, 'mara'],
+      ['Daniel', 'Bier', 1, null, 'daniel'],
+      ['Tom', 'Radler', 2, null, 'ben'],
+      ['Anna', 'Aperol', 1, null, 'anna', true],
+    ],
+  ],
+  [
+    3,
+    [
+      ['Jule', 'Bier', 2, null, 'anna', true],
+      ['Ben', 'Wein', 1, null, 'anna', true],
+    ],
+  ],
+  [
+    4,
+    [
+      ['Daniel', 'Margarita', 2, null, 'daniel'],
+      ['Tom', 'Wein', 3, null, 'mara'],
+      ['Daniel', 'Schnaps', 2, 'Geburtstag', 'ben'],
+      ['Tom', 'Bier', 1, null, 'mara'],
+    ],
+  ],
+  [
+    7,
+    [
+      ['Mara', 'Bier', 4, null, 'mara'],
+      ['Anna', 'Bier', 2, null, 'anna'],
+      ['Jule', 'Aperol', 2, null, 'ben'],
+    ],
+  ],
+  [
+    9,
+    [
+      ['Daniel', 'Bier', 3, null, 'anna'],
+      ['Ben', 'Schnaps', 2, null, 'jonas'],
+    ],
+  ],
+];
+
+/** The earlier evenings' entries, each evening on its local calendar day before today. */
+function earlierEntries(
+  now: Date,
+  persons: Person[],
+  drinks: Drink[],
+  factors: Factor[],
+  accounts: FixtureAccount[],
+): FixtureEntry[] {
+  const idOf = (list: { id: number; name: string }[], name: string) =>
+    list.find((item) => item.name === name)?.id ?? 0;
+  const accountOf = (userName: string) =>
+    accounts.find(({ account }) => account.userName === userName)?.account.id ??
+    null;
+  return EVENINGS.flatMap(([daysAgo, log]) =>
+    log.map(([person, drink, quantity, factor, account, pending], index) => ({
+      personId: idOf(persons, person),
+      drinkId: idOf(drinks, drink),
+      quantity,
+      factorId: factor === null ? null : idOf(factors, factor),
+      accountId: accountOf(account),
+      createdAt: new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() - daysAgo,
+        19,
+        25 * index,
+      ).toISOString(),
+      pending: pending ?? false,
+    })),
+  ).map((entry, index) => ({
+    id: `00000000-0000-4000-8001-${String(index + 1).padStart(12, '0')}`,
+    ...entry,
+  }));
 }
 
 /** A deletion as the events it brings about name it, like the API: by its id, kind and the name it recorded. */
@@ -522,7 +702,7 @@ function earlierEntry(index: number): string {
 }
 
 /**
-The sample log: the days before, then tonight's entries as they were counted —
+The sample log: the days before and every entry as it was counted, oldest first —
 so it reaches back over several days, holds a cascade, and names an account that
 no longer exists.
 */
@@ -539,13 +719,16 @@ function sampleAudit(
       ? { accountId: account.account.id, userName: account.account.userName }
       : FORMER_ACCOUNT;
   };
-  const events: AuditEvent[] = [];
-  let cause: AuditEvent | undefined;
+  /** An event before it has its place in the log. */
+  type Draft = Omit<AuditEvent, 'id' | 'cause'>;
+  const drafts: Draft[] = [];
+  /** What each event of a cascade was caused by. */
+  const causes = new Map<Draft, Draft>();
+  let cause: Draft | undefined;
   for (const event of EARLIER) {
     const [subjectKind, subjectId] = event.subject;
     const [hours, minutes] = event.at;
-    const recorded: AuditEvent = {
-      id: events.length + 1,
+    const draft: Draft = {
       occurredAt: new Date(
         midnight - event.daysAgo * DAY + hours * HOUR + minutes * MINUTE,
       ).toISOString(),
@@ -555,14 +738,13 @@ function sampleAudit(
       actor: actorOf(({ userName }) => userName === event.by),
       before: event.before,
       after: event.after,
-      cause: event.caused && cause ? causeOf(cause) : null,
     };
-    if (!event.caused) cause = recorded;
-    events.push(recorded);
+    if (!event.caused) cause = draft;
+    else if (cause) causes.set(draft, cause);
+    drafts.push(draft);
   }
   for (const entry of entries) {
-    events.push({
-      id: events.length + 1,
+    drafts.push({
       occurredAt: entry.createdAt,
       operation: 'create',
       subjectKind: 'entry',
@@ -570,8 +752,19 @@ function sampleAudit(
       actor: actorOf(({ id }) => id === entry.accountId),
       before: null,
       after: entrySnapshot(fixtures, entry),
-      cause: null,
     });
+  }
+  // Oldest first; a cascade keeps its order, as it shares its instant.
+  drafts.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+  const events = drafts.map((draft, index): AuditEvent => ({
+    ...draft,
+    id: index + 1,
+    cause: null,
+  }));
+  for (const [draft, deletion] of causes) {
+    const event = events[drafts.indexOf(draft)];
+    const caused = events[drafts.indexOf(deletion)];
+    if (event && caused) event.cause = causeOf(caused);
   }
   return events;
 }
@@ -599,7 +792,10 @@ export function sampleEvening(now: Date = new Date()): Fixtures {
     sample(3, 'daniel'),
     sample(4, 'mara'),
   ];
-  const entries = sampleEntries(now, persons, drinks, factors, accounts);
+  const entries = [
+    ...earlierEntries(now, persons, drinks, factors, accounts),
+    ...sampleEntries(now, persons, drinks, factors, accounts),
+  ];
   const audit = sampleAudit(
     now,
     { persons, drinks, factors, accounts },

@@ -94,11 +94,19 @@ function place(page: Page, name: string) {
   });
 }
 
-/** The next scoreboard request the page sends. */
-function scoreboardRequests(page: Page) {
-  return page.waitForRequest((request) =>
-    request.url().includes('/api/scoreboard'),
-  );
+/**
+The next scoreboard read of a period: today (`from` alone, today's feed, polled
+every 10 s), a window with its end (a day or a week), or all time. The feed and a
+period's read share the path, and the days read beside them is another resource,
+so the query tells them apart.
+*/
+function scoreboardRequests(page: Page, period: 'today' | 'window' | 'all') {
+  return page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    if (!url.pathname.endsWith('/api/scoreboard')) return false;
+    if (period === 'all') return url.search === '?scope=all';
+    return url.searchParams.has('to') === (period === 'window');
+  });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -135,7 +143,9 @@ test('the Rangliste ranks today’s persons by score with their counters, German
   await page.goto('/rangliste');
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Rangliste');
-  await expect(page.getByText('Heute', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('banner').getByText('Heute', { exact: true }),
+  ).toBeVisible();
   // Ben: 1 × 1 + 3 × 0,5 = 2,5 before Anna: 2 × 1 = 2.
   const ben2 = place(page, ben);
   await expect(ben2).toHaveAccessibleName(
@@ -178,7 +188,9 @@ test('the Rangliste lists today’s persons whose entries all wait without a ran
   await page.goto('/rangliste');
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Rangliste');
-  await expect(page.getByText('Heute', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('banner').getByText('Heute', { exact: true }),
+  ).toBeVisible();
   // Nothing is verified yet: both wait, by name, with what they recorded.
   const unranked = page.getByRole('list', { name: 'Noch nicht gewertet' });
   const ben2 = unranked.getByRole('link', { name: new RegExp(`^${ben},`) });
@@ -333,12 +345,12 @@ test('the Rangliste polls every 10 s on condition, keeps its standings with “S
   });
   await addEntry(page.request, personId, drinkId, 1);
   await page.clock.install();
-  const first = scoreboardRequests(page);
+  const first = scoreboardRequests(page, 'today');
   await page.goto('/rangliste');
   await first;
   await expect(place(page, person)).toBeVisible();
 
-  const polled = scoreboardRequests(page);
+  const polled = scoreboardRequests(page, 'today');
   await page.clock.runFor(POLL_MS);
   const conditional = await polled;
   expect(conditional.headers()['if-none-match']).toMatch(/^"\d+-\d+"$/);
@@ -383,6 +395,185 @@ test('the Rangliste polls every 10 s on condition, keeps its standings with “S
   await page.clock.runFor(3_000);
   expect([200, 304]).toContain((await recovered).status());
   await expect(page.getByText(/^Stand: /)).toHaveCount(0);
+});
+
+test('the Rangliste reads yesterday with its window and Gesamt with scope=all, and comes back to today', async ({
+  page,
+  request,
+}) => {
+  const verify = await verifierOn(request);
+  const anna = uniqueName('Anna');
+  const annaId = await created(page.request, '/api/persons', { name: anna });
+  const bierId = await created(page.request, '/api/drinks', {
+    name: uniqueName('Bier'),
+    points: 1,
+  });
+  await verify(await addEntry(page.request, annaId, bierId, 2));
+  await page.goto('/rangliste');
+  await expect(place(page, anna)).toBeVisible();
+
+  const yesterday = scoreboardRequests(page, 'window');
+  await page.getByRole('button', { name: 'Vorheriger Tag' }).click();
+  const window = new URL((await yesterday).url()).searchParams;
+  expect(
+    Date.parse(window.get('to') ?? '') - Date.parse(window.get('from') ?? ''),
+  ).toBeGreaterThanOrEqual(23 * 60 * 60 * 1000);
+  await expect(page.getByText('Gestern', { exact: true })).toBeVisible();
+  await expect(place(page, anna)).toHaveCount(0);
+
+  const allTime = scoreboardRequests(page, 'all');
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Gesamt' })
+    .click();
+  expect(new URL((await allTime).url()).search).toBe('?scope=all');
+  await expect(
+    page.getByRole('banner').getByText('Gesamt', { exact: true }),
+  ).toBeVisible();
+  await expect(place(page, anna)).toHaveAccessibleName(
+    new RegExp(`^Platz \\d+, ${anna}, 2 Punkte, 2 Getränke$`),
+  );
+
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Tag' })
+    .click();
+  await page.getByRole('button', { name: 'Nächster Tag' }).click();
+  await expect(
+    page.getByRole('banner').getByText('Heute', { exact: true }),
+  ).toBeVisible();
+  await expect(place(page, anna)).toBeVisible();
+});
+
+test('the Rangliste reads this week from Monday’s to next Monday’s local midnight, and the week before without today’s entries', async ({
+  page,
+  request,
+}) => {
+  const verify = await verifierOn(request);
+  const anna = uniqueName('Anna');
+  const annaId = await created(page.request, '/api/persons', { name: anna });
+  const bierId = await created(page.request, '/api/drinks', {
+    name: uniqueName('Bier'),
+    points: 1,
+  });
+  await verify(await addEntry(page.request, annaId, bierId, 3));
+  await page.goto('/rangliste');
+  await expect(place(page, anna)).toBeVisible();
+
+  const thisWeek = scoreboardRequests(page, 'window');
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Woche' })
+    .click();
+  const window = new URL((await thisWeek).url()).searchParams;
+  const from = window.get('from') ?? '';
+  const hours =
+    (Date.parse(window.get('to') ?? '') - Date.parse(from)) / 3_600_000;
+  expect([167, 168, 169]).toContain(hours);
+  expect(
+    await page.evaluate((instant) => {
+      const start = new Date(instant);
+      return [start.getDay(), start.getHours(), start.getMinutes()];
+    }, from),
+  ).toEqual([1, 0, 0]);
+  await expect(page.getByText('Diese Woche', { exact: true })).toBeVisible();
+  await expect(page.getByRole('banner')).toContainText(/KW \d{1,2} · /);
+  await expect(place(page, anna)).toHaveAccessibleName(
+    new RegExp(`^Platz \\d+, ${anna}, 3 Punkte, 3 Getränke$`),
+  );
+
+  await page.getByRole('button', { name: 'Vorherige Woche' }).click();
+  await expect(page.getByText('Letzte Woche', { exact: true })).toBeVisible();
+  await expect(place(page, anna)).toHaveCount(0);
+});
+
+test('Tag wählen reads the shown month’s window and dots today once an entry counts, then picks yesterday; Gesamt says since when it counts, its all-time read again on condition', async ({
+  page,
+  request,
+}) => {
+  const verify = await verifierOn(request);
+  const anna = uniqueName('Anna');
+  const annaId = await created(page.request, '/api/persons', { name: anna });
+  const bierId = await created(page.request, '/api/drinks', {
+    name: uniqueName('Bier'),
+    points: 1,
+  });
+  await verify(await addEntry(page.request, annaId, bierId, 1));
+  await page.goto('/rangliste');
+  await expect(place(page, anna)).toBeVisible();
+  const dialog = page.getByRole('dialog');
+  const daysRead = () =>
+    page.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith('/api/scoreboard/days'),
+    );
+  const [today, yesterday, month] = await page.evaluate(() => {
+    const now = new Date();
+    const name = new Intl.DateTimeFormat('de-DE', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    });
+    const before = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - 1,
+    );
+    return [
+      { name: name.format(now) },
+      {
+        name: name.format(before),
+        earlierMonth: before.getMonth() !== now.getMonth(),
+      },
+      {
+        from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(),
+        to: new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString(),
+      },
+    ];
+  });
+
+  const monthRead = daysRead();
+  await page.getByRole('button', { name: 'Tag wählen: Heute' }).click();
+  const asked = new URL((await monthRead).url()).searchParams;
+  expect([asked.get('from'), asked.get('to')]).toEqual([
+    month?.from,
+    month?.to,
+  ]);
+  expect((await monthRead).status()).toBe(200);
+  expect((await monthRead).headers().etag).toMatch(/^"\d+-\d+-\d+"$/);
+  const todayInCalendar = dialog.getByRole('button', {
+    name: today?.name,
+    exact: true,
+  });
+  await expect(todayInCalendar).toHaveAttribute('aria-pressed', 'true');
+  await expect(todayInCalendar).toHaveClass(/calendar__day--marked/);
+  if (yesterday?.earlierMonth) {
+    await dialog.getByRole('button', { name: 'Vorheriger Monat' }).click();
+  }
+  await dialog
+    .getByRole('button', { name: yesterday?.name, exact: true })
+    .click();
+  await expect(page.getByText('Gestern', { exact: true })).toBeVisible();
+  await expect(place(page, anna)).toHaveCount(0);
+
+  const allRead = daysRead();
+  const periods = page.getByRole('group', { name: 'Zeitraum' });
+  await periods.getByRole('button', { name: 'Gesamt' }).click();
+  expect(new URL((await allRead).url()).search).toBe('?scope=all');
+  const allEtag = (await allRead).headers().etag;
+  expect(allEtag).toMatch(/^"\d+-all"$/);
+  await expect(
+    page.getByText(/^Alle Tage seit \d{2}\.\d{2}\.\d{4} · \d+ Abende?$/),
+  ).toBeVisible();
+  await periods.getByRole('button', { name: 'Tag' }).click();
+
+  const again = daysRead();
+  await periods.getByRole('button', { name: 'Gesamt' }).click();
+  // Other tests write to the same stack in parallel, so the revision may have moved
+  // on: the read is conditional on the earlier answer, whatever the server says.
+  expect(await (await again).request().headerValue('if-none-match')).toBe(
+    allEtag,
+  );
+  expect([200, 304]).toContain((await again).status());
 });
 
 test('with nobody today the Rangliste says so and offers Zählen', async ({

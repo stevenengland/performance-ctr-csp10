@@ -58,9 +58,9 @@ test('the preview menu offers the update prompt and the reload floor', async ({
 });
 
 test('the preview marker covers no control of any screen', async ({ page }) => {
-  // Each screen is awaited by its own title and then by a control of its own: the
-  // Rangliste has links and no buttons, so waiting for "a button" only ever passed
-  // while the previous screen was still on the page.
+  // Each screen is awaited by its own title and then by a control of its own:
+  // waiting for "a button" alone could pass while the previous screen was still on
+  // the page.
   for (const [screen, title] of [
     ['konto', 'Konto'],
     ['rangliste', 'Rangliste'],
@@ -161,7 +161,7 @@ test('the fixture preview renames a drink and deletes a person with their entrie
   await page.goto('/index.html#/verwalten/personen');
   await page.getByRole('button', { name: 'Daniel löschen' }).click();
   await expect(dialog).toContainText(
-    'Daniel, 5 Einträge und 3 Ergebnisse werden gelöscht.',
+    'Daniel, 9 Einträge und 7 Ergebnisse werden gelöscht.',
   );
   await dialog.getByRole('button', { name: 'Löschen' }).click();
   await expect(page.getByText('Daniel gelöscht')).toBeVisible();
@@ -192,6 +192,171 @@ test('the fixture preview ranks its sample evening on the Rangliste', async ({
   await expect(
     page.getByRole('list', { name: 'Noch nicht gewertet' }).getByRole('link'),
   ).toHaveAccessibleName('Jule, Aperol 1 · Bier 2, +2 offen');
+});
+
+test('the fixture preview ranks its earlier evenings: yesterday, an empty day, a day whose entries all wait, and Gesamt', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/rangliste');
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  const places = page
+    .getByRole('list', { name: 'Rangliste' })
+    .getByRole('link');
+  const unranked = page
+    .getByRole('list', { name: 'Noch nicht gewertet' })
+    .getByRole('link');
+  const switcher = page.getByRole('group', { name: 'Zeitraum' });
+  const previous = page.getByRole('button', { name: 'Vorheriger Tag' });
+  await expect(switcher.getByRole('button', { name: 'Tag' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(context).toHaveText('Heute');
+  await expect(
+    page.getByRole('button', { name: 'Nächster Tag' }),
+  ).toBeDisabled();
+
+  await previous.click();
+  await expect(page.getByText('Gestern', { exact: true })).toBeVisible();
+  await expect(context).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+  await expect(places).toHaveCount(5);
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Anna, 4 Punkte, 2 Getränke, +1 offen',
+  );
+
+  await previous.click();
+  await expect(
+    page.getByText('An diesem Tag wurde nichts gezählt.'),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Zählen' })).toHaveCount(1);
+
+  await previous.click();
+  await expect(places).toHaveCount(0);
+  await expect(unranked).toHaveCount(2);
+  await expect(unranked.first()).toHaveAccessibleName('Ben, Wein 1, +1 offen');
+
+  await switcher.getByRole('button', { name: 'Gesamt' }).click();
+  await expect(context).toHaveText('Gesamt');
+  await expect(previous).toHaveCount(0);
+  await expect(places).toHaveCount(6);
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Daniel, 28 Punkte, 18 Getränke',
+  );
+});
+
+test('the fixture preview ranks a calendar week: Diese Woche with tonight, Letzte Woche, and an empty week three back', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/rangliste');
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  const bar = page.locator('[data-test="day-bar"]');
+  const places = page
+    .getByRole('list', { name: 'Rangliste' })
+    .getByRole('link');
+  const previous = page.getByRole('button', { name: 'Vorherige Woche' });
+
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Woche' })
+    .click();
+  await expect(bar).toHaveText('Diese Woche');
+  await expect(context).toHaveText(
+    /^KW \d{1,2} · \d{2}\.\d{2}\.–\d{2}\.\d{2}\.$/,
+  );
+  await expect(
+    page.getByRole('button', { name: 'Nächste Woche' }),
+  ).toBeDisabled();
+  await expect(places.first()).toBeVisible();
+
+  await previous.click();
+  await expect(bar).toHaveText('Letzte Woche');
+
+  await previous.click();
+  await previous.click();
+  await expect(bar).toHaveText(/^KW \d{1,2} · /);
+  await expect(
+    page.getByText('In dieser Woche wurde nichts gezählt.'),
+  ).toBeVisible();
+  // Only the navigation's Zählen: a past week offers no Zählen button.
+  await expect(page.getByRole('link', { name: 'Zählen' })).toHaveCount(1);
+});
+
+test('the fixture preview picks an evening from Tag wählen, whose dots skip the empty day and the day whose entries all wait, and counts its evenings under Gesamt', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/rangliste');
+  const dialog = page.getByRole('dialog');
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  const places = page
+    .getByRole('list', { name: 'Rangliste' })
+    .getByRole('link');
+  /** The calendar's name of the day `daysAgo` before today, and whether it lies in the month before. */
+  const dayBack = (daysAgo: number) =>
+    page.evaluate((back) => {
+      const now = new Date();
+      const day = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() - back,
+      );
+      return {
+        name: new Intl.DateTimeFormat('de-DE', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+        }).format(day),
+        earlierMonth: day.getMonth() !== now.getMonth(),
+      };
+    }, daysAgo);
+  async function dayInCalendar(daysAgo: number) {
+    const { name, earlierMonth } = await dayBack(daysAgo);
+    if (earlierMonth) {
+      await dialog.getByRole('button', { name: 'Vorheriger Monat' }).click();
+    }
+    return dialog.getByRole('button', { name, exact: true });
+  }
+  const openCalendar = () =>
+    page.getByRole('button', { name: /^Tag wählen: / }).click();
+
+  await openCalendar();
+  await expect(dialog.getByText('Tag wählen')).toBeVisible();
+  const today = await dayInCalendar(0);
+  await expect(today).toHaveAttribute('aria-pressed', 'true');
+  await expect(today).toHaveClass(/calendar__day--marked/);
+  await expect(
+    dialog.getByRole('button', { name: 'Nächster Monat' }),
+  ).toBeDisabled();
+  for (const [daysAgo, marked] of [
+    [1, true],
+    [2, false],
+    [3, false],
+    [4, true],
+  ] as const) {
+    await dialog.getByRole('button', { name: 'Abbrechen' }).click();
+    await openCalendar();
+    const day = await dayInCalendar(daysAgo);
+    if (marked) await expect(day).toHaveClass(/calendar__day--marked/);
+    else await expect(day).not.toHaveClass(/calendar__day--marked/);
+  }
+
+  await (await dayInCalendar(4)).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(context).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Daniel, 10,5 Punkte, 5 Getränke',
+  );
+
+  await openCalendar();
+  await dialog.getByRole('button', { name: 'Heute' }).click();
+  await expect(context).toHaveText('Heute');
+
+  await page
+    .getByRole('group', { name: 'Zeitraum' })
+    .getByRole('button', { name: 'Gesamt' })
+    .click();
+  await expect(
+    page.getByText(/^Alle Tage seit \d{2}\.\d{2}\.\d{4} · 5 Abende$/),
+  ).toBeVisible();
 });
 
 test('the fixture preview lists what anna may verify under Offen with its badge; Bestätigen lets it count, Ablehnen removes it', async ({
@@ -281,6 +446,42 @@ test('the fixture preview shows and deletes entries on a person’s Verlauf', as
   ).toHaveAccessibleName('Platz 1, Daniel, 11,5 Punkte, 7 Getränke');
 });
 
+test('the fixture preview opens Anna’s Verlauf of yesterday from its Rangliste, deletes an entry there and comes back to yesterday', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/rangliste');
+  await page.getByRole('button', { name: 'Vorheriger Tag' }).click();
+  await page
+    .getByRole('link', {
+      name: 'Platz 1, Anna, 4 Punkte, 2 Getränke, +1 offen',
+    })
+    .click();
+
+  await expect(page).toHaveURL(/#\/verlauf\/\d+\?tag=\d{4}-\d{2}-\d{2}$/);
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  await expect(context).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+  const entries = page
+    .getByRole('list', { name: 'Einträge von Anna' })
+    .getByRole('listitem');
+  await expect(entries).toHaveText([
+    /^1× AperolKein Faktor · 21:30 · annaoffen/,
+    /^2× WeinKein Faktor · 19:25 · anna/,
+  ]);
+  await page.getByRole('button', { name: '2× Wein um 19:25 löschen' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Löschen' })
+    .click();
+  await expect(page.getByText('Eintrag gelöscht')).toBeVisible();
+  await expect(entries).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Zurück' }).click();
+  await expect(page.getByText('Gestern', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('list', { name: 'Noch nicht gewertet' }).getByRole('link'),
+  ).toHaveAccessibleName('Anna, Aperol 1, +1 offen');
+});
+
 test('the fixture preview opens another person’s Verlauf as a new screen', async ({
   page,
 }) => {
@@ -296,6 +497,37 @@ test('the fixture preview opens another person’s Verlauf as a new screen', asy
     .getByRole('list', { name: 'Einträge von Jule' })
     .getByRole('listitem');
   await expect(entries).toHaveText([/^2× Bier.*offen/, /^1× Aperol.*offen/]);
+});
+
+test('the fixture preview opens a person’s Verlauf of another day as a new screen', async ({
+  page,
+}) => {
+  const day = (daysAgo: number) =>
+    page.evaluate((back) => {
+      const date = new Date();
+      date.setDate(date.getDate() - back);
+      const pad = (value: number) => String(value).padStart(2, '0');
+      return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    }, daysAgo);
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  const entries = page
+    .getByRole('list', { name: 'Einträge von Daniel' })
+    .getByRole('listitem');
+  await page.goto('/index.html#/verlauf/3');
+  await expect(entries).toHaveCount(5);
+
+  await page.goto(`/index.html#/verlauf/3?tag=${await day(4)}`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Daniel');
+  await expect(context).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+  await expect(entries).toHaveText([/^2× Schnaps/, /^2× Margarita/]);
+
+  await page.goto(`/index.html#/verlauf/3?tag=${await day(2)}`);
+  await expect(page.getByText('An diesem Tag keine Einträge.')).toBeVisible();
+  await expect(context).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+
+  await page.goto('/index.html#/verlauf/3');
+  await expect(context).toHaveText('Heute');
+  await expect(entries).toHaveCount(5);
 });
 
 test('the fixture preview lists its sample games with their leaders under Spiele and opens one’s ranking', async ({
@@ -338,6 +570,138 @@ test('the fixture preview lists its sample games with their leaders under Spiele
     /^4\s*Daniel\s*3 Partien · 0 S · 1 R · 2 N\s*0,5$/,
   ]);
 });
+
+test('the fixture preview ranks Rommé’s earlier runs under Gesamt and its evenings under Tag, and opens on Aktuell again', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/1');
+  const periods = page.getByRole('group', { name: 'Zeitraum' });
+  const context = page.getByRole('banner').locator('.top-bar__context');
+  const places = page
+    .getByRole('list', { name: 'Rommé' })
+    .getByRole('listitem');
+  await expect(periods.getByRole('button')).toHaveText([
+    'Aktuell',
+    'Tag',
+    'Woche',
+    'Gesamt',
+  ]);
+  await expect(
+    periods.getByRole('button', { name: 'Aktuell' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(context).toHaveText('Punktespiel · seit heute, 00:00');
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Daniel, −11 Punkte, 2 Ergebnisse, +1 offen',
+  );
+
+  await periods.getByRole('button', { name: 'Gesamt' }).click();
+  await expect(context).toHaveText('Punktespiel · Gesamt');
+  await expect(
+    page.getByText(/^Alle Läufe seit \d{2}\.\d{2}\.\d{4} · 6 Spieltage$/),
+  ).toBeVisible();
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Tom, 12 Punkte, 4 Ergebnisse · Ø 3',
+  );
+  await expect(
+    page.getByRole('listitem', { name: 'Jule, +1 offen' }),
+  ).toBeVisible();
+
+  await periods.getByRole('button', { name: 'Tag' }).click();
+  await expect(context).toHaveText('Punktespiel · Heute');
+  await page.getByRole('button', { name: 'Vorheriger Tag' }).click();
+  await expect(
+    page.getByText('An diesem Tag wurde nichts gespielt.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Vorheriger Tag' }).click();
+  await expect(context).toHaveText(
+    /^Punktespiel · \p{L}+, \d{2}\.\d{2}\.\d{4}$/u,
+  );
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Tom, −20 Punkte, 1 Ergebnis',
+  );
+
+  await page.getByRole('link', { name: 'Verlauf' }).click();
+  await expect(page).toHaveURL(/#\/spiele\/1\/verlauf$/);
+  await page.goBack();
+  await expect(
+    periods.getByRole('button', { name: 'Aktuell' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(places.first()).toHaveAccessibleName(
+    'Platz 1, Daniel, −11 Punkte, 2 Ergebnisse, +1 offen',
+  );
+});
+
+test('the fixture preview ranks Rommé’s Woche and Gesamt by Summe or Ø pro Ergebnis, keeping the choice between them', async ({
+  page,
+}) => {
+  await page.goto('/index.html#/spiele/1');
+  const periods = page.getByRole('group', { name: 'Zeitraum' });
+  const measures = page.getByRole('group', { name: 'Wertung' });
+  const ranking = page
+    .getByRole('list', { name: 'Rommé' })
+    .getByRole('listitem');
+  await expect(measures).toBeHidden();
+  await periods.getByRole('button', { name: 'Tag' }).click();
+  await expect(measures).toBeHidden();
+
+  await periods.getByRole('button', { name: 'Gesamt' }).click();
+  await expect(measures.getByRole('button')).toHaveText([
+    'Summe',
+    'Ø pro Ergebnis',
+  ]);
+  await expect(measures.getByRole('button', { name: 'Summe' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(ranking).toHaveText([
+    /^Tom\s*12\s*12 Punkte\s*4 Ergebnisse · Ø 3$/,
+    /^2\s*Anna\s*5 Ergebnisse · Ø 14,2\s*71$/,
+    /^3\s*Daniel\s*6 Ergebnisse · Ø 14\s*84\s*\+1 offen$/,
+    /^4\s*Ben\s*6 Ergebnisse · Ø 18,7\s*112$/,
+    /^5\s*Mara\s*6 Ergebnisse · Ø 35\s*210$/,
+  ]);
+
+  await measures.getByRole('button', { name: 'Ø pro Ergebnis' }).click();
+  await expect(
+    measures.getByRole('button', { name: 'Ø pro Ergebnis' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(ranking).toHaveText([
+    /^Tom\s*3\s*Ø 3 Punkte\s*4 Ergebnisse · Summe 12$/,
+    /^2\s*Daniel\s*6 Ergebnisse · Summe 84\s*14\s*\+1 offen$/,
+    /^3\s*Anna\s*5 Ergebnisse · Summe 71\s*14,2$/,
+    /^4\s*Ben\s*6 Ergebnisse · Summe 112\s*18,7$/,
+    /^5\s*Mara\s*6 Ergebnisse · Summe 210\s*35$/,
+  ]);
+  await expect(ranking.first()).toHaveAccessibleName(
+    'Platz 1, Tom, Ø 3 Punkte, 4 Ergebnisse · Summe 12',
+  );
+
+  await periods.getByRole('button', { name: 'Woche' }).click();
+  await expect(
+    measures.getByRole('button', { name: 'Ø pro Ergebnis' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(ranking.first()).toHaveAccessibleName(/ · Summe −?\d+/);
+
+  // The chips' touch targets end where the week bar's buttons begin.
+  for (const name of ['Vorherige Woche', /^Tag wählen: /]) {
+    const button = page
+      .locator('[data-test="day-bar"]')
+      .getByRole('button', { name });
+    expect(await ownsItsBottomRow(button), String(name)).toBe(true);
+  }
+});
+
+/** Whether a tap on the bottom row of the button, at its middle, reaches it. */
+function ownsItsBottomRow(button: Locator): Promise<boolean> {
+  return button.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      box.x + box.width / 2,
+      box.bottom - 1,
+    );
+    return hit !== null && element.contains(hit);
+  });
+}
 
 test('the fixture preview records a Schach match in three taps and undoes it', async ({
   page,
@@ -478,7 +842,7 @@ test('the fixture preview restarts Schach: an empty ranking and Verlauf since to
   const confirm = page.getByRole('dialog');
   await expect(confirm.getByRole('heading')).toHaveText('Schach neu starten?');
   await expect(confirm).toContainText(
-    'Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.',
+    'Aktuell beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert und zählen unter Tag, Woche und Gesamt weiter.',
   );
   await confirm.getByRole('button', { name: 'Neu starten' }).click();
 

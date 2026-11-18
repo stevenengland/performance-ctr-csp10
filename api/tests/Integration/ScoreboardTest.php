@@ -7,6 +7,7 @@ namespace Performance\Tests\Integration;
 use DateTimeImmutable;
 use Performance\Domain\DataRevision;
 use Performance\Domain\DrinkStandings;
+use Performance\Domain\Interval;
 use Performance\Domain\Scoreboard;
 use Performance\Domain\Snapshot;
 use Performance\Tests\Support\DatabaseTestCase;
@@ -55,6 +56,29 @@ final class ScoreboardTest extends DatabaseTestCase
                 ['personId' => 2, 'name' => 'Anna', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1, 'recordedCount' => 1]]],
             ], 'unranked' => []],
             $this->body($response),
+        );
+    }
+
+    /**
+     * Installed clients send only `from`: their answer, body and ETag, is pinned byte for byte
+     * as it was before windows had an end.
+     */
+    public function testARequestWithOnlyFromAnswersByteForByteAsBeforeWindowsHadAnEnd(): void
+    {
+        $this->add(3, 1, 1);
+        $this->clock->advance('PT4H'); // 2026-11-15 00:00 UTC
+        $this->add(1, 1, 2, 1);
+        $this->add(1, 2, 1);
+        $this->record(1, 1, 1);
+        $this->record(2, 2, 3);
+
+        $response = $this->scoreboard(from: '2026-11-14T23:00:00.000Z');
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('"11-1794697200000"', $response->getHeaderLine('ETag'));
+        self::assertSame(
+            '{"rows":[{"personId":1,"name":"Daniel","photoUrl":null,"score":6.5,"count":5,"pendingCount":1,"drinks":[{"drinkId":2,"name":"Aperol","count":1,"recordedCount":1},{"drinkId":1,"name":"Bier","count":4,"recordedCount":5}]}],"unranked":[{"personId":2,"name":"Anna","photoUrl":null,"pendingCount":1,"drinks":[{"drinkId":2,"name":"Aperol","count":0,"recordedCount":3}]}]}',
+            (string) $response->getBody(),
         );
     }
 
@@ -138,20 +162,20 @@ final class ScoreboardTest extends DatabaseTestCase
         $reader = $this->otherSession();
         $scoreboard = new Scoreboard($reader, new DataRevision($reader));
         $writer = $this->otherSession();
-        $from = new DateTimeImmutable('2026-11-14T00:00:00Z');
+        $interval = Interval::window(new DateTimeImmutable('2026-11-14T00:00:00Z'));
 
-        [$revision, $rows] = (new Snapshot($reader))->read(static function () use ($scoreboard, $writer, $from): array {
+        [$revision, $rows] = (new Snapshot($reader))->read(static function () use ($scoreboard, $writer, $interval): array {
             $revision = $scoreboard->revision();
             // Another request commits a change between the reads of this one.
             $writer->exec('DELETE FROM entries');
             $writer->exec('UPDATE data_revision SET revision = revision + 1');
 
-            return [$revision, $scoreboard->since($from)->rows];
+            return [$revision, $scoreboard->in($interval)->rows];
         });
 
         self::assertCount(1, $rows, 'the standings belong to the revision that was read');
         self::assertSame(2.0, (float) $rows[0]->count);
-        self::assertEquals(new DrinkStandings([], []), $scoreboard->since($from), 'a read after the snapshot sees the change');
+        self::assertEquals(new DrinkStandings([], []), $scoreboard->in($interval), 'a read after the snapshot sees the change');
         self::assertSame($revision + 1, $scoreboard->revision());
     }
 
@@ -166,6 +190,104 @@ final class ScoreboardTest extends DatabaseTestCase
 
         self::assertSame([['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1, 'recordedCount' => 1]]]], $today['rows']);
         self::assertSame($today, $sameInstantWithOffset);
+    }
+
+    public function testAWindowWithAnEndCountsOnlyEntriesBeforeItsEndAndAnEntryExactlyAtTheEndIsOutside(): void
+    {
+        $this->add(1, 1, 2); // 2026-11-14 20:00 UTC
+        $this->record(1, 1, 5);
+        $this->record(3, 2, 1);
+        $this->clock->advance('PT3H'); // 23:00 UTC, the end of the window
+        $this->add(2, 1, 4);
+        $this->add(1, 2, 1);
+        $this->record(3, 1, 1);
+
+        $board = $this->body($this->scoreboard(from: '2026-11-13T23:00:00.000Z', to: '2026-11-14T23:00:00.000Z'));
+
+        self::assertSame(
+            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 2, 'count' => 2, 'pendingCount' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 2, 'recordedCount' => 7]]]],
+            $board['rows'],
+        );
+        self::assertSame(
+            [['personId' => 3, 'name' => 'Ben', 'photoUrl' => null, 'pendingCount' => 1, 'drinks' => [['drinkId' => 2, 'name' => 'Aperol', 'count' => 0, 'recordedCount' => 1]]]],
+            $board['unranked'],
+        );
+    }
+
+    public function testAnEntryVerifiedAfterTheEndOfItsWindowStaysInTheWindowItWasRecordedIn(): void
+    {
+        $this->createAccount('anna', 'annas-startpasswort');
+        $anna = $this->signIn('anna', 'annas-startpasswort');
+        $this->clock->advance('PT2H59M'); // 22:59 UTC, a minute before local midnight in Berlin
+        $late = $this->record(1, 1, 2);
+        $this->clock->advance('PT2M'); // the next day
+        $verification = $this->send('PUT', "/api/entries/{$late}/verification", [], $anna);
+
+        $recordedDay = $this->rowsOf($this->scoreboard(from: '2026-11-13T23:00:00.000Z', to: '2026-11-14T23:00:00.000Z'));
+        $verifiedDay = $this->body($this->scoreboard(from: '2026-11-14T23:00:00.000Z', to: '2026-11-15T23:00:00.000Z'));
+        $recordedDayEntries = $this->body($this->send('GET', '/api/entries?personId=1&from=2026-11-13T23:00:00.000Z&to=2026-11-14T23:00:00.000Z', session: $this->session));
+        $verifiedDayEntries = $this->body($this->send('GET', '/api/entries?personId=1&from=2026-11-14T23:00:00.000Z&to=2026-11-15T23:00:00.000Z', session: $this->session));
+
+        self::assertSame(204, $verification->getStatusCode(), (string) $verification->getBody());
+        self::assertSame([['Daniel', 2]], array_map(static fn(array $row): array => [$row['name'], $row['score']], $recordedDay));
+        self::assertSame(['rows' => [], 'unranked' => []], $verifiedDay);
+        self::assertSame([[$late, false]], array_map(static fn(array $entry): array => [$entry['id'], $entry['pending']], self::listOf($recordedDayEntries['entries'])));
+        self::assertSame(['entries' => []], $verifiedDayEntries);
+    }
+
+    public function testTheEndMayCarryAnyOffset(): void
+    {
+        $this->add(1, 1, 2);
+        $this->clock->advance('PT3H');
+        $this->add(2, 1, 4);
+
+        $utc = $this->body($this->scoreboard(to: '2026-11-14T23:00:00.000Z'));
+        $berlin = $this->body($this->scoreboard(to: '2026-11-15T00:00:00+01:00'));
+
+        self::assertSame(['Daniel'], array_column($this->rowsOf($this->scoreboard(to: '2026-11-14T23:00:00Z')), 'name'));
+        self::assertSame($utc, $berlin);
+    }
+
+    public function testAllTimeRanksEveryEntryEverRecorded(): void
+    {
+        $this->add(1, 1, 2);
+        $this->record(3, 1, 1);
+        $this->clock->advance('P20D');
+        $this->add(2, 2, 2);
+        $this->add(1, 1, 1);
+
+        $board = $this->body($this->scoreboardFor('scope=all'));
+
+        self::assertSame([['Anna', 5], ['Daniel', 3]], array_map(static fn(array $row): array => [$row['name'], $row['score']], self::listOf($board['rows'])));
+        self::assertSame(['Ben'], array_column(self::listOf($board['unranked']), 'name'));
+    }
+
+    /**
+     * @return iterable<string, array{string, array<string, string>}>
+     */
+    public static function invalidScopes(): iterable
+    {
+        yield 'all time with a start' => ['scope=all&from=2026-11-13T23:00:00Z', ['scope' => 'Nicht zusammen mit from oder to.']];
+        yield 'all time with an end' => ['scope=all&to=2026-11-13T23:00:00Z', ['scope' => 'Nicht zusammen mit from oder to.']];
+        yield 'all time with a window' => ['scope=all&from=2026-11-13T23:00:00Z&to=2026-11-14T23:00:00Z', ['scope' => 'Nicht zusammen mit from oder to.']];
+        yield 'all time with an empty start' => ['scope=all&from=', ['scope' => 'Nicht zusammen mit from oder to.']];
+        yield 'an unknown scope' => ['scope=day', ['scope' => 'Nur all.']];
+        yield 'an unknown scope with a start' => ['scope=ALL&from=2026-11-13T23:00:00Z', ['scope' => 'Nur all.']];
+        yield 'an empty scope' => ['scope=', ['scope' => 'Nur all.']];
+        yield 'a list of scopes' => ['scope[]=all', ['scope' => 'Nur all.']];
+    }
+
+    /**
+     * @param array<string, string> $errors
+     */
+    #[DataProvider('invalidScopes')]
+    public function testAllTimeIsTheOnlyScopeAndExcludesAWindow(string $query, array $errors): void
+    {
+        $response = $this->scoreboardFor($query);
+
+        self::assertSame(422, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('application/problem+json', $response->getHeaderLine('Content-Type'));
+        self::assertSame($errors, $this->body($response)['errors']);
     }
 
     public function testTiesAreRankedByNameAndUndoneEntriesDisappear(): void
@@ -260,6 +382,53 @@ final class ScoreboardTest extends DatabaseTestCase
         self::assertNotSame($tag, $nextDay->getHeaderLine('ETag'));
     }
 
+    public function testEachSelectionHasItsOwnTagAndOnlyItsOwnTagAnswers304(): void
+    {
+        $this->add(1, 1, 2);
+        $selections = [
+            'from=2026-11-13T23:00:00.000Z',
+            'from=2026-11-13T23:00:00.000Z&to=2026-11-14T23:00:00.000Z',
+            'from=2026-11-13T23:00:00.000Z&to=2026-11-15T23:00:00.000Z',
+            'from=2026-11-12T23:00:00.000Z&to=2026-11-14T23:00:00.000Z',
+            'scope=all',
+        ];
+        $tags = array_map(fn(string $query): string => $this->scoreboardFor($query)->getHeaderLine('ETag'), $selections);
+
+        $answers = [];
+        foreach ($selections as $query) {
+            foreach ($tags as $tag) {
+                $answers[$query][] = $this->scoreboardFor($query, $tag)->getStatusCode();
+            }
+        }
+
+        self::assertCount(count($selections), array_unique($tags));
+        self::assertSame(
+            array_combine($selections, [[304, 200, 200, 200, 200], [200, 304, 200, 200, 200], [200, 200, 304, 200, 200], [200, 200, 200, 304, 200], [200, 200, 200, 200, 304]]),
+            $answers,
+        );
+    }
+
+    public function testTheSameSelectionWithAnotherOffsetHasTheSameTag(): void
+    {
+        $utc = $this->scoreboard(to: '2026-11-14T23:00:00.000Z')->getHeaderLine('ETag');
+
+        $berlin = $this->scoreboardFor('from=' . rawurlencode('2026-11-14T00:00:00+01:00') . '&to=' . rawurlencode('2026-11-15T00:00:00+01:00'), $utc);
+
+        self::assertSame(304, $berlin->getStatusCode());
+    }
+
+    public function testAWriteChangesTheTagOfAWindowWithAnEndAndOfAllTime(): void
+    {
+        $this->add(1, 1, 1);
+        $window = $this->scoreboard(to: '2026-11-14T23:00:00.000Z')->getHeaderLine('ETag');
+        $allTime = $this->scoreboardFor('scope=all')->getHeaderLine('ETag');
+
+        $this->add(2, 1, 1);
+
+        self::assertSame(200, $this->scoreboard($window, to: '2026-11-14T23:00:00.000Z')->getStatusCode());
+        self::assertSame(200, $this->scoreboardFor('scope=all', $allTime)->getStatusCode());
+    }
+
     /**
      * Each write that changes the standings, sent as the API's client sends it.
      *
@@ -334,9 +503,14 @@ final class ScoreboardTest extends DatabaseTestCase
         self::assertSame(304, $this->scoreboard($tag)->getStatusCode());
     }
 
-    private function scoreboard(?string $ifNoneMatch = null, string $from = '2026-11-13T23:00:00.000Z'): ResponseInterface
+    private function scoreboard(?string $ifNoneMatch = null, string $from = '2026-11-13T23:00:00.000Z', ?string $to = null): ResponseInterface
     {
-        $request = $this->request('GET', '/api/scoreboard?from=' . rawurlencode($from))
+        return $this->scoreboardFor('from=' . rawurlencode($from) . ($to === null ? '' : '&to=' . rawurlencode($to)), $ifNoneMatch);
+    }
+
+    private function scoreboardFor(string $query, ?string $ifNoneMatch = null): ResponseInterface
+    {
+        $request = $this->request('GET', "/api/scoreboard?{$query}")
             ->withCookieParams(['session' => $this->session]);
         if ($ifNoneMatch !== null) {
             $request = $request->withHeader('If-None-Match', $ifNoneMatch);

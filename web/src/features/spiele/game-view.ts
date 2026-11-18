@@ -2,7 +2,9 @@ import type { DeepReadonly } from 'vue';
 import type {
   Game,
   MatchItem,
+  Measure,
   Outcome,
+  PointsRow,
   ResultItem,
   Standings,
 } from '../../core/api-client';
@@ -14,6 +16,11 @@ import {
   formatTime,
 } from '../../core/format';
 import { messages } from '../../core/messages';
+import {
+  calendarDateOf,
+  contextLine as periodLine,
+  type Period,
+} from '../../core/period';
 
 export const gamePath = (gameId: number) => `/spiele/${String(gameId)}`;
 /** The duel recording flow's first step, `Wer spielt?`. */
@@ -77,11 +84,20 @@ export function gameAsRanked(
   };
 }
 
-/** The game's context line in the list and the top bar: `Duell · seit 15.09.`. */
-export function contextLine(game: DeepReadonly<Game>, now: Date): string {
+/**
+The game's context line in the list and the top bar: `Duell · seit 15.09.` for the
+current run, else the period its page shows (`Punktespiel · Gesamt`, `Duell · Heute`).
+*/
+export function contextLine(
+  game: DeepReadonly<Game>,
+  now: Date,
+  period: Period = { kind: 'run' },
+): string {
   return messages.spiele.context(
     kindLabel(game.kind),
-    sinceLabel(game.startedAt, now),
+    period.kind === 'run'
+      ? sinceLabel(game.startedAt, now)
+      : periodLine(period, calendarDateOf(now)),
   );
 }
 
@@ -127,11 +143,11 @@ export interface GameStanding {
   /** The position: tied places get consecutive ranks, as in the drink Rangliste. */
   rank: number;
   name: string;
-  /** The big number: duel points `3,5`, or a points sum `−20`. */
+  /** The big number: duel points `3,5`, a points sum `−20`, or the average per result `12,3`. */
   value: string;
-  /** With its unit: `3,5 Punkte`. */
+  /** With its unit: `3,5 Punkte`, `Ø 12,3 Punkte`. */
   valueText: string;
-  /** `5 Partien · 3 S · 1 R · 1 N`, or `3 Ergebnisse`. */
+  /** `5 Partien · 3 S · 1 R · 1 N`, `3 Ergebnisse`, or with the other measure `14 Ergebnisse · Ø 12,3`. */
   details: string;
   /** The person tile's line in a recording flow: `5 Partien`, or `3 Ergebnisse`. */
   short: string;
@@ -162,8 +178,8 @@ function place(
   points: number,
   details: string,
   short: string,
+  valueText = messages.spiele.gamePoints(value, points),
 ): GameStanding {
-  const valueText = messages.spiele.gamePoints(value, points);
   const label = messages.spiele.place(index + 1, name, valueText, details);
   const pending =
     pendingCount !== undefined && pendingCount > 0
@@ -182,9 +198,44 @@ function place(
   };
 }
 
-/** The API's ranking as a game's page shows it, in the API's order. */
+/**
+A points place of a week or all time ranked by `measure`: its value, and the other
+measure in the details. Such rows carry the average; one without it is a broken
+answer, never an average of 0.
+*/
+function measuredPlace(
+  index: number,
+  row: DeepReadonly<PointsRow>,
+  measure: Measure,
+): GameStanding {
+  const { average } = row;
+  if (average === undefined) {
+    throw new Error(`A ranking by measure lacks the average of ${row.name}.`);
+  }
+  const count = messages.spiele.resultCount(row.results);
+  const sum = formatSigned(row.sum);
+  const mean = formatSigned(average);
+  if (measure === 'sum') {
+    const details = messages.spiele.withOther(
+      count,
+      messages.spiele.average(mean),
+    );
+    return place(index, row, sum, row.sum, details, count);
+  }
+  const details = messages.spiele.withOther(count, messages.spiele.sum(sum));
+  const valueText = messages.spiele.average(
+    messages.spiele.gamePoints(mean, average),
+  );
+  return place(index, row, mean, average, details, count, valueText);
+}
+
+/**
+The API's ranking as a game's page shows it, in the API's order; a points game's
+week or all time by the `measure` its chips chose.
+*/
 export function gameStandings(
   standings: DeepReadonly<Standings>,
+  measure?: Measure,
 ): GameStanding[] {
   if (standings.kind === 'duel') {
     return standings.rows.map((row, index) =>
@@ -196,6 +247,11 @@ export function gameStandings(
         messages.spiele.record(row.played, row.wins, row.draws, row.losses),
         messages.spiele.played(row.played),
       ),
+    );
+  }
+  if (measure !== undefined) {
+    return standings.rows.map((row, index) =>
+      measuredPlace(index, row, measure),
     );
   }
   return standings.rows.map((row, index) => {

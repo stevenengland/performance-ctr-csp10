@@ -16,11 +16,14 @@ use Performance\Domain\DatabaseError;
 use Performance\Domain\DataRevision;
 use Performance\Domain\GameDependents;
 use Performance\Domain\Idempotency;
+use Performance\Domain\Interval;
 use Performance\Domain\NotFound;
 use Performance\Domain\PendingResult;
 use Performance\Domain\PersonDependentCounts;
 use Performance\Domain\PersonDependents;
+use Performance\Domain\QuarterHours;
 use Performance\Domain\RequestConflict;
+use Performance\Domain\Span;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
 use Performance\Domain\VerifiableKind;
@@ -53,6 +56,8 @@ final readonly class Results implements GameDependents, PersonDependents
     private const MAX_POINTS = 9999;
     private const PERSON_ERROR = 'Person nicht gefunden.';
     private const POINTS_ERROR = 'Ganze Zahl von −9.999 bis 9.999.';
+    /** The results that can count, `r` of a person `p` who exists. */
+    private const RANKED = 'results r JOIN persons p ON p.id = r.person_id';
     /**
      * Results with their game's and their person's names, as the audit log keeps them, read
      * through the index given (`%s`) and then their references, in exactly that order: a
@@ -132,25 +137,34 @@ final readonly class Results implements GameDependents, PersonDependents
     }
 
     /**
-     * A points game's ranking in one run: every person with a verified result in it, by the
-     * sum of their points (the lowest first when `$lowerWins`, else the highest), then name,
-     * then id. Only verified results count (PRD #61); each person names their pending results
-     * in the run, and a person whose results in it all wait is listed apart, unranked: a total
-     * of nothing never leads a ladder, whichever way it runs and whatever the others' totals.
+     * A points game's ranking in its current run or an interval: every person with a verified
+     * result in it, by the measure, the sum of their points or its average per result (the
+     * lowest first when the game's lower sum wins, else the highest), then name, then id.
+     * Across runs it accumulates: each verified result is one attempt, added to the sum and the
+     * count that divides it. Only verified results count (PRD #61); each person names their
+     * pending results in the selection, and a person whose results in it all wait is listed
+     * apart, unranked: a total of nothing never leads a ladder, whichever way it runs and
+     * whatever the others' totals, and has no average.
+     *
+     * The average is ranked from the exact quotients after the database's order by name and id,
+     * which a stable sort keeps for equal averages: an average the database divided would be
+     * rounded to its `div_precision_increment` and could tie two different ones.
      *
      * @return Standings<PointsRow>
      */
-    public function standings(int $gameId, int $run, bool $lowerWins): Standings
+    public function standings(Game $game, Interval|CurrentRun $selection, Measure $measure): Standings
     {
-        $direction = $lowerWins ? 'ASC' : 'DESC';
+        $direction = $game->lowerWins ? 'ASC' : 'DESC';
+        $bySum = $measure === Measure::Sum ? "SUM(IF(r.pending = 0, r.points, 0)) {$direction}, " : '';
+        [$condition, $parameters] = $game->rowsIn($selection, 'r.');
         $statement = $this->pdo->prepare(
             "SELECT p.id, p.name, SUM(IF(r.pending = 0, r.points, 0)) AS total, SUM(r.pending = 0) AS results, SUM(r.pending = 1) AS pending_results
-             FROM results r JOIN persons p ON p.id = r.person_id
-             WHERE r.game_id = ? AND r.run = ?
+             FROM " . self::RANKED . "
+             WHERE {$condition}
              GROUP BY p.id, p.name
-             ORDER BY SUM(r.pending = 0) = 0, SUM(IF(r.pending = 0, r.points, 0)) {$direction}, p.name, p.id",
+             ORDER BY SUM(r.pending = 0) = 0, {$bySum}p.name, p.id",
         );
-        $statement->execute([$gameId, $run]);
+        $statement->execute($parameters);
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
         $ranked = [];
@@ -162,8 +176,32 @@ final readonly class Results implements GameDependents, PersonDependents
                 $ranked[] = new PointsRow((int) $row['id'], (string) $row['name'], (int) $row['total'], (int) $row['results'], (int) $row['pending_results']);
             }
         }
+        if ($measure === Measure::Average) {
+            $lowerFirst = $game->lowerWins ? 1 : -1;
+            usort($ranked, static fn(PointsRow $a, PointsRow $b): int => $lowerFirst * $a->compareAverage($b));
+        }
 
         return new Standings($ranked, $unranked);
+    }
+
+    /**
+     * The days the points game was played in the interval: the sessions of 15-minute UTC buckets
+     * with a verified result of any run, by its recording instant; the results the ranking of
+     * any window counts, as a result's person exists while it does (their deletion deletes it).
+     * A window seeks the verified results by time (`results_pending`: pending, recording
+     * instant) and keeps the game's.
+     *
+     * @return list<Span>
+     */
+    public function days(int $gameId, Interval $interval): array
+    {
+        return QuarterHours::spans(
+            $this->pdo,
+            'results r',
+            'r.created_at',
+            'r.game_id = ? AND r.pending = 0 AND ' . $interval->condition('r.created_at'),
+            [$gameId, ...$interval->parameters()],
+        );
     }
 
     /**

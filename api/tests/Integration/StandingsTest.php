@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Performance\Tests\Integration;
 
+use DateTimeImmutable;
 use Performance\Domain\Actor;
 use Performance\Domain\AuditLog;
 use Performance\Domain\DataRevision;
+use Performance\Domain\Games\CurrentRun;
 use Performance\Domain\Games\DuelRow;
+use Performance\Domain\Games\Game;
+use Performance\Domain\Games\GameKind;
 use Performance\Domain\Games\Matches;
 use Performance\Domain\Idempotency;
 use Performance\Domain\Snapshot;
@@ -255,8 +259,9 @@ final class StandingsTest extends DatabaseTestCase
         $revision = new DataRevision($reader);
         $matches = new Matches($reader, $this->clock, $revision, new AuditLog($reader, $this->clock), new Idempotency($reader, $revision));
         $writer = $this->otherSession();
+        $schach = new Game(1, 'Schach', GameKind::Duel, true, false, 1, new DateTimeImmutable(self::NOW));
 
-        [$read, $rows] = (new Snapshot($reader))->read(static function () use ($revision, $matches, $writer): array {
+        [$read, $rows] = (new Snapshot($reader))->read(static function () use ($revision, $matches, $schach, $writer): array {
             $read = $revision->current();
             // Another request commits a match between the reads of this one.
             $writer->exec(
@@ -265,11 +270,11 @@ final class StandingsTest extends DatabaseTestCase
             );
             $writer->exec('UPDATE data_revision SET revision = revision + 1');
 
-            return [$read, $matches->standings(1, 1)->rows];
+            return [$read, $matches->standings($schach, new CurrentRun())->rows];
         });
 
         self::assertSame(['Anna', 'Ben'], array_map(static fn(DuelRow $row): string => $row->name, $rows), 'the ranking belongs to the revision that was read');
-        self::assertCount(4, $matches->standings(1, 1)->rows, 'a read after the snapshot sees the write');
+        self::assertCount(4, $matches->standings($schach, new CurrentRun())->rows, 'a read after the snapshot sees the write');
         self::assertSame($read + 1, $revision->current());
     }
 

@@ -640,12 +640,16 @@ paths:
       - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: listEntries
-      summary: A person's entries since `from`, the start of the viewer's day, newest first
+      summary: A person's entries in the window `[from, to)`, newest first
       description: >-
-        Each entry names its drink and its factor (null without one, or once the factor
+        The entries recorded in the window: from `from` on, and before `to` when it is
+        given; without `to` the answer is the same as before the window had an end. An
+        entry belongs to the window it was recorded in, whenever it was verified. Each
+        entry names its drink and its factor (null without one, or once the factor
         was deleted) with their current names, and the user name of the account that
         logged it (null once that account was deleted). A `personId` that is not a positive
-        integer is 422; a person that does not exist is 404.
+        integer is 422; a person that does not exist is 404. An invalid window is 422,
+        with the same problem as on `GET /api/scoreboard`.
       parameters:
         - name: personId
           in: query
@@ -656,11 +660,14 @@ paths:
         - name: from
           in: query
           required: true
-          description: Local midnight of the viewer's day as an ISO-8601 instant with offset
+          description: >-
+            Start of the window (inclusive), such as local midnight of the viewer's day, as
+            an ISO-8601 instant with offset
           schema:
             type: string
             format: date-time
             examples: ['2026-11-14T23:00:00.000Z']
+        - $ref: '#/components/parameters/WindowTo'
       responses:
         '200':
           description: The entries, newest first
@@ -856,29 +863,40 @@ paths:
       - $ref: '#/components/parameters/ClientVersion'
     get:
       operationId: getScoreboard
-      summary: Standings since `from`, the start of the viewer's day
+      summary: Standings in the window `[from, to)`, or of all time with `scope=all`
       description: >-
-        Persons with entries since `from`, ranked by score (ties by name). score =
+        Persons with entries in the selection, ranked by score (ties by name). The
+        selection is exactly one of: a window, from `from` on and before `to` when it is
+        given (without `to` the answer and its ETag are the same as before the window had
+        an end), or all time with `scope=all`, every entry ever recorded. An entry belongs
+        to the window it was recorded in, whenever it was verified. A missing or invalid
+        `from`, an invalid `to`, a `to` not after `from`, a `to` without `from`, another
+        `scope` than `all`, or `scope=all` together with `from` or `to` is 422. score =
         Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink
         counters likewise. The multiplier is the factor's current one, 1 without a
         factor. Only verified entries count: a recorded entry waits for verification
         by another account, and until then it counts in `recordedCount` and
-        `pendingCount` only. A person whose entries since `from` all wait is listed in
+        `pendingCount` only. A person whose entries in the selection all wait is listed in
         `unranked`. The ETag names the data revision, which every write of entries,
         persons, drinks and factors, every verification and every account deletion bumps
-        in its own transaction, and the window: `If-None-Match` with the
-        last ETag answers 304 without aggregating while the revision is unchanged.
+        in its own transaction, and the selection: `If-None-Match` with the
+        last ETag of the same selection answers 304 without aggregating while the
+        revision is unchanged.
         Each row names the person's photo by `photoUrl`; a photo write that changes it
         bumps the revision too, so the next conditional request gets the new URL.
       parameters:
         - name: from
           in: query
-          required: true
-          description: Local midnight of the viewer's day as an ISO-8601 instant with offset
+          required: false
+          description: >-
+            Start of the window (inclusive), such as local midnight of the viewer's day, as
+            an ISO-8601 instant with offset; required unless `scope=all`
           schema:
             type: string
             format: date-time
             examples: ['2026-11-14T23:00:00.000Z']
+        - $ref: '#/components/parameters/WindowTo'
+        - $ref: '#/components/parameters/AllTimeScope'
         - name: If-None-Match
           in: header
           required: false
@@ -891,7 +909,7 @@ paths:
           description: The standings
           headers:
             ETag:
-              description: Data revision and window of these standings
+              description: Data revision and selection of these standings
               schema:
                 type: string
           content:
@@ -900,6 +918,70 @@ paths:
                 $ref: '#/components/schemas/Scoreboard'
         '304':
           description: Unchanged since the standings named in `If-None-Match`
+          headers:
+            ETag:
+              description: The same ETag
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/scoreboard/days:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+    get:
+      operationId: getScoreboardDays
+      summary: The days with drinks in a window of at most 35 days or of all time, as sessions of quarter hours with a verified entry
+      description: >-
+        The raw material of the Rangliste's calendar marks (a month's window) and its
+        `Gesamt` line (all time): the spans, ascending, of the sessions with at least one
+        entry that counts, with exactly the scoreboard's rule: verified entries of persons
+        and drinks that still exist; pending entries are left out.
+        Each span runs from the start of a session's first 15-minute UTC bucket with a row
+        that counts to the end of its last; a pause shorter than 6 hours without such a row
+        does not end a session, so an evening is one span. The bucket of a row is decided by
+        its recording instant alone, never by its verification, so a row recorded before
+        midnight and verified the next day stays in the bucket it was recorded in. Every UTC
+        offset in use is a multiple of 15 minutes and every local day is longer than 6 hours,
+        so the client finds its local days exactly: a local day has data when a span
+        overlaps it (a span over local midnight touches both days); the server knows no time
+        zone. The selection is exactly one of: a window `[from, to)` of at most 35 days, the
+        calendar's month (a window answers the spans of its own rows, cut at its bounds, and
+        seeks them by recording instant), or all time with `scope=all`, the `Gesamt` line. A
+        missing or invalid `from` or `to`, a `to` not after `from` or more than 35 days after
+        it, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422,
+        as for the scoreboard. The size grows with the evenings that have rows, never with
+        the rows or their quarter hours: a month is a few hundred bytes, five years of
+        evenings a few ten kilobytes. The ETag names the data revision, read in the same
+        snapshot as the spans, and the selection; every write, verification and deletion
+        bumps the revision, so `If-None-Match` with the last ETag of the same selection
+        answers 304 without reading while nothing changed.
+      parameters:
+        - $ref: '#/components/parameters/DaysFrom'
+        - $ref: '#/components/parameters/DaysTo'
+        - $ref: '#/components/parameters/AllTimeScope'
+        - name: If-None-Match
+          in: header
+          required: false
+          description: The ETag of the spans of the same selection the client already has
+          schema:
+            type: string
+            examples: ['"42-1793487600000-1796079600000"', '"42-all"']
+      responses:
+        '200':
+          description: The sessions with rows that count
+          headers:
+            ETag:
+              description: Data revision and selection of these spans
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DaysWithData'
+        '304':
+          description: Unchanged since the spans named in `If-None-Match`
           headers:
             ETag:
               description: The same ETag
@@ -1021,7 +1103,7 @@ paths:
       - $ref: '#/components/parameters/GameId'
     post:
       operationId: restartGame
-      summary: Start the game's next run from now; older results stay stored but are no longer shown
+      summary: Start the game's next run from now; older results stay stored and still count in the period and all-time standings
       description: >-
         Takes no fields, but like every request body it must be JSON: send `{}`. A recording
         that is saving while the game restarts belongs to the run it committed in, the old one
@@ -1051,30 +1133,77 @@ paths:
       - $ref: '#/components/parameters/GameId'
     get:
       operationId: getStandings
-      summary: The game's ranking in its current run, tagged with the game's kind
+      summary: The game's ranking in its current run, a window `[from, to)` or all time, tagged with the game's kind
       description: >-
-        Duel game: every person with a match in the current run, by points (win 1, draw ½,
-        loss 0), then wins, then name. Rankings are computed from the stored outcome, so a
-        deleted person's side counts for no one and never changes the other side's result.
-        Points game: every person with a result in the current run, by the sum of their
-        points, the lowest first when `lowerWins` is on and the highest otherwise, then name;
-        a changed `lowerWins` re-ranks at once. The ETag is the data revision, read in the
-        same snapshot as the ranking; every game, match and result write bumps it, so
-        `If-None-Match` with the last ETag answers 304 without ranking while nothing changed.
+        The selection is exactly one of: nothing, the current run since the last (re)start,
+        answered and tagged exactly as before the standings took a window; a window, from
+        `from` on and before `to` when it is given; or all time with `scope=all`. A window
+        and all time rank every verified match or result of the game recorded in them,
+        whatever its run; a row belongs to the window it was recorded in, whenever it was
+        verified. A `from` or `to` that is no instant, a `to` not after `from`, a `to`
+        without `from`, another `scope` than `all`, or `scope=all` together with `from` or
+        `to` is 422, exactly as for the scoreboard.
+        Duel game: every person with a match in the selection, by points (win 1, draw ½,
+        loss 0), then wins, then name; across runs each verified match adds its result to
+        both its players once. Rankings are computed from the stored outcome, so a deleted
+        person's side counts for no one and never changes the other side's result.
+        Points game: every person with a result in the selection, by the `measure`, the sum
+        of their points (the current run always) or their average per verified result, the
+        lowest first when `lowerWins` is on and the highest otherwise, then name, then id; the
+        exact average decides, never the rounded `average` sent. Across runs each verified
+        result is one attempt, added to the sum and to `results`, which divides it. A
+        `measure` other than `sum` or `average`, a `measure` on a duel game, or one without
+        `from` or `scope=all` is 422, so it never changes the current run's answer. A
+        changed `lowerWins` re-ranks at once. The ETag names the data revision, read in the
+        same snapshot as the ranking, and the selection: the bare revision for the current
+        run, the revision and the window or `all` otherwise, followed by `-average` when the
+        average ranks. Every game, match and result write bumps the revision, so
+        `If-None-Match` with the last ETag of the same selection and measure answers 304
+        without ranking while nothing changed.
       parameters:
+        - name: from
+          in: query
+          required: false
+          description: >-
+            Start of the window (inclusive), such as local midnight of a chosen day, as an
+            ISO-8601 instant with offset. Without `from`, `to` and `scope` the current run
+            is ranked.
+          schema:
+            type: string
+            format: date-time
+            examples: ['2026-11-14T23:00:00.000Z']
+        - $ref: '#/components/parameters/WindowTo'
+        - $ref: '#/components/parameters/AllTimeScope'
+        - name: measure
+          in: query
+          required: false
+          description: >-
+            What ranks a points game's window or all time: the sum of the verified points
+            (the default) or their average per verified result. Only for a points game
+            together with `from` or `scope=all`.
+          schema:
+            type: string
+            enum: [sum, average]
+            default: sum
         - name: If-None-Match
           in: header
           required: false
           description: The ETag of the ranking the client already shows
           schema:
             type: string
-            examples: ['"42"']
+            examples:
+              [
+                '"42"',
+                '"42-1763161200000-1763247600000"',
+                '"42-all"',
+                '"42-all-average"',
+              ]
       responses:
         '200':
           description: The ranking
           headers:
             ETag:
-              description: The data revision of this ranking
+              description: Data revision, selection and measure of this ranking
               schema:
                 type: string
           content:
@@ -1091,6 +1220,78 @@ paths:
         '401':
           $ref: '#/components/responses/Problem'
         '404':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /api/games/{id}/standings/days:
+    parameters:
+      - $ref: '#/components/parameters/ClientVersion'
+      - $ref: '#/components/parameters/GameId'
+    get:
+      operationId: getStandingsDays
+      summary: The days the game was played in a window of at most 35 days or of all time, as sessions of quarter hours with a verified match or result
+      description: >-
+        The raw material of a game page's calendar marks (a month's window) and its
+        `Gesamt` line (all time): the spans, ascending, of the sessions with at least one
+        match or result of the game that counts, in every run, with exactly the standings'
+        rule: verified matches with at least one side that still names a person (a duel
+        match counts once although it counts for two players), verified results of persons
+        who still exist; pending rows are left out. The selection is checked before the
+        game is looked up; an unknown game is 404.
+        Each span runs from the start of a session's first 15-minute UTC bucket with a row
+        that counts to the end of its last; a pause shorter than 6 hours without such a row
+        does not end a session, so an evening is one span. The bucket of a row is decided by
+        its recording instant alone, never by its verification, so a row recorded before
+        midnight and verified the next day stays in the bucket it was recorded in. Every UTC
+        offset in use is a multiple of 15 minutes and every local day is longer than 6 hours,
+        so the client finds its local days exactly: a local day has data when a span
+        overlaps it (a span over local midnight touches both days); the server knows no time
+        zone. The selection is exactly one of: a window `[from, to)` of at most 35 days, the
+        calendar's month (a window answers the spans of its own rows, cut at its bounds, and
+        seeks them by recording instant), or all time with `scope=all`, the `Gesamt` line. A
+        missing or invalid `from` or `to`, a `to` not after `from` or more than 35 days after
+        it, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422,
+        as for the scoreboard. The size grows with the evenings that have rows, never with
+        the rows or their quarter hours: a month is a few hundred bytes, five years of
+        evenings a few ten kilobytes. The ETag names the data revision, read in the same
+        snapshot as the spans, and the selection; every write, verification and deletion
+        bumps the revision, so `If-None-Match` with the last ETag of the same selection
+        answers 304 without reading while nothing changed.
+      parameters:
+        - $ref: '#/components/parameters/DaysFrom'
+        - $ref: '#/components/parameters/DaysTo'
+        - $ref: '#/components/parameters/AllTimeScope'
+        - name: If-None-Match
+          in: header
+          required: false
+          description: The ETag of the spans of the same selection the client already has
+          schema:
+            type: string
+            examples: ['"42-1793487600000-1796079600000"', '"42-all"']
+      responses:
+        '200':
+          description: The sessions with rows that count
+          headers:
+            ETag:
+              description: Data revision and selection of these spans
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DaysWithData'
+        '304':
+          description: Unchanged since the spans named in `If-None-Match`
+          headers:
+            ETag:
+              description: The same ETag
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '422':
           $ref: '#/components/responses/Problem'
   /api/games/{id}/matches:
     parameters:
@@ -1458,6 +1659,51 @@ components:
       schema:
         type: string
         pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    WindowTo:
+      name: to
+      in: query
+      required: false
+      description: >-
+        End of the window (exclusive), such as the next local midnight, as an ISO-8601
+        instant with offset; after `from`, and only with it. Without it the window has no end.
+      schema:
+        type: string
+        format: date-time
+        examples: ['2026-11-15T23:00:00.000Z']
+    DaysFrom:
+      name: from
+      in: query
+      required: false
+      description: >-
+        Start of a days read's window (inclusive), such as local midnight of the first day
+        of the calendar's month, as an ISO-8601 instant with offset; required unless
+        `scope=all`
+      schema:
+        type: string
+        format: date-time
+        examples: ['2026-10-31T23:00:00.000Z']
+    DaysTo:
+      name: to
+      in: query
+      required: false
+      description: >-
+        End of a days read's window (exclusive), such as local midnight of the first day of
+        the next month, as an ISO-8601 instant with offset; required with `from`, after it
+        and at most 35 days after it (a local month and a margin), and only with it
+      schema:
+        type: string
+        format: date-time
+        examples: ['2026-11-30T23:00:00.000Z']
+    AllTimeScope:
+      name: scope
+      in: query
+      required: false
+      description: >-
+        `all` for all time: every row ever recorded, no lower and no upper bound. Not
+        together with `from` or `to`.
+      schema:
+        type: string
+        enum: [all]
     HistoryBefore:
       name: before
       in: query
@@ -2007,14 +2253,14 @@ components:
         rows:
           type: array
           description: >-
-            Persons with at least one verified entry since `from`, ranked by score, ties by
+            Persons with at least one verified entry in the selection, ranked by score, ties by
             name; persons without entries are absent
           items:
             $ref: '#/components/schemas/ScoreRow'
         unranked:
           type: array
           description: >-
-            Persons whose entries since `from` all wait for verification, by name: they have
+            Persons whose entries in the selection all wait for verification, by name: they have
             no rank and never lead
           items:
             $ref: '#/components/schemas/UnrankedRow'
@@ -2038,7 +2284,7 @@ components:
         pendingCount:
           type: integer
           minimum: 0
-          description: The number of the person's entries since `from` that wait for verification (rows, not quantities)
+          description: The number of the person's entries in the selection that wait for verification (rows, not quantities)
         drinks:
           type: array
           description: By drink name; only drinks with entries, pending ones included
@@ -2058,7 +2304,7 @@ components:
         pendingCount:
           type: integer
           minimum: 1
-          description: The number of the person's entries since `from`, all waiting for verification
+          description: The number of the person's entries in the selection, all waiting for verification
         drinks:
           type: array
           description: By drink name; each `count` is 0
@@ -2081,6 +2327,34 @@ components:
           description: >-
             Σ quantity × multiplier over every recorded entry, pending ones included: what
             the recording flow shows
+    DaysWithData:
+      type: object
+      additionalProperties: false
+      required: [spans]
+      properties:
+        spans:
+          type: array
+          description: >-
+            The sessions with at least one row that counts in the selection, ascending and
+            disjoint, each from the start of its first 15-minute UTC bucket to the end of its
+            last; empty when nothing counts there
+          items:
+            $ref: '#/components/schemas/Span'
+    Span:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      properties:
+        from:
+          type: string
+          format: date-time
+          description: Start (inclusive), the start of a 15-minute UTC bucket
+          examples: ['2026-11-14T19:00:00.000Z']
+        to:
+          type: string
+          format: date-time
+          description: End (exclusive), the end of a 15-minute UTC bucket
+          examples: ['2026-11-14T23:15:00.000Z']
     GameKind:
       type: string
       enum: [duel, points]
@@ -2361,20 +2635,20 @@ components:
         startedAt:
           type: string
           format: date-time
-          description: When the current run began, UTC
+          description: When the current run began, UTC, whatever the selection
         rows:
           type: array
           description: >-
-            Persons with at least one verified match in the run, ranked by points, then wins,
-            then name; only verified matches count. Persons without a match in the run are
-            absent
+            Persons with at least one verified match in the selection, ranked by points, then
+            wins, then name; only verified matches count. Persons without a match in the
+            selection are absent
           items:
             $ref: '#/components/schemas/DuelRow'
         unranked:
           type: array
           description: >-
-            Persons whose matches in the run all wait for verification, by name: they have no
-            rank and never lead
+            Persons whose matches in the selection all wait for verification, by name: they
+            have no rank and never lead
           items:
             $ref: '#/components/schemas/UnrankedPlayer'
     UnrankedPlayer:
@@ -2389,7 +2663,7 @@ components:
         pendingCount:
           type: integer
           minimum: 1
-          description: The person's pending rows in the run (`+n offen`)
+          description: The person's pending rows in the selection (`+n offen`)
     DuelRow:
       type: object
       additionalProperties: false
@@ -2416,7 +2690,7 @@ components:
           type: integer
           minimum: 0
           description: >-
-            The person's matches in the run that wait for verification (`+n offen`); a pending
+            The person's matches in the selection that wait for verification (`+n offen`); a pending
             match counts once for each player that still exists
     PointsStandings:
       type: object
@@ -2429,21 +2703,21 @@ components:
         startedAt:
           type: string
           format: date-time
-          description: When the current run began, UTC
+          description: When the current run began, UTC, whatever the selection
         lowerWins:
           type: boolean
         rows:
           type: array
           description: >-
-            Persons with at least one verified result in the run, ranked by the sum in the
-            game's direction, then name; only verified results count. Persons without a result
-            in the run are absent
+            Persons with at least one verified result in the selection, ranked by the measure
+            (the sum in the current run) in the game's direction, then name, then id; only
+            verified results count. Persons without a result in the selection are absent
           items:
             $ref: '#/components/schemas/PointsRow'
         unranked:
           type: array
           description: >-
-            Persons whose results in the run all wait for verification, by name: they have no
+            Persons whose results in the selection all wait for verification, by name: they have no
             rank and never lead, whichever way the game ranks and whatever the others' sums
           items:
             $ref: '#/components/schemas/UnrankedPlayer'
@@ -2458,14 +2732,21 @@ components:
           type: string
         sum:
           type: integer
-          description: The sum of the person's verified points in the run
+          description: The sum of the person's verified points in the selection
+        average:
+          type: number
+          description: >-
+            The sum divided by `results`, rounded half away from zero to one decimal (`3.25` →
+            `3.3`, whole numbers without a fraction), for display only: the exact value ranks.
+            Sent for a window or all time, whichever the measure; absent in the current run,
+            whose rows are as before
         results:
           type: integer
-          description: How many verified results make up the sum
+          description: How many verified results make up the sum; the average's denominator
         pendingCount:
           type: integer
           minimum: 0
-          description: The person's results in the run that wait for verification (`+n offen`)
+          description: The person's results in the selection that wait for verification (`+n offen`)
     AuditPage:
       type: object
       additionalProperties: false

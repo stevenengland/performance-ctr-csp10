@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import PersonAvatar from '../../components/PersonAvatar.vue';
 import TallyMarks from '../../components/TallyMarks.vue';
+import type { CalendarDate } from '../../core/period';
 import { verlaufPath } from '../verlauf/history';
 import type { Standing } from './standings';
 
@@ -9,15 +10,19 @@ Rank 1 on the Rangliste (§7f): amber, the one loud thing on the screen. Name an
 tally of the total count left, under the ringed avatar (beside the name it left too
 little room for a long name), the score right; under them the total count and the
 per-drink counters, and `+2 offen` beside the count while entries wait for verification.
-The card opens the person's Verlauf.
+The card opens the person's Verlauf (of the past day shown, else of today).
 */
-defineProps<{ standing: Standing }>();
+defineProps<{
+  standing: Standing;
+  /** The past day whose Verlauf the place opens; today's without one. */
+  day?: CalendarDate | undefined;
+}>();
 </script>
 
 <template>
   <li class="leader-place">
     <RouterLink
-      :to="verlaufPath(standing.personId)"
+      :to="verlaufPath(standing.personId, day)"
       class="leader"
       data-test="leader"
       :aria-label="standing.label"

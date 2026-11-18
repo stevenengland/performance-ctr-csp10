@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import PersonAvatar from '../../components/PersonAvatar.vue';
+import type { CalendarDate } from '../../core/period';
 import { verlaufPath } from '../verlauf/history';
 import type { Standing, UnrankedStanding } from './standings';
 
@@ -8,15 +9,19 @@ Rank 2 and below on the Rangliste (§7f): the rank, the avatar, the name with th
 counters beneath, and the score with the total count beneath on the right, then
 `+2 offen` while entries wait for verification. A person whose entries all wait has
 the same row without rank and score, with only `+2 offen` on the right. The row opens
-the person's Verlauf.
+the person's Verlauf (of the past day shown, else of today).
 */
-defineProps<{ standing: Standing | UnrankedStanding }>();
+defineProps<{
+  standing: Standing | UnrankedStanding;
+  /** The past day whose Verlauf the place opens; today's without one. */
+  day?: CalendarDate | undefined;
+}>();
 </script>
 
 <template>
   <li class="rank-place">
     <RouterLink
-      :to="verlaufPath(standing.personId)"
+      :to="verlaufPath(standing.personId, day)"
       class="rank"
       :data-test="'rank' in standing ? 'rank' : 'unranked'"
       :aria-label="standing.label"

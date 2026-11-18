@@ -312,8 +312,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * A person's entries since `from`, the start of the viewer's day, newest first
-     * @description Each entry names its drink and its factor (null without one, or once the factor was deleted) with their current names, and the user name of the account that logged it (null once that account was deleted). A `personId` that is not a positive integer is 422; a person that does not exist is 404.
+     * A person's entries in the window `[from, to)`, newest first
+     * @description The entries recorded in the window: from `from` on, and before `to` when it is given; without `to` the answer is the same as before the window had an end. An entry belongs to the window it was recorded in, whenever it was verified. Each entry names its drink and its factor (null without one, or once the factor was deleted) with their current names, and the user name of the account that logged it (null once that account was deleted). A `personId` that is not a positive integer is 422; a person that does not exist is 404. An invalid window is 422, with the same problem as on `GET /api/scoreboard`.
      */
     get: operations['listEntries'];
     put?: never;
@@ -415,10 +415,33 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * Standings since `from`, the start of the viewer's day
-     * @description Persons with entries since `from`, ranked by score (ties by name). score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. Only verified entries count: a recorded entry waits for verification by another account, and until then it counts in `recordedCount` and `pendingCount` only. A person whose entries since `from` all wait is listed in `unranked`. The ETag names the data revision, which every write of entries, persons, drinks and factors, every verification and every account deletion bumps in its own transaction, and the window: `If-None-Match` with the last ETag answers 304 without aggregating while the revision is unchanged. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
+     * Standings in the window `[from, to)`, or of all time with `scope=all`
+     * @description Persons with entries in the selection, ranked by score (ties by name). The selection is exactly one of: a window, from `from` on and before `to` when it is given (without `to` the answer and its ETag are the same as before the window had an end), or all time with `scope=all`, every entry ever recorded. An entry belongs to the window it was recorded in, whenever it was verified. A missing or invalid `from`, an invalid `to`, a `to` not after `from`, a `to` without `from`, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422. score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. Only verified entries count: a recorded entry waits for verification by another account, and until then it counts in `recordedCount` and `pendingCount` only. A person whose entries in the selection all wait is listed in `unranked`. The ETag names the data revision, which every write of entries, persons, drinks and factors, every verification and every account deletion bumps in its own transaction, and the selection: `If-None-Match` with the last ETag of the same selection answers 304 without aggregating while the revision is unchanged. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
      */
     get: operations['getScoreboard'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/scoreboard/days': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The days with drinks in a window of at most 35 days or of all time, as sessions of quarter hours with a verified entry
+     * @description The raw material of the Rangliste's calendar marks (a month's window) and its `Gesamt` line (all time): the spans, ascending, of the sessions with at least one entry that counts, with exactly the scoreboard's rule: verified entries of persons and drinks that still exist; pending entries are left out. Each span runs from the start of a session's first 15-minute UTC bucket with a row that counts to the end of its last; a pause shorter than 6 hours without such a row does not end a session, so an evening is one span. The bucket of a row is decided by its recording instant alone, never by its verification, so a row recorded before midnight and verified the next day stays in the bucket it was recorded in. Every UTC offset in use is a multiple of 15 minutes and every local day is longer than 6 hours, so the client finds its local days exactly: a local day has data when a span overlaps it (a span over local midnight touches both days); the server knows no time zone. The selection is exactly one of: a window `[from, to)` of at most 35 days, the calendar's month (a window answers the spans of its own rows, cut at its bounds, and seeks them by recording instant), or all time with `scope=all`, the `Gesamt` line. A missing or invalid `from` or `to`, a `to` not after `from` or more than 35 days after it, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422, as for the scoreboard. The size grows with the evenings that have rows, never with the rows or their quarter hours: a month is a few hundred bytes, five years of evenings a few ten kilobytes. The ETag names the data revision, read in the same snapshot as the spans, and the selection; every write, verification and deletion bumps the revision, so `If-None-Match` with the last ETag of the same selection answers 304 without reading while nothing changed.
+     */
+    get: operations['getScoreboardDays'];
     put?: never;
     post?: never;
     delete?: never;
@@ -498,7 +521,7 @@ export interface paths {
     get?: never;
     put?: never;
     /**
-     * Start the game's next run from now; older results stay stored but are no longer shown
+     * Start the game's next run from now; older results stay stored and still count in the period and all-time standings
      * @description Takes no fields, but like every request body it must be JSON: send `{}`. A recording that is saving while the game restarts belongs to the run it committed in, the old one if it finished first, the new one otherwise.
      */
     post: operations['restartGame'];
@@ -522,10 +545,36 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * The game's ranking in its current run, tagged with the game's kind
-     * @description Duel game: every person with a match in the current run, by points (win 1, draw ½, loss 0), then wins, then name. Rankings are computed from the stored outcome, so a deleted person's side counts for no one and never changes the other side's result. Points game: every person with a result in the current run, by the sum of their points, the lowest first when `lowerWins` is on and the highest otherwise, then name; a changed `lowerWins` re-ranks at once. The ETag is the data revision, read in the same snapshot as the ranking; every game, match and result write bumps it, so `If-None-Match` with the last ETag answers 304 without ranking while nothing changed.
+     * The game's ranking in its current run, a window `[from, to)` or all time, tagged with the game's kind
+     * @description The selection is exactly one of: nothing, the current run since the last (re)start, answered and tagged exactly as before the standings took a window; a window, from `from` on and before `to` when it is given; or all time with `scope=all`. A window and all time rank every verified match or result of the game recorded in them, whatever its run; a row belongs to the window it was recorded in, whenever it was verified. A `from` or `to` that is no instant, a `to` not after `from`, a `to` without `from`, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422, exactly as for the scoreboard. Duel game: every person with a match in the selection, by points (win 1, draw ½, loss 0), then wins, then name; across runs each verified match adds its result to both its players once. Rankings are computed from the stored outcome, so a deleted person's side counts for no one and never changes the other side's result. Points game: every person with a result in the selection, by the `measure`, the sum of their points (the current run always) or their average per verified result, the lowest first when `lowerWins` is on and the highest otherwise, then name, then id; the exact average decides, never the rounded `average` sent. Across runs each verified result is one attempt, added to the sum and to `results`, which divides it. A `measure` other than `sum` or `average`, a `measure` on a duel game, or one without `from` or `scope=all` is 422, so it never changes the current run's answer. A changed `lowerWins` re-ranks at once. The ETag names the data revision, read in the same snapshot as the ranking, and the selection: the bare revision for the current run, the revision and the window or `all` otherwise, followed by `-average` when the average ranks. Every game, match and result write bumps the revision, so `If-None-Match` with the last ETag of the same selection and measure answers 304 without ranking while nothing changed.
      */
     get: operations['getStandings'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/games/{id}/standings/days': {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    /**
+     * The days the game was played in a window of at most 35 days or of all time, as sessions of quarter hours with a verified match or result
+     * @description The raw material of a game page's calendar marks (a month's window) and its `Gesamt` line (all time): the spans, ascending, of the sessions with at least one match or result of the game that counts, in every run, with exactly the standings' rule: verified matches with at least one side that still names a person (a duel match counts once although it counts for two players), verified results of persons who still exist; pending rows are left out. The selection is checked before the game is looked up; an unknown game is 404. Each span runs from the start of a session's first 15-minute UTC bucket with a row that counts to the end of its last; a pause shorter than 6 hours without such a row does not end a session, so an evening is one span. The bucket of a row is decided by its recording instant alone, never by its verification, so a row recorded before midnight and verified the next day stays in the bucket it was recorded in. Every UTC offset in use is a multiple of 15 minutes and every local day is longer than 6 hours, so the client finds its local days exactly: a local day has data when a span overlaps it (a span over local midnight touches both days); the server knows no time zone. The selection is exactly one of: a window `[from, to)` of at most 35 days, the calendar's month (a window answers the spans of its own rows, cut at its bounds, and seeks them by recording instant), or all time with `scope=all`, the `Gesamt` line. A missing or invalid `from` or `to`, a `to` not after `from` or more than 35 days after it, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422, as for the scoreboard. The size grows with the evenings that have rows, never with the rows or their quarter hours: a month is a few hundred bytes, five years of evenings a few ten kilobytes. The ETag names the data revision, read in the same snapshot as the spans, and the selection; every write, verification and deletion bumps the revision, so `If-None-Match` with the last ETag of the same selection answers 304 without reading while nothing changed.
+     */
+    get: operations['getStandingsDays'];
     put?: never;
     post?: never;
     delete?: never;
@@ -978,9 +1027,9 @@ export interface components {
       points: components['schemas']['GamePoints'];
     };
     Scoreboard: {
-      /** @description Persons with at least one verified entry since `from`, ranked by score, ties by name; persons without entries are absent */
+      /** @description Persons with at least one verified entry in the selection, ranked by score, ties by name; persons without entries are absent */
       rows: components['schemas']['ScoreRow'][];
-      /** @description Persons whose entries since `from` all wait for verification, by name: they have no rank and never lead */
+      /** @description Persons whose entries in the selection all wait for verification, by name: they have no rank and never lead */
       unranked: components['schemas']['UnrankedRow'][];
     };
     ScoreRow: {
@@ -991,7 +1040,7 @@ export interface components {
       score: number;
       /** @description Verified entries only */
       count: number;
-      /** @description The number of the person's entries since `from` that wait for verification (rows, not quantities) */
+      /** @description The number of the person's entries in the selection that wait for verification (rows, not quantities) */
       pendingCount: number;
       /** @description By drink name; only drinks with entries, pending ones included */
       drinks: components['schemas']['DrinkCount'][];
@@ -1000,7 +1049,7 @@ export interface components {
       personId: number;
       name: string;
       photoUrl: components['schemas']['PhotoUrl'];
-      /** @description The number of the person's entries since `from`, all waiting for verification */
+      /** @description The number of the person's entries in the selection, all waiting for verification */
       pendingCount: number;
       /** @description By drink name; each `count` is 0 */
       drinks: components['schemas']['DrinkCount'][];
@@ -1012,6 +1061,24 @@ export interface components {
       count: number;
       /** @description Σ quantity × multiplier over every recorded entry, pending ones included: what the recording flow shows */
       recordedCount: number;
+    };
+    DaysWithData: {
+      /** @description The sessions with at least one row that counts in the selection, ascending and disjoint, each from the start of its first 15-minute UTC bucket to the end of its last; empty when nothing counts there */
+      spans: components['schemas']['Span'][];
+    };
+    Span: {
+      /**
+       * Format: date-time
+       * @description Start (inclusive), the start of a 15-minute UTC bucket
+       * @example 2026-11-14T19:00:00.000Z
+       */
+      from: string;
+      /**
+       * Format: date-time
+       * @description End (exclusive), the end of a 15-minute UTC bucket
+       * @example 2026-11-14T23:15:00.000Z
+       */
+      to: string;
     };
     /**
      * @description `duel`: two persons and an outcome. `points`: one person and a whole number.
@@ -1167,18 +1234,18 @@ export interface components {
       kind: 'duel';
       /**
        * Format: date-time
-       * @description When the current run began, UTC
+       * @description When the current run began, UTC, whatever the selection
        */
       startedAt: string;
-      /** @description Persons with at least one verified match in the run, ranked by points, then wins, then name; only verified matches count. Persons without a match in the run are absent */
+      /** @description Persons with at least one verified match in the selection, ranked by points, then wins, then name; only verified matches count. Persons without a match in the selection are absent */
       rows: components['schemas']['DuelRow'][];
-      /** @description Persons whose matches in the run all wait for verification, by name: they have no rank and never lead */
+      /** @description Persons whose matches in the selection all wait for verification, by name: they have no rank and never lead */
       unranked: components['schemas']['UnrankedPlayer'][];
     };
     UnrankedPlayer: {
       personId: number;
       name: string;
-      /** @description The person's pending rows in the run (`+n offen`) */
+      /** @description The person's pending rows in the selection (`+n offen`) */
       pendingCount: number;
     };
     DuelRow: {
@@ -1191,7 +1258,7 @@ export interface components {
       losses: number;
       /** @description Verified matches; `wins`, `draws` and `losses` count verified ones too */
       played: number;
-      /** @description The person's matches in the run that wait for verification (`+n offen`); a pending match counts once for each player that still exists */
+      /** @description The person's matches in the selection that wait for verification (`+n offen`); a pending match counts once for each player that still exists */
       pendingCount: number;
     };
     PointsStandings: {
@@ -1202,23 +1269,25 @@ export interface components {
       kind: 'points';
       /**
        * Format: date-time
-       * @description When the current run began, UTC
+       * @description When the current run began, UTC, whatever the selection
        */
       startedAt: string;
       lowerWins: boolean;
-      /** @description Persons with at least one verified result in the run, ranked by the sum in the game's direction, then name; only verified results count. Persons without a result in the run are absent */
+      /** @description Persons with at least one verified result in the selection, ranked by the measure (the sum in the current run) in the game's direction, then name, then id; only verified results count. Persons without a result in the selection are absent */
       rows: components['schemas']['PointsRow'][];
-      /** @description Persons whose results in the run all wait for verification, by name: they have no rank and never lead, whichever way the game ranks and whatever the others' sums */
+      /** @description Persons whose results in the selection all wait for verification, by name: they have no rank and never lead, whichever way the game ranks and whatever the others' sums */
       unranked: components['schemas']['UnrankedPlayer'][];
     };
     PointsRow: {
       personId: number;
       name: string;
-      /** @description The sum of the person's verified points in the run */
+      /** @description The sum of the person's verified points in the selection */
       sum: number;
-      /** @description How many verified results make up the sum */
+      /** @description The sum divided by `results`, rounded half away from zero to one decimal (`3.25` → `3.3`, whole numbers without a fraction), for display only: the exact value ranks. Sent for a window or all time, whichever the measure; absent in the current run, whose rows are as before */
+      average?: number;
+      /** @description How many verified results make up the sum; the average's denominator */
       results: number;
-      /** @description The person's results in the run that wait for verification (`+n offen`) */
+      /** @description The person's results in the selection that wait for verification (`+n offen`) */
       pendingCount: number;
     };
     AuditPage: {
@@ -1389,6 +1458,14 @@ export interface components {
     GameId: number;
     /** @description The client-generated UUID v4 (lower case) of a match or a result, also its retry key; unique across entries, matches and results. Anything else is 404. */
     ClientId: string;
+    /** @description End of the window (exclusive), such as the next local midnight, as an ISO-8601 instant with offset; after `from`, and only with it. Without it the window has no end. */
+    WindowTo: string;
+    /** @description Start of a days read's window (inclusive), such as local midnight of the first day of the calendar's month, as an ISO-8601 instant with offset; required unless `scope=all` */
+    DaysFrom: string;
+    /** @description End of a days read's window (exclusive), such as local midnight of the first day of the next month, as an ISO-8601 instant with offset; required with `from`, after it and at most 35 days after it (a local month and a margin), and only with it */
+    DaysTo: string;
+    /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
+    AllTimeScope: 'all';
     /** @description The `next` of the previous page, unchanged; omitted for the newest page of the current run */
     HistoryBefore: string;
     /** @description Rows per page */
@@ -2179,8 +2256,10 @@ export interface operations {
     parameters: {
       query: {
         personId: number;
-        /** @description Local midnight of the viewer's day as an ISO-8601 instant with offset */
+        /** @description Start of the window (inclusive), such as local midnight of the viewer's day, as an ISO-8601 instant with offset */
         from: string;
+        /** @description End of the window (exclusive), such as the next local midnight, as an ISO-8601 instant with offset; after `from`, and only with it. Without it the window has no end. */
+        to?: components['parameters']['WindowTo'];
       };
       header?: {
         /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
@@ -2378,9 +2457,13 @@ export interface operations {
   };
   getScoreboard: {
     parameters: {
-      query: {
-        /** @description Local midnight of the viewer's day as an ISO-8601 instant with offset */
-        from: string;
+      query?: {
+        /** @description Start of the window (inclusive), such as local midnight of the viewer's day, as an ISO-8601 instant with offset; required unless `scope=all` */
+        from?: string;
+        /** @description End of the window (exclusive), such as the next local midnight, as an ISO-8601 instant with offset; after `from`, and only with it. Without it the window has no end. */
+        to?: components['parameters']['WindowTo'];
+        /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
+        scope?: components['parameters']['AllTimeScope'];
       };
       header?: {
         /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
@@ -2396,7 +2479,7 @@ export interface operations {
       /** @description The standings */
       200: {
         headers: {
-          /** @description Data revision and window of these standings */
+          /** @description Data revision and selection of these standings */
           ETag?: string;
           [name: string]: unknown;
         };
@@ -2405,6 +2488,51 @@ export interface operations {
         };
       };
       /** @description Unchanged since the standings named in `If-None-Match` */
+      304: {
+        headers: {
+          /** @description The same ETag */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  getScoreboardDays: {
+    parameters: {
+      query?: {
+        /** @description Start of a days read's window (inclusive), such as local midnight of the first day of the calendar's month, as an ISO-8601 instant with offset; required unless `scope=all` */
+        from?: components['parameters']['DaysFrom'];
+        /** @description End of a days read's window (exclusive), such as local midnight of the first day of the next month, as an ISO-8601 instant with offset; required with `from`, after it and at most 35 days after it (a local month and a margin), and only with it */
+        to?: components['parameters']['DaysTo'];
+        /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
+        scope?: components['parameters']['AllTimeScope'];
+      };
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+        /** @description The ETag of the spans of the same selection the client already has */
+        'If-None-Match'?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The sessions with rows that count */
+      200: {
+        headers: {
+          /** @description Data revision and selection of these spans */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DaysWithData'];
+        };
+      };
+      /** @description Unchanged since the spans named in `If-None-Match` */
       304: {
         headers: {
           /** @description The same ETag */
@@ -2596,7 +2724,16 @@ export interface operations {
   };
   getStandings: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description Start of the window (inclusive), such as local midnight of a chosen day, as an ISO-8601 instant with offset. Without `from`, `to` and `scope` the current run is ranked. */
+        from?: string;
+        /** @description End of the window (exclusive), such as the next local midnight, as an ISO-8601 instant with offset; after `from`, and only with it. Without it the window has no end. */
+        to?: components['parameters']['WindowTo'];
+        /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
+        scope?: components['parameters']['AllTimeScope'];
+        /** @description What ranks a points game's window or all time: the sum of the verified points (the default) or their average per verified result. Only for a points game together with `from` or `scope=all`. */
+        measure?: 'sum' | 'average';
+      };
       header?: {
         /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
         'X-Client-Version'?: components['parameters']['ClientVersion'];
@@ -2614,7 +2751,7 @@ export interface operations {
       /** @description The ranking */
       200: {
         headers: {
-          /** @description The data revision of this ranking */
+          /** @description Data revision, selection and measure of this ranking */
           ETag?: string;
           [name: string]: unknown;
         };
@@ -2633,6 +2770,56 @@ export interface operations {
       };
       401: components['responses']['Problem'];
       404: components['responses']['Problem'];
+      422: components['responses']['Problem'];
+    };
+  };
+  getStandingsDays: {
+    parameters: {
+      query?: {
+        /** @description Start of a days read's window (inclusive), such as local midnight of the first day of the calendar's month, as an ISO-8601 instant with offset; required unless `scope=all` */
+        from?: components['parameters']['DaysFrom'];
+        /** @description End of a days read's window (exclusive), such as local midnight of the first day of the next month, as an ISO-8601 instant with offset; required with `from`, after it and at most 35 days after it (a local month and a margin), and only with it */
+        to?: components['parameters']['DaysTo'];
+        /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
+        scope?: components['parameters']['AllTimeScope'];
+      };
+      header?: {
+        /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
+        'X-Client-Version'?: components['parameters']['ClientVersion'];
+        /** @description The ETag of the spans of the same selection the client already has */
+        'If-None-Match'?: string;
+      };
+      path: {
+        /** @description The game's id; anything but a positive integer is 404 */
+        id: components['parameters']['GameId'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The sessions with rows that count */
+      200: {
+        headers: {
+          /** @description Data revision and selection of these spans */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DaysWithData'];
+        };
+      };
+      /** @description Unchanged since the spans named in `If-None-Match` */
+      304: {
+        headers: {
+          /** @description The same ETag */
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components['responses']['Problem'];
+      404: components['responses']['Problem'];
+      422: components['responses']['Problem'];
     };
   };
   listMatches: {

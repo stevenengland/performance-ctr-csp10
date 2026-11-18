@@ -2,10 +2,40 @@ import type { DeepReadonly } from 'vue';
 import type { HistoryEntry } from '../../core/api-client';
 import { formatMultiplier, formatTime } from '../../core/format';
 import { messages } from '../../core/messages';
+import {
+  addDays,
+  type CalendarDate,
+  isAfter,
+  isoDate,
+} from '../../core/period';
 
-/** A person's Verlauf, reached from the Rangliste and from Verwalten → Personen. */
-export function verlaufPath(personId: number): string {
-  return `/verlauf/${String(personId)}`;
+/**
+A person's Verlauf, reached from the Rangliste and from Verwalten → Personen: of
+today, or of a past `day` (`/verlauf/3?tag=2026-11-14`) from a day the Rangliste shows.
+*/
+export function verlaufPath(personId: number, day?: CalendarDate): string {
+  const path = `/verlauf/${String(personId)}`;
+  return day ? `${path}?tag=${isoDate(day)}` : path;
+}
+
+const TAG = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+The day a Verlauf shows: the past day its `tag` names (`2026-11-14`), held as a
+calendar date; today without a `tag`, or for one that names no date or a day after
+today.
+*/
+export function dayOfTag(tag: unknown, today: CalendarDate): CalendarDate {
+  const parts = typeof tag === 'string' ? TAG.exec(tag) : null;
+  if (!parts) return today;
+  const [year, month, day] = parts.slice(1).map(Number) as [
+    number,
+    number,
+    number,
+  ];
+  // Calendar addition rolls an impossible date over (30.02. → 02.03.).
+  const date = addDays({ year, month, day }, 0);
+  return isoDate(date) === tag && !isAfter(date, today) ? date : today;
 }
 
 /** One entry on Verlauf, formatted for display (§7g). */

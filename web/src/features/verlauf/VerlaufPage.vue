@@ -1,34 +1,52 @@
 <script setup lang="ts">
 import { mdiDeleteOutline } from '@mdi/js';
 import { computed, onMounted, ref, shallowRef, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import ConfirmDialog from '../../components/ConfirmDialog.vue';
 import {
   ApiProblem,
   deleteEntry,
   listEntries,
   type HistoryEntry,
+  type TimeWindow,
 } from '../../core/api-client';
 import { loadPersons, usePersons } from '../../core/catalog';
 import { todayFrom } from '../../core/day-window';
 import { messages } from '../../core/messages';
+import {
+  calendarDateOf,
+  contextLine,
+  isToday,
+  type Period,
+  periodKey,
+  queryOf,
+} from '../../core/period';
 import { refreshScoreboard } from '../../core/scoreboard-feed';
 import { showProblem, showSnackbar } from '../../core/snackbar';
 import { useToday } from '../../core/today';
 import { provideTopBar } from '../../core/top-bar';
-import { historyRows, type HistoryRow } from './history';
+import { dayOfTag, historyRows, type HistoryRow } from './history';
 
 /**
-Verlauf · Heute (§7g): a person's entries since local midnight, newest first, those
-that wait for verification marked `offen`, each deletable behind the confirmation
-dialog (§6.9). A deletion reaches the counters
-and the Rangliste through the scoreboard feed.
+Verlauf (§7g): a person's entries of a day, newest first, those that wait for
+verification marked `offen`, each deletable behind the confirmation dialog (§6.9).
+The day is today (since local midnight), or the past day `?tag=2026-11-14` that a
+place on the Rangliste opens while that day is shown, held as its calendar date.
+A deletion reaches the counters and the Rangliste through the scoreboard feed.
 */
 const props = defineProps<{ personId: string }>();
 const SKELETON_ROWS = 3;
 const NOT_FOUND = 404;
 
 const router = useRouter();
+const route = useRoute();
+const today = useToday();
+const todayDate = computed(() => calendarDateOf(today.value));
+const day = computed<Extract<Period, { kind: 'day' }>>(() => ({
+  kind: 'day',
+  date: dayOfTag(route.query.tag, todayDate.value),
+}));
+const showsToday = computed(() => isToday(day.value, todayDate.value));
 const persons = usePersons();
 const personId = computed(() => Number(props.personId));
 const person = computed(() =>
@@ -43,7 +61,10 @@ const confirming = ref(false);
 const removing = shallowRef<HistoryRow>();
 const busy = ref(false);
 
-provideTopBar(() => ({ title: person.value?.name }));
+provideTopBar(() => ({
+  title: person.value?.name,
+  context: contextLine(day.value, todayDate.value),
+}));
 
 /** The person was deleted (on another phone): back to the Rangliste (§4, §9). */
 function leaveGone() {
@@ -51,8 +72,16 @@ function leaveGone() {
   showSnackbar({ text: messages.zaehlen.gone });
 }
 
+/** Today: since local midnight; a past day: its window, built from its calendar date for each read. */
+function windowOfDay(): TimeWindow {
+  return showsToday.value ? { from: todayFrom() } : queryOf(day.value);
+}
+
+/** Reads the shown day's entries; an answer for a day no longer shown is dropped. */
 async function load() {
-  entries.value = await listEntries(personId.value, todayFrom());
+  const shown = periodKey(day.value);
+  const answer = await listEntries(personId.value, windowOfDay());
+  if (periodKey(day.value) === shown) entries.value = answer;
 }
 
 function ask(row: HistoryRow) {
@@ -99,10 +128,13 @@ onMounted(async () => {
   }
 });
 
-/** A new day starts empty: its entries are read when the page is used after midnight. */
-watch(useToday(), () => {
-  load().catch(readFailed);
-});
+/** Today's entries are read anew when the page is used after midnight; a past day stays. */
+watch(
+  () => periodKey(day.value),
+  () => {
+    load().catch(readFailed);
+  },
+);
 </script>
 
 <template>
@@ -113,7 +145,7 @@ watch(useToday(), () => {
       </li>
     </ul>
     <p v-else-if="rows.length === 0" class="type-body empty-state">
-      {{ messages.verlauf.empty }}
+      {{ showsToday ? messages.verlauf.empty : messages.verlauf.emptyThatDay }}
     </p>
     <ul
       v-else

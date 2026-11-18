@@ -13,7 +13,7 @@ use PDOException;
  * The entry log. Adding is idempotent on the client's entry id, through the shared retry
  * keys (Idempotency): a known id answers with the original outcome and never recreates an
  * undone entry; different content under a known id is a conflict. It also lists a person's
- * entries of a day. Adding and deleting name their actor and are recorded in the audit log in
+ * entries in an Interval. Adding and deleting name their actor and are recorded in the audit log in
  * their own transaction, with the entry as it is then; a replay, a conflict or a failure
  * records nothing. A new entry waits for verification; as VerifiableRows it lets Verification
  * decide on one inside Verification's transaction.
@@ -152,14 +152,14 @@ final readonly class EntryLedger implements VerifiableRows
     }
 
     /**
-     * A person's entries since `from` (the start of the viewer's day), newest first, pending
-     * ones included and marked.
+     * A person's entries in the interval (from the start of the viewer's day, or one past day),
+     * newest first, pending ones included and marked.
      *
      * @return list<HistoryEntry>
      *
      * @throws NotFound when there is no such person
      */
-    public function ofPersonSince(int $personId, DateTimeImmutable $from): array
+    public function ofPerson(int $personId, Interval $interval): array
     {
         if (!$this->exists('persons', $personId)) {
             throw new NotFound((string) $personId);
@@ -169,10 +169,10 @@ final readonly class EntryLedger implements VerifiableRows
                     e.created_at, a.user_name AS account_name, e.pending
              FROM entries e JOIN drinks d ON d.id = e.drink_id
              LEFT JOIN factors f ON f.id = e.factor_id LEFT JOIN accounts a ON a.id = e.account_id
-             WHERE e.person_id = ? AND e.created_at >= ?
+             WHERE e.person_id = ? AND ' . $interval->condition('e.created_at') . '
              ORDER BY e.created_at DESC, e.id DESC',
         );
-        $statement->execute([$personId, Timestamp::of($from)]);
+        $statement->execute([$personId, ...$interval->parameters()]);
         /** @var list<array<string, scalar|null>> $rows */
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
 
