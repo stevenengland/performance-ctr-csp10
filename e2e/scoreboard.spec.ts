@@ -419,7 +419,7 @@ test('the Rangliste polls every 10 s on condition, keeps its standings with “S
   const polled = scoreboardRequests(page, 'today');
   await page.clock.runFor(POLL_MS);
   const conditional = await polled;
-  expect(conditional.headers()['if-none-match']).toMatch(/^"\d+-\d+"$/);
+  expect(conditional.headers()['if-none-match']).toMatch(/^"\d+-\d+-v2"$/);
   expect((await conditional.response())?.status()).toBe(304);
   // The time of the last successful refresh, as the page's clock tells it.
   const confirmedAt = await page.evaluate(() =>
