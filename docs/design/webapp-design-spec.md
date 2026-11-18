@@ -47,13 +47,17 @@ rule count as verified.
   least 48 × 48 dp; counting buttons are larger (§6.4).
 - **One decision per screen.** The add flow asks exactly one question per step and saves on the
   last answer. No confirm button on the happy path; undo instead.
-- **Today only.** Every view covers the current day, from 00:00 in the browser's time zone. No
-  view shows other days — with three recorded exceptions: Protokoll (§7l), the admins' audit log,
-  covers all days, since looking up what happened yesterday or last week is its purpose; a
-  game (§7n, §7o) covers its current run, from its last (re)start (`seit 15.09.`), since a
-  chess ladder runs for weeks; and `Offen` (§7s) lists every row still waiting for
-  verification, of any day, since a row must never stay pending only because the day changed.
-  The server owns the run; drink views keep local midnight.
+- **Today first.** Every view opens on the current day, from 00:00 in the browser's time
+  zone, and Zählen with its tiles and counters always covers today. Other days are shown only
+  where a view offers them, each recorded: the Rangliste ranks a chosen day, a week or all time
+  (§7f) and a person's Verlauf shows the day a place was opened from (§7g); a game's page
+  opens on its current run, from its last (re)start (`seit 15.09.`), since a chess ladder runs
+  for weeks, and also ranks a day, a week or all its runs (§7o); Protokoll (§7l), the admins'
+  audit log, covers all days, since looking up what happened yesterday or last week is its
+  purpose; and `Offen` (§7s) lists every row still waiting for verification, of any day, since
+  a row must never stay pending only because the day changed. A row belongs to the day it was
+  recorded on, whenever it was verified. The server owns the run and ranks any window it is
+  sent; days, weeks and their local midnights stay on the client.
 - **Honest state.** The UI never claims a save that did not happen: offline blocks saving,
   failures say so, stale data shows its age.
 - **Readable across the table.** Names and numbers are set large in a condensed display face;
@@ -238,10 +242,10 @@ Inputs accept a decimal comma or point (`0,5` and `0.5`).
 /zaehlen/:personId                          step 2 — Getränk
 /zaehlen/:personId/:drinkId                 step 3 — Anzahl
 /zaehlen/:personId/:drinkId/:quantity       step 4 — Faktor (choice saves)
-/rangliste                                  today's ranking         [nav: Rangliste]
-/verlauf/:personId                          a person's entries today
+/rangliste                                  ranking of a period     [nav: Rangliste]
+/verlauf/:personId[?tag=YYYY-MM-DD]         a person's entries today, or of a past day
 /spiele                                     the games               [nav: Spiele]
-/spiele/:gameId                             a game: its rule and its ranking since the start
+/spiele/:gameId                             a game: its rule and its ranking since the start, of a day, a week or all runs
 /spiele/:gameId/partie                      duel step 1 — Wer spielt?
 /spiele/:gameId/partie/:firstId             duel step 2 — Gegen wen?
 /spiele/:gameId/partie/:firstId/:secondId   duel step 3 — Ergebnis (choice saves)
@@ -856,7 +860,7 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   result, with the account that did it. Title `Protokoll` with a back button; the navigation keeps
   `Verwalten` active. Non-admins never see it: the row is missing on the hub and
   `/verwalten/protokoll` sends them to `/verwalten`.
-- **All days** — the one exception to "today only" (§1). Events newest first under day
+- **All days** — one of the recorded exceptions to "today first" (§1). Events newest first under day
   headings in `label`, `on-surface-variant`: `Heute`, `Gestern`, otherwise the date
   (`Sa., 14.11.2026`), by calendar day in the browser's time zone. The headings move on at local
   midnight and when the page is shown or focused again, so a page left open overnight labels
@@ -1317,7 +1321,7 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 | Personen (photo) | `PUT /api/persons/{id}/photo`, `DELETE /api/persons/{id}/photo` | Any member, any person; never a field of the person `PATCH`. `PUT` body `{image}`: base64 of a 256 × 256 JPEG of at most 64 KiB; answers the person (200). A body over 96 KiB is 413 `Foto zu groß.`, an invalid photo 422 on `image`. `DELETE` is 204, also without a photo. The same photo again and removing none change nothing |
 | Photo display | `GET /api/persons/{id}/photo?v=<version>` | Loaded by `<img>`, outside the fetch wrapper. 200 `image/jpeg` with `Cache-Control: private, max-age=31536000, immutable` only while `v` is the stored version; a missing, malformed or stale `v`, no photo and an unknown person are 404, every error `no-store`. The client never builds this URL |
 | Verwalten | `GET /api/{persons,drinks,factors,games}`, `GET /api/accounts` (admins) | Counts are the list lengths; the Protokoll row reads nothing |
-| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` (current run; on the game's page also `?from=&to=` for a day or week and `?scope=all` for `Gesamt`; ETag, `If-None-Match` → 304), `GET /api/games/{id}/standings/days` (calendar dots, `Gesamt` line; ETag `"<rev>"`) | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. The game's page polls every 10 s while visible (the current run, today, the current week and `Gesamt`; a past day or week on show, focus and after own writes), Spiele reads on open and on focus; ETag = data revision (`"<rev>"`), plus the selection for a window or all time (`"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`) and `-average` when the average ranks. A window or all time ranks every run's verified matches or results, a points row also carrying `average` (rounded half away from zero to one decimal, display only); a points game's week and `Gesamt` send `measure=sum\|average` (422 on a duel or without a window or `scope=all`). Standings of the current run, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played, pendingCount}` over verified matches, with `unranked` `{personId, name, pendingCount}` for persons whose matches all wait; a points game's `{personId, name, sum, results, pendingCount}` over verified results with `lowerWins`, and `unranked` like a duel's |
+| Spiele / Spiel | `GET /api/games`, `GET /api/games/{id}/standings` (current run; on the game's page also `?from=&to=` for a day or week and `?scope=all` for `Gesamt`; ETag, `If-None-Match` → 304), `GET /api/games/{id}/standings/days` (calendar dots, `Gesamt` line; ETag `"<rev>"`) | Name, kind, setting and `startedAt` from the list; a game missing from it is gone. The game's page polls every 10 s while visible (the current run, today, the current week and `Gesamt`; a past day or week on show, focus and after own writes), Spiele reads on open and on focus; ETag = data revision (`"<rev>"`), plus the selection for a window or all time (`"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`) and `-average` when the average ranks. A window or all time ranks every run's verified matches or results, a points row also carrying `average` (rounded half away from zero to one decimal, display only); a points game's week and `Gesamt` send `measure=sum\|average` (422 on a duel or without a window or `scope=all`). Standings of any selection, tagged by `kind`: a duel's rows `{personId, name, points, wins, draws, losses, played, pendingCount}` over verified matches, with `unranked` `{personId, name, pendingCount}` for persons whose matches all wait; a points game's `{personId, name, sum, results, pendingCount}` over verified results with `lowerWins`, and `unranked` like a duel's |
 | Verwalten → Spiele | `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/{id}` | Game: `id`, `name`, `kind` (`duel` \| `points`), `drawsAllowed`, `lowerWins`, `startedAt`. `POST` takes `name`, `kind` and the kind's setting; `PATCH` takes `name` and the setting (the kind is fixed); `GET …/{id}` adds `matchCount` and `resultCount` (every run) |
 | Partie eintragen | `GET /api/games`, `GET /api/persons`, `GET /api/games/{id}/standings`, `PUT /api/matches/{uuid}` | Body `{gameId, firstPersonId, secondPersonId, outcome}` with `outcome` `first` \| `second` \| `draw`; 201 new, 200 replay; the same UUID with other content is 409 `request-conflict` |
 | Snackbar `Rückgängig` (match) | `DELETE /api/matches/{uuid}` | 404 counts as undone; the ranking is read again |
