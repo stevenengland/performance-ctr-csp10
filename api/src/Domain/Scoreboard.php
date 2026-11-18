@@ -10,7 +10,8 @@ use PDO;
  * The read model and single owner of aggregation: for every person with entries in an Interval,
  * the score (Σ quantity × multiplier × points), the count (Σ quantity × multiplier) and the
  * per-drink counters, ranked by score, ties by name, with the version of the person's photo
- * (never its bytes). The multiplier is the factor's current one, 1 without a factor.
+ * (never its bytes). The multiplier is the factor's current one, 1 without a factor. Beside
+ * each count is its pure count (Σ quantity), over the same entries without their factor.
  *
  * Only verified entries count (PRD #61): score, count and each drink's `count` leave pending
  * entries out. Each drink's `recordedCount` counts every recorded entry, which the recording
@@ -47,7 +48,7 @@ final readonly class Scoreboard
             if ((int) $row['verified_entries'] === 0) {
                 $unranked[] = new UnrankedRow($id, (string) $row['name'], $photoVersion, (int) $row['pending_entries'], $drinks[$id] ?? []);
             } else {
-                $rows[] = new ScoreRow($id, (string) $row['name'], $photoVersion, (string) $row['score'], (string) $row['count'], (int) $row['pending_entries'], $drinks[$id] ?? []);
+                $rows[] = new ScoreRow($id, (string) $row['name'], $photoVersion, (string) $row['score'], (string) $row['count'], (string) $row['raw_count'], (int) $row['pending_entries'], $drinks[$id] ?? []);
             }
         }
 
@@ -86,6 +87,7 @@ final readonly class Scoreboard
             'SELECT p.id, p.name, ph.version AS photo_version,
                     SUM(IF(e.pending = 0, ' . self::COUNTED . ' * d.points, 0)) AS score,
                     SUM(IF(e.pending = 0, ' . self::COUNTED . ', 0)) AS count,
+                    SUM(IF(e.pending = 0, e.quantity, 0)) AS raw_count,
                     SUM(e.pending = 0) AS verified_entries,
                     SUM(e.pending = 1) AS pending_entries
              FROM ' . self::ENTRIES . '
@@ -99,7 +101,8 @@ final readonly class Scoreboard
     }
 
     /**
-     * Each person's drinks in the interval with their verified and recorded counters, by name.
+     * Each person's drinks in the interval with their verified and recorded counters, factored and
+     * pure, by name.
      *
      * @return array<int, list<DrinkCount>> by person id
      */
@@ -109,14 +112,16 @@ final readonly class Scoreboard
         foreach ($this->rows(
             'SELECT e.person_id, d.id AS drink_id, d.name,
                     SUM(IF(e.pending = 0, ' . self::COUNTED . ', 0)) AS count,
-                    SUM(' . self::COUNTED . ') AS recorded_count
+                    SUM(' . self::COUNTED . ') AS recorded_count,
+                    SUM(IF(e.pending = 0, e.quantity, 0)) AS raw_count,
+                    SUM(e.quantity) AS raw_recorded_count
              FROM entries e JOIN drinks d ON d.id = e.drink_id LEFT JOIN factors f ON f.id = e.factor_id
              WHERE ' . $interval->condition('e.created_at') . '
              GROUP BY e.person_id, d.id, d.name
              ORDER BY d.name, d.id',
             $interval,
         ) as $row) {
-            $drinks[(int) $row['person_id']][] = new DrinkCount((int) $row['drink_id'], (string) $row['name'], (string) $row['count'], (string) $row['recorded_count']);
+            $drinks[(int) $row['person_id']][] = new DrinkCount((int) $row['drink_id'], (string) $row['name'], (string) $row['count'], (string) $row['recorded_count'], (string) $row['raw_count'], (string) $row['raw_recorded_count']);
         }
 
         return $drinks;

@@ -59,8 +59,18 @@ describe('the fixture backend’s windows', () => {
         photoUrl: expect.any(String),
         score: 2,
         count: 2,
+        rawCount: 2,
         pendingCount: 1,
-        drinks: [{ drinkId: 2, name: 'Bier', count: 2, recordedCount: 7 }],
+        drinks: [
+          {
+            drinkId: 2,
+            name: 'Bier',
+            count: 2,
+            recordedCount: 7,
+            rawCount: 2,
+            rawRecordedCount: 7,
+          },
+        ],
       },
     ]);
     expect(day.unranked).toEqual([
@@ -69,7 +79,16 @@ describe('the fixture backend’s windows', () => {
         name: 'Ben',
         photoUrl: null,
         pendingCount: 1,
-        drinks: [{ drinkId: 1, name: 'Aperol', count: 0, recordedCount: 1 }],
+        drinks: [
+          {
+            drinkId: 1,
+            name: 'Aperol',
+            count: 0,
+            recordedCount: 1,
+            rawCount: 0,
+            rawRecordedCount: 1,
+          },
+        ],
       },
     ]);
   });
@@ -317,11 +336,11 @@ describe('the fixture backend’s windows', () => {
 
     expect(new Set(tags).size).toBe(selections.length);
     expect(tags).toEqual([
-      '"0-1794610800000"',
-      '"0-1794610800000-1794697200000"',
-      '"0-1794610800000-1794783600000"',
-      '"0-1794524400000-1794697200000"',
-      '"0-all"',
+      '"0-1794610800000-v2"',
+      '"0-1794610800000-1794697200000-v2"',
+      '"0-1794610800000-1794783600000-v2"',
+      '"0-1794524400000-1794697200000-v2"',
+      '"0-all-v2"',
     ]);
     expect(answers).toEqual([
       [304, 200, 200, 200, 200],

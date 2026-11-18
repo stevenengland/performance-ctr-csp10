@@ -416,7 +416,7 @@ export interface paths {
     };
     /**
      * Standings in the window `[from, to)`, or of all time with `scope=all`
-     * @description Persons with entries in the selection, ranked by score (ties by name). The selection is exactly one of: a window, from `from` on and before `to` when it is given (without `to` the answer and its ETag are the same as before the window had an end), or all time with `scope=all`, every entry ever recorded. An entry belongs to the window it was recorded in, whenever it was verified. A missing or invalid `from`, an invalid `to`, a `to` not after `from`, a `to` without `from`, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422. score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. Only verified entries count: a recorded entry waits for verification by another account, and until then it counts in `recordedCount` and `pendingCount` only. A person whose entries in the selection all wait is listed in `unranked`. The ETag names the data revision, which every write of entries, persons, drinks and factors, every verification and every account deletion bumps in its own transaction, and the selection: `If-None-Match` with the last ETag of the same selection answers 304 without aggregating while the revision is unchanged. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
+     * @description Persons with entries in the selection, ranked by score (ties by name). The selection is exactly one of: a window, from `from` on and before `to` when it is given (without `to` the answer is the same as before the window had an end), or all time with `scope=all`, every entry ever recorded. An entry belongs to the window it was recorded in, whenever it was verified. A missing or invalid `from`, an invalid `to`, a `to` not after `from`, a `to` without `from`, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422. score = Σ quantity × multiplier × points; count = Σ quantity × multiplier; per-drink counters likewise. The multiplier is the factor's current one, 1 without a factor. Only verified entries count: a recorded entry waits for verification by another account, and until then it counts in `recordedCount` and `pendingCount` only. A person whose entries in the selection all wait is listed in `unranked`. The ETag names the data revision, which every write of entries, persons, drinks and factors, every verification and every account deletion bumps in its own transaction, the selection and the version of this body's shape, which is raised whenever the body changes for the same data: `If-None-Match` with the last ETag of the same selection answers 304 without aggregating while the revision is unchanged, and a validator of an earlier body's shape never does. Clients treat the ETag as opaque. Each row names the person's photo by `photoUrl`; a photo write that changes it bumps the revision too, so the next conditional request gets the new URL.
      */
     get: operations['getScoreboard'];
     put?: never;
@@ -1040,6 +1040,8 @@ export interface components {
       score: number;
       /** @description Verified entries only */
       count: number;
+      /** @description Σ quantity over the verified entries, without their factors; the sum of the drinks' `rawCount` */
+      rawCount: number;
       /** @description The number of the person's entries in the selection that wait for verification (rows, not quantities) */
       pendingCount: number;
       /** @description By drink name; only drinks with entries, pending ones included */
@@ -1051,7 +1053,7 @@ export interface components {
       photoUrl: components['schemas']['PhotoUrl'];
       /** @description The number of the person's entries in the selection, all waiting for verification */
       pendingCount: number;
-      /** @description By drink name; each `count` is 0 */
+      /** @description By drink name; each `count` and `rawCount` is 0 */
       drinks: components['schemas']['DrinkCount'][];
     };
     DrinkCount: {
@@ -1061,6 +1063,10 @@ export interface components {
       count: number;
       /** @description Σ quantity × multiplier over every recorded entry, pending ones included: what the recording flow shows */
       recordedCount: number;
+      /** @description Σ quantity over the verified entries, without their factors */
+      rawCount: number;
+      /** @description Σ quantity over every recorded entry, pending ones included, without their factors */
+      rawRecordedCount: number;
     };
     DaysWithData: {
       /** @description The sessions with at least one row that counts in the selection, ascending and disjoint, each from the start of its first 15-minute UTC bucket to the end of its last; empty when nothing counts there */
@@ -2479,7 +2485,7 @@ export interface operations {
       /** @description The standings */
       200: {
         headers: {
-          /** @description Data revision and selection of these standings */
+          /** @description Data revision, selection and body version of these standings */
           ETag?: string;
           [name: string]: unknown;
         };

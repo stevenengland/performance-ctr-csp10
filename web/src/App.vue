@@ -8,6 +8,7 @@ import AppTopBar from './components/AppTopBar.vue';
 import OfflineBanner from './components/OfflineBanner.vue';
 import ReloadFloorDialog from './components/ReloadFloorDialog.vue';
 import { useOnline } from './core/online';
+import { screenKey } from './router';
 
 const { xs: compact } = useDisplay();
 const online = useOnline();
@@ -35,9 +36,8 @@ const bare = computed(() => route.meta.public === true);
         <AppTopBar />
         <OfflineBanner v-if="!online" />
         <main class="shell__content">
-          <!-- A new path or query is a new screen, also for another person's or day's Verlauf. -->
           <RouterView v-slot="{ Component, route: shown }">
-            <component :is="Component" :key="shown.fullPath" />
+            <component :is="Component" :key="screenKey(shown)" />
           </RouterView>
         </main>
       </div>

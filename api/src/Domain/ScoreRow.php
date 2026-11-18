@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace Performance\Domain;
 
 /**
- * A person's standing in a day window. `score` and `count` cover the verified entries only;
- * `pendingCount` is the number of the person's entries in the window that wait for
- * verification. Decimals are exact strings, e.g. `7.50`.
+ * A person's standing in a day window. `score`, `count` and `rawCount`, the count's quantities
+ * without their factors, cover the verified entries only; `pendingCount` is the number of the
+ * person's entries in the window that wait for verification. Decimals are exact strings, e.g.
+ * `7.50`.
  */
 final readonly class ScoreRow
 {
@@ -21,6 +22,7 @@ final readonly class ScoreRow
         public ?string $photoVersion,
         public string $score,
         public string $count,
+        public string $rawCount,
         public int $pendingCount,
         public array $drinks,
     ) {}

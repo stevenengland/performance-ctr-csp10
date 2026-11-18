@@ -12,7 +12,7 @@ final readonly class UnrankedRow
 {
     /**
      * @param string|null $photoVersion the version of the person's photo, null without a photo
-     * @param list<DrinkCount> $drinks by drink name; each `count` is 0
+     * @param list<DrinkCount> $drinks by drink name; each `count` and `rawCount` is 0
      */
     public function __construct(
         public int $personId,

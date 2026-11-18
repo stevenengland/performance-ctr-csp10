@@ -32,6 +32,7 @@ import {
   listAuditEvents,
   signIn,
   signOut,
+  type Factor,
   type ScoreboardSelection,
 } from '../src/core/api-client';
 import { todayFrom } from '../src/core/day-window';
@@ -39,7 +40,7 @@ import { addDays, calendarDateOf, queryOf } from '../src/core/period';
 import { auditDays } from '../src/features/verwalten/protokoll/audit-rows';
 import { installFixtureBackend } from './fixtureBackend';
 import { newest, told } from './fixtureTesting';
-import { SAMPLE_PASSWORD, sampleEvening } from './fixtures';
+import { SAMPLE_PASSWORD, sampleEvening, type FixtureEntry } from './fixtures';
 
 /** The standings since `from` (or of another selection), asked without condition. */
 async function standings(selection: string | ScoreboardSelection) {
@@ -257,7 +258,14 @@ describe('the fixture backend', () => {
       ['Tom', 0.5],
     ]);
     expect(rows[3]?.drinks).toEqual([
-      { drinkId: 2, name: 'Bier', count: 5, recordedCount: 5 },
+      {
+        drinkId: 2,
+        name: 'Bier',
+        count: 5,
+        recordedCount: 5,
+        rawCount: 3,
+        rawRecordedCount: 3,
+      },
     ]);
     expect(await listFactors()).toEqual([
       { id: 1, name: 'Geburtstag', multiplier: 1.5 },
@@ -268,6 +276,8 @@ describe('the fixture backend', () => {
       name: 'Bier',
       count: 4,
       recordedCount: 4,
+      rawCount: 4,
+      rawRecordedCount: 4,
     });
   });
 
@@ -283,6 +293,8 @@ describe('the fixture backend', () => {
       name: 'Wein',
       count: 0,
       recordedCount: 1,
+      rawCount: 0,
+      rawRecordedCount: 1,
     });
     expect(rows.map(({ name }) => name)).not.toContain('Jule');
     expect(unranked).toEqual([
@@ -292,8 +304,22 @@ describe('the fixture backend', () => {
         photoUrl: null,
         pendingCount: 2,
         drinks: [
-          { drinkId: 1, name: 'Aperol', count: 0, recordedCount: 1 },
-          { drinkId: 2, name: 'Bier', count: 0, recordedCount: 2 },
+          {
+            drinkId: 1,
+            name: 'Aperol',
+            count: 0,
+            recordedCount: 1,
+            rawCount: 0,
+            rawRecordedCount: 1,
+          },
+          {
+            drinkId: 2,
+            name: 'Bier',
+            count: 0,
+            recordedCount: 2,
+            rawCount: 0,
+            rawRecordedCount: 2,
+          },
         ],
       },
     ]);
@@ -384,7 +410,7 @@ describe('the fixture backend', () => {
     });
     const after = await getScoreboard({ from: todayFrom() }, first.etag);
     expect(after).not.toBe('unchanged');
-    expect(first.etag).toMatch(/^"\d+-\d+"$/);
+    expect(first.etag).toMatch(/^"\d+-\d+-v2"$/);
   });
 
   it('adds entries idempotently and never brings an undone one back', async () => {
@@ -1108,6 +1134,229 @@ describe('the fixture backend’s audit log', () => {
         before: snapshot,
         after: null,
         cause: null,
+      },
+    ]);
+  });
+});
+
+describe('the fixture backend’s pure counts, in the cases of the API’s', () => {
+  const ANNA = 1;
+  const DANIEL = 3;
+  const APEROL = 1;
+  const BIER = 2;
+  const happyHour = { id: 1, name: 'Happy Hour', multiplier: 2 };
+  let recorded = 0;
+
+  /** A verified entry of Daniel's Bier inside the window, unless told otherwise. */
+  function entry(quantity: number, other: Partial<FixtureEntry> = {}) {
+    recorded += 1;
+    return {
+      id: `00000000-0000-4000-8000-${String(recorded).padStart(12, '0')}`,
+      personId: DANIEL,
+      drinkId: BIER,
+      quantity,
+      factorId: null,
+      accountId: 1,
+      createdAt: '2026-11-15T20:00:00.000Z',
+      pending: false,
+      ...other,
+    } satisfies FixtureEntry;
+  }
+
+  /** The sample catalog with only the given factors and entries. */
+  function install(factors: Factor[], ...entries: FixtureEntry[]) {
+    installFixtureBackend({ ...sampleEvening(), factors, entries });
+  }
+
+  const ranked = async () => (await standings({ scope: 'all' })).rows;
+
+  it('counts each person’s quantities without their factors', async () => {
+    install(
+      [{ id: 2, name: 'Geburtstag', multiplier: 5 }],
+      entry(4, { factorId: 2 }),
+    );
+
+    const rows = await ranked();
+
+    expect(rows.map(({ count, rawCount }) => [count, rawCount])).toEqual([
+      [20, 4],
+    ]);
+  });
+
+  it('counts each drink’s quantities without their factors', async () => {
+    install(
+      [{ id: 2, name: 'Geburtstag', multiplier: 5 }],
+      entry(4, { factorId: 2 }),
+      entry(2),
+    );
+
+    const rows = await ranked();
+
+    expect(rows[0]?.drinks).toEqual([
+      {
+        drinkId: BIER,
+        name: 'Bier',
+        count: 22,
+        recordedCount: 22,
+        rawCount: 6,
+        rawRecordedCount: 6,
+      },
+    ]);
+  });
+
+  it('treats pending entries in the pure counts like in the factored ones and counts them as rows', async () => {
+    install(
+      [happyHour],
+      entry(2, { factorId: 1 }),
+      entry(3, { factorId: 1, pending: true }),
+      entry(4, { pending: true }),
+    );
+
+    const rows = await ranked();
+
+    expect(
+      rows.map(({ count, rawCount, pendingCount }) => [
+        count,
+        rawCount,
+        pendingCount,
+      ]),
+    ).toEqual([[4, 2, 2]]);
+    expect(rows[0]?.drinks).toEqual([
+      {
+        drinkId: BIER,
+        name: 'Bier',
+        count: 4,
+        recordedCount: 14,
+        rawCount: 2,
+        rawRecordedCount: 9,
+      },
+    ]);
+  });
+
+  it('changes only the factored counts by a fractional multiplier', async () => {
+    install(
+      [{ id: 2, name: 'Geburtstag', multiplier: 1.5 }],
+      entry(3, { factorId: 2 }),
+      entry(1, { factorId: 2, pending: true }),
+    );
+
+    const rows = await ranked();
+
+    expect(rows.map(({ count, rawCount }) => [count, rawCount])).toEqual([
+      [4.5, 3],
+    ]);
+    expect(rows[0]?.drinks).toEqual([
+      {
+        drinkId: BIER,
+        name: 'Bier',
+        count: 4.5,
+        recordedCount: 6,
+        rawCount: 3,
+        rawRecordedCount: 4,
+      },
+    ]);
+  });
+
+  it('counts an entry without a factor or with a deleted factor once in every count', async () => {
+    install(
+      [happyHour, { id: 2, name: 'Geburtstag', multiplier: 3 }],
+      entry(2),
+      entry(1, { drinkId: APEROL, factorId: 2 }),
+      entry(3, { drinkId: APEROL, factorId: 2, pending: true }),
+    );
+    await deleteFactor(2);
+
+    const rows = await ranked();
+
+    expect(rows.map(({ count, rawCount }) => [count, rawCount])).toEqual([
+      [3, 3],
+    ]);
+    expect(rows[0]?.drinks).toEqual([
+      {
+        drinkId: APEROL,
+        name: 'Aperol',
+        count: 1,
+        recordedCount: 4,
+        rawCount: 1,
+        rawRecordedCount: 4,
+      },
+      {
+        drinkId: BIER,
+        name: 'Bier',
+        count: 2,
+        recordedCount: 2,
+        rawCount: 2,
+        rawRecordedCount: 2,
+      },
+    ]);
+  });
+
+  it('makes each person’s pure count the sum of their drinks’ pure counts', async () => {
+    install(
+      [happyHour, { id: 2, name: 'Geburtstag', multiplier: 1.5 }],
+      entry(3, { factorId: 2 }),
+      entry(2, { drinkId: APEROL, factorId: 1 }),
+      entry(1, { drinkId: APEROL }),
+      entry(5, { factorId: 1, pending: true }),
+      entry(7, { personId: ANNA, factorId: 2 }),
+    );
+
+    const rows = await ranked();
+
+    expect(rows.map(({ name, rawCount }) => [name, rawCount])).toEqual([
+      ['Daniel', 6],
+      ['Anna', 7],
+    ]);
+    for (const row of rows) {
+      expect(row.drinks.reduce((sum, { rawCount }) => sum + rawCount, 0)).toBe(
+        row.rawCount,
+      );
+    }
+  });
+
+  it('counts in the pure counts only the entries of the window, like in the factored ones', async () => {
+    install(
+      [happyHour],
+      entry(4, { factorId: 1, createdAt: '2026-11-14T20:00:00.000Z' }),
+      entry(5, {
+        factorId: 1,
+        pending: true,
+        createdAt: '2026-11-14T20:00:00.000Z',
+      }),
+      entry(1, { factorId: 1, createdAt: '2026-11-15T00:00:00.000Z' }),
+      entry(2, { pending: true, createdAt: '2026-11-15T00:00:00.000Z' }),
+      entry(3, { factorId: 1, createdAt: '2026-11-16T00:00:00.000Z' }),
+      entry(6, {
+        factorId: 1,
+        pending: true,
+        createdAt: '2026-11-16T00:00:00.000Z',
+      }),
+    );
+
+    const { rows } = await standings({
+      from: '2026-11-15T00:00:00.000Z',
+      to: '2026-11-16T00:00:00.000Z',
+    });
+
+    expect(rows).toEqual([
+      {
+        personId: DANIEL,
+        name: 'Daniel',
+        photoUrl: expect.any(String) as unknown,
+        score: 2,
+        count: 2,
+        rawCount: 1,
+        pendingCount: 1,
+        drinks: [
+          {
+            drinkId: BIER,
+            name: 'Bier',
+            count: 2,
+            recordedCount: 4,
+            rawCount: 1,
+            rawRecordedCount: 3,
+          },
+        ],
       },
     ]);
   });

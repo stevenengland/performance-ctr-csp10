@@ -179,7 +179,7 @@ final class FactorsTest extends DatabaseTestCase
         self::assertSame(201, $saved->getStatusCode(), (string) $saved->getBody());
         self::assertSame(1, $this->body($saved)['factorId']);
         self::assertSame(
-            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 7.5, 'count' => 5, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 5, 'recordedCount' => 5]]]],
+            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 7.5, 'count' => 5, 'rawCount' => 3, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 5, 'recordedCount' => 5, 'rawCount' => 3, 'rawRecordedCount' => 3]]]],
             $this->standings(),
         );
     }

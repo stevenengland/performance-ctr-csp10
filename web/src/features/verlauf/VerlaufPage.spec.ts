@@ -166,7 +166,7 @@ describe('Verlauf', () => {
     process.env.TZ = zone;
   });
 
-  it('shows the person’s entries since local midnight, newest first, with drink, quantity, factor, local time and account', async () => {
+  it('shows the person’s entries since local midnight, newest first, with drink, quantity, factor, local day and time and account', async () => {
     const calls = api(evening());
 
     wrapper = await verlauf(3);
@@ -178,9 +178,9 @@ describe('Verlauf', () => {
       url: '/api/entries?personId=3&from=2026-11-14T23%3A00%3A00.000Z',
     });
     expect(rows(wrapper)).toEqual([
-      '2× BierHappy Hour ×2 · 23:41 · annaoffen',
-      '1× MargaritaKein Faktor · 22:58 · daniel',
-      '2× SchnapsKein Faktor · 22:10 · gelöschtes Konto',
+      '2× BierHappy Hour ×2 · 15.11., 23:41 · annaoffen',
+      '1× MargaritaKein Faktor · 15.11., 22:58 · daniel',
+      '2× SchnapsKein Faktor · 15.11., 22:10 · gelöschtes Konto',
     ]);
     expect(wrapper.find('ul[aria-label="Einträge von Daniel"]').exists()).toBe(
       true,
@@ -264,8 +264,8 @@ describe('Verlauf', () => {
 
     expect(calls).toContainEqual({ method: 'DELETE', url: '/api/entries/e3' });
     expect(rows(wrapper)).toEqual([
-      '1× MargaritaKein Faktor · 22:58 · daniel',
-      '2× SchnapsKein Faktor · 22:10 · gelöschtes Konto',
+      '1× MargaritaKein Faktor · 15.11., 22:58 · daniel',
+      '2× SchnapsKein Faktor · 15.11., 22:10 · gelöschtes Konto',
     ]);
     expect(useSnackbar().value?.text).toBe('Eintrag gelöscht');
     expect(calls.some(({ url }) => url.startsWith('/api/scoreboard'))).toBe(

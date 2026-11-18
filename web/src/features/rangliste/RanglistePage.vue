@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { type LocationQuery, useRoute, useRouter } from 'vue-router';
 import PeriodPicker from '../../components/PeriodPicker.vue';
 import { type DaysWithData, scoreboardDays } from '../../core/days-with-data';
 import { formatTime } from '../../core/format';
@@ -20,7 +21,7 @@ import { provideTopBar } from '../../core/top-bar';
 import { useChosenPeriod } from './chosen-period';
 import LeaderCard from './LeaderCard.vue';
 import RankRow from './RankRow.vue';
-import { standingsOf, unrankedOf } from './standings';
+import { type Counting, standingsOf, unrankedOf } from './standings';
 
 /**
 Rangliste (§7f): the chosen period's leader on the amber card, everyone else with
@@ -30,10 +31,13 @@ entries of the period all wait for verification. The period picker offers `Tag`
 that count, and `Gesamt` says since when and over how many evenings it counts. Today comes from the shared feed, which
 also serves Zählen, and stays live; another day, a week or all time is read apart
 from it, kept live while it contains the present. While the latest refresh
-failed, the top bar shows when the standings were last confirmed (§6.6).
+failed, the top bar shows when the standings were last confirmed (§6.6). The switch
+under the picker counts the drinks with their factors or, kept in the URL as
+`zaehlung=roh`, the pure quantities; score and order stay factor-based.
 */
 const SKELETON_ROWS = 3;
 const KINDS: PeriodKind[] = ['day', 'week', 'all'];
+const COUNTINGS: Counting[] = ['factored', 'raw'];
 /** The calendar's dots and the `Gesamt` line: `Alle Tage seit 27.10.2026 · 15 Abende`. */
 const DAYS: DaysWithData = {
   reads: scoreboardDays,
@@ -62,13 +66,28 @@ const shown = computed(() => {
   return { board: value, updatedAt, stale };
 });
 
+const route = useRoute();
+const router = useRouter();
+/** `zaehlung=roh` counts the pure quantities; anything else, the factored ones. */
+const counting = computed<Counting>(() =>
+  route.query.zaehlung === 'roh' ? 'raw' : 'factored',
+);
+function countWith(chosen: Counting) {
+  const query: LocationQuery = { ...route.query };
+  delete query.zaehlung;
+  if (chosen === 'raw') query.zaehlung = 'roh';
+  void router.replace({ query });
+}
+
 const standings = computed(() =>
-  shown.value.board ? standingsOf(shown.value.board) : undefined,
+  shown.value.board
+    ? standingsOf(shown.value.board, counting.value)
+    : undefined,
 );
 const leader = computed(() => standings.value?.[0]);
 const others = computed(() => standings.value?.slice(1) ?? []);
 const unranked = computed(() =>
-  shown.value.board ? unrankedOf(shown.value.board) : [],
+  shown.value.board ? unrankedOf(shown.value.board, counting.value) : [],
 );
 /** The day a place's Verlauf shows: the past day shown, else today (from `Woche` and `Gesamt` too). */
 const verlaufDay = computed(() =>
@@ -100,6 +119,22 @@ provideTopBar(() => {
       :today="todayDate"
       :days="DAYS"
     />
+    <div
+      class="segmented-switch counting-switch"
+      role="group"
+      :aria-label="messages.rangliste.counting.label"
+    >
+      <button
+        v-for="option in COUNTINGS"
+        :key="option"
+        type="button"
+        class="type-label segmented-switch__option"
+        :aria-pressed="counting === option"
+        @click="countWith(option)"
+      >
+        {{ messages.rangliste.counting[option] }}
+      </button>
+    </div>
     <div v-if="standings === undefined" aria-busy="true">
       <div class="rangliste__skeleton-card" />
       <div
@@ -158,6 +193,11 @@ provideTopBar(() => {
 <style scoped>
 .rangliste {
   padding-top: 8px;
+}
+
+.counting-switch {
+  grid-template-columns: 1fr 1fr;
+  margin: 8px 0 12px;
 }
 
 .rangliste__list {

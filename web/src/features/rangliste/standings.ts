@@ -4,6 +4,26 @@ import { formatNumber, formatPoints } from '../../core/format';
 import { messages } from '../../core/messages';
 
 type DrinkCounters = DeepReadonly<Scoreboard['rows'][number]['drinks']>;
+type DrinkCounterKey =
+  'count' | 'recordedCount' | 'rawCount' | 'rawRecordedCount';
+
+/** How the Rangliste counts drinks: with their factors (the default) or the pure quantities. */
+export type Counting = 'factored' | 'raw';
+
+/**
+The scoreboard's counters each counting shows: a ranked row's total and drinks, and
+what an unranked person recorded. Score and order stay factor-based in both.
+*/
+const COUNTERS: Record<
+  Counting,
+  {
+    counted: 'count' | 'rawCount';
+    recorded: 'recordedCount' | 'rawRecordedCount';
+  }
+> = {
+  factored: { counted: 'count', recorded: 'recordedCount' },
+  raw: { counted: 'rawCount', recorded: 'rawRecordedCount' },
+};
 
 /** One person on the Rangliste, formatted for display (§7f). */
 export interface Standing {
@@ -14,7 +34,7 @@ export interface Standing {
   photoUrl: string | null;
   /** Total score today: `13,5`. */
   score: string;
-  /** Total count today, for the tally. */
+  /** Total count today, with or without the factors as chosen, for the tally. */
   count: number;
   /** `9 Getränke`. */
   countText: string;
@@ -41,10 +61,7 @@ export interface UnrankedStanding {
 }
 
 /** `Bier 4 · Margarita 1` from the chosen counter, leaving out drinks at 0. */
-function drinksText(
-  drinks: DrinkCounters,
-  counter: 'count' | 'recordedCount',
-): string {
+function drinksText(drinks: DrinkCounters, counter: DrinkCounterKey): string {
   return drinks
     .filter((drink) => drink[counter] > 0)
     .map((drink) => `${drink.name} ${formatNumber(drink[counter])}`)
@@ -52,16 +69,18 @@ function drinksText(
 }
 
 /**
-The scoreboard's ranked rows as the Rangliste shows them. The API owns the ranking
-(score, ties by name); the rank is the position.
+The scoreboard's ranked rows as the Rangliste shows them, counted as chosen. The API
+owns the ranking (score, ties by name); the rank is the position.
 */
-export function standingsOf(board: DeepReadonly<Scoreboard>): Standing[] {
+export function standingsOf(
+  board: DeepReadonly<Scoreboard>,
+  counting: Counting,
+): Standing[] {
+  const { counted } = COUNTERS[counting];
   return board.rows.map((row, index) => {
     const rank = index + 1;
-    const countText = messages.rangliste.drinks(
-      formatNumber(row.count),
-      row.count,
-    );
+    const count = row[counted];
+    const countText = messages.rangliste.drinks(formatNumber(count), count);
     const pending =
       row.pendingCount > 0
         ? messages.pending.hint(row.pendingCount)
@@ -78,21 +97,26 @@ export function standingsOf(board: DeepReadonly<Scoreboard>): Standing[] {
       name: row.name,
       photoUrl: row.photoUrl,
       score: formatNumber(row.score),
-      count: row.count,
+      count,
       countText,
-      drinks: drinksText(row.drinks, 'count'),
+      drinks: drinksText(row.drinks, counted),
       pending,
       label: pending === undefined ? label : `${label}, ${pending}`,
     };
   });
 }
 
-/** The persons whose entries of today all wait, by name, as the Rangliste lists them apart. */
+/**
+The persons whose entries of today all wait, by name, as the Rangliste lists them
+apart, counted as chosen.
+*/
 export function unrankedOf(
   board: DeepReadonly<Scoreboard>,
+  counting: Counting,
 ): UnrankedStanding[] {
+  const { recorded } = COUNTERS[counting];
   return board.unranked.map((row) => {
-    const drinks = drinksText(row.drinks, 'recordedCount');
+    const drinks = drinksText(row.drinks, recorded);
     const pending = messages.pending.hint(row.pendingCount);
     return {
       personId: row.personId,

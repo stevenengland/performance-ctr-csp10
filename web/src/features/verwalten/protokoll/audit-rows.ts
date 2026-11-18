@@ -1,5 +1,6 @@
 import type { DeepReadonly } from 'vue';
 import {
+  formatDay,
   formatMultiplier,
   formatPoints,
   formatSigned,
@@ -65,7 +66,7 @@ export interface AuditRow {
   title: string;
   /** `Punkte: 1 Punkt → 0,5 Punkte` for an update, the values (`1 Punkt`) otherwise; empty when there are none. */
   changes: string;
-  /** `23:41 · anna`. */
+  /** `15.11., 23:41 · anna`. */
   by: string;
   /** `durch Löschen von Wein` for a consequential event. */
   cause?: string;
@@ -316,7 +317,11 @@ function auditRow(
     operationLabel: text.operation[event.operation],
     title: title(event.subjectKind, snapshot),
     changes: changes(event).join(' · '),
-    by: text.by(formatTime(instant, timeZone), event.actor.userName),
+    by: text.by(
+      formatDay(instant, timeZone),
+      formatTime(instant, timeZone),
+      event.actor.userName,
+    ),
     cause: event.cause ? text.causedBy(event.cause.name) : undefined,
   };
 }

@@ -1,7 +1,13 @@
 import { type DOMWrapper, flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, effectScope, h, ref } from 'vue';
-import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
+import { defineComponent, effectScope, h, ref, type VNode } from 'vue';
+import {
+  createMemoryHistory,
+  createRouter,
+  type RouteLocationNormalizedLoaded,
+  RouterView,
+} from 'vue-router';
+import AppNavigation from '../../components/AppNavigation.vue';
 import AppTopBar from '../../components/AppTopBar.vue';
 import type { Scoreboard, Span } from '../../core/api-client';
 import { calendarDateOf } from '../../core/period';
@@ -9,6 +15,7 @@ import {
   refreshScoreboard,
   useScoreboardFeed,
 } from '../../core/scoreboard-feed';
+import { screenKey } from '../../router';
 import { createAppVuetify } from '../../theme';
 import { stubDialogEnvironment } from '../verwalten/manage-page-harness';
 import { useChosenPeriod } from './chosen-period';
@@ -22,10 +29,25 @@ const evening: Scoreboard = {
       photoUrl: null,
       score: 13.5,
       count: 9,
+      rawCount: 5,
       pendingCount: 0,
       drinks: [
-        { drinkId: 2, name: 'Bier', count: 4, recordedCount: 4 },
-        { drinkId: 3, name: 'Margarita', count: 1, recordedCount: 1 },
+        {
+          drinkId: 2,
+          name: 'Bier',
+          count: 4,
+          recordedCount: 4,
+          rawCount: 4,
+          rawRecordedCount: 4,
+        },
+        {
+          drinkId: 3,
+          name: 'Margarita',
+          count: 1,
+          recordedCount: 1,
+          rawCount: 1,
+          rawRecordedCount: 1,
+        },
       ],
     },
     {
@@ -34,10 +56,25 @@ const evening: Scoreboard = {
       photoUrl: null,
       score: 9,
       count: 6,
+      rawCount: 6,
       pendingCount: 0,
       drinks: [
-        { drinkId: 2, name: 'Bier', count: 3, recordedCount: 3 },
-        { drinkId: 6, name: 'Wein', count: 3, recordedCount: 3 },
+        {
+          drinkId: 2,
+          name: 'Bier',
+          count: 3,
+          recordedCount: 3,
+          rawCount: 3,
+          rawRecordedCount: 3,
+        },
+        {
+          drinkId: 6,
+          name: 'Wein',
+          count: 3,
+          recordedCount: 3,
+          rawCount: 3,
+          rawRecordedCount: 3,
+        },
       ],
     },
     {
@@ -46,8 +83,18 @@ const evening: Scoreboard = {
       photoUrl: null,
       score: 0.5,
       count: 1,
+      rawCount: 1,
       pendingCount: 0,
-      drinks: [{ drinkId: 4, name: 'Radler', count: 1, recordedCount: 1 }],
+      drinks: [
+        {
+          drinkId: 4,
+          name: 'Radler',
+          count: 1,
+          recordedCount: 1,
+          rawCount: 1,
+          rawRecordedCount: 1,
+        },
+      ],
     },
   ],
   unranked: [],
@@ -101,8 +148,16 @@ function api(...replies: (() => Response | Promise<Response>)[]) {
   );
 }
 
-/** The Rangliste in the shell's top bar, as the app shows it. */
-async function rangliste() {
+interface RouterViewSlot {
+  Component: VNode;
+  route: RouteLocationNormalizedLoaded;
+}
+
+/** The Rangliste at `path` in the shell's top bar (and its navigation bar), as the app shows it. */
+async function rangliste(
+  path = '/rangliste',
+  { navigation = false }: { navigation?: boolean } = {},
+) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -113,6 +168,7 @@ async function rangliste() {
           title: 'Rangliste',
           context: 'Heute',
           destination: 'rangliste',
+          sameScreen: ['zaehlung'],
         },
       },
       {
@@ -132,9 +188,17 @@ async function rangliste() {
       },
     ],
   });
-  await router.push('/rangliste');
-  const shell = defineComponent(() => () => [h(AppTopBar), h(RouterView)]);
+  await router.push(path);
+  const shell = defineComponent(() => () => [
+    h(AppTopBar),
+    h(RouterView, null, {
+      default: ({ Component, route }: RouterViewSlot) =>
+        h(Component, { key: screenKey(route) }),
+    }),
+    navigation ? h(AppNavigation, { variant: 'bar' }) : null,
+  ]);
   const wrapper = mount(shell, {
+    attachTo: document.body,
     global: { plugins: [router, createAppVuetify()] },
   });
   await flushPromises();
@@ -226,7 +290,16 @@ describe('the Rangliste', () => {
             name: 'Jule',
             photoUrl: null,
             pendingCount: 2,
-            drinks: [{ drinkId: 2, name: 'Bier', count: 0, recordedCount: 2 }],
+            drinks: [
+              {
+                drinkId: 2,
+                name: 'Bier',
+                count: 0,
+                recordedCount: 2,
+                rawCount: 0,
+                rawRecordedCount: 2,
+              },
+            ],
           },
         ],
       }),
@@ -256,7 +329,16 @@ describe('the Rangliste', () => {
             name: 'Jule',
             photoUrl: null,
             pendingCount: 1,
-            drinks: [{ drinkId: 2, name: 'Bier', count: 0, recordedCount: 1 }],
+            drinks: [
+              {
+                drinkId: 2,
+                name: 'Bier',
+                count: 0,
+                recordedCount: 1,
+                rawCount: 0,
+                rawRecordedCount: 1,
+              },
+            ],
           },
         ],
       }),
@@ -386,9 +468,17 @@ function only(name: string, score: number): Scoreboard {
         photoUrl: null,
         score,
         count: score,
+        rawCount: score,
         pendingCount: 0,
         drinks: [
-          { drinkId: 2, name: 'Bier', count: score, recordedCount: score },
+          {
+            drinkId: 2,
+            name: 'Bier',
+            count: score,
+            recordedCount: score,
+            rawCount: score,
+            rawRecordedCount: score,
+          },
         ],
       },
     ],
@@ -417,6 +507,12 @@ function scoreboards(
     'fetch',
     vi.fn(async (url: string, init: RequestInit) => {
       const { pathname, search } = new URL(url, 'http://app');
+      if (pathname === '/api/pending') {
+        return new Response(
+          JSON.stringify({ items: [], next: null, count: 0 }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
       const ifNoneMatch = (init.headers as Record<string, string>)[
         'If-None-Match'
       ];
@@ -477,8 +573,8 @@ describe('the Rangliste’s periods', () => {
     process.env.TZ = zone;
   });
 
-  async function open() {
-    page = await rangliste();
+  async function open(path?: string, options?: { navigation?: boolean }) {
+    page = await rangliste(path, options);
     return page;
   }
   const shown = () => page?.find('[data-test="leader"]').text() ?? '';
@@ -679,7 +775,16 @@ describe('the Rangliste’s periods', () => {
             name: 'Jule',
             photoUrl: null,
             pendingCount: 2,
-            drinks: [{ drinkId: 2, name: 'Bier', count: 0, recordedCount: 2 }],
+            drinks: [
+              {
+                drinkId: 2,
+                name: 'Bier',
+                count: 0,
+                recordedCount: 2,
+                rawCount: 0,
+                rawRecordedCount: 2,
+              },
+            ],
           },
         ],
       },
@@ -755,7 +860,16 @@ describe('the Rangliste’s periods', () => {
       name: 'Jule',
       photoUrl: null,
       pendingCount: 1,
-      drinks: [{ drinkId: 2, name: 'Bier', count: 0, recordedCount: 1 }],
+      drinks: [
+        {
+          drinkId: 2,
+          name: 'Bier',
+          count: 0,
+          recordedCount: 1,
+          rawCount: 0,
+          rawRecordedCount: 1,
+        },
+      ],
     };
     const withJule = (board: Scoreboard) => ({ ...board, unranked: [jule] });
     scoreboards({
@@ -1048,6 +1162,254 @@ describe('the Rangliste’s periods', () => {
       // The first read asks on condition of what an earlier test left behind.
       expect(asked.days.slice(1)).toEqual(['"1-?scope=all"', '"2-?scope=all"']);
       expect(new Set(asked.daysQueries)).toEqual(new Set(['scope=all']));
+    });
+  });
+
+  describe('with the switch Mit Faktor | Ohne Faktor', () => {
+    /** Ben booked Bier 4 ×5 and 2 ×1, Anna one Wein with no factor, Jule waits for Aperol 3 ×2. */
+    const factors: Scoreboard = {
+      rows: [
+        {
+          personId: 7,
+          name: 'Ben',
+          photoUrl: null,
+          score: 22,
+          count: 22,
+          rawCount: 6,
+          pendingCount: 0,
+          drinks: [
+            {
+              drinkId: 2,
+              name: 'Bier',
+              count: 22,
+              recordedCount: 22,
+              rawCount: 6,
+              rawRecordedCount: 6,
+            },
+          ],
+        },
+        {
+          personId: 1,
+          name: 'Anna',
+          photoUrl: null,
+          score: 2,
+          count: 1,
+          rawCount: 1,
+          pendingCount: 0,
+          drinks: [
+            {
+              drinkId: 6,
+              name: 'Wein',
+              count: 1,
+              recordedCount: 1,
+              rawCount: 1,
+              rawRecordedCount: 1,
+            },
+          ],
+        },
+      ],
+      unranked: [
+        {
+          personId: 4,
+          name: 'Jule',
+          photoUrl: null,
+          pendingCount: 3,
+          drinks: [
+            {
+              drinkId: 1,
+              name: 'Aperol',
+              count: 0,
+              recordedCount: 6,
+              rawCount: 0,
+              rawRecordedCount: 3,
+            },
+          ],
+        },
+      ],
+    };
+    const FACTORED = {
+      places: [
+        'Platz 1, Ben, 22 Punkte, 22 Getränke',
+        'Platz 2, Anna, 2 Punkte, 1 Getränk',
+      ],
+      unranked: ['Jule, Aperol 6, +3 offen'],
+      leader: ['22 Getränke', 'Bier 22', 22],
+    };
+    const RAW = {
+      places: [
+        'Platz 1, Ben, 22 Punkte, 6 Getränke',
+        'Platz 2, Anna, 2 Punkte, 1 Getränk',
+      ],
+      unranked: ['Jule, Aperol 3, +3 offen'],
+      leader: ['6 Getränke', 'Bier 6', 6],
+    };
+
+    /** What the Rangliste shows: accessible names, the leader's total, drinks and tally strokes. */
+    function counted() {
+      const leader = page?.get('[data-test="leader"]');
+      return {
+        places: page
+          ?.findAll('[data-test="leader"], [data-test="rank"]')
+          .map((place) => place.attributes('aria-label')),
+        unranked: page
+          ?.findAll('[data-test="unranked"]')
+          .map((place) => place.attributes('aria-label')),
+        leader: [
+          leader?.get('.leader__count').text(),
+          leader?.get('.type-support').text(),
+          leader?.findAll('.tally-marks line').length,
+        ],
+      };
+    }
+    const counting = () =>
+      page
+        ?.get('[role="group"][aria-label="Zählung"]')
+        .findAll('button')
+        .map((button) => [button.text(), button.attributes('aria-pressed')]);
+    async function count(label: 'Mit Faktor' | 'Ohne Faktor') {
+      await page
+        ?.get('[role="group"][aria-label="Zählung"]')
+        .findAll('button')
+        .find((button) => button.text() === label)
+        ?.trigger('click');
+      await flushPromises();
+    }
+    const path = () => page?.router.currentRoute.value.fullPath;
+
+    it('counts the pure quantities in the tally, the totals, the drink lines and every place’s accessible name with ?zaehlung=roh, keeping score and order', async () => {
+      scoreboards({ [TODAY]: factors });
+
+      await open('/rangliste?zaehlung=roh');
+
+      expect(counting()).toEqual([
+        ['Mit Faktor', 'false'],
+        ['Ohne Faktor', 'true'],
+      ]);
+      expect(counted()).toEqual(RAW);
+    });
+
+    it.each([
+      ['/rangliste'],
+      ['/rangliste?zaehlung=x'],
+      ['/rangliste?zaehlung=roh&zaehlung=roh'],
+    ])('counts with the factors at %s, as before', async (at) => {
+      scoreboards({ [TODAY]: factors });
+
+      await open(at);
+
+      expect(counting()).toEqual([
+        ['Mit Faktor', 'true'],
+        ['Ohne Faktor', 'false'],
+      ]);
+      expect(counted()).toEqual(FACTORED);
+    });
+
+    it('puts the choice in the URL, keeping every other query parameter, and takes it out for Mit Faktor', async () => {
+      scoreboards({ [TODAY]: factors });
+      await open('/rangliste?a=1');
+
+      await count('Ohne Faktor');
+      expect(path()).toBe('/rangliste?a=1&zaehlung=roh');
+      expect(counted()).toEqual(RAW);
+
+      await count('Mit Faktor');
+      expect(path()).toBe('/rangliste?a=1');
+      expect(counted()).toEqual(FACTORED);
+    });
+
+    it('keeps the choice across a period switch and back from a person’s Verlauf', async () => {
+      scoreboards({ [TODAY]: factors, [THIS_WEEK]: factors });
+      const { router } = await open();
+      await count('Ohne Faktor');
+
+      await choose('Woche');
+      expect(path()).toBe('/rangliste?zaehlung=roh');
+      expect(counted()).toEqual(RAW);
+
+      await click('[data-test="leader"]');
+      router.back();
+      await flushPromises();
+      expect(path()).toBe('/rangliste?zaehlung=roh');
+      expect(counted()).toEqual(RAW);
+    });
+
+    it('replaces the history entry when choosing, so back leaves the Rangliste', async () => {
+      scoreboards({ [TODAY]: factors });
+      const { router } = await open('/zaehlen');
+      await router.push('/rangliste');
+      await flushPromises();
+
+      await count('Ohne Faktor');
+      await count('Mit Faktor');
+      await count('Ohne Faktor');
+      router.back();
+      await flushPromises();
+
+      expect(path()).toBe('/zaehlen');
+      router.forward();
+      await flushPromises();
+      expect(path()).toBe('/rangliste?zaehlung=roh');
+      expect(counted()).toEqual(RAW);
+    });
+
+    it('follows back and forward between the positions of the shown Rangliste', async () => {
+      scoreboards({ [TODAY]: factors });
+      const { router } = await open('/rangliste');
+      await router.push('/rangliste?zaehlung=roh');
+      await flushPromises();
+
+      router.back();
+      await flushPromises();
+      expect(counting()).toEqual([
+        ['Mit Faktor', 'true'],
+        ['Ohne Faktor', 'false'],
+      ]);
+      expect(counted()).toEqual(FACTORED);
+
+      router.forward();
+      await flushPromises();
+      expect(counting()).toEqual([
+        ['Mit Faktor', 'false'],
+        ['Ohne Faktor', 'true'],
+      ]);
+      expect(counted()).toEqual(RAW);
+    });
+
+    it('keeps the page, the focus on the pressed option and the read standings when switching', async () => {
+      const asked = scoreboards({ [TODAY]: factors });
+      await open();
+      const raw = page
+        ?.findAll('[role="group"][aria-label="Zählung"] button')
+        .find((button) => button.text() === 'Ohne Faktor')?.element;
+      if (!(raw instanceof HTMLButtonElement)) throw new Error('no switch');
+      raw.focus();
+
+      raw.click();
+      await flushPromises();
+
+      expect(path()).toBe('/rangliste?zaehlung=roh');
+      expect(counted()).toEqual(RAW);
+      expect(document.activeElement).toBe(raw);
+      expect(raw.getAttribute('aria-pressed')).toBe('true');
+      expect(asked).toHaveLength(1);
+    });
+
+    it('opens with the factors from the bottom navigation', async () => {
+      scoreboards({ [TODAY]: factors });
+      await open('/rangliste?zaehlung=roh', { navigation: true });
+
+      await page
+        ?.findAll('nav a')
+        .find((link) => link.text().includes('Rangliste'))
+        ?.trigger('click');
+      await flushPromises();
+
+      expect(path()).toBe('/rangliste');
+      expect(counting()).toEqual([
+        ['Mit Faktor', 'true'],
+        ['Ohne Faktor', 'false'],
+      ]);
+      expect(counted()).toEqual(FACTORED);
     });
   });
 });

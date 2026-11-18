@@ -123,6 +123,12 @@ export const messages = {
     /** A total count: `9 Getränke`, `1 Getränk`. */
     drinks: (formatted: string, count: number) =>
       `${formatted} ${count === 1 ? 'Getränk' : 'Getränke'}`,
+    /** The switch under the period picker (§7f): drinks counted with their factors, or the pure quantities. */
+    counting: {
+      label: 'Zählung',
+      factored: 'Mit Faktor',
+      raw: 'Ohne Faktor',
+    },
     /** Accessible name of a place (§7f): `Platz 1, Daniel, 13,5 Punkte, 9 Getränke`. */
     label: (rank: number, name: string, points: string, drinks: string) =>
       `Platz ${String(rank)}, ${name}, ${points}, ${drinks}`,
@@ -136,9 +142,9 @@ export const messages = {
     emptyThatDay: 'An diesem Tag keine Einträge.',
     /** The logging account once it is deleted. */
     deletedAccount: 'gelöschtes Konto',
-    /** A row's supporting line: `Happy Hour ×2 · 23:41 · anna`. */
-    details: (factor: string, time: string, account: string) =>
-      `${factor} · ${time} · ${account}`,
+    /** A row's supporting line: `Happy Hour ×2 · 15.11., 23:41 · anna`. */
+    details: (factor: string, day: string, time: string, account: string) =>
+      `${factor} · ${day}, ${time} · ${account}`,
     /** The delete icon button: `2× Bier um 23:41 löschen`. */
     remove: (entry: string, time: string) => `${entry} um ${time} löschen`,
     removeTitle: 'Eintrag löschen?',
@@ -261,8 +267,9 @@ export const messages = {
     points: 'Punkte',
     multiplier: 'Multiplikator',
     factor: 'Faktor',
-    /** A row's supporting line: `23:41 · anna`. */
-    by: (time: string, userName: string) => `${time} · ${userName}`,
+    /** A row's supporting line: `15.11., 23:41 · anna`. */
+    by: (day: string, time: string, userName: string) =>
+      `${day}, ${time} · ${userName}`,
     /** A consequential row's cause: `durch Löschen von Wein`. */
     causedBy: (name: string) => `durch Löschen von ${name}`,
   },

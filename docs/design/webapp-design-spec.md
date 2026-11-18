@@ -220,7 +220,9 @@ All user-visible text lives in one German messages module; all formatting goes t
 | Points, score | up to 2 decimals, comma, no trailing zeros | `4,5`, `12` |
 | Multiplier | `×` + up to 2 decimals | `×2`, `×1,5` |
 | Counter | as points | `4`, `1,5` |
-| Time of an entry | `HH:mm`, browser time zone | `23:41` |
+| Time of an entry (Verlauf delete button and dialog, §7g) | `HH:mm`, browser time zone | `23:41` |
+| Day and time of an entry (Verlauf row, §7g) | `dd.MM., HH:mm` without the year, day and time of the one instant in the browser time zone | `15.11., 23:41` |
+| Day and time of an audit event (Protokoll row, §7l) | `dd.MM., HH:mm` without the year, day and time of the one instant in the browser time zone; the day heading above it stays | `15.11., 21:00` |
 | Last update | `Stand: HH:mm` | `Stand: 23:41` |
 | Quantity in text | `<n>×` | `2× Bier` |
 | Start of a game's run | `seit dd.MM.`, or `seit heute, HH:mm` when it lies after local midnight; browser time zone; turns into the date at the next local midnight, or when the screen is shown or focused again after it | `seit 15.09.`, `seit heute, 19:30` |
@@ -620,6 +622,29 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     midnight, a resume or a time-zone change it stays the same day, its window rebuilt. A week
     is held as its Monday, a local calendar date, in the same way; a week left open past Sunday
     midnight stays that week (then `Letzte Woche`).
+- **Counting switch** (PRD #83) under the period picker: a segmented switch `Mit Faktor` |
+  `Ohne Faktor`, a `group` named `Zählung` of buttons with `aria-pressed`, shaped like the
+  period switch (1 dp `outline` border, corner 10 dp, each option at least 44 dp high in
+  `label`, `outline` hairline between them, the selected option in `secondary-container` /
+  `on-secondary-container`), full width with 8 / 12 dp above and below. `Mit Faktor` is the
+  default and shows the factored counts, as before. `Ohne Faktor` shows the pure quantities,
+  the sum without any factor, from the API's `rawCount` (a row's total and each drink) and
+  `rawRecordedCount` (an unranked person's drinks): in the tally, the total count
+  (`6 Getränke`), every per-drink counter (a drink booked 4 ×5 and 2 ×1 reads `Bier 6`,
+  `Bier 22` with the factor) and each place's accessible name. It changes the displayed drink
+  quantities only: score, rank and order stay factor-based, and `+n offen` counts entries in
+  both. The view-model (`standings.ts`) maps the counting to the counters; card and rows show
+  what it hands them.
+  - The position lives in the query string: `Ohne Faktor` sets `zaehlung=roh`, `Mit Faktor`
+    removes the parameter (no other value is written); choosing replaces the history entry and
+    keeps every other query parameter. Without the parameter, and with any other or a repeated
+    value, the Rangliste counts with the factors. So a reload, a deep link, back and forward
+    (also back from a person's Verlauf) restore the position, and switching the period keeps
+    it. The period is not in the URL, so a shared link carries the counting but not the period.
+    The navigation bar opens `/rangliste`, so `Mit Faktor`.
+  - Switching keeps the screen: the shell does not treat a change of `zaehlung` alone as a new
+    screen (route meta `sameScreen`), so focus stays on the chosen option, the period picker
+    keeps its state and nothing is read again.
 - **What a period ranks.** A day is the local calendar day `[00:00, next 00:00)` in the viewer's
   time zone (23 or 25 hours when the clocks change), sent as UTC instants `from` and `to`. A
   week is an ISO 8601 week, Monday to Sunday, numbered by the Thursday rule (29.12.2025 is in
@@ -712,12 +737,13 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 - List `Einträge von Daniel` of the day's entries (today: since local midnight; at the next local midnight,
   or when the page is shown or focused again after it, read again for the new day; a past day stays), newest first, rows on
   `outline-variant` hairlines: primary `2× Bier` (`row-title`), secondary
-  `Happy Hour ×2 · 23:41 · anna` (`support`; the factor with its current multiplier,
-  `Kein Faktor` when none or deleted; the local time; the account's user name, or
+  `Happy Hour ×2 · 15.11., 23:41 · anna` (`support`; the factor with its current multiplier,
+  `Kein Faktor` when none or deleted; the local day and time the entry was booked (§3.5), the
+  day even though the top bar names it too; the account's user name, or
   `gelöschtes Konto` when the account is gone); an entry that waits for verification carries
   the assist chip `offen` (§7j's `Admin` chip) before the delete button; trailing delete icon
   button named
-  `2× Bier um 23:41 löschen`, opening the confirmation dialog (§6.9).
+  `2× Bier um 23:41 löschen` (the time only), opening the confirmation dialog (§6.9).
 - After `Löschen` (on a past day as on today): the snackbar `Eintrag gelöscht`, the list is
   read again and the scoreboard feed refreshes at once, together with the period the Rangliste
   shows, so counters and the Rangliste follow. An entry already deleted on
@@ -898,8 +924,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     `Schach · Anna gewinnt` or `Schach · Remis` for a match (its game and outcome),
     `Rommé · −20 Punkte` for a result (its game and its points, with a real minus sign);
     a value the event does not hold is left out;
-  - then (`support`): the local time and the user name the event recorded, `23:41 · anna`
-    (kept after the account is deleted);
+  - then (`support`): the local day and time of the event (§3.5) and the user name the event
+    recorded, `15.11., 23:41 · anna` (kept after the account is deleted) — the day even though
+    the heading above names it too;
   - trailing, an outlined assist chip (corner 8 dp, `caption`) with the operation: `Angelegt`,
     `Geändert`, `Gelöscht` in `error`, or `bestätigt` for a verification (§7s) — named like any
     event of its subject (`Eintrag 2× Bier für Daniel`), with the verifying account in the
@@ -910,7 +937,7 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 - A consequential event — an entry removed by the deletion of its person or drink, or an entry
   that lost its factor when the factor was deleted, a match or result removed with its game, a
   match side cleared or a result removed with its person — is indented by 20 dp and its supporting
-  line ends with its cause, `23:41 · anna · durch Löschen von Wein`. The cause comes with the
+  line ends with its cause, `15.11., 23:41 · anna · durch Löschen von Wein`. The cause comes with the
   event itself, so it shows even when the deletion is on another page.
 - Pages of 20: below the list the tonal button `Ältere laden` appends the next older page; on
   the last page it is gone. A failed older page shows the problem title and keeps what is
@@ -1332,7 +1359,7 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 | Anzahl | scoreboard feed, `PUT /api/entries/{uuid}` | Booked count from the feed (`recordedCount`, pending entries included); saves while no factors exist |
 | Faktor | `GET /api/factors`, `PUT /api/entries/{uuid}` | Choice saves |
 | Snackbar `Rückgängig` | `DELETE /api/entries/{uuid}` | 404 counts as undone |
-| Rangliste | `GET /api/scoreboard?from=` (today), `?from=&to=` (a past day, a week), `?scope=all` (`Gesamt`) (ETag, `If-None-Match` → 304); `GET /api/scoreboard/days?from=&to=` (the calendar's month, at most 35 days) and `?scope=all` (`Gesamt` line): `{spans: [{from, to}]}`, the evenings with counted entries (ETag `"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`) | Today's feed polls every 10 s while visible, as do the current week and `Gesamt`; a past day or week is read on show, focus and after own writes; ETag = data revision + selection (`"<rev>-<fromMs>"`, `"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`). `rows` rank verified entries (`score`, `count`, each drink's `count`) with `pendingCount`; each drink also has `recordedCount`; `unranked` lists persons whose entries all wait |
+| Rangliste | `GET /api/scoreboard?from=` (today), `?from=&to=` (a past day, a week), `?scope=all` (`Gesamt`) (ETag, `If-None-Match` → 304); `GET /api/scoreboard/days?from=&to=` (the calendar's month, at most 35 days) and `?scope=all` (`Gesamt` line): `{spans: [{from, to}]}`, the evenings with counted entries (ETag `"<rev>-<fromMs>-<toMs>"`, `"<rev>-all"`) | Today's feed polls every 10 s while visible, as do the current week and `Gesamt`; a past day or week is read on show, focus and after own writes; ETag = data revision + selection + the body's version (`"<rev>-<fromMs>-v2"`, `"<rev>-<fromMs>-<toMs>-v2"`, `"<rev>-all-v2"`; the version, `ScoreboardAction::REPRESENTATION`, is raised with every change to the body, so a validator of an earlier body never answers 304; the client treats the tag as opaque). `rows` rank verified entries (`score`, `count`, each drink's `count`) with `pendingCount`; each drink also has `recordedCount`; beside each count is its pure count without factors (`rawCount` on a row and a drink, `rawRecordedCount` on a drink); `unranked` lists persons whose entries all wait |
 | Verlauf | `GET /api/persons`, `GET /api/entries?personId=&from=` (a past day `&to=`), `DELETE /api/entries/{uuid}` | Name from the person list; entries newest first with drink, factor (or `null`), `createdAt`, `accountName` (or `null`) and `pending`; 404 → person gone; after a delete the scoreboard feed refreshes |
 | Personen / Getränke / Faktoren | `GET/POST /api/{persons,drinks,factors}`, `GET/PATCH/DELETE …/{id}` | `GET …/{id}` includes the entry count (a person also `matchCount` and `resultCount`); `PATCH` takes all fields (persons: `name`; drinks: `name`, `points`; factors: `name`, `multiplier`) |
 | Personen (photo) | `PUT /api/persons/{id}/photo`, `DELETE /api/persons/{id}/photo` | Any member, any person; never a field of the person `PATCH`. `PUT` body `{image}`: base64 of a 256 × 256 JPEG of at most 64 KiB; answers the person (200). A body over 96 KiB is 413 `Foto zu groß.`, an invalid photo 422 on `image`. `DELETE` is 204, also without a photo. The same photo again and removing none change nothing |

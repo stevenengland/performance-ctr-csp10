@@ -20,7 +20,7 @@ const POLL_MS = 10_000;
 
 async function created(
   request: APIRequestContext,
-  path: '/api/persons' | '/api/drinks',
+  path: '/api/persons' | '/api/drinks' | '/api/factors',
   data: Record<string, unknown>,
 ): Promise<number> {
   const response = await request.post(path, { data });
@@ -34,10 +34,11 @@ async function addEntry(
   personId: number,
   drinkId: number,
   quantity: number,
+  factorId?: number,
 ): Promise<string> {
   const id = randomUUID();
   const response = await request.put(`/api/entries/${id}`, {
-    data: { personId, drinkId, quantity },
+    data: { personId, drinkId, quantity, factorId },
   });
   expect(response.status()).toBe(201);
   return id;
@@ -162,6 +163,71 @@ test('the Rangliste ranks today’s persons by score with their counters, German
       )?.[1],
     );
   expect(await rank(ben)).toBeLessThan(await rank(anna));
+});
+
+test('Ohne Faktor counts the pure quantities on the Rangliste with the same score, kept in the URL across a reload', async ({
+  page,
+  request,
+}) => {
+  const verify = await verifierOn(request);
+  const ben = uniqueName('Ben');
+  const bier = uniqueName('Bier');
+  const counting = page.getByRole('group', { name: 'Zählung' });
+  // Deleted again whatever step fails: the factor is shared by everyone on the
+  // stack (see `factors.spec.ts`), and the person and the drink take their
+  // entries with them, so none counts in another test's window or Gesamt.
+  const made: string[] = [];
+  const make = async (
+    path: Parameters<typeof created>[1],
+    data: Record<string, unknown>,
+  ) => {
+    const id = await created(page.request, path, data);
+    made.push(`${path}/${String(id)}`);
+    return id;
+  };
+
+  try {
+    const benId = await make('/api/persons', { name: ben });
+    const bierId = await make('/api/drinks', { name: bier, points: 1 });
+    const factorId = await make('/api/factors', {
+      name: uniqueName('Fünffach'),
+      multiplier: 5,
+    });
+    await verify(await addEntry(page.request, benId, bierId, 4, factorId));
+    await verify(await addEntry(page.request, benId, bierId, 2));
+    await page.goto('/rangliste');
+    // 4 × 5 + 2 × 1 = 22 with the factor, 4 + 2 = 6 without; 22 Punkte in both.
+    await expect(
+      counting.getByRole('button', { name: 'Mit Faktor' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(place(page, ben)).toHaveAccessibleName(
+      new RegExp(`^Platz \\d+, ${ben}, 22 Punkte, 22 Getränke$`),
+    );
+    await expect(place(page, ben)).toContainText(`${bier} 22`);
+
+    await counting.getByRole('button', { name: 'Ohne Faktor' }).click();
+    await expect(page).toHaveURL(/\/rangliste\?zaehlung=roh$/);
+    await expect(place(page, ben)).toHaveAccessibleName(
+      new RegExp(`^Platz \\d+, ${ben}, 22 Punkte, 6 Getränke$`),
+    );
+    await expect(place(page, ben)).toContainText(`${bier} 6`);
+
+    await page.reload();
+    await expect(
+      counting.getByRole('button', { name: 'Ohne Faktor' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(place(page, ben)).toHaveAccessibleName(
+      new RegExp(`^Platz \\d+, ${ben}, 22 Punkte, 6 Getränke$`),
+    );
+
+    await counting.getByRole('button', { name: 'Mit Faktor' }).click();
+    await expect(page).toHaveURL(/\/rangliste$/);
+    await expect(place(page, ben)).toHaveAccessibleName(
+      new RegExp(`^Platz \\d+, ${ben}, 22 Punkte, 22 Getränke$`),
+    );
+  } finally {
+    for (const path of made.reverse()) await page.request.delete(path);
+  }
 });
 
 test('the Rangliste lists today’s persons whose entries all wait without a rank, with what they recorded, German-style', async ({
@@ -318,7 +384,7 @@ test('the scoreboard answers 304 through Apache while nothing changed', async ({
   const url = `/api/scoreboard?from=${encodeURIComponent(new Date().toISOString())}`;
   const first = await page.request.get(url);
   const etag = first.headers().etag ?? '';
-  expect(etag).toMatch(/^"\d+-\d+"$/);
+  expect(etag).toMatch(/^"\d+-\d+-v2"$/);
 
   const again = await page.request.get(url, {
     headers: { 'If-None-Match': etag },
@@ -353,7 +419,7 @@ test('the Rangliste polls every 10 s on condition, keeps its standings with “S
   const polled = scoreboardRequests(page, 'today');
   await page.clock.runFor(POLL_MS);
   const conditional = await polled;
-  expect(conditional.headers()['if-none-match']).toMatch(/^"\d+-\d+"$/);
+  expect(conditional.headers()['if-none-match']).toMatch(/^"\d+-\d+-v2"$/);
   expect((await conditional.response())?.status()).toBe(304);
   // The time of the last successful refresh, as the page's clock tells it.
   const confirmedAt = await page.evaluate(() =>

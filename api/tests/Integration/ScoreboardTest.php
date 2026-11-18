@@ -50,10 +50,11 @@ final class ScoreboardTest extends DatabaseTestCase
                     'photoUrl' => null,
                     'score' => 7.5,
                     'count' => 6,
+                    'rawCount' => 6,
                     'pendingCount' => 0,
-                    'drinks' => [['drinkId' => 2, 'name' => 'Aperol', 'count' => 1, 'recordedCount' => 1], ['drinkId' => 1, 'name' => 'Bier', 'count' => 5, 'recordedCount' => 5]],
+                    'drinks' => [['drinkId' => 2, 'name' => 'Aperol', 'count' => 1, 'recordedCount' => 1, 'rawCount' => 1, 'rawRecordedCount' => 1], ['drinkId' => 1, 'name' => 'Bier', 'count' => 5, 'recordedCount' => 5, 'rawCount' => 5, 'rawRecordedCount' => 5]],
                 ],
-                ['personId' => 2, 'name' => 'Anna', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1, 'recordedCount' => 1]]],
+                ['personId' => 2, 'name' => 'Anna', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'rawCount' => 1, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1, 'recordedCount' => 1, 'rawCount' => 1, 'rawRecordedCount' => 1]]],
             ], 'unranked' => []],
             $this->body($response),
         );
@@ -61,7 +62,8 @@ final class ScoreboardTest extends DatabaseTestCase
 
     /**
      * Installed clients send only `from`: their answer, body and ETag, is pinned byte for byte
-     * as it was before windows had an end.
+     * as it was before windows had an end, grown only by the fields added since (the pure counts)
+     * and by the representation they made the ETag name.
      */
     public function testARequestWithOnlyFromAnswersByteForByteAsBeforeWindowsHadAnEnd(): void
     {
@@ -75,11 +77,35 @@ final class ScoreboardTest extends DatabaseTestCase
         $response = $this->scoreboard(from: '2026-11-14T23:00:00.000Z');
 
         self::assertSame(200, $response->getStatusCode());
-        self::assertSame('"11-1794697200000"', $response->getHeaderLine('ETag'));
+        self::assertSame('"11-1794697200000-v2"', $response->getHeaderLine('ETag'));
         self::assertSame(
-            '{"rows":[{"personId":1,"name":"Daniel","photoUrl":null,"score":6.5,"count":5,"pendingCount":1,"drinks":[{"drinkId":2,"name":"Aperol","count":1,"recordedCount":1},{"drinkId":1,"name":"Bier","count":4,"recordedCount":5}]}],"unranked":[{"personId":2,"name":"Anna","photoUrl":null,"pendingCount":1,"drinks":[{"drinkId":2,"name":"Aperol","count":0,"recordedCount":3}]}]}',
+            '{"rows":[{"personId":1,"name":"Daniel","photoUrl":null,"score":6.5,"count":5,"rawCount":3,"pendingCount":1,"drinks":[{"drinkId":2,"name":"Aperol","count":1,"recordedCount":1,"rawCount":1,"rawRecordedCount":1},{"drinkId":1,"name":"Bier","count":4,"recordedCount":5,"rawCount":2,"rawRecordedCount":3}]}],"unranked":[{"personId":2,"name":"Anna","photoUrl":null,"pendingCount":1,"drinks":[{"drinkId":2,"name":"Aperol","count":0,"recordedCount":3,"rawCount":0,"rawRecordedCount":3}]}]}',
             (string) $response->getBody(),
         );
+    }
+
+    /**
+     * The ETag names the representation too: a client or cache that revalidates the previous
+     * release's body, which had no pure counts, with its validator (the same revision and
+     * selection, without the representation) gets the new body, never 304.
+     */
+    public function testAValidatorOfThePreviousRepresentationGetsTheBodyWithThePureCounts(): void
+    {
+        $this->add(1, 1, 2, 1);
+        $current = $this->scoreboard();
+
+        $previous = $this->scoreboard('"7-1794610800000"');
+        $unchanged = $this->scoreboard($current->getHeaderLine('ETag'));
+
+        self::assertSame('"7-1794610800000-v2"', $current->getHeaderLine('ETag'));
+        self::assertSame([200, '"7-1794610800000-v2"'], [$previous->getStatusCode(), $previous->getHeaderLine('ETag')]);
+        $rows = $this->rowsOf($previous);
+        self::assertSame([['count' => 4, 'rawCount' => 2]], array_map(static fn(array $row): array => array_intersect_key($row, ['count' => 0, 'rawCount' => 0]), $rows));
+        self::assertSame(
+            [['drinkId' => 1, 'name' => 'Bier', 'count' => 4, 'recordedCount' => 4, 'rawCount' => 2, 'rawRecordedCount' => 2]],
+            $rows[0]['drinks'],
+        );
+        self::assertSame(304, $unchanged->getStatusCode());
     }
 
     public function testARecordedEntryWaitsForVerificationAndCountsNeitherInScoreNorCount(): void
@@ -104,10 +130,120 @@ final class ScoreboardTest extends DatabaseTestCase
 
         self::assertSame(
             [
-                ['drinkId' => 2, 'name' => 'Aperol', 'count' => 0, 'recordedCount' => 1],
-                ['drinkId' => 1, 'name' => 'Bier', 'count' => 2, 'recordedCount' => 8],
+                ['drinkId' => 2, 'name' => 'Aperol', 'count' => 0, 'recordedCount' => 1, 'rawCount' => 0, 'rawRecordedCount' => 1],
+                ['drinkId' => 1, 'name' => 'Bier', 'count' => 2, 'recordedCount' => 8, 'rawCount' => 2, 'rawRecordedCount' => 5],
             ],
             $rows[0]['drinks'],
+        );
+    }
+
+    public function testEachPersonAlsoCountsTheQuantitiesWithoutTheirFactors(): void
+    {
+        $this->send('POST', '/api/factors', ['name' => 'Geburtstag', 'multiplier' => 5], $this->session);
+        $this->add(1, 1, 4, 2);
+
+        $rows = $this->rowsOf($this->scoreboard());
+
+        self::assertSame([[20, 4]], array_map(static fn(array $row): array => [$row['count'], $row['rawCount']], $rows));
+    }
+
+    public function testEachDrinkCounterAlsoCountsTheQuantitiesWithoutTheirFactors(): void
+    {
+        $this->send('POST', '/api/factors', ['name' => 'Geburtstag', 'multiplier' => 5], $this->session);
+        $this->add(1, 1, 4, 2);
+        $this->add(1, 1, 2);
+
+        $rows = $this->rowsOf($this->scoreboard());
+
+        self::assertSame(
+            [['drinkId' => 1, 'name' => 'Bier', 'count' => 22, 'recordedCount' => 22, 'rawCount' => 6, 'rawRecordedCount' => 6]],
+            $rows[0]['drinks'],
+        );
+    }
+
+    public function testThePureCountersTreatPendingEntriesLikeTheFactoredOnesAndPendingEntriesCountAsRows(): void
+    {
+        $this->add(1, 1, 2, 1);
+        $this->record(1, 1, 3, 1);
+        $this->record(1, 1, 4);
+
+        $rows = $this->rowsOf($this->scoreboard());
+
+        self::assertSame([[4, 2, 2]], array_map(static fn(array $row): array => [$row['count'], $row['rawCount'], $row['pendingCount']], $rows));
+        self::assertSame(
+            [['drinkId' => 1, 'name' => 'Bier', 'count' => 4, 'recordedCount' => 14, 'rawCount' => 2, 'rawRecordedCount' => 9]],
+            $rows[0]['drinks'],
+        );
+    }
+
+    public function testAFractionalMultiplierChangesOnlyTheFactoredCounters(): void
+    {
+        $this->send('POST', '/api/factors', ['name' => 'Geburtstag', 'multiplier' => 1.5], $this->session);
+        $this->add(1, 1, 3, 2);
+        $this->record(1, 1, 1, 2);
+
+        $rows = $this->rowsOf($this->scoreboard());
+
+        self::assertSame([[4.5, 3]], array_map(static fn(array $row): array => [$row['count'], $row['rawCount']], $rows));
+        self::assertSame(
+            [['drinkId' => 1, 'name' => 'Bier', 'count' => 4.5, 'recordedCount' => 6, 'rawCount' => 3, 'rawRecordedCount' => 4]],
+            $rows[0]['drinks'],
+        );
+    }
+
+    public function testAnEntryWithoutAFactorOrWithADeletedFactorCountsOnceInEveryCounter(): void
+    {
+        $this->send('POST', '/api/factors', ['name' => 'Geburtstag', 'multiplier' => 3], $this->session);
+        $this->add(1, 1, 2);
+        $this->add(1, 2, 1, 2);
+        $this->record(1, 2, 3, 2);
+        $this->send('DELETE', '/api/factors/2', session: $this->session);
+
+        $rows = $this->rowsOf($this->scoreboard());
+
+        self::assertSame([[3, 3]], array_map(static fn(array $row): array => [$row['count'], $row['rawCount']], $rows));
+        self::assertSame(
+            [
+                ['drinkId' => 2, 'name' => 'Aperol', 'count' => 1, 'recordedCount' => 4, 'rawCount' => 1, 'rawRecordedCount' => 4],
+                ['drinkId' => 1, 'name' => 'Bier', 'count' => 2, 'recordedCount' => 2, 'rawCount' => 2, 'rawRecordedCount' => 2],
+            ],
+            $rows[0]['drinks'],
+        );
+    }
+
+    public function testEachPersonsPureCountIsTheSumOfTheirDrinksPureCounts(): void
+    {
+        $this->send('POST', '/api/factors', ['name' => 'Geburtstag', 'multiplier' => 1.5], $this->session);
+        $this->add(1, 1, 3, 2);
+        $this->add(1, 2, 2, 1);
+        $this->add(1, 2, 1);
+        $this->record(1, 1, 5, 1);
+        $this->add(2, 1, 7, 2);
+
+        $rows = $this->rowsOf($this->scoreboard());
+
+        self::assertSame([['Daniel', 6], ['Anna', 7]], array_map(static fn(array $row): array => [$row['name'], $row['rawCount']], $rows));
+        foreach ($rows as $row) {
+            self::assertSame($row['rawCount'], array_sum(array_column(self::listOf($row['drinks']), 'rawCount')));
+        }
+    }
+
+    public function testThePureCountersCountOnlyTheEntriesOfTheWindowLikeTheFactoredOnes(): void
+    {
+        $this->add(1, 1, 4, 1); // 2026-11-14 20:00 UTC, before the window
+        $this->record(1, 1, 5, 1);
+        $this->clock->advance('PT4H'); // 2026-11-15 00:00 UTC, the start of the window
+        $this->add(1, 1, 1, 1);
+        $this->record(1, 1, 2);
+        $this->clock->advance('P1D'); // 2026-11-16 00:00 UTC, the end of the window
+        $this->add(1, 1, 3, 1);
+        $this->record(1, 1, 6, 1);
+
+        $rows = $this->rowsOf($this->scoreboard(from: '2026-11-15T00:00:00.000Z', to: '2026-11-16T00:00:00.000Z'));
+
+        self::assertSame(
+            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 2, 'count' => 2, 'rawCount' => 1, 'pendingCount' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 2, 'recordedCount' => 4, 'rawCount' => 1, 'rawRecordedCount' => 3]]]],
+            $rows,
         );
     }
 
@@ -139,8 +275,8 @@ final class ScoreboardTest extends DatabaseTestCase
         self::assertSame(['Anna'], array_column(self::listOf($board['rows']), 'name'));
         self::assertSame(
             [
-                ['personId' => 3, 'name' => 'Ben', 'photoUrl' => null, 'pendingCount' => 2, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 0, 'recordedCount' => 3]]],
-                ['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'pendingCount' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 0, 'recordedCount' => 1]]],
+                ['personId' => 3, 'name' => 'Ben', 'photoUrl' => null, 'pendingCount' => 2, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 0, 'recordedCount' => 3, 'rawCount' => 0, 'rawRecordedCount' => 3]]],
+                ['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'pendingCount' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 0, 'recordedCount' => 1, 'rawCount' => 0, 'rawRecordedCount' => 1]]],
             ],
             $board['unranked'],
         );
@@ -188,7 +324,7 @@ final class ScoreboardTest extends DatabaseTestCase
         $today = $this->body($this->send('GET', '/api/scoreboard?from=2026-11-15T00:00:00Z', session: $this->session));
         $sameInstantWithOffset = $this->body($this->send('GET', '/api/scoreboard?from=' . rawurlencode('2026-11-15T01:00:00+01:00'), session: $this->session));
 
-        self::assertSame([['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1, 'recordedCount' => 1]]]], $today['rows']);
+        self::assertSame([['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 1, 'count' => 1, 'rawCount' => 1, 'pendingCount' => 0, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 1, 'recordedCount' => 1, 'rawCount' => 1, 'rawRecordedCount' => 1]]]], $today['rows']);
         self::assertSame($today, $sameInstantWithOffset);
     }
 
@@ -205,11 +341,11 @@ final class ScoreboardTest extends DatabaseTestCase
         $board = $this->body($this->scoreboard(from: '2026-11-13T23:00:00.000Z', to: '2026-11-14T23:00:00.000Z'));
 
         self::assertSame(
-            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 2, 'count' => 2, 'pendingCount' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 2, 'recordedCount' => 7]]]],
+            [['personId' => 1, 'name' => 'Daniel', 'photoUrl' => null, 'score' => 2, 'count' => 2, 'rawCount' => 2, 'pendingCount' => 1, 'drinks' => [['drinkId' => 1, 'name' => 'Bier', 'count' => 2, 'recordedCount' => 7, 'rawCount' => 2, 'rawRecordedCount' => 7]]]],
             $board['rows'],
         );
         self::assertSame(
-            [['personId' => 3, 'name' => 'Ben', 'photoUrl' => null, 'pendingCount' => 1, 'drinks' => [['drinkId' => 2, 'name' => 'Aperol', 'count' => 0, 'recordedCount' => 1]]]],
+            [['personId' => 3, 'name' => 'Ben', 'photoUrl' => null, 'pendingCount' => 1, 'drinks' => [['drinkId' => 2, 'name' => 'Aperol', 'count' => 0, 'recordedCount' => 1, 'rawCount' => 0, 'rawRecordedCount' => 1]]]],
             $board['unranked'],
         );
     }

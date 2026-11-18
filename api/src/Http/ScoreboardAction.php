@@ -16,12 +16,21 @@ use Psr\Http\Message\ServerRequestInterface;
  * `GET /api/scoreboard?from=<instant>[&to=<instant>]` or `?scope=all`: the standings in the
  * window `[from, to)` (from the start of the viewer's day when there is no end) or of all time:
  * the ranked `rows` and the `unranked` persons whose entries all wait for verification.
- * The ETag names the data revision and the selection, so `If-None-Match` with an
- * unchanged revision and the same selection answers 304 before anything is aggregated. The revision and
+ * The ETag names the data revision, the selection and the representation, so `If-None-Match`
+ * with an unchanged revision and the same selection answers 304 before anything is aggregated. The revision and
  * the standings are read in one snapshot, so the tag always names what is sent.
  */
 final readonly class ScoreboardAction
 {
+    /**
+     * The version of the body's shape, named in the ETag. A 304 is answered before the body is
+     * built, so a validator of an earlier shape would keep that body current across a release:
+     * raise it with every change to the body that the same data revision would not show (a field
+     * added, renamed or computed otherwise). 1 was the body before the pure counts (PRD #83),
+     * whose tag named no version.
+     */
+    private const REPRESENTATION = 2;
+
     public function __construct(private Database $database, private PhotoUrl $photoUrl) {}
 
     public function __invoke(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
@@ -40,10 +49,13 @@ final readonly class ScoreboardAction
         ));
     }
 
-    /** The interval is part of the tag: the same revision means other standings for another day. */
+    /**
+     * The interval is part of the tag: the same revision means other standings for another day.
+     * The representation follows it, so a tag of an earlier body never matches.
+     */
     private static function tag(int $revision, Interval $interval): string
     {
-        return sprintf('"%d-%s"', $revision, IntervalQuery::tag($interval));
+        return sprintf('"%d-%s-v%d"', $revision, IntervalQuery::tag($interval), self::REPRESENTATION);
     }
 
     /**
@@ -60,7 +72,7 @@ final readonly class ScoreboardAction
     /**
      * A person's standing, with the URL of their photo.
      *
-     * @return array{personId: int, name: string, photoUrl: string|null, score: int|float, count: int|float, pendingCount: int, drinks: list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float}>}
+     * @return array{personId: int, name: string, photoUrl: string|null, score: int|float, count: int|float, rawCount: int|float, pendingCount: int, drinks: list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float, rawCount: int|float, rawRecordedCount: int|float}>}
      */
     private static function row(ScoreRow $row, PhotoUrl $photoUrl): array
     {
@@ -70,6 +82,7 @@ final readonly class ScoreboardAction
             'photoUrl' => $photoUrl->of($row->personId, $row->photoVersion),
             'score' => Decimal::json($row->score),
             'count' => Decimal::json($row->count),
+            'rawCount' => Decimal::json($row->rawCount),
             'pendingCount' => $row->pendingCount,
             'drinks' => self::drinks($row->drinks),
         ];
@@ -78,7 +91,7 @@ final readonly class ScoreboardAction
     /**
      * A person without a rank, with the URL of their photo.
      *
-     * @return array{personId: int, name: string, photoUrl: string|null, pendingCount: int, drinks: list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float}>}
+     * @return array{personId: int, name: string, photoUrl: string|null, pendingCount: int, drinks: list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float, rawCount: int|float, rawRecordedCount: int|float}>}
      */
     private static function unranked(UnrankedRow $row, PhotoUrl $photoUrl): array
     {
@@ -94,7 +107,7 @@ final readonly class ScoreboardAction
     /**
      * @param list<DrinkCount> $drinks
      *
-     * @return list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float}>
+     * @return list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float, rawCount: int|float, rawRecordedCount: int|float}>
      */
     private static function drinks(array $drinks): array
     {
@@ -104,6 +117,8 @@ final readonly class ScoreboardAction
                 'name' => $drink->name,
                 'count' => Decimal::json($drink->count),
                 'recordedCount' => Decimal::json($drink->recordedCount),
+                'rawCount' => Decimal::json($drink->rawCount),
+                'rawRecordedCount' => Decimal::json($drink->rawRecordedCount),
             ],
             $drinks,
         );

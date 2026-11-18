@@ -473,14 +473,16 @@ test('requests shaped like the previous release’s answer as before: today’s 
   );
   expect(board.status()).toBe(200);
   expect(board.headers().etag).toMatch(
-    new RegExp(`^"\\d+-${String(today.start.getTime())}"$`),
+    new RegExp(`^"\\d+-${String(today.start.getTime())}-v2"$`),
   );
   const { rows } = (await board.json()) as {
     rows: Record<string, unknown>[];
   };
   const row = rows.find((candidate) => candidate.personId === danielId);
-  expect(Object.keys(row ?? {}).sort()).toEqual(
-    [
+  // The API only grows (ADR 0006): the row keeps the previous release's
+  // fields, and the previous client ignores the ones added since (rawCount).
+  expect(Object.keys(row ?? {})).toEqual(
+    expect.arrayContaining([
       'count',
       'drinks',
       'name',
@@ -488,7 +490,7 @@ test('requests shaped like the previous release’s answer as before: today’s 
       'personId',
       'photoUrl',
       'score',
-    ].sort(),
+    ]),
   );
 
   const standings = await page.request.get(

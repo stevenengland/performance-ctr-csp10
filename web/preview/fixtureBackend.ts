@@ -61,6 +61,11 @@ at most the API's 87 384 characters. Unlike the API it does not walk the JPEG.
 const BASE64_JPEG =
   /^\/9j\/(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MAX_PHOTO_CHARACTERS = 87_384;
+/**
+The scoreboard body's version in its ETag, like the API's
+`ScoreboardAction::REPRESENTATION`: raised there with every change to the body.
+*/
+const SCOREBOARD_REPRESENTATION = 2;
 
 /**
 Successful writes that changed nothing, so they leave the revision as it is,
@@ -111,6 +116,7 @@ interface Tally {
   photoUrl: string | null;
   score: number;
   count: number;
+  rawCount: number;
   verifiedEntries: number;
   pendingCount: number;
   drinks: DrinkCount[];
@@ -127,8 +133,9 @@ function counts(fixtures: Fixtures, entry: FixtureEntry): boolean {
 /**
 The standings of an interval, aggregated like the API's Scoreboard: factors at their current
 multiplier; score, count and each drink's `count` over verified entries only,
-`recordedCount` over every entry, the pending entries counted per person, and a
-person whose entries all wait listed apart in `unranked`, by name.
+`recordedCount` over every entry, each count beside its pure count (the quantities
+without their factors), the pending entries counted per person, and a person
+whose entries all wait listed apart in `unranked`, by name.
 */
 function scoreboard(fixtures: Fixtures, interval: Interval): Scoreboard {
   const tallies = new Map<number, Tally>();
@@ -141,30 +148,37 @@ function scoreboard(fixtures: Fixtures, interval: Interval): Scoreboard {
       fixtures.factors.find(({ id }) => id === entry.factorId)?.multiplier ?? 1;
     const counted = entry.quantity * multiplier;
     const verified = entry.pending ? 0 : counted;
+    const verifiedQuantity = entry.pending ? 0 : entry.quantity;
     const tally = tallies.get(person.id) ?? {
       personId: person.id,
       name: person.name,
       photoUrl: person.photoUrl,
       score: 0,
       count: 0,
+      rawCount: 0,
       verifiedEntries: 0,
       pendingCount: 0,
       drinks: [],
     };
     tally.score += verified * drink.points;
     tally.count += verified;
+    tally.rawCount += verifiedQuantity;
     if (entry.pending) tally.pendingCount += 1;
     else tally.verifiedEntries += 1;
     const counter = tally.drinks.find(({ drinkId }) => drinkId === drink.id);
     if (counter) {
       counter.count += verified;
       counter.recordedCount += counted;
+      counter.rawCount += verifiedQuantity;
+      counter.rawRecordedCount += entry.quantity;
     } else {
       tally.drinks.push({
         drinkId: drink.id,
         name: drink.name,
         count: verified,
         recordedCount: counted,
+        rawCount: verifiedQuantity,
+        rawRecordedCount: entry.quantity,
       });
     }
     tallies.set(person.id, tally);
@@ -176,6 +190,8 @@ function scoreboard(fixtures: Fixtures, interval: Interval): Scoreboard {
         ...drink,
         count: round(drink.count),
         recordedCount: round(drink.recordedCount),
+        rawCount: round(drink.rawCount),
+        rawRecordedCount: round(drink.rawRecordedCount),
       }))
       .sort(byName);
   const all = [...tallies.values()];
@@ -188,6 +204,7 @@ function scoreboard(fixtures: Fixtures, interval: Interval): Scoreboard {
         photoUrl: tally.photoUrl,
         score: round(tally.score),
         count: round(tally.count),
+        rawCount: round(tally.rawCount),
         pendingCount: tally.pendingCount,
         drinks: drinksOf(tally),
       }))
@@ -754,8 +771,9 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
       guarded((_me, _body, { query, headers }) => {
         const interval = windowOrAllTime(query);
         if (interval instanceof Response) return interval;
-        // Like the API: the revision and the selection, so another window never answers 304.
-        const etag = `"${String(revision())}-${tagOf(interval)}"`;
+        // Like the API: the revision, the selection and the body's version, so another
+        // window, or a body of another version, never answers 304.
+        const etag = `"${String(revision())}-${tagOf(interval)}-v${String(SCOREBOARD_REPRESENTATION)}"`;
         if (headers.get('If-None-Match') === etag) {
           return new Response(null, { status: 304, headers: { ETag: etag } });
         }
