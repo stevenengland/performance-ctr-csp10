@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory } from 'vue-router';
 import type { Account } from './core/api-client';
 import { forgetSession } from './core/session';
-import { createAppRouter } from './router';
+import { createAppRouter, screenKey } from './router';
 
 function signedInAs(account: Account | null) {
   vi.stubGlobal(
@@ -163,5 +163,49 @@ describe('the route guard', () => {
     );
 
     expect((await open('/rangliste')).path).toBe('/rangliste');
+  });
+});
+
+describe('the screen a route shows', () => {
+  beforeEach(() => {
+    forgetSession();
+    signedInAs({ id: 2, userName: 'anna', isAdmin: false });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('stays the same Rangliste whatever it counts, but not for another period link', async () => {
+    const keys = await Promise.all(
+      [
+        '/rangliste',
+        '/rangliste?zaehlung=roh',
+        '/rangliste?a=1&zaehlung=roh',
+        '/rangliste?a=1',
+      ].map(async (path) => screenKey(await open(path))),
+    );
+
+    expect(keys).toEqual([
+      '/rangliste',
+      '/rangliste',
+      '/rangliste?a=1',
+      '/rangliste?a=1',
+    ]);
+  });
+
+  it('is a new screen for another path or query everywhere else, also another day’s Verlauf', async () => {
+    const keys = await Promise.all(
+      [
+        '/verlauf/3',
+        '/verlauf/3?tag=2026-11-14',
+        '/verlauf/4?zaehlung=roh',
+      ].map(async (path) => screenKey(await open(path))),
+    );
+
+    expect(keys).toEqual([
+      '/verlauf/3',
+      '/verlauf/3?tag=2026-11-14',
+      '/verlauf/4?zaehlung=roh',
+    ]);
   });
 });

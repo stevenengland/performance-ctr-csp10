@@ -1,8 +1,10 @@
 import {
   createRouter,
+  type LocationQuery,
   type RouteLocationNormalized,
   type RouteRecordRaw,
   type RouterHistory,
+  stringifyQuery,
 } from 'vue-router';
 import { messages } from './core/messages';
 // Part of the entry chunk: it is the first screen of every browser without a session.
@@ -30,6 +32,8 @@ declare module 'vue-router' {
     public?: boolean;
     /** Only for admins. */
     admin?: boolean;
+    /** Query keys that switch a view of the screen without making it a new screen. */
+    sameScreen?: readonly string[];
   }
 }
 
@@ -90,6 +94,7 @@ export const routes: RouteRecordRaw[] = [
       title: messages.navigation.rangliste,
       context: messages.topBar.today,
       destination: 'rangliste',
+      sameScreen: ['zaehlung'],
     },
   },
   {
@@ -258,6 +263,26 @@ export const routes: RouteRecordRaw[] = [
   },
   { path: '/:pathMatch(.*)*', redirect: '/zaehlen' },
 ];
+
+/**
+The shell's key for the screen a route shows: a new path or query is a new screen,
+also for another person's or day's Verlauf, but a change of only the route's
+`sameScreen` query keys keeps the screen (and its focus and read data).
+*/
+export function screenKey(
+  route: Pick<
+    RouteLocationNormalized,
+    'fullPath' | 'path' | 'query' | 'hash' | 'meta'
+  >,
+): string {
+  const kept = route.meta.sameScreen;
+  if (!kept?.length) return route.fullPath;
+  const query: LocationQuery = Object.fromEntries(
+    Object.entries(route.query).filter(([key]) => !kept.includes(key)),
+  );
+  const search = stringifyQuery(query);
+  return `${route.path}${search ? `?${search}` : ''}${route.hash}`;
+}
 
 /**
 Every screen but Anmelden needs a session: a signed-out user goes to Anmelden and

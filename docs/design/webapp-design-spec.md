@@ -642,6 +642,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     (also back from a person's Verlauf) restore the position, and switching the period keeps
     it. The period is not in the URL, so a shared link carries the counting but not the period.
     The navigation bar opens `/rangliste`, so `Mit Faktor`.
+  - Switching keeps the screen: the shell does not treat a change of `zaehlung` alone as a new
+    screen (route meta `sameScreen`), so focus stays on the chosen option, the period picker
+    keeps its state and nothing is read again.
 - **What a period ranks.** A day is the local calendar day `[00:00, next 00:00)` in the viewer's
   time zone (23 or 25 hours when the clocks change), sent as UTC instants `from` and `to`. A
   week is an ISO 8601 week, Monday to Sunday, numbered by the Thursday rule (29.12.2025 is in

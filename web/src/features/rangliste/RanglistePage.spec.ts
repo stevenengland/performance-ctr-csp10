@@ -1,7 +1,12 @@
 import { type DOMWrapper, flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, effectScope, h, ref } from 'vue';
-import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
+import { defineComponent, effectScope, h, ref, type VNode } from 'vue';
+import {
+  createMemoryHistory,
+  createRouter,
+  type RouteLocationNormalizedLoaded,
+  RouterView,
+} from 'vue-router';
 import AppTopBar from '../../components/AppTopBar.vue';
 import type { Scoreboard, Span } from '../../core/api-client';
 import { calendarDateOf } from '../../core/period';
@@ -9,6 +14,7 @@ import {
   refreshScoreboard,
   useScoreboardFeed,
 } from '../../core/scoreboard-feed';
+import { screenKey } from '../../router';
 import { createAppVuetify } from '../../theme';
 import { stubDialogEnvironment } from '../verwalten/manage-page-harness';
 import { useChosenPeriod } from './chosen-period';
@@ -141,6 +147,11 @@ function api(...replies: (() => Response | Promise<Response>)[]) {
   );
 }
 
+interface RouterViewSlot {
+  Component: VNode;
+  route: RouteLocationNormalizedLoaded;
+}
+
 /** The Rangliste at `path` in the shell's top bar, as the app shows it. */
 async function rangliste(path = '/rangliste') {
   const router = createRouter({
@@ -153,6 +164,7 @@ async function rangliste(path = '/rangliste') {
           title: 'Rangliste',
           context: 'Heute',
           destination: 'rangliste',
+          sameScreen: ['zaehlung'],
         },
       },
       {
@@ -173,8 +185,15 @@ async function rangliste(path = '/rangliste') {
     ],
   });
   await router.push(path);
-  const shell = defineComponent(() => () => [h(AppTopBar), h(RouterView)]);
+  const shell = defineComponent(() => () => [
+    h(AppTopBar),
+    h(RouterView, null, {
+      default: ({ Component, route }: RouterViewSlot) =>
+        h(Component, { key: screenKey(route) }),
+    }),
+  ]);
   const wrapper = mount(shell, {
+    attachTo: document.body,
     global: { plugins: [router, createAppVuetify()] },
   });
   await flushPromises();
@@ -1312,6 +1331,25 @@ describe('the Rangliste’s periods', () => {
       await flushPromises();
       expect(path()).toBe('/rangliste');
       expect(counted()).toEqual(FACTORED);
+    });
+
+    it('keeps the page, the focus on the pressed option and the read standings when switching', async () => {
+      const asked = scoreboards({ [TODAY]: factors });
+      await open();
+      const raw = page
+        ?.findAll('[role="group"][aria-label="Zählung"] button')
+        .find((button) => button.text() === 'Ohne Faktor')?.element;
+      if (!(raw instanceof HTMLButtonElement)) throw new Error('no switch');
+      raw.focus();
+
+      raw.click();
+      await flushPromises();
+
+      expect(path()).toBe('/rangliste?zaehlung=roh');
+      expect(counted()).toEqual(RAW);
+      expect(document.activeElement).toBe(raw);
+      expect(raw.getAttribute('aria-pressed')).toBe('true');
+      expect(asked).toHaveLength(1);
     });
 
     it('opens with the factors from the bottom navigation', async () => {
