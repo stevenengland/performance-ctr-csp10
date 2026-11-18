@@ -123,6 +123,12 @@ export const messages = {
     /** A total count: `9 Getränke`, `1 Getränk`. */
     drinks: (formatted: string, count: number) =>
       `${formatted} ${count === 1 ? 'Getränk' : 'Getränke'}`,
+    /** The switch under the period picker (§7f): drinks counted with their factors, or the pure quantities. */
+    counting: {
+      label: 'Zählung',
+      factored: 'Mit Faktor',
+      raw: 'Ohne Faktor',
+    },
     /** Accessible name of a place (§7f): `Platz 1, Daniel, 13,5 Punkte, 9 Getränke`. */
     label: (rank: number, name: string, points: string, drinks: string) =>
       `Platz ${String(rank)}, ${name}, ${points}, ${drinks}`,
