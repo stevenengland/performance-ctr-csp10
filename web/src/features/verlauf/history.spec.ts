@@ -14,12 +14,12 @@ const entry: HistoryEntry = {
 };
 
 describe('Verlauf rows', () => {
-  it('show quantity and drink, the factor with its German multiplier, the local time and the account', () => {
+  it('show quantity and drink, the factor with its German multiplier, the local day and time and the account', () => {
     expect(historyRows([entry], 'Europe/Berlin')).toEqual([
       {
         id: 'e1',
         title: '2× Bier',
-        details: 'Geburtstag ×1,5 · 23:41 · anna',
+        details: 'Geburtstag ×1,5 · 15.11., 23:41 · anna',
         removeLabel: '2× Bier um 23:41 löschen',
         removeBody: '2× Bier · Geburtstag ×1,5 um 23:41',
         pending: undefined,
@@ -39,8 +39,19 @@ describe('Verlauf rows', () => {
       'America/Mexico_City',
     );
 
-    expect(row?.details).toBe('Kein Faktor · 16:41 · gelöschtes Konto');
+    expect(row?.details).toBe('Kein Faktor · 15.11., 16:41 · gelöschtes Konto');
     expect(row?.removeBody).toBe('2× Bier um 16:41');
+  });
+
+  it('show the local day where it differs from the UTC day, and name the time only to delete', () => {
+    const [row] = historyRows(
+      [{ ...entry, createdAt: '2026-11-15T23:30:00.000Z' }],
+      'Europe/Berlin',
+    );
+
+    expect(row?.details).toBe('Geburtstag ×1,5 · 16.11., 00:30 · anna');
+    expect(row?.removeLabel).toBe('2× Bier um 00:30 löschen');
+    expect(row?.removeBody).toBe('2× Bier · Geburtstag ×1,5 um 00:30');
   });
 });
 

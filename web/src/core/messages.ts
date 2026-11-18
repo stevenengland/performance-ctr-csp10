@@ -136,9 +136,9 @@ export const messages = {
     emptyThatDay: 'An diesem Tag keine Einträge.',
     /** The logging account once it is deleted. */
     deletedAccount: 'gelöschtes Konto',
-    /** A row's supporting line: `Happy Hour ×2 · 23:41 · anna`. */
-    details: (factor: string, time: string, account: string) =>
-      `${factor} · ${time} · ${account}`,
+    /** A row's supporting line: `Happy Hour ×2 · 15.11., 23:41 · anna`. */
+    details: (factor: string, day: string, time: string, account: string) =>
+      `${factor} · ${day}, ${time} · ${account}`,
     /** The delete icon button: `2× Bier um 23:41 löschen`. */
     remove: (entry: string, time: string) => `${entry} um ${time} löschen`,
     removeTitle: 'Eintrag löschen?',

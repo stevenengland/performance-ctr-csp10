@@ -46,23 +46,27 @@ async function add(
   return id;
 }
 
-/** The Verlauf's rows: `2× Bier` over `Happy Hour ×2 · 23:41 · anna`. */
+/** The Verlauf's rows: `2× Bier` over `Happy Hour ×2 · 15.11., 23:41 · anna`. */
 function entries(page: Page, person: string) {
   return page
     .getByRole('list', { name: `Einträge von ${person}` })
     .getByRole('listitem');
 }
 
-/** HH:mm of an instant in the page's time zone, as the app shows it. */
-async function localTime(page: Page, instant: string): Promise<string> {
-  return page.evaluate(
-    (iso) =>
-      new Date(iso).toLocaleTimeString('de-DE', {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-    instant,
-  );
+/** `dd.MM., HH:mm` of an instant in the page's time zone, as the app shows it. */
+async function localDayAndTime(page: Page, instant: string): Promise<string> {
+  return page.evaluate((iso) => {
+    const at = new Date(iso);
+    const day = at.toLocaleDateString('de-DE', {
+      day: '2-digit',
+      month: '2-digit',
+    });
+    const time = at.toLocaleTimeString('de-DE', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return `${day}, ${time}`;
+  }, instant);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -127,8 +131,8 @@ test('the Rangliste opens a person’s Verlauf: today’s entries newest first w
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(person.name);
   await expect(page.getByText('Heute', { exact: true })).toBeVisible();
   await expect(entries(page, person.name)).toHaveText([
-    `2× ${bier.name}${factor.name} ×2 · ${await localTime(page, newest?.createdAt ?? '')} · ${ADMIN.userName}offen`,
-    `1× ${margarita.name}Kein Faktor · ${await localTime(page, oldest?.createdAt ?? '')} · ${ADMIN.userName}`,
+    `2× ${bier.name}${factor.name} ×2 · ${await localDayAndTime(page, newest?.createdAt ?? '')} · ${ADMIN.userName}offen`,
+    `1× ${margarita.name}Kein Faktor · ${await localDayAndTime(page, oldest?.createdAt ?? '')} · ${ADMIN.userName}`,
   ]);
 });
 

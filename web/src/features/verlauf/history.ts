@@ -1,6 +1,6 @@
 import type { DeepReadonly } from 'vue';
 import type { HistoryEntry } from '../../core/api-client';
-import { formatMultiplier, formatTime } from '../../core/format';
+import { formatDay, formatMultiplier, formatTime } from '../../core/format';
 import { messages } from '../../core/messages';
 import {
   addDays,
@@ -43,7 +43,7 @@ export interface HistoryRow {
   id: string;
   /** `2× Bier`. */
   title: string;
-  /** `Happy Hour ×2 · 23:41 · anna`; `Kein Faktor`, `gelöschtes Konto` where they apply. */
+  /** `Happy Hour ×2 · 15.11., 23:41 · anna`; `Kein Faktor`, `gelöschtes Konto` where they apply. */
   details: string;
   /** The delete icon button's accessible name: `2× Bier um 23:41 löschen`. */
   removeLabel: string;
@@ -53,14 +53,15 @@ export interface HistoryRow {
   pending?: string;
 }
 
-/** The API's entries, newest first, as Verlauf shows them; times in the browser's time zone unless one is given. */
+/** The API's entries, newest first, as Verlauf shows them; days and times in the browser's time zone unless one is given. */
 export function historyRows(
   entries: DeepReadonly<HistoryEntry[]>,
   timeZone?: string,
 ): HistoryRow[] {
   return entries.map((entry) => {
     const title = messages.zaehlen.quantityOf(entry.quantity, entry.drink.name);
-    const time = formatTime(new Date(entry.createdAt), timeZone);
+    const createdAt = new Date(entry.createdAt);
+    const time = formatTime(createdAt, timeZone);
     const factor = entry.factor
       ? `${entry.factor.name} ${formatMultiplier(entry.factor.multiplier)}`
       : undefined;
@@ -69,6 +70,7 @@ export function historyRows(
       title,
       details: messages.verlauf.details(
         factor ?? messages.zaehlen.noFactor,
+        formatDay(createdAt, timeZone),
         time,
         entry.accountName ?? messages.verlauf.deletedAccount,
       ),
