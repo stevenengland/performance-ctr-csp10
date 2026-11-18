@@ -220,7 +220,7 @@ All user-visible text lives in one German messages module; all formatting goes t
 | Points, score | up to 2 decimals, comma, no trailing zeros | `4,5`, `12` |
 | Multiplier | `×` + up to 2 decimals | `×2`, `×1,5` |
 | Counter | as points | `4`, `1,5` |
-| Time of an entry | `HH:mm`, browser time zone | `23:41` |
+| Time of an entry (Verlauf delete button and dialog, §7g) | `HH:mm`, browser time zone | `23:41` |
 | Day and time of an entry (Verlauf row, §7g) | `dd.MM., HH:mm` without the year, day and time of the one instant in the browser time zone | `15.11., 23:41` |
 | Day and time of an audit event (Protokoll row, §7l) | `dd.MM., HH:mm` without the year, day and time of the one instant in the browser time zone; the day heading above it stays | `15.11., 21:00` |
 | Last update | `Stand: HH:mm` | `Stand: 23:41` |
