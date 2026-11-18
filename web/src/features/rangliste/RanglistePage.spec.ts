@@ -7,6 +7,7 @@ import {
   type RouteLocationNormalizedLoaded,
   RouterView,
 } from 'vue-router';
+import AppNavigation from '../../components/AppNavigation.vue';
 import AppTopBar from '../../components/AppTopBar.vue';
 import type { Scoreboard, Span } from '../../core/api-client';
 import { calendarDateOf } from '../../core/period';
@@ -152,8 +153,11 @@ interface RouterViewSlot {
   route: RouteLocationNormalizedLoaded;
 }
 
-/** The Rangliste at `path` in the shell's top bar, as the app shows it. */
-async function rangliste(path = '/rangliste') {
+/** The Rangliste at `path` in the shell's top bar (and its navigation bar), as the app shows it. */
+async function rangliste(
+  path = '/rangliste',
+  { navigation = false }: { navigation?: boolean } = {},
+) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -191,6 +195,7 @@ async function rangliste(path = '/rangliste') {
       default: ({ Component, route }: RouterViewSlot) =>
         h(Component, { key: screenKey(route) }),
     }),
+    navigation ? h(AppNavigation, { variant: 'bar' }) : null,
   ]);
   const wrapper = mount(shell, {
     attachTo: document.body,
@@ -502,6 +507,12 @@ function scoreboards(
     'fetch',
     vi.fn(async (url: string, init: RequestInit) => {
       const { pathname, search } = new URL(url, 'http://app');
+      if (pathname === '/api/pending') {
+        return new Response(
+          JSON.stringify({ items: [], next: null, count: 0 }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
       const ifNoneMatch = (init.headers as Record<string, string>)[
         'If-None-Match'
       ];
@@ -562,8 +573,8 @@ describe('the Rangliste’s periods', () => {
     process.env.TZ = zone;
   });
 
-  async function open(path?: string) {
-    page = await rangliste(path);
+  async function open(path?: string, options?: { navigation?: boolean }) {
+    page = await rangliste(path, options);
     return page;
   }
   const shown = () => page?.find('[data-test="leader"]').text() ?? '';
@@ -1306,7 +1317,7 @@ describe('the Rangliste’s periods', () => {
       expect(counted()).toEqual(FACTORED);
     });
 
-    it('keeps the choice across a period switch and back or forward from a person’s Verlauf', async () => {
+    it('keeps the choice across a period switch and back from a person’s Verlauf', async () => {
       scoreboards({ [TODAY]: factors, [THIS_WEEK]: factors });
       const { router } = await open();
       await count('Ohne Faktor');
@@ -1320,17 +1331,48 @@ describe('the Rangliste’s periods', () => {
       await flushPromises();
       expect(path()).toBe('/rangliste?zaehlung=roh');
       expect(counted()).toEqual(RAW);
+    });
 
+    it('replaces the history entry when choosing, so back leaves the Rangliste', async () => {
+      scoreboards({ [TODAY]: factors });
+      const { router } = await open('/zaehlen');
+      await router.push('/rangliste');
+      await flushPromises();
+
+      await count('Ohne Faktor');
       await count('Mit Faktor');
-      await click('[data-test="leader"]');
+      await count('Ohne Faktor');
       router.back();
       await flushPromises();
+
+      expect(path()).toBe('/zaehlen');
       router.forward();
       await flushPromises();
+      expect(path()).toBe('/rangliste?zaehlung=roh');
+      expect(counted()).toEqual(RAW);
+    });
+
+    it('follows back and forward between the positions of the shown Rangliste', async () => {
+      scoreboards({ [TODAY]: factors });
+      const { router } = await open('/rangliste');
+      await router.push('/rangliste?zaehlung=roh');
+      await flushPromises();
+
       router.back();
       await flushPromises();
-      expect(path()).toBe('/rangliste');
+      expect(counting()).toEqual([
+        ['Mit Faktor', 'true'],
+        ['Ohne Faktor', 'false'],
+      ]);
       expect(counted()).toEqual(FACTORED);
+
+      router.forward();
+      await flushPromises();
+      expect(counting()).toEqual([
+        ['Mit Faktor', 'false'],
+        ['Ohne Faktor', 'true'],
+      ]);
+      expect(counted()).toEqual(RAW);
     });
 
     it('keeps the page, the focus on the pressed option and the read standings when switching', async () => {
@@ -1354,11 +1396,15 @@ describe('the Rangliste’s periods', () => {
 
     it('opens with the factors from the bottom navigation', async () => {
       scoreboards({ [TODAY]: factors });
-      const { router } = await open('/rangliste?zaehlung=roh');
+      await open('/rangliste?zaehlung=roh', { navigation: true });
 
-      await router.push('/rangliste');
+      await page
+        ?.findAll('nav a')
+        .find((link) => link.text().includes('Rangliste'))
+        ?.trigger('click');
       await flushPromises();
 
+      expect(path()).toBe('/rangliste');
       expect(counting()).toEqual([
         ['Mit Faktor', 'true'],
         ['Ohne Faktor', 'false'],
