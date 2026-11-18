@@ -465,6 +465,41 @@ describe('the fixture backend’s points rankings by measure', () => {
     }
   });
 
+  it('ranks negative means over very different numbers of results by their exact values in both directions, before rounding', async () => {
+    installFixtureBackend(
+      withGameRows(
+        [],
+        [ROMME, DARTS].flatMap((game): ResultRow[] => [
+          ...scores(game, 1, [-4, -3]),
+          ...scores(game, 2, [-10, 0, 0]),
+          ...scores(game, 4, [...Array.from({ length: 99 }, () => -3), -36]),
+          ...scores(game, 3, [-15, 0, 0, 0]),
+        ]),
+      ),
+    );
+    const daniel = pointsRow(3, 'Daniel', -15, -3.8, 4);
+    const anna = pointsRow(1, 'Anna', -7, -3.5, 2);
+    const ben = pointsRow(2, 'Ben', -10, -3.3, 3);
+    const jule = pointsRow(4, 'Jule', -333, -3.3, 100);
+
+    for (const selection of ['scope=all', DAY]) {
+      expect(await rows(ROMME, `${selection}&measure=average`)).toEqual([
+        daniel,
+        anna,
+        ben,
+        jule,
+      ]);
+      expect(await rows(DARTS, `${selection}&measure=average`)).toEqual([
+        jule,
+        ben,
+        anna,
+        daniel,
+      ]);
+      expect(await rows(ROMME, selection)).toEqual([jule, daniel, ben, anna]);
+      expect(await rows(DARTS, selection)).toEqual([anna, ben, daniel, jule]);
+    }
+  });
+
   it('ranks by the sum without a measure and with measure=sum, every row carrying the rounded average', async () => {
     installFixtureBackend(
       withGameRows(

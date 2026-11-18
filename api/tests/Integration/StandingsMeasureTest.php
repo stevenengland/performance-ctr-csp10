@@ -177,6 +177,33 @@ final class StandingsMeasureTest extends DatabaseTestCase
     }
 
     /**
+     * Negative sums over very different numbers of results rank by the exact average in both
+     * directions, before the one-decimal rounding (half away from zero) of what is shown:
+     * Daniel −15/4 = −3.75 (−3.8), Anna −7/2 = −3.5, Ben −10/3 = −3.333… and Carla −333/100 =
+     * −3.33, both shown as −3.3. By the sum, Carla's hundred results lead where the lowest wins.
+     */
+    public function testNegativeAveragesOverVeryDifferentNumbersOfResultsRankByTheirExactValues(): void
+    {
+        foreach ([self::ROMME, self::DARTS] as $game) {
+            $this->insertResults(1, [-4, -3], $game);
+            $this->insertResults(2, [-10, 0, 0], $game);
+            $this->insertResults(3, [...array_fill(0, 99, -3), -36], $game);
+            $this->insertResults(4, [-15, 0, 0, 0], $game);
+        }
+        $daniel = self::pointsRow(4, 'Daniel', -15, -3.8, 4);
+        $anna = self::pointsRow(1, 'Anna', -7, -3.5, 2);
+        $ben = self::pointsRow(2, 'Ben', -10, -3.3, 3);
+        $carla = self::pointsRow(3, 'Carla', -333, -3.3, 100);
+
+        foreach (['scope=all', self::WINDOW] as $selection) {
+            self::assertSame([$daniel, $anna, $ben, $carla], $this->body($this->standings(self::ROMME, "{$selection}&measure=average"))['rows'], $selection);
+            self::assertSame([$carla, $ben, $anna, $daniel], $this->body($this->standings(self::DARTS, "{$selection}&measure=average"))['rows'], $selection);
+            self::assertSame([$carla, $daniel, $ben, $anna], $this->body($this->standings(self::ROMME, $selection))['rows'], $selection);
+            self::assertSame([$anna, $ben, $daniel, $carla], $this->body($this->standings(self::DARTS, $selection))['rows'], $selection);
+        }
+    }
+
+    /**
      * @return iterable<string, array{int, string, array<string, string>}>
      */
     public static function rejectedMeasures(): iterable
@@ -301,15 +328,16 @@ final class StandingsMeasureTest extends DatabaseTestCase
     }
 
     /**
-     * Inserts verified Rommé results of the person directly, too many to record one by one.
+     * Inserts verified results of the person in the game (Rommé unless named) directly, too
+     * many to record one by one.
      *
      * @param list<int> $points
      */
-    private function insertResults(int $person, array $points): void
+    private function insertResults(int $person, array $points, int $game = self::ROMME): void
     {
         $rows = [];
         foreach ($points as $index => $value) {
-            $rows[] = sprintf("('00000000-0000-4000-a%03d-%012d', %d, %d, %d, 1, NULL, '2026-11-14 20:00:00.000', 0)", $person, $index, self::ROMME, $person, $value);
+            $rows[] = sprintf("('00000000-0000-4000-a%d%02d-%012d', %d, %d, %d, 1, NULL, '2026-11-14 20:00:00.000', 0)", $game, $person, $index, $game, $person, $value);
         }
         $this->otherSession()->exec('INSERT INTO results (id, game_id, person_id, points, run, account_id, created_at, pending) VALUES ' . implode(', ', $rows));
     }
