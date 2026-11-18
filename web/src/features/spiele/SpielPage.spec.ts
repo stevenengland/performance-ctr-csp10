@@ -673,7 +673,7 @@ describe('restarting a game', () => {
       'Schach neu starten?',
     );
     expect(dialog().textContent).toContain(
-      'Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.',
+      'Aktuell beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert und zählen unter Tag, Woche und Gesamt weiter.',
     );
     expect(calls.some(({ method }) => method === 'POST')).toBe(false);
 

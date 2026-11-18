@@ -452,7 +452,7 @@ export const messages = {
     restart: 'Neu starten',
     restartTitle: (name: string) => `${name} neu starten?`,
     restartBody:
-      'Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.',
+      'Aktuell beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert und zählen unter Tag, Woche und Gesamt weiter.',
     restarted: (name: string) => `${name} neu gestartet`,
     /** The Verlauf's context line: `Schach · seit 15.09.`. */
     historyContext: (game: string, since: string) => `${game} · ${since}`,

@@ -842,7 +842,7 @@ test('the fixture preview restarts Schach: an empty ranking and Verlauf since to
   const confirm = page.getByRole('dialog');
   await expect(confirm.getByRole('heading')).toHaveText('Schach neu starten?');
   await expect(confirm).toContainText(
-    'Die Rangliste beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert, werden aber nicht mehr angezeigt.',
+    'Aktuell beginnt wieder bei null. Bisherige Ergebnisse bleiben gespeichert und zählen unter Tag, Woche und Gesamt weiter.',
   );
   await confirm.getByRole('button', { name: 'Neu starten' }).click();
 

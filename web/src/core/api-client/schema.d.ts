@@ -521,7 +521,7 @@ export interface paths {
     get?: never;
     put?: never;
     /**
-     * Start the game's next run from now; older results stay stored but are no longer shown
+     * Start the game's next run from now; older results stay stored and still count in the period and all-time standings
      * @description Takes no fields, but like every request body it must be JSON: send `{}`. A recording that is saving while the game restarts belongs to the run it committed in, the old one if it finished first, the new one otherwise.
      */
     post: operations['restartGame'];
