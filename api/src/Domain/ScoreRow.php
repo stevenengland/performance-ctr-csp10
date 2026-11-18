@@ -6,8 +6,9 @@ namespace Performance\Domain;
 
 /**
  * A person's standing in a day window. `score`, `count` and `rawCount`, the count's quantities
- * without their factors, cover the verified entries only; `pendingCount` is the number of the person's entries in the window that wait for
- * verification. Decimals are exact strings, e.g. `7.50`.
+ * without their factors, cover the verified entries only; `pendingCount` is the number of the
+ * person's entries in the window that wait for verification. Decimals are exact strings, e.g.
+ * `7.50`.
  */
 final readonly class ScoreRow
 {
