@@ -22,8 +22,18 @@ const BOARD: Scoreboard = {
       photoUrl: null,
       score: 13.5,
       count: 9,
+      rawCount: 4,
       pendingCount: 1,
-      drinks: [{ drinkId: 2, name: 'Bier', count: 4, recordedCount: 6 }],
+      drinks: [
+        {
+          drinkId: 2,
+          name: 'Bier',
+          count: 4,
+          recordedCount: 6,
+          rawCount: 4,
+          rawRecordedCount: 6,
+        },
+      ],
     },
   ],
   unranked: [
@@ -32,7 +42,16 @@ const BOARD: Scoreboard = {
       name: 'Ben',
       photoUrl: null,
       pendingCount: 2,
-      drinks: [{ drinkId: 2, name: 'Bier', count: 0, recordedCount: 3 }],
+      drinks: [
+        {
+          drinkId: 2,
+          name: 'Bier',
+          count: 0,
+          recordedCount: 3,
+          rawCount: 0,
+          rawRecordedCount: 3,
+        },
+      ],
     },
   ],
 };

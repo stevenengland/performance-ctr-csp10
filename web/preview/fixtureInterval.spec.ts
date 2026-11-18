@@ -59,8 +59,18 @@ describe('the fixture backend’s windows', () => {
         photoUrl: expect.any(String),
         score: 2,
         count: 2,
+        rawCount: 2,
         pendingCount: 1,
-        drinks: [{ drinkId: 2, name: 'Bier', count: 2, recordedCount: 7 }],
+        drinks: [
+          {
+            drinkId: 2,
+            name: 'Bier',
+            count: 2,
+            recordedCount: 7,
+            rawCount: 2,
+            rawRecordedCount: 7,
+          },
+        ],
       },
     ]);
     expect(day.unranked).toEqual([
@@ -69,7 +79,16 @@ describe('the fixture backend’s windows', () => {
         name: 'Ben',
         photoUrl: null,
         pendingCount: 1,
-        drinks: [{ drinkId: 1, name: 'Aperol', count: 0, recordedCount: 1 }],
+        drinks: [
+          {
+            drinkId: 1,
+            name: 'Aperol',
+            count: 0,
+            recordedCount: 1,
+            rawCount: 0,
+            rawRecordedCount: 1,
+          },
+        ],
       },
     ]);
   });

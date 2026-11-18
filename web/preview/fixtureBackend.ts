@@ -111,6 +111,7 @@ interface Tally {
   photoUrl: string | null;
   score: number;
   count: number;
+  rawCount: number;
   verifiedEntries: number;
   pendingCount: number;
   drinks: DrinkCount[];
@@ -127,8 +128,9 @@ function counts(fixtures: Fixtures, entry: FixtureEntry): boolean {
 /**
 The standings of an interval, aggregated like the API's Scoreboard: factors at their current
 multiplier; score, count and each drink's `count` over verified entries only,
-`recordedCount` over every entry, the pending entries counted per person, and a
-person whose entries all wait listed apart in `unranked`, by name.
+`recordedCount` over every entry, each count beside its pure count (the quantities
+without their factors), the pending entries counted per person, and a person
+whose entries all wait listed apart in `unranked`, by name.
 */
 function scoreboard(fixtures: Fixtures, interval: Interval): Scoreboard {
   const tallies = new Map<number, Tally>();
@@ -141,30 +143,37 @@ function scoreboard(fixtures: Fixtures, interval: Interval): Scoreboard {
       fixtures.factors.find(({ id }) => id === entry.factorId)?.multiplier ?? 1;
     const counted = entry.quantity * multiplier;
     const verified = entry.pending ? 0 : counted;
+    const verifiedQuantity = entry.pending ? 0 : entry.quantity;
     const tally = tallies.get(person.id) ?? {
       personId: person.id,
       name: person.name,
       photoUrl: person.photoUrl,
       score: 0,
       count: 0,
+      rawCount: 0,
       verifiedEntries: 0,
       pendingCount: 0,
       drinks: [],
     };
     tally.score += verified * drink.points;
     tally.count += verified;
+    tally.rawCount += verifiedQuantity;
     if (entry.pending) tally.pendingCount += 1;
     else tally.verifiedEntries += 1;
     const counter = tally.drinks.find(({ drinkId }) => drinkId === drink.id);
     if (counter) {
       counter.count += verified;
       counter.recordedCount += counted;
+      counter.rawCount += verifiedQuantity;
+      counter.rawRecordedCount += entry.quantity;
     } else {
       tally.drinks.push({
         drinkId: drink.id,
         name: drink.name,
         count: verified,
         recordedCount: counted,
+        rawCount: verifiedQuantity,
+        rawRecordedCount: entry.quantity,
       });
     }
     tallies.set(person.id, tally);
@@ -176,6 +185,8 @@ function scoreboard(fixtures: Fixtures, interval: Interval): Scoreboard {
         ...drink,
         count: round(drink.count),
         recordedCount: round(drink.recordedCount),
+        rawCount: round(drink.rawCount),
+        rawRecordedCount: round(drink.rawRecordedCount),
       }))
       .sort(byName);
   const all = [...tallies.values()];
@@ -188,6 +199,7 @@ function scoreboard(fixtures: Fixtures, interval: Interval): Scoreboard {
         photoUrl: tally.photoUrl,
         score: round(tally.score),
         count: round(tally.count),
+        rawCount: round(tally.rawCount),
         pendingCount: tally.pendingCount,
         drinks: drinksOf(tally),
       }))

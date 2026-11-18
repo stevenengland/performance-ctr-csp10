@@ -1040,6 +1040,8 @@ export interface components {
       score: number;
       /** @description Verified entries only */
       count: number;
+      /** @description Σ quantity over the verified entries, without their factors; the sum of the drinks' `rawCount` */
+      rawCount: number;
       /** @description The number of the person's entries in the selection that wait for verification (rows, not quantities) */
       pendingCount: number;
       /** @description By drink name; only drinks with entries, pending ones included */
@@ -1051,7 +1053,7 @@ export interface components {
       photoUrl: components['schemas']['PhotoUrl'];
       /** @description The number of the person's entries in the selection, all waiting for verification */
       pendingCount: number;
-      /** @description By drink name; each `count` is 0 */
+      /** @description By drink name; each `count` and `rawCount` is 0 */
       drinks: components['schemas']['DrinkCount'][];
     };
     DrinkCount: {
@@ -1061,6 +1063,10 @@ export interface components {
       count: number;
       /** @description Σ quantity × multiplier over every recorded entry, pending ones included: what the recording flow shows */
       recordedCount: number;
+      /** @description Σ quantity over the verified entries, without their factors */
+      rawCount: number;
+      /** @description Σ quantity over every recorded entry, pending ones included, without their factors */
+      rawRecordedCount: number;
     };
     DaysWithData: {
       /** @description The sessions with at least one row that counts in the selection, ascending and disjoint, each from the start of its first 15-minute UTC bucket to the end of its last; empty when nothing counts there */

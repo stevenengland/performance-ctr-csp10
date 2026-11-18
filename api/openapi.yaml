@@ -2267,7 +2267,8 @@ components:
     ScoreRow:
       type: object
       additionalProperties: false
-      required: [personId, name, photoUrl, score, count, pendingCount, drinks]
+      required:
+        [personId, name, photoUrl, score, count, rawCount, pendingCount, drinks]
       properties:
         personId:
           type: integer
@@ -2281,6 +2282,11 @@ components:
         count:
           type: number
           description: Verified entries only
+        rawCount:
+          type: number
+          description: >-
+            Σ quantity over the verified entries, without their factors; the sum of the drinks'
+            `rawCount`
         pendingCount:
           type: integer
           minimum: 0
@@ -2307,13 +2313,14 @@ components:
           description: The number of the person's entries in the selection, all waiting for verification
         drinks:
           type: array
-          description: By drink name; each `count` is 0
+          description: By drink name; each `count` and `rawCount` is 0
           items:
             $ref: '#/components/schemas/DrinkCount'
     DrinkCount:
       type: object
       additionalProperties: false
-      required: [drinkId, name, count, recordedCount]
+      required:
+        [drinkId, name, count, recordedCount, rawCount, rawRecordedCount]
       properties:
         drinkId:
           type: integer
@@ -2327,6 +2334,12 @@ components:
           description: >-
             Σ quantity × multiplier over every recorded entry, pending ones included: what
             the recording flow shows
+        rawCount:
+          type: number
+          description: Σ quantity over the verified entries, without their factors
+        rawRecordedCount:
+          type: number
+          description: Σ quantity over every recorded entry, pending ones included, without their factors
     DaysWithData:
       type: object
       additionalProperties: false
