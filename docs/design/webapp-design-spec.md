@@ -221,6 +221,7 @@ All user-visible text lives in one German messages module; all formatting goes t
 | Multiplier | `×` + up to 2 decimals | `×2`, `×1,5` |
 | Counter | as points | `4`, `1,5` |
 | Time of an entry | `HH:mm`, browser time zone | `23:41` |
+| Day and time of an entry (Verlauf row, §7g) | `dd.MM., HH:mm` without the year, day and time of the one instant in the browser time zone | `15.11., 23:41` |
 | Last update | `Stand: HH:mm` | `Stand: 23:41` |
 | Quantity in text | `<n>×` | `2× Bier` |
 | Start of a game's run | `seit dd.MM.`, or `seit heute, HH:mm` when it lies after local midnight; browser time zone; turns into the date at the next local midnight, or when the screen is shown or focused again after it | `seit 15.09.`, `seit heute, 19:30` |
@@ -712,12 +713,13 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 - List `Einträge von Daniel` of the day's entries (today: since local midnight; at the next local midnight,
   or when the page is shown or focused again after it, read again for the new day; a past day stays), newest first, rows on
   `outline-variant` hairlines: primary `2× Bier` (`row-title`), secondary
-  `Happy Hour ×2 · 23:41 · anna` (`support`; the factor with its current multiplier,
-  `Kein Faktor` when none or deleted; the local time; the account's user name, or
+  `Happy Hour ×2 · 15.11., 23:41 · anna` (`support`; the factor with its current multiplier,
+  `Kein Faktor` when none or deleted; the local day and time the entry was booked (§3.5), the
+  day even though the top bar names it too; the account's user name, or
   `gelöschtes Konto` when the account is gone); an entry that waits for verification carries
   the assist chip `offen` (§7j's `Admin` chip) before the delete button; trailing delete icon
   button named
-  `2× Bier um 23:41 löschen`, opening the confirmation dialog (§6.9).
+  `2× Bier um 23:41 löschen` (the time only), opening the confirmation dialog (§6.9).
 - After `Löschen` (on a past day as on today): the snackbar `Eintrag gelöscht`, the list is
   read again and the scoreboard feed refreshes at once, together with the period the Rangliste
   shows, so counters and the Rangliste follow. An entry already deleted on
