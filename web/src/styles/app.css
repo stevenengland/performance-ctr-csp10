@@ -119,6 +119,38 @@ p {
   padding-top: 16px;
 }
 
+/* A segmented switch (§7f: period and counting): a `group` of buttons with `aria-pressed`. */
+.segmented-switch {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid rgb(var(--v-theme-outline));
+  border-radius: 10px;
+}
+
+.segmented-switch__option {
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: rgb(var(--v-theme-on-surface));
+  cursor: pointer;
+}
+
+.segmented-switch__option + .segmented-switch__option {
+  border-left: 1px solid rgb(var(--v-theme-outline));
+}
+
+.segmented-switch__option[aria-pressed='true'] {
+  background: rgb(var(--v-theme-secondary-container));
+  color: rgb(var(--v-theme-on-secondary-container));
+}
+
+.segmented-switch__option:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: -2px;
+}
+
 /* No shadows anywhere (§3.3). */
 .v-btn,
 .v-card,

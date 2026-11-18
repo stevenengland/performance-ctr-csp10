@@ -181,7 +181,7 @@ const allLine = computed(() => {
 
 <template>
   <div
-    class="period-switch"
+    class="segmented-switch period-switch"
     role="group"
     :aria-label="messages.period.label"
     :style="{ gridTemplateColumns: `repeat(${String(kinds.length)}, 1fr)` }"
@@ -190,7 +190,7 @@ const allLine = computed(() => {
       v-for="kind in kinds"
       :key="kind"
       type="button"
-      class="type-label period-switch__option"
+      class="type-label segmented-switch__option"
       :aria-pressed="period.kind === kind"
       @click="choose(kind)"
     >
@@ -263,35 +263,7 @@ const allLine = computed(() => {
 
 <style scoped>
 .period-switch {
-  display: grid;
-  overflow: hidden;
   margin-bottom: 4px;
-  border: 1px solid rgb(var(--v-theme-outline));
-  border-radius: 10px;
-}
-
-.period-switch__option {
-  min-width: 0;
-  min-height: 44px;
-  padding: 0 4px;
-  border: 0;
-  background: none;
-  color: rgb(var(--v-theme-on-surface));
-  cursor: pointer;
-}
-
-.period-switch__option + .period-switch__option {
-  border-left: 1px solid rgb(var(--v-theme-outline));
-}
-
-.period-switch__option[aria-pressed='true'] {
-  background: rgb(var(--v-theme-secondary-container));
-  color: rgb(var(--v-theme-on-secondary-container));
-}
-
-.period-switch__option:focus-visible {
-  outline: 2px solid rgb(var(--v-theme-primary));
-  outline-offset: -2px;
 }
 
 .day-bar {

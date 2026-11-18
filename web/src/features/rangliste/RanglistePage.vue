@@ -120,7 +120,7 @@ provideTopBar(() => {
       :days="DAYS"
     />
     <div
-      class="counting-switch"
+      class="segmented-switch counting-switch"
       role="group"
       :aria-label="messages.rangliste.counting.label"
     >
@@ -128,7 +128,7 @@ provideTopBar(() => {
         v-for="option in COUNTINGS"
         :key="option"
         type="button"
-        class="type-label counting-switch__option"
+        class="type-label segmented-switch__option"
         :aria-pressed="counting === option"
         @click="countWith(option)"
       >
@@ -196,36 +196,8 @@ provideTopBar(() => {
 }
 
 .counting-switch {
-  display: grid;
   grid-template-columns: 1fr 1fr;
   margin: 8px 0 12px;
-  overflow: hidden;
-  border: 1px solid rgb(var(--v-theme-outline));
-  border-radius: 10px;
-}
-
-.counting-switch__option {
-  min-width: 0;
-  min-height: 44px;
-  padding: 0 4px;
-  border: 0;
-  background: none;
-  color: rgb(var(--v-theme-on-surface));
-  cursor: pointer;
-}
-
-.counting-switch__option + .counting-switch__option {
-  border-left: 1px solid rgb(var(--v-theme-outline));
-}
-
-.counting-switch__option[aria-pressed='true'] {
-  background: rgb(var(--v-theme-secondary-container));
-  color: rgb(var(--v-theme-on-secondary-container));
-}
-
-.counting-switch__option:focus-visible {
-  outline: 2px solid rgb(var(--v-theme-primary));
-  outline-offset: -2px;
 }
 
 .rangliste__list {
