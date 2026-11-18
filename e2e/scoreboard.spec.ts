@@ -172,18 +172,27 @@ test('Ohne Faktor counts the pure quantities on the Rangliste with the same scor
   const verify = await verifierOn(request);
   const ben = uniqueName('Ben');
   const bier = uniqueName('Bier');
-  const benId = await created(page.request, '/api/persons', { name: ben });
-  const bierId = await created(page.request, '/api/drinks', {
-    name: bier,
-    points: 1,
-  });
-  const factorId = await created(page.request, '/api/factors', {
-    name: uniqueName('Fünffach'),
-    multiplier: 5,
-  });
   const counting = page.getByRole('group', { name: 'Zählung' });
+  // Deleted again whatever step fails: the factor is shared by everyone on the
+  // stack (see `factors.spec.ts`), and the person and the drink take their
+  // entries with them, so none counts in another test's window or Gesamt.
+  const made: string[] = [];
+  const make = async (
+    path: Parameters<typeof created>[1],
+    data: Record<string, unknown>,
+  ) => {
+    const id = await created(page.request, path, data);
+    made.push(`${path}/${String(id)}`);
+    return id;
+  };
 
   try {
+    const benId = await make('/api/persons', { name: ben });
+    const bierId = await make('/api/drinks', { name: bier, points: 1 });
+    const factorId = await make('/api/factors', {
+      name: uniqueName('Fünffach'),
+      multiplier: 5,
+    });
     await verify(await addEntry(page.request, benId, bierId, 4, factorId));
     await verify(await addEntry(page.request, benId, bierId, 2));
     await page.goto('/rangliste');
@@ -217,8 +226,7 @@ test('Ohne Faktor counts the pure quantities on the Rangliste with the same scor
       new RegExp(`^Platz \\d+, ${ben}, 22 Punkte, 22 Getränke$`),
     );
   } finally {
-    // Factors are shared by everyone on the stack (see `factors.spec.ts`).
-    await page.request.delete(`/api/factors/${String(factorId)}`);
+    for (const path of made.reverse()) await page.request.delete(path);
   }
 });
 
