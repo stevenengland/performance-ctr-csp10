@@ -1005,7 +1005,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
   ranking so the FAB covers no place.
 - At the top, in `label`, `on-surface-variant`, the rule that decides the ranking:
   `Remis möglich` or `Kein Remis` for a duel, `Höchste Summe gewinnt` or
-  `Niedrigste Summe gewinnt` for a points game.
+  `Niedrigste Summe gewinnt` for a points game. The rule line names the game's direction and
+  stays the same under `Summe` and `Ø pro Ergebnis`: the direction applies to both measures, so
+  under `Ø pro Ergebnis` with `Niedrigste Summe gewinnt` the lowest average leads.
 - Below it the game's ranking since the last (re)start, shaped like the Rangliste (§7f):
   - **Rank 1 — leader card:** `primary-container`, corner 18 dp. Name (`name-hero`) on the
     left, the value (`score-hero`) on the right; below, the value with its unit
