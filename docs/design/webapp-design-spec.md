@@ -222,6 +222,7 @@ All user-visible text lives in one German messages module; all formatting goes t
 | Counter | as points | `4`, `1,5` |
 | Time of an entry | `HH:mm`, browser time zone | `23:41` |
 | Day and time of an entry (Verlauf row, §7g) | `dd.MM., HH:mm` without the year, day and time of the one instant in the browser time zone | `15.11., 23:41` |
+| Day and time of an audit event (Protokoll row, §7l) | `dd.MM., HH:mm` without the year, day and time of the one instant in the browser time zone; the day heading above it stays | `15.11., 21:00` |
 | Last update | `Stand: HH:mm` | `Stand: 23:41` |
 | Quantity in text | `<n>×` | `2× Bier` |
 | Start of a game's run | `seit dd.MM.`, or `seit heute, HH:mm` when it lies after local midnight; browser time zone; turns into the date at the next local midnight, or when the screen is shown or focused again after it | `seit 15.09.`, `seit heute, 19:30` |
@@ -900,8 +901,9 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     `Schach · Anna gewinnt` or `Schach · Remis` for a match (its game and outcome),
     `Rommé · −20 Punkte` for a result (its game and its points, with a real minus sign);
     a value the event does not hold is left out;
-  - then (`support`): the local time and the user name the event recorded, `23:41 · anna`
-    (kept after the account is deleted);
+  - then (`support`): the local day and time of the event (§3.5) and the user name the event
+    recorded, `15.11., 23:41 · anna` (kept after the account is deleted) — the day even though
+    the heading above names it too;
   - trailing, an outlined assist chip (corner 8 dp, `caption`) with the operation: `Angelegt`,
     `Geändert`, `Gelöscht` in `error`, or `bestätigt` for a verification (§7s) — named like any
     event of its subject (`Eintrag 2× Bier für Daniel`), with the verifying account in the
@@ -912,7 +914,7 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
 - A consequential event — an entry removed by the deletion of its person or drink, or an entry
   that lost its factor when the factor was deleted, a match or result removed with its game, a
   match side cleared or a result removed with its person — is indented by 20 dp and its supporting
-  line ends with its cause, `23:41 · anna · durch Löschen von Wein`. The cause comes with the
+  line ends with its cause, `15.11., 23:41 · anna · durch Löschen von Wein`. The cause comes with the
   event itself, so it shows even when the deletion is on another page.
 - Pages of 20: below the list the tonal button `Ältere laden` appends the next older page; on
   the last page it is gone. A failed older page shows the problem title and keeps what is
