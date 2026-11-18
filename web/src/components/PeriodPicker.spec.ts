@@ -507,6 +507,35 @@ describe('PeriodPicker', () => {
       vi.useRealTimers();
     });
 
+    it('polls the Gesamt read two pickers share once every 10 s, on while one of them stays on Gesamt, and anew when it enters Gesamt again', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { days, asked } = daysOf({
+        'scope=all': [span('2026-11-14T19:30', '2026-11-14T22:00')],
+      });
+      const first = picker({ kind: 'all' }, ALL_KINDS, days);
+      opened = picker({ kind: 'all' }, ALL_KINDS, days);
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(asked).toHaveLength(2);
+
+      first.unmount();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(asked).toHaveLength(3);
+      await option(opened, 'Tag')?.trigger('click');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(asked).toHaveLength(3);
+      await option(opened, 'Gesamt')?.trigger('click');
+      await flushPromises();
+      expect(asked).toHaveLength(4);
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(asked).toHaveLength(5);
+      expect(opened.get('.period-line').text()).toBe(
+        'Alle Tage seit 14.11.2026 · 1 Abend',
+      );
+      vi.useRealTimers();
+    });
+
     it('counts one evening as 1 Abend, and shows no line before a day counts', async () => {
       const one = daysOf({
         'scope=all': [span('2026-11-14T19:30', '2026-11-14T19:45')],

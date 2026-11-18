@@ -127,6 +127,35 @@ describe('the all-time days-with-data read', () => {
     expect(asked).toEqual([undefined, '"1"', '"1"', '"3"']);
   });
 
+  it('polls once every 10 s for two live screens, on while one of them stays, and from the moment a screen enters `Gesamt` again', async () => {
+    const { read, asked } = readOf(SATURDAY, 'unchanged');
+    days = createDaysRead(read);
+    // Two screens show `Gesamt` (a page and the one stacked over it).
+    days.start(true);
+    days.start(true);
+    await settle();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(asked).toEqual([undefined, '"1"']);
+
+    // The first one closes: the second keeps it live.
+    days.stop(true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(asked).toEqual([undefined, '"1"', '"1"']);
+
+    // The second leaves `Gesamt`: nothing polls, and the spans stay.
+    days.stop(true);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(asked).toEqual([undefined, '"1"', '"1"']);
+    expect(days.state.value.value).toEqual(SATURDAY);
+
+    // … and enters it again: read at once on condition of the ETag, then polled.
+    days.start(true);
+    await settle();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(asked).toEqual([undefined, '"1"', '"1"', '"1"', '"1"']);
+    days.stop(true);
+  });
+
   it('reads again after the device’s own writes while a screen runs it, and on the next start otherwise', async () => {
     const { read, asked } = readOf(SATURDAY, SUNDAY);
     days = createDaysRead(read);

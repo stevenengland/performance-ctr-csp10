@@ -101,8 +101,8 @@ export function createDaysRead(read: DaysFetch): DaysRead {
       screens += 1;
       if (live) liveScreens += 1;
       resource.start();
-      // Already run by another screen: read now, so the polling starts.
-      if (live && screens > 1) void resource.refresh();
+      // Run by another screen, but not live: read now, so the polling starts.
+      if (live && liveScreens === 1 && screens > 1) void resource.refresh();
     },
     stop(live = false) {
       if (screens === 0) return;
