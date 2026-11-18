@@ -622,6 +622,26 @@ person dialog 112 dp (§7i). Top bars, Verlauf and Spiele show no avatar.
     midnight, a resume or a time-zone change it stays the same day, its window rebuilt. A week
     is held as its Monday, a local calendar date, in the same way; a week left open past Sunday
     midnight stays that week (then `Letzte Woche`).
+- **Counting switch** (PRD #83) under the period picker: a segmented switch `Mit Faktor` |
+  `Ohne Faktor`, a `group` named `Zählung` of buttons with `aria-pressed`, shaped like the
+  period switch (1 dp `outline` border, corner 10 dp, each option at least 44 dp high in
+  `label`, `outline` hairline between them, the selected option in `secondary-container` /
+  `on-secondary-container`), full width with 8 / 12 dp above and below. `Mit Faktor` is the
+  default and shows the factored counts, as before. `Ohne Faktor` shows the pure quantities,
+  the sum without any factor, from the API's `rawCount` (a row's total and each drink) and
+  `rawRecordedCount` (an unranked person's drinks): in the tally, the total count
+  (`6 Getränke`), every per-drink counter (a drink booked 4 ×5 and 2 ×1 reads `Bier 6`,
+  `Bier 22` with the factor) and each place's accessible name. It changes the displayed drink
+  quantities only: score, rank and order stay factor-based, and `+n offen` counts entries in
+  both. The view-model (`standings.ts`) maps the counting to the counters; card and rows show
+  what it hands them.
+  - The position lives in the query string: `Ohne Faktor` sets `zaehlung=roh`, `Mit Faktor`
+    removes the parameter (no other value is written); choosing replaces the history entry and
+    keeps every other query parameter. Without the parameter, and with any other or a repeated
+    value, the Rangliste counts with the factors. So a reload, a deep link, back and forward
+    (also back from a person's Verlauf) restore the position, and switching the period keeps
+    it. The period is not in the URL, so a shared link carries the counting but not the period.
+    The navigation bar opens `/rangliste`, so `Mit Faktor`.
 - **What a period ranks.** A day is the local calendar day `[00:00, next 00:00)` in the viewer's
   time zone (23 or 25 hours when the clocks change), sent as UTC instants `from` and `to`. A
   week is an ISO 8601 week, Monday to Sunday, numbered by the Thursday rule (29.12.2025 is in
