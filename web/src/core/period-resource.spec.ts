@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { effectScope, nextTick, ref } from 'vue';
+import type { ScoreboardSelection } from './api-client';
+import { calendarDateOf, isLive, type Period, periodKey } from './period';
 import {
   createPeriodResource,
   type PeriodResource,
   usePeriodResource,
+  windowedRead,
 } from './period-resource';
 import type { ConditionalFetch } from './polled-resource';
+import { useToday } from './today';
 
 type Answer = Awaited<ReturnType<ConditionalFetch<string>>>;
 
@@ -303,5 +307,140 @@ describe('a period resource', () => {
       await settle();
       expect(fake.sent().at(-1)).toEqual(['a', undefined]);
     });
+  });
+});
+
+describe('a period resource of today across midnight', () => {
+  const zone = process.env.TZ;
+
+  beforeEach(() => {
+    process.env.TZ = 'Europe/Berlin';
+    // Sunday 15.11., 23:59:45 in Berlin.
+    vi.useFakeTimers({ now: new Date('2026-11-15T22:59:45Z') });
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible',
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    process.env.TZ = zone;
+  });
+
+  it('drops the 304 of a conditional request for today that was on its way at midnight, and reads the new today without that ETag', async () => {
+    const requests: {
+      selection: ScoreboardSelection;
+      etag: string | undefined;
+      answer: (reply: Answer) => void;
+    }[] = [];
+    const resource = createPeriodResource<
+      Extract<Period, { kind: 'day' }>,
+      string
+    >({
+      key: periodKey,
+      live: (period) => isLive(period, calendarDateOf(new Date())),
+      read: (period) =>
+        windowedRead(
+          period,
+          (selection, etag) =>
+            new Promise<Answer>((answer) => {
+              requests.push({ selection, etag, answer });
+            }),
+        ),
+    });
+    const scope = effectScope();
+    const state = scope.run(() => {
+      const today = useToday();
+      return usePeriodResource(resource, () => ({
+        kind: 'day' as const,
+        date: calendarDateOf(today.value),
+      }));
+    });
+    await settle();
+    requests[0]?.answer({ value: 'Sonntag', etag: '"so"' });
+    await settle();
+
+    // The poll at 23:59:55 asks on condition of Sunday's ETag; midnight comes before its answer.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(requests).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await nextTick();
+    await settle();
+    requests[1]?.answer('unchanged');
+    await settle();
+    requests[2]?.answer({ value: 'Montag', etag: '"mo"' });
+    await settle();
+
+    expect(
+      requests.map(({ selection, etag }) => [
+        'from' in selection ? selection.from : selection,
+        etag,
+      ]),
+    ).toEqual([
+      ['2026-11-14T23:00:00.000Z', undefined],
+      ['2026-11-14T23:00:00.000Z', '"so"'],
+      ['2026-11-15T23:00:00.000Z', undefined],
+    ]);
+    expect(state?.value).toMatchObject({ value: 'Montag', stale: false });
+    scope.stop();
+  });
+
+  it('reads a kept past day for its window in the time zone that changed meanwhile, showing the kept ranking until the answer', async () => {
+    const requests: {
+      selection: ScoreboardSelection;
+      etag: string | undefined;
+      answer: (reply: Answer) => void;
+    }[] = [];
+    const resource = createPeriodResource<
+      Extract<Period, { kind: 'day' }>,
+      string
+    >(
+      {
+        key: periodKey,
+        live: () => false,
+        read: (period) =>
+          windowedRead(
+            period,
+            (selection, etag) =>
+              new Promise<Answer>((answer) => {
+                requests.push({ selection, etag, answer });
+              }),
+          ),
+      },
+      { keeps: 1 },
+    );
+    const saturday = {
+      kind: 'day' as const,
+      date: { year: 2026, month: 11, day: 14 },
+    };
+    resource.start();
+    resource.show(saturday);
+    await settle();
+    requests[0]?.answer({ value: 'Samstag in Berlin', etag: '"sa"' });
+    await settle();
+    resource.show({ kind: 'day', date: { year: 2026, month: 11, day: 13 } });
+    await settle();
+
+    process.env.TZ = 'America/New_York';
+    resource.show(saturday);
+    const shownAtOnce = resource.state.value.value;
+    await settle();
+    requests[2]?.answer({ value: 'Samstag in New York', etag: '"sa-ny"' });
+    await settle();
+
+    expect(shownAtOnce).toBe('Samstag in Berlin');
+    expect(
+      requests.map(({ selection, etag }) => [
+        'from' in selection ? selection.from : selection,
+        etag,
+      ]),
+    ).toEqual([
+      ['2026-11-13T23:00:00.000Z', undefined],
+      ['2026-11-12T23:00:00.000Z', undefined],
+      ['2026-11-14T05:00:00.000Z', '"sa"'],
+    ]);
+    expect(resource.state.value.value).toBe('Samstag in New York');
+    resource.stop();
   });
 });
