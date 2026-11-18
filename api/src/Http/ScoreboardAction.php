@@ -60,7 +60,7 @@ final readonly class ScoreboardAction
     /**
      * A person's standing, with the URL of their photo.
      *
-     * @return array{personId: int, name: string, photoUrl: string|null, score: int|float, count: int|float, pendingCount: int, drinks: list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float}>}
+     * @return array{personId: int, name: string, photoUrl: string|null, score: int|float, count: int|float, rawCount: int|float, pendingCount: int, drinks: list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float, rawCount: int|float, rawRecordedCount: int|float}>}
      */
     private static function row(ScoreRow $row, PhotoUrl $photoUrl): array
     {
@@ -70,6 +70,7 @@ final readonly class ScoreboardAction
             'photoUrl' => $photoUrl->of($row->personId, $row->photoVersion),
             'score' => Decimal::json($row->score),
             'count' => Decimal::json($row->count),
+            'rawCount' => Decimal::json($row->rawCount),
             'pendingCount' => $row->pendingCount,
             'drinks' => self::drinks($row->drinks),
         ];
@@ -78,7 +79,7 @@ final readonly class ScoreboardAction
     /**
      * A person without a rank, with the URL of their photo.
      *
-     * @return array{personId: int, name: string, photoUrl: string|null, pendingCount: int, drinks: list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float}>}
+     * @return array{personId: int, name: string, photoUrl: string|null, pendingCount: int, drinks: list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float, rawCount: int|float, rawRecordedCount: int|float}>}
      */
     private static function unranked(UnrankedRow $row, PhotoUrl $photoUrl): array
     {
@@ -94,7 +95,7 @@ final readonly class ScoreboardAction
     /**
      * @param list<DrinkCount> $drinks
      *
-     * @return list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float}>
+     * @return list<array{drinkId: int, name: string, count: int|float, recordedCount: int|float, rawCount: int|float, rawRecordedCount: int|float}>
      */
     private static function drinks(array $drinks): array
     {
@@ -104,6 +105,8 @@ final readonly class ScoreboardAction
                 'name' => $drink->name,
                 'count' => Decimal::json($drink->count),
                 'recordedCount' => Decimal::json($drink->recordedCount),
+                'rawCount' => Decimal::json($drink->rawCount),
+                'rawRecordedCount' => Decimal::json($drink->rawRecordedCount),
             ],
             $drinks,
         );
