@@ -30,7 +30,7 @@ export interface Standing {
   photoUrl: string | null;
   /** Total score today: `13,5`. */
   score: string;
-  /** Total count today, for the tally. */
+  /** Total count today, with or without the factors as chosen, for the tally. */
   count: number;
   /** `9 Getränke`. */
   countText: string;
