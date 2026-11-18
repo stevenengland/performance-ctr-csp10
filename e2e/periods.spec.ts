@@ -146,6 +146,17 @@ async function shownInCalendar(page: Page, day: Day) {
   });
 }
 
+/** The quarter hours of the day that `GET /api/scoreboard/days` answers as holding counted drinks. */
+async function daysWithDataIn(page: Page, day: Day): Promise<string[]> {
+  const response = await page.request.get('/api/scoreboard/days');
+  expect(response.status()).toBe(200);
+  const { instants } = (await response.json()) as { instants: string[] };
+  return instants.filter((instant) => {
+    const at = Date.parse(instant);
+    return at >= day.start.getTime() && at < day.end.getTime();
+  });
+}
+
 /**
 A person's place on the Rangliste: the leader card or a row, a link named
 `Platz n, <name>, …`, or a row without a rank, named `<name>, …`.
@@ -295,6 +306,9 @@ test('a past day whose entries all wait lists them only under Noch nicht gewerte
   ).toHaveAccessibleName(new RegExp(`^${jule}, .*\\+1 offen$`));
   await expect(page.getByRole('list', { name: 'Rangliste' })).toHaveCount(0);
   await expect(page.locator('[data-test="leader"]')).toHaveCount(0);
+  // The absence of a dot proves nothing while the calendar's read is on its way: the
+  // server's days are the proof, the calendar shows them.
+  expect(await daysWithDataIn(page, day)).toEqual([]);
   const unmarked = await shownInCalendar(page, day);
   await expect(unmarked).toHaveAttribute('aria-pressed', 'true');
   await expect(unmarked).not.toHaveClass(/calendar__day--marked/);
@@ -302,6 +316,7 @@ test('a past day whose entries all wait lists them only under Noch nicht gewerte
   await expect(page.getByRole('dialog')).toBeHidden();
 
   await verify(entry);
+  expect(await daysWithDataIn(page, day)).toEqual([day.evening.toISOString()]);
   // A past day is read again on focus, not polled.
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(place(page, jule)).toHaveAccessibleName(
