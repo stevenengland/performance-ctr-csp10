@@ -181,11 +181,11 @@ test('Ohne Faktor counts the pure quantities on the Rangliste with the same scor
     name: uniqueName('Fünffach'),
     multiplier: 5,
   });
-  await verify(await addEntry(page.request, benId, bierId, 4, factorId));
-  await verify(await addEntry(page.request, benId, bierId, 2));
   const counting = page.getByRole('group', { name: 'Zählung' });
 
   try {
+    await verify(await addEntry(page.request, benId, bierId, 4, factorId));
+    await verify(await addEntry(page.request, benId, bierId, 2));
     await page.goto('/rangliste');
     // 4 × 5 + 2 × 1 = 22 with the factor, 4 + 2 = 6 without; 22 Punkte in both.
     await expect(
