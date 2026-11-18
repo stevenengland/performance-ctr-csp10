@@ -120,7 +120,7 @@ describe('Protokoll', () => {
     process.env.TZ = zone;
   });
 
-  it('shows the newest events under their day with subject, changed values, time, user name and operation, and a consequential one with its cause from another page', async () => {
+  it('shows the newest events under their day with subject, changed values, day and time, user name and operation, and a consequential one with its cause from another page', async () => {
     api({ '': () => json(newest) });
 
     wrapper = await mountPage('/verwalten/protokoll', ProtokollPage);
@@ -129,8 +129,8 @@ describe('Protokoll', () => {
       [
         'Heute',
         [
-          'Eintrag 1× Wein für Daniel1,5 Punkte23:41 · anna · durch Löschen von WeinGelöscht',
-          'Getränk BierPunkte: 1 Punkt → 0,5 Punkte22:58 · benGeändert',
+          'Eintrag 1× Wein für Daniel1,5 Punkte15.11., 23:41 · anna · durch Löschen von WeinGelöscht',
+          'Getränk BierPunkte: 1 Punkt → 0,5 Punkte15.11., 22:58 · benGeändert',
         ],
       ],
     ]);
@@ -155,12 +155,12 @@ describe('Protokoll', () => {
       [
         'Heute',
         [
-          'Eintrag 1× Wein für Daniel1,5 Punkte23:41 · anna · durch Löschen von WeinGelöscht',
-          'Getränk BierPunkte: 1 Punkt → 0,5 Punkte22:58 · benGeändert',
-          'Getränk Wein1,5 Punkte22:57 · annaGelöscht',
+          'Eintrag 1× Wein für Daniel1,5 Punkte15.11., 23:41 · anna · durch Löschen von WeinGelöscht',
+          'Getränk BierPunkte: 1 Punkt → 0,5 Punkte15.11., 22:58 · benGeändert',
+          'Getränk Wein1,5 Punkte15.11., 22:57 · annaGelöscht',
         ],
       ],
-      ['Gestern', ['Person Daniel20:00 · annaAngelegt']],
+      ['Gestern', ['Person Daniel14.11., 20:00 · annaAngelegt']],
     ]);
     expect(more(wrapper)).toHaveLength(0);
   });

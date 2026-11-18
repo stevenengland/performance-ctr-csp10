@@ -232,7 +232,7 @@ describe('the Protokoll rows', () => {
       operationLabel: 'bestätigt',
       title: 'Eintrag 2× Bier für Daniel',
       changes: '',
-      by: '23:41 · ben',
+      by: '15.11., 23:41 · ben',
     });
   });
 
@@ -249,7 +249,7 @@ describe('the Protokoll rows', () => {
       operation: 'reject',
       operationLabel: 'abgelehnt',
       title: 'Eintrag 2× Bier für Daniel',
-      by: '23:41 · ben',
+      by: '15.11., 23:41 · ben',
     });
   });
 
@@ -429,7 +429,7 @@ describe('the Protokoll rows', () => {
     ).toBe('1 Punkt');
   });
 
-  it('gives the local time and the user name the event recorded', () => {
+  it('gives the local day and time and the user name the event recorded', () => {
     expect(
       only({
         occurredAt: '2026-11-15T20:05:00.000Z',
@@ -437,7 +437,17 @@ describe('the Protokoll rows', () => {
         after: { name: 'Bier', points: 1 },
         operation: 'create',
       }).by,
-    ).toBe('21:05 · mara');
+    ).toBe('15.11., 21:05 · mara');
+  });
+
+  it('gives the local day where it differs from the UTC day, with the time of the same instant', () => {
+    expect(
+      only({
+        occurredAt: '2026-11-15T23:30:00.000Z', // still Sunday in UTC
+        operation: 'create',
+        after: { name: 'Bier', points: 1 },
+      }).by,
+    ).toBe('16.11., 00:30 · anna');
   });
 
   it('names the cause of a consequential event from the event itself and marks the row as caused', () => {

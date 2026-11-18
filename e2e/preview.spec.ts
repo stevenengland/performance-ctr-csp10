@@ -940,7 +940,7 @@ test('the fixture preview records a change and shows it on Protokoll with the si
   const newest = today.getByRole('listitem').first();
   await expect(newest).toContainText('Getränk Alster');
   await expect(newest).toContainText('Name: Radler → Alster');
-  await expect(newest).toContainText(/\d\d:\d\d · anna/);
+  await expect(newest).toContainText(/\d\d\.\d\d\., \d\d:\d\d · anna/);
   await expect(newest).toContainText('Geändert');
   // The sample log reaches back over several days.
   await expect(page.getByRole('list', { name: 'Gestern' })).toBeVisible();

@@ -261,8 +261,9 @@ export const messages = {
     points: 'Punkte',
     multiplier: 'Multiplikator',
     factor: 'Faktor',
-    /** A row's supporting line: `23:41 · anna`. */
-    by: (time: string, userName: string) => `${time} · ${userName}`,
+    /** A row's supporting line: `15.11., 23:41 · anna`. */
+    by: (day: string, time: string, userName: string) =>
+      `${day}, ${time} · ${userName}`,
     /** A consequential row's cause: `durch Löschen von Wein`. */
     causedBy: (name: string) => `durch Löschen von ${name}`,
   },
