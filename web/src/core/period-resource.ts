@@ -127,11 +127,30 @@ export function createPeriodResource<S, T>(
 }
 
 /**
-The conditional read of a period with a window or all time, the window built from
-the period's calendar date for each request; an answer for a window that changed
-while it was on its way (the time zone changed) is dropped for one for the rebuilt
-window.
+The conditional read of a selection that is built anew for each request, from the
+calendar and the time zone (a period's or a month's window); an answer for a
+selection that changed while it was on its way (the time zone changed) is dropped
+for one for the rebuilt selection.
 */
+export function rebuiltRead<S, T>(
+  selectionOf: () => S,
+  read: (
+    selection: S,
+    etag: string | undefined,
+  ) => ReturnType<ConditionalFetch<T>>,
+): ConditionalFetch<T> {
+  const conditional: ConditionalFetch<T> = async (etag) => {
+    const selection = selectionOf();
+    const answer = await read(selection, etag);
+    if (JSON.stringify(selectionOf()) !== JSON.stringify(selection)) {
+      return conditional(etag);
+    }
+    return answer;
+  };
+  return conditional;
+}
+
+/** The conditional read of a period with a window or all time, the window built from the period's calendar date for each request. */
 export function windowedRead<T>(
   period: Exclude<Period, { kind: 'run' }>,
   read: (
@@ -139,15 +158,7 @@ export function windowedRead<T>(
     etag: string | undefined,
   ) => ReturnType<ConditionalFetch<T>>,
 ): ConditionalFetch<T> {
-  const conditional: ConditionalFetch<T> = async (etag) => {
-    const selection = queryOf(period);
-    const answer = await read(selection, etag);
-    if (JSON.stringify(queryOf(period)) !== JSON.stringify(selection)) {
-      return conditional(etag);
-    }
-    return answer;
-  };
-  return conditional;
+  return rebuiltRead(() => queryOf(period), read);
 }
 
 /** Shows what the calling screen selects and runs the resource while the screen is open. */

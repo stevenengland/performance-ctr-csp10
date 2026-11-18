@@ -324,10 +324,10 @@ describe('a game’s ranking of a period', () => {
     ).toHaveLength(2);
   });
 
-  it('reads the quarter hours a game was played per game, on condition of each game’s own ETag', async () => {
+  it('reads the sessions a game was played per game, on condition of each game’s own ETag', async () => {
     const api = periodApi();
-    const schach = gameDays(2);
-    const rommé = gameDays(3);
+    const schach = gameDays(2).all;
+    const rommé = gameDays(3).all;
 
     schach.start();
     rommé.start();
@@ -339,11 +339,41 @@ describe('a game’s ranking of a period', () => {
 
     expect(api.asked.map(({ url, ifNoneMatch }) => [url, ifNoneMatch])).toEqual(
       [
-        ['/api/games/2/standings/days', undefined],
-        ['/api/games/3/standings/days', undefined],
-        ['/api/games/2/standings/days', '"7-/api/games/2/standings/days"'],
-        ['/api/games/3/standings/days', '"7-/api/games/3/standings/days"'],
+        ['/api/games/2/standings/days?scope=all', undefined],
+        ['/api/games/3/standings/days?scope=all', undefined],
+        [
+          '/api/games/2/standings/days?scope=all',
+          '"7-/api/games/2/standings/days?scope=all"',
+        ],
+        [
+          '/api/games/3/standings/days?scope=all',
+          '"7-/api/games/3/standings/days?scope=all"',
+        ],
       ],
     );
+  });
+
+  it('reads a game’s month for its calendar in that month’s window, and again after the device’s own writes to the game', async () => {
+    const api = periodApi();
+    const months = gameDays(4).months;
+
+    months.show({ year: 2026, month: 11, day: 1 });
+    months.start();
+    await wait(0);
+    await refreshStandings(4);
+    months.show(undefined);
+    months.stop();
+    await refreshStandings(4);
+
+    const november =
+      '/api/games/4/standings/days?from=2026-10-31T23:00:00.000Z&to=2026-11-30T23:00:00.000Z';
+    expect(
+      api.asked
+        .filter(({ url }) => url.includes('/days'))
+        .map(({ url, ifNoneMatch }) => [url, ifNoneMatch]),
+    ).toEqual([
+      [november, undefined],
+      [november, `"7-${november}"`],
+    ]);
   });
 });

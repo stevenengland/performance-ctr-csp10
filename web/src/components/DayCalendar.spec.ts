@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { CalendarDate } from '../core/period';
+import { type CalendarDate, monthOf } from '../core/period';
 import { createAppVuetify } from '../theme';
 import DayCalendar from './DayCalendar.vue';
 
@@ -17,10 +17,19 @@ function calendar(
   shownToday = today,
   mark?: string,
 ) {
-  return mount(DayCalendar, {
-    props: { selected, today: shownToday, marked, mark },
+  const wrapper = mount(DayCalendar, {
+    props: {
+      selected,
+      today: shownToday,
+      marked,
+      mark,
+      month: monthOf(selected),
+      'onUpdate:month': (shown: CalendarDate) =>
+        wrapper.setProps({ month: shown }),
+    },
     global: { plugins: [createAppVuetify()] },
   });
+  return wrapper;
 }
 
 type Calendar = ReturnType<typeof calendar>;
@@ -139,7 +148,7 @@ describe('DayCalendar', () => {
     expect(wrapper.emitted('pick')).toEqual([[november(17)], [november(2)]]);
   });
 
-  it('browses back across a year and forward again, never past the current month', async () => {
+  it('browses back across a year and forward again, never past the current month, telling the page the month it shows', async () => {
     const wrapper = calendar(november(13), [
       { year: 2025, month: 12, day: 31 },
     ]);
@@ -159,6 +168,7 @@ describe('DayCalendar', () => {
     await nextMonth(wrapper).trigger('click');
 
     expect(month(wrapper)).toBe('Januar 2026');
+    expect(wrapper.props('month')).toEqual({ year: 2026, month: 1, day: 1 });
     expect(
       days(wrapper).filter((day) => day.attributes('aria-pressed') === 'true'),
     ).toHaveLength(0);

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { mdiChevronLeft, mdiChevronRight } from '@mdi/js';
-import { computed, shallowRef, useId } from 'vue';
+import { computed, useId } from 'vue';
 import { formatCalendarDay, formatMonth } from '../core/format';
 import { messages } from '../core/messages';
 import {
+  addMonths,
   type CalendarDate,
   isAfter,
   isoDate,
@@ -15,14 +16,15 @@ import {
 A month of the calendar dialog `Tag wählen` (PRD #70), Monday first: the days with
 data that counts carry a dot, which screen readers get as the day's description (the
 mark, e.g. `Gezählt`) beside its name; today is outlined, the selected day is filled and
-pressed, and days after today cannot be picked. It opens on the selected day's
-month; it browses back freely but never past the month of today.
+pressed, and days after today cannot be picked. The month shown is the page's
+(`v-model:month`, its first day), so the page reads that month's dots; it browses
+back freely but never past the month of today.
 */
 const props = defineProps<{
   selected: CalendarDate;
   /** The viewer's current calendar day. */
   today: CalendarDate;
-  /** The local days with data that counts, from a days-with-data read. */
+  /** The local days with data that counts in the month shown, from its days-with-data read. */
   marked: readonly CalendarDate[];
   /** What a dot says to a screen reader: `Gezählt`, `Gespielt`. */
   mark?: string;
@@ -30,7 +32,7 @@ const props = defineProps<{
 const emit = defineEmits<{ pick: [date: CalendarDate] }>();
 
 /** The month shown, as its first day. */
-const month = shallowRef<CalendarDate>({ ...props.selected, day: 1 });
+const month = defineModel<CalendarDate>('month', { required: true });
 const markedKeys = computed(() => new Set(props.marked.map(isoDate)));
 const isMarked = (date: CalendarDate) => markedKeys.value.has(isoDate(date));
 const markId = useId();
@@ -56,12 +58,7 @@ const cells = computed(() => {
 });
 
 function browse(by: number) {
-  const first = new Date(month.value.year, month.value.month - 1 + by, 1);
-  month.value = {
-    year: first.getFullYear(),
-    month: first.getMonth() + 1,
-    day: 1,
-  };
+  month.value = addMonths(month.value, by);
 }
 </script>
 

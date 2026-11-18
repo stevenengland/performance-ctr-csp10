@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, effectScope, h, ref } from 'vue';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 import AppTopBar from '../../components/AppTopBar.vue';
-import type { Scoreboard } from '../../core/api-client';
+import type { Scoreboard, Span } from '../../core/api-client';
 import { calendarDateOf } from '../../core/period';
 import {
   refreshScoreboard,
@@ -401,15 +401,18 @@ type Reply = Scoreboard | 'unchanged' | Promise<Scoreboard>;
 /**
 A fake API that answers each scoreboard query from `boards` (by its decoded query
 string; an unknown one is an empty board), tagged `"<n>-<query>"`, and records what
-was asked with which ETag.
+was asked with which ETag. The days reads answer the spans of `days` that start in
+their window (all of them for `scope=all`), tagged `"<number of spans>-<query>"`.
 */
 function scoreboards(
   boards: Record<string, Reply | (() => Reply)>,
-  days: () => string[] = () => [],
+  days: () => Span[] = () => [],
 ) {
   const asked: [string, string | undefined][] = [];
-  /** The ETags the days read was asked with. */
+  /** The ETags the days reads were asked with. */
   const daysAsked: (string | undefined)[] = [];
+  /** The windows the days reads were asked for, `scope=all` for all time. */
+  const daysQueries: string[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init: RequestInit) => {
@@ -418,12 +421,18 @@ function scoreboards(
         'If-None-Match'
       ];
       if (pathname === '/api/scoreboard/days') {
+        const query = new URLSearchParams(search);
+        const from = query.get('from');
+        const to = query.get('to');
         daysAsked.push(ifNoneMatch);
-        const instants = days();
-        const etag = `"${String(instants.length)}"`;
+        daysQueries.push(from && to ? `${from}/${to}` : 'scope=all');
+        const spans = days().filter(
+          (span) => !from || !to || (span.from >= from && span.from < to),
+        );
+        const etag = `"${String(spans.length)}-${decodeURIComponent(search)}"`;
         return ifNoneMatch === etag
           ? new Response(null, { status: 304, headers: { ETag: etag } })
-          : new Response(JSON.stringify({ instants }), {
+          : new Response(JSON.stringify({ spans }), {
               status: 200,
               headers: { 'Content-Type': 'application/json', ETag: etag },
             });
@@ -439,7 +448,7 @@ function scoreboards(
       });
     }),
   );
-  return Object.assign(asked, { days: daysAsked });
+  return Object.assign(asked, { days: daysAsked, daysQueries });
 }
 
 describe('the Rangliste’s periods', () => {
@@ -936,11 +945,10 @@ describe('the Rangliste’s periods', () => {
   });
 
   describe('with the calendar Tag wählen', () => {
-    /** Saturday 14.11., 21:00 and 21:15 in Berlin, and Tuesday 27.10. */
-    const DAYS = [
-      '2026-10-27T19:00:00.000Z',
-      '2026-11-14T20:00:00.000Z',
-      '2026-11-14T20:15:00.000Z',
+    /** Tuesday 27.10. and Saturday 14.11., 21:00 to 21:30 in Berlin. */
+    const DAYS: Span[] = [
+      { from: '2026-10-27T19:00:00.000Z', to: '2026-10-27T19:15:00.000Z' },
+      { from: '2026-11-14T20:00:00.000Z', to: '2026-11-14T20:30:00.000Z' },
     ];
 
     beforeEach(() => {
@@ -985,6 +993,9 @@ describe('the Rangliste’s periods', () => {
       expect(context()).toBe('Samstag, 14.11.2026');
       expect(shown()).toContain('Mara');
       expect(asked.at(-1)).toEqual([SATURDAY, undefined]);
+      expect(asked.daysQueries).toEqual([
+        '2026-10-31T23:00:00.000Z/2026-11-30T23:00:00.000Z',
+      ]);
     });
 
     it('shows the week of the day picked while Woche is shown', async () => {
@@ -1035,7 +1046,8 @@ describe('the Rangliste’s periods', () => {
       await flushPromises();
 
       // The first read asks on condition of what an earlier test left behind.
-      expect(asked.days.slice(1)).toEqual(['"1"', '"3"']);
+      expect(asked.days.slice(1)).toEqual(['"1-?scope=all"', '"2-?scope=all"']);
+      expect(new Set(asked.daysQueries)).toEqual(new Set(['scope=all']));
     });
   });
 });

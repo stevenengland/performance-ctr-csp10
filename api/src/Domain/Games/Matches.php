@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Performance\Domain\Games;
 
-use DateTimeImmutable;
 use PDO;
 use PDOException;
 use Performance\Domain\Actor;
@@ -23,6 +22,7 @@ use Performance\Domain\PersonDependentCounts;
 use Performance\Domain\PersonDependents;
 use Performance\Domain\QuarterHours;
 use Performance\Domain\RequestConflict;
+use Performance\Domain\Span;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
 use Performance\Domain\VerifiableKind;
@@ -195,16 +195,25 @@ final readonly class Matches implements GameDependents, PersonDependents
     }
 
     /**
-     * The days the duel game was played: the start instants, ascending, of the 15-minute UTC
-     * buckets with a verified match of any run, by its recording instant. A match counts once,
-     * whether one or both of its sides still name a person; once neither does, it counts for
-     * no one, as in the ranking.
+     * The days the duel game was played in the interval: the sessions of 15-minute UTC buckets
+     * with a verified match of any run, by its recording instant. A match counts once while one
+     * of its sides still names a person (a deleted person's side is cleared), as in the
+     * ranking; once neither does, it counts for no one. Read from the matches themselves, once
+     * each: a window seeks the verified matches by time (`matches_pending`: pending, recording
+     * instant) and keeps the game's.
      *
-     * @return list<DateTimeImmutable>
+     * @return list<Span>
      */
-    public function days(int $gameId): array
+    public function days(int $gameId, Interval $interval): array
     {
-        return QuarterHours::of($this->pdo, self::sides('game_id = ?'), 'r.created_at', 'r.pending = 0', [$gameId, $gameId]);
+        return QuarterHours::spans(
+            $this->pdo,
+            'matches m',
+            'm.created_at',
+            'm.game_id = ? AND m.pending = 0 AND (m.first_person_id IS NOT NULL OR m.second_person_id IS NOT NULL) AND '
+                . $interval->condition('m.created_at'),
+            [$gameId, ...$interval->parameters()],
+        );
     }
 
     /**
@@ -290,8 +299,7 @@ final readonly class Matches implements GameDependents, PersonDependents
      * The selected matches as the ranking counts them, `r` joined with its person `p`: one row
      * per side that names a person, with that side's result (`win`, `draw`, `loss`), whether
      * the match waits and its recording instant. `$selection` filters the matches, without
-     * `WHERE`; its placeholders are bound twice, once per side. The ranking and the days read
-     * both start here, so they cannot drift apart.
+     * `WHERE`; its placeholders are bound twice, once per side.
      */
     private static function sides(string $selection): string
     {

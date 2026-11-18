@@ -81,6 +81,31 @@ export function windowOrAllTime(query: URLSearchParams): Interval | Response {
 }
 
 /**
+A window with an end at most `longestDays` days after its start, or all time with
+`scope=all`, as the days-with-data reads take it.
+*/
+export function boundedWindowOrAllTime(
+  query: URLSearchParams,
+  longestDays: number,
+): Interval | Response {
+  const interval = windowOrAllTime(query);
+  if (interval instanceof Response || interval.from === undefined) {
+    return interval;
+  }
+  if (interval.to === undefined) return validation({ to: INSTANT });
+  // Calendar days of 24 hours, as the offsets of both instants are fixed.
+  if (
+    interval.to.getTime() - interval.from.getTime() >
+    longestDays * 86_400_000
+  ) {
+    return validation({
+      to: `Höchstens ${String(longestDays)} Tage nach from.`,
+    });
+  }
+  return interval;
+}
+
+/**
 The current run (`'run'`) without `from`, `to` and `scope`, else a window or all
 time, as a game's standings take it: whatever names a period, even empty or as a
 list, is checked as the scoreboard checks it.

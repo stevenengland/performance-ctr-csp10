@@ -438,8 +438,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * The days with drinks, as the quarter hours with a verified entry
-     * @description The raw material of the Rangliste's calendar marks and its `Gesamt` line: the start instants, ascending and distinct, of the 15-minute UTC buckets that hold at least one entry that counts, with exactly the scoreboard's rule: verified entries of persons and drinks that still exist; pending entries are left out. Each instant is the start of a 15-minute UTC bucket: the bucket of a row is decided by its recording instant alone, never by its verification, so a row recorded before midnight and verified the next day stays in the bucket it was recorded in. Every UTC offset in use is a multiple of 15 minutes, so the client buckets the instants into its local days exactly; the server knows no time zone. The size is bounded by time, not by the number of rows: at most 96 instants per day with activity, a few thousand for years of evenings, without paging. The ETag is the data revision, read in the same snapshot as the instants; every write, verification and deletion bumps it, so `If-None-Match` with the last ETag answers 304 without reading while nothing changed.
+     * The days with drinks in a window of at most 35 days or of all time, as sessions of quarter hours with a verified entry
+     * @description The raw material of the Rangliste's calendar marks (a month's window) and its `Gesamt` line (all time): the spans, ascending, of the sessions with at least one entry that counts, with exactly the scoreboard's rule: verified entries of persons and drinks that still exist; pending entries are left out. Each span runs from the start of a session's first 15-minute UTC bucket with a row that counts to the end of its last; a pause shorter than 6 hours without such a row does not end a session, so an evening is one span. The bucket of a row is decided by its recording instant alone, never by its verification, so a row recorded before midnight and verified the next day stays in the bucket it was recorded in. Every UTC offset in use is a multiple of 15 minutes and every local day is longer than 6 hours, so the client finds its local days exactly: a local day has data when a span overlaps it (a span over local midnight touches both days); the server knows no time zone. The selection is exactly one of: a window `[from, to)` of at most 35 days, the calendar's month (a window answers the spans of its own rows, cut at its bounds, and seeks them by recording instant), or all time with `scope=all`, the `Gesamt` line. A missing or invalid `from` or `to`, a `to` not after `from` or more than 35 days after it, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422, as for the scoreboard. The size grows with the evenings that have rows, never with the rows or their quarter hours: a month is a few hundred bytes, five years of evenings a few ten kilobytes. The ETag names the data revision, read in the same snapshot as the spans, and the selection; every write, verification and deletion bumps the revision, so `If-None-Match` with the last ETag of the same selection answers 304 without reading while nothing changed.
      */
     get: operations['getScoreboardDays'];
     put?: never;
@@ -571,8 +571,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * The days the game was played, as the quarter hours with a verified match or result
-     * @description The raw material of a game page's calendar marks and its `Gesamt` line: the start instants, ascending and distinct, of the 15-minute UTC buckets that hold at least one match or result of the game that counts, in every run, with exactly the standings' rule: verified matches with at least one side that still names a person (a duel match is one instant although it counts for two players), verified results of persons who still exist; pending rows are left out. An unknown game is 404. Each instant is the start of a 15-minute UTC bucket: the bucket of a row is decided by its recording instant alone, never by its verification, so a row recorded before midnight and verified the next day stays in the bucket it was recorded in. Every UTC offset in use is a multiple of 15 minutes, so the client buckets the instants into its local days exactly; the server knows no time zone. The size is bounded by time, not by the number of rows: at most 96 instants per day with activity, a few thousand for years of evenings, without paging. The ETag is the data revision, read in the same snapshot as the instants; every write, verification and deletion bumps it, so `If-None-Match` with the last ETag answers 304 without reading while nothing changed.
+     * The days the game was played in a window of at most 35 days or of all time, as sessions of quarter hours with a verified match or result
+     * @description The raw material of a game page's calendar marks (a month's window) and its `Gesamt` line (all time): the spans, ascending, of the sessions with at least one match or result of the game that counts, in every run, with exactly the standings' rule: verified matches with at least one side that still names a person (a duel match counts once although it counts for two players), verified results of persons who still exist; pending rows are left out. The selection is checked before the game is looked up; an unknown game is 404. Each span runs from the start of a session's first 15-minute UTC bucket with a row that counts to the end of its last; a pause shorter than 6 hours without such a row does not end a session, so an evening is one span. The bucket of a row is decided by its recording instant alone, never by its verification, so a row recorded before midnight and verified the next day stays in the bucket it was recorded in. Every UTC offset in use is a multiple of 15 minutes and every local day is longer than 6 hours, so the client finds its local days exactly: a local day has data when a span overlaps it (a span over local midnight touches both days); the server knows no time zone. The selection is exactly one of: a window `[from, to)` of at most 35 days, the calendar's month (a window answers the spans of its own rows, cut at its bounds, and seeks them by recording instant), or all time with `scope=all`, the `Gesamt` line. A missing or invalid `from` or `to`, a `to` not after `from` or more than 35 days after it, another `scope` than `all`, or `scope=all` together with `from` or `to` is 422, as for the scoreboard. The size grows with the evenings that have rows, never with the rows or their quarter hours: a month is a few hundred bytes, five years of evenings a few ten kilobytes. The ETag names the data revision, read in the same snapshot as the spans, and the selection; every write, verification and deletion bumps the revision, so `If-None-Match` with the last ETag of the same selection answers 304 without reading while nothing changed.
      */
     get: operations['getStandingsDays'];
     put?: never;
@@ -1063,8 +1063,22 @@ export interface components {
       recordedCount: number;
     };
     DaysWithData: {
-      /** @description Start instants of the distinct 15-minute UTC buckets with at least one row that counts, ascending; empty when nothing counts yet */
-      instants: string[];
+      /** @description The sessions with at least one row that counts in the selection, ascending and disjoint, each from the start of its first 15-minute UTC bucket to the end of its last; empty when nothing counts there */
+      spans: components['schemas']['Span'][];
+    };
+    Span: {
+      /**
+       * Format: date-time
+       * @description Start (inclusive), the start of a 15-minute UTC bucket
+       * @example 2026-11-14T19:00:00.000Z
+       */
+      from: string;
+      /**
+       * Format: date-time
+       * @description End (exclusive), the end of a 15-minute UTC bucket
+       * @example 2026-11-14T23:15:00.000Z
+       */
+      to: string;
     };
     /**
      * @description `duel`: two persons and an outcome. `points`: one person and a whole number.
@@ -1446,6 +1460,10 @@ export interface components {
     ClientId: string;
     /** @description End of the window (exclusive), such as the next local midnight, as an ISO-8601 instant with offset; after `from`, and only with it. Without it the window has no end. */
     WindowTo: string;
+    /** @description Start of a days read's window (inclusive), such as local midnight of the first day of the calendar's month, as an ISO-8601 instant with offset; required unless `scope=all` */
+    DaysFrom: string;
+    /** @description End of a days read's window (exclusive), such as local midnight of the first day of the next month, as an ISO-8601 instant with offset; required with `from`, after it and at most 35 days after it (a local month and a margin), and only with it */
+    DaysTo: string;
     /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
     AllTimeScope: 'all';
     /** @description The `next` of the previous page, unchanged; omitted for the newest page of the current run */
@@ -2484,11 +2502,18 @@ export interface operations {
   };
   getScoreboardDays: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description Start of a days read's window (inclusive), such as local midnight of the first day of the calendar's month, as an ISO-8601 instant with offset; required unless `scope=all` */
+        from?: components['parameters']['DaysFrom'];
+        /** @description End of a days read's window (exclusive), such as local midnight of the first day of the next month, as an ISO-8601 instant with offset; required with `from`, after it and at most 35 days after it (a local month and a margin), and only with it */
+        to?: components['parameters']['DaysTo'];
+        /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
+        scope?: components['parameters']['AllTimeScope'];
+      };
       header?: {
         /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
         'X-Client-Version'?: components['parameters']['ClientVersion'];
-        /** @description The ETag of the instants the client already has */
+        /** @description The ETag of the spans of the same selection the client already has */
         'If-None-Match'?: string;
       };
       path?: never;
@@ -2496,10 +2521,10 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description The quarter hours with rows that count */
+      /** @description The sessions with rows that count */
       200: {
         headers: {
-          /** @description The data revision of these instants */
+          /** @description Data revision and selection of these spans */
           ETag?: string;
           [name: string]: unknown;
         };
@@ -2507,7 +2532,7 @@ export interface operations {
           'application/json': components['schemas']['DaysWithData'];
         };
       };
-      /** @description Unchanged since the instants named in `If-None-Match` */
+      /** @description Unchanged since the spans named in `If-None-Match` */
       304: {
         headers: {
           /** @description The same ETag */
@@ -2517,6 +2542,7 @@ export interface operations {
         content?: never;
       };
       401: components['responses']['Problem'];
+      422: components['responses']['Problem'];
     };
   };
   listGames: {
@@ -2749,11 +2775,18 @@ export interface operations {
   };
   getStandingsDays: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description Start of a days read's window (inclusive), such as local midnight of the first day of the calendar's month, as an ISO-8601 instant with offset; required unless `scope=all` */
+        from?: components['parameters']['DaysFrom'];
+        /** @description End of a days read's window (exclusive), such as local midnight of the first day of the next month, as an ISO-8601 instant with offset; required with `from`, after it and at most 35 days after it (a local month and a margin), and only with it */
+        to?: components['parameters']['DaysTo'];
+        /** @description `all` for all time: every row ever recorded, no lower and no upper bound. Not together with `from` or `to`. */
+        scope?: components['parameters']['AllTimeScope'];
+      };
       header?: {
         /** @description The web client's app version (`MAJOR.MINOR.PATCH`, optionally with `+build`). Below health's `minClientVersion` the request is refused with 400 `client-outdated` and nothing is processed; without the header it counts as 0.1.0. */
         'X-Client-Version'?: components['parameters']['ClientVersion'];
-        /** @description The ETag of the instants the client already has */
+        /** @description The ETag of the spans of the same selection the client already has */
         'If-None-Match'?: string;
       };
       path: {
@@ -2764,10 +2797,10 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description The quarter hours with rows that count */
+      /** @description The sessions with rows that count */
       200: {
         headers: {
-          /** @description The data revision of these instants */
+          /** @description Data revision and selection of these spans */
           ETag?: string;
           [name: string]: unknown;
         };
@@ -2775,7 +2808,7 @@ export interface operations {
           'application/json': components['schemas']['DaysWithData'];
         };
       };
-      /** @description Unchanged since the instants named in `If-None-Match` */
+      /** @description Unchanged since the spans named in `If-None-Match` */
       304: {
         headers: {
           /** @description The same ETag */
@@ -2786,6 +2819,7 @@ export interface operations {
       };
       401: components['responses']['Problem'];
       404: components['responses']['Problem'];
+      422: components['responses']['Problem'];
     };
   };
   listMatches: {

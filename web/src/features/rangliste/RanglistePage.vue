@@ -36,7 +36,7 @@ const SKELETON_ROWS = 3;
 const KINDS: PeriodKind[] = ['day', 'week', 'all'];
 /** The calendar's dots and the `Gesamt` line: `Alle Tage seit 27.10.2026 · 15 Abende`. */
 const DAYS: DaysWithData = {
-  read: scoreboardDays,
+  reads: scoreboardDays,
   summary: messages.rangliste.allDaysSince,
   mark: messages.rangliste.counted,
 };

@@ -665,23 +665,40 @@ describe('the fixture backend’s points rankings by measure', () => {
   });
 });
 
-describe('the fixture backend’s quarter hours a game was played', () => {
+describe('the fixture backend’s sessions a game was played', () => {
   const realFetch = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = realFetch;
   });
 
-  async function days(game: number, ifNoneMatch?: string) {
-    return get(`/api/games/${String(game)}/standings/days`, ifNoneMatch);
+  /** November 2026 in Berlin: 2026-10-31T23:00Z to 2026-11-30T23:00Z. */
+  const NOVEMBER =
+    'from=2026-11-01T00:00:00%2B01:00&to=2026-12-01T00:00:00%2B01:00';
+
+  /** A span `[from, to)` in UTC, from minutes. */
+  const span = (from: string, to: string) => ({
+    from: `${from}:00.000Z`,
+    to: `${to}:00.000Z`,
+  });
+
+  async function days(
+    game: number,
+    selection = 'scope=all',
+    ifNoneMatch?: string,
+  ) {
+    return get(
+      `/api/games/${String(game)}/standings/days?${selection}`,
+      ifNoneMatch,
+    );
   }
 
-  async function instants(game: number): Promise<string[]> {
-    const response = await days(game);
+  async function spans(game: number, selection?: string) {
+    const response = await days(game, selection);
     expect(response.status).toBe(200);
-    return ((await response.json()) as { instants: string[] }).instants;
+    return ((await response.json()) as { spans: unknown[] }).spans;
   }
 
-  it('lists the quarter hours of a duel’s verified matches in every run, one for both players', async () => {
+  it('lists the sessions of a duel’s verified matches in every run, once for both players', async () => {
     installFixtureBackend(
       withGameRows(
         [
@@ -695,13 +712,13 @@ describe('the fixture backend’s quarter hours a game was played', () => {
       ),
     );
 
-    expect(await instants(1)).toEqual([
-      '2026-11-14T20:00:00.000Z',
-      '2026-11-15T20:00:00.000Z',
+    expect(await spans(1)).toEqual([
+      span('2026-11-14T20:00', '2026-11-14T20:15'),
+      span('2026-11-15T20:00', '2026-11-15T20:15'),
     ]);
   });
 
-  it('lists the quarter hours of a points game’s verified results in every run', async () => {
+  it('lists the sessions of a points game’s verified results in every run', async () => {
     installFixtureBackend(
       withGameRows(
         [[1, 2, 'first', AT_21, 2]],
@@ -715,9 +732,8 @@ describe('the fixture backend’s quarter hours a game was played', () => {
       ),
     );
 
-    expect(await instants(2)).toEqual([
-      '2026-11-14T20:00:00.000Z',
-      '2026-11-14T20:45:00.000Z',
+    expect(await spans(2)).toEqual([
+      span('2026-11-14T20:00', '2026-11-14T21:00'),
     ]);
   });
 
@@ -739,8 +755,14 @@ describe('the fixture backend’s quarter hours a game was played', () => {
       await fetch(`/api/persons/${String(person)}`, { method: 'DELETE' });
     }
 
-    expect(await instants(1)).toEqual(['2026-11-14T20:00:00.000Z']);
-    expect(await instants(2)).toEqual(['2026-11-14T20:15:00.000Z']);
+    for (const selection of ['scope=all', NOVEMBER]) {
+      expect(await spans(1, selection)).toEqual([
+        span('2026-11-14T20:00', '2026-11-14T20:15'),
+      ]);
+      expect(await spans(2, selection)).toEqual([
+        span('2026-11-14T20:15', '2026-11-14T20:30'),
+      ]);
+    }
     expect((await ranked(1)).rows.map(({ name }) => name)).toEqual(['Anna']);
     expect(
       (await ranked(2)).rows.map((row) => [
@@ -769,11 +791,12 @@ describe('the fixture backend’s quarter hours a game was played', () => {
       body: '{}',
     });
 
-    expect(await instants(1)).toEqual(['2026-11-14T23:45:00.000Z']);
-    expect(await instants(2)).toEqual(['2026-11-14T23:45:00.000Z']);
+    const quarter = [span('2026-11-14T23:45', '2026-11-15T00:00')];
+    expect(await spans(1)).toEqual(quarter);
+    expect(await spans(2)).toEqual(quarter);
   });
 
-  it('answers many rows in one quarter hour as one instant', async () => {
+  it('answers many rows in consecutive quarter hours as one span', async () => {
     const start = new Date(AT_20).getTime();
     const at = (i: number) =>
       new Date(
@@ -798,9 +821,9 @@ describe('the fixture backend’s quarter hours a game was played', () => {
       ),
     );
 
-    const quarters = ['2026-11-14T20:00:00.000Z', '2026-11-14T20:15:00.000Z'];
-    expect(await instants(1)).toEqual(quarters);
-    expect(await instants(2)).toEqual(quarters);
+    const quarters = [span('2026-11-14T20:00', '2026-11-14T20:30')];
+    expect(await spans(1)).toEqual(quarters);
+    expect(await spans(2)).toEqual(quarters);
   });
 
   it('answers 404 for an unknown or deleted game', async () => {
@@ -817,7 +840,35 @@ describe('the fixture backend’s quarter hours a game was played', () => {
     expect(deleted.status).toBe(404);
   });
 
-  it('tags the answer with the data revision and answers 304 while it holds; a verification and a delete change it', async () => {
+  it('lists in a window the sessions of its rows only, of any run', async () => {
+    installFixtureBackend(
+      withGameRows(
+        [
+          [1, 2, 'first', '2026-10-31T22:50:00.000Z', 1],
+          [1, 2, 'first', '2026-10-31T23:05:00.000Z', 2],
+          [1, 2, 'first', '2026-11-30T23:00:00.000Z', 2],
+        ],
+        [
+          [1, 5, '2026-11-30T22:59:59.999Z', 1],
+          [1, 5, '2026-11-30T23:00:00.000Z', 2],
+        ],
+        { run: 2 },
+      ),
+    );
+
+    expect(await spans(1, NOVEMBER)).toEqual([
+      span('2026-10-31T23:00', '2026-10-31T23:15'),
+    ]);
+    expect(await spans(2, NOVEMBER)).toEqual([
+      span('2026-11-30T22:45', '2026-11-30T23:00'),
+    ]);
+    expect(await spans(1)).toEqual([
+      span('2026-10-31T22:45', '2026-10-31T23:15'),
+      span('2026-11-30T23:00', '2026-11-30T23:15'),
+    ]);
+  });
+
+  it('tags the answer with the data revision and the selection and answers 304 while it holds; a verification and a delete change it', async () => {
     const fixtures = withGameRows([
       [1, 2, 'first', AT_20],
       [1, 3, 'first', AT_21, 1, true],
@@ -828,19 +879,24 @@ describe('the fixture backend’s quarter hours a game was played', () => {
     const first = await days(1);
     const tag = first.headers.get('ETag') ?? '';
 
-    expect(tag).toMatch(/^"\d+"$/);
-    expect((await days(1, tag)).status).toBe(304);
+    expect(tag).toMatch(/^"\d+-all"$/);
+    expect((await days(1, NOVEMBER)).headers.get('ETag')).toMatch(
+      /^"\d+-1793487600000-1796079600000"$/,
+    );
+    expect((await days(1, 'scope=all', tag)).status).toBe(304);
+    expect((await days(1, NOVEMBER, tag)).status).toBe(200);
     await fetch(`/api/matches/${waiting?.id ?? ''}/verification`, {
       method: 'PUT',
       body: '{}',
     });
-    const verified = await days(1, tag);
+    const verified = await days(1, 'scope=all', tag);
     expect(verified.status).toBe(200);
     await fetch(`/api/matches/${fixtures.matches[0]?.id ?? ''}`, {
       method: 'DELETE',
     });
     expect(
-      (await days(1, verified.headers.get('ETag') ?? undefined)).status,
+      (await days(1, 'scope=all', verified.headers.get('ETag') ?? undefined))
+        .status,
     ).toBe(200);
   });
 });
@@ -880,10 +936,12 @@ describe('the sample’s games over all time', () => {
 
   it('has Rommé played on six days, tonight and five earlier evenings', async () => {
     installFixtureBackend(sampleEvening());
-    const response = await get('/api/games/1/standings/days');
-    const { instants } = (await response.json()) as { instants: string[] };
+    const response = await get('/api/games/1/standings/days?scope=all');
+    const { spans } = (await response.json()) as {
+      spans: { from: string; to: string }[];
+    };
 
-    const days = localDaysOf(instants);
+    const days = localDaysOf(spans);
 
     expect(days).toHaveLength(6);
     expect(days.at(-1)).toEqual(calendarDateOf(new Date()));

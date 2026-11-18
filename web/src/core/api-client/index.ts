@@ -624,7 +624,7 @@ export type ScoreboardSelection = TimeWindow | { scope: 'all' };
 
 /** A selection's query parameters, those it leaves out omitted. */
 function queryOfSelection(
-  selection: ScoreboardSelection,
+  selection: ScoreboardSelection | DaysSelection,
 ): Record<string, string> {
   return Object.fromEntries(
     Object.entries(selection).filter(
@@ -653,43 +653,62 @@ export async function getScoreboard(
   };
 }
 
-/** The quarter hours with data that counts, with the ETag that names them, to ask on condition of next time. */
+/** A session with data that counts: `[from, to)`, UTC instants on quarter hours. */
+export type Span = components['schemas']['Span'];
+
+/** What a days read covers: a window `[from, to)` of at most 35 days (a month), or all time. */
+export type DaysSelection = Required<TimeWindow> | { scope: 'all' };
+
+/** The sessions with data that counts, with the ETag that names them, to ask on condition of next time. */
 export interface DaysAnswer {
-  /** The UTC start instants of the 15-minute buckets, ascending. */
-  instants: string[];
+  /** Ascending and disjoint. */
+  spans: Span[];
   etag: string | undefined;
 }
 
-/**
-The quarter hours with drinks that count, all time: what the calendar marks and the
-`Gesamt` line count, bucketed into local days by the client. With the ETag of the
-answer already shown, `unchanged` means it still holds.
-*/
-export async function getScoreboardDays(
-  etag?: string,
+async function daysAnswer(
+  response: Response,
 ): Promise<DaysAnswer | 'unchanged'> {
-  const response = await send('/api/scoreboard/days', { ifNoneMatch: etag });
   if (response.status === NOT_MODIFIED) return 'unchanged';
-  const { instants } =
+  const { spans } =
     (await response.json()) as components['schemas']['DaysWithData'];
-  return { instants, etag: response.headers.get('ETag') ?? undefined };
+  return { spans, etag: response.headers.get('ETag') ?? undefined };
 }
 
 /**
-The quarter hours with matches or results of the game that count, of every run:
-what the game's calendar marks and its `Gesamt` line count. With the ETag of the
-answer already shown, `unchanged` means it still holds.
+The sessions with drinks that count in a month's window or all time: what the
+calendar marks and the `Gesamt` line count, as local days found by the client. With
+the ETag of the same selection's answer already shown, `unchanged` means it still
+holds.
+*/
+export async function getScoreboardDays(
+  selection: DaysSelection,
+  etag?: string,
+): Promise<DaysAnswer | 'unchanged'> {
+  return daysAnswer(
+    await send('/api/scoreboard/days', {
+      query: queryOfSelection(selection),
+      ifNoneMatch: etag,
+    }),
+  );
+}
+
+/**
+The sessions with matches or results of the game that count, of every run, in a
+month's window or all time: what the game's calendar marks and its `Gesamt` line
+count. With the ETag of the same selection's answer already shown, `unchanged` means
+it still holds.
 */
 export async function getStandingsDays(
   gameId: number,
+  selection: DaysSelection,
   etag?: string,
 ): Promise<DaysAnswer | 'unchanged'> {
-  const response = await send('/api/games/{id}/standings/days', {
-    params: { id: String(gameId) },
-    ifNoneMatch: etag,
-  });
-  if (response.status === NOT_MODIFIED) return 'unchanged';
-  const { instants } =
-    (await response.json()) as components['schemas']['DaysWithData'];
-  return { instants, etag: response.headers.get('ETag') ?? undefined };
+  return daysAnswer(
+    await send('/api/games/{id}/standings/days', {
+      params: { id: String(gameId) },
+      query: queryOfSelection(selection),
+      ifNoneMatch: etag,
+    }),
+  );
 }

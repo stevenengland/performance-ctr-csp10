@@ -739,31 +739,39 @@ describe('the API client', () => {
     },
   );
 
-  it('reads the quarter hours a game was played with their ETag, on condition of the last one; 304 means unchanged', async () => {
-    const instants = ['2026-11-14T20:00:00.000Z'];
+  it('reads the sessions a game was played in a window with their ETag, on condition of the last one; 304 means unchanged', async () => {
+    const spans = [
+      { from: '2026-11-14T20:00:00.000Z', to: '2026-11-14T22:15:00.000Z' },
+    ];
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ instants }), {
+        new Response(JSON.stringify({ spans }), {
           status: 200,
-          headers: { ETag: '"7"' },
+          headers: { ETag: '"7-1-2"' },
         }),
       )
       .mockResolvedValueOnce(
-        new Response(null, { status: 304, headers: { ETag: '"7"' } }),
+        new Response(null, { status: 304, headers: { ETag: '"7-1-2"' } }),
       );
     vi.stubGlobal('fetch', fetch);
+    const november = {
+      from: '2026-10-31T23:00:00.000Z',
+      to: '2026-11-30T23:00:00.000Z',
+    };
 
-    await expect(getStandingsDays(2)).resolves.toEqual({
-      instants,
-      etag: '"7"',
+    await expect(getStandingsDays(2, november)).resolves.toEqual({
+      spans,
+      etag: '"7-1-2"',
     });
-    await expect(getStandingsDays(2, '"7"')).resolves.toBe('unchanged');
+    await expect(getStandingsDays(2, november, '"7-1-2"')).resolves.toBe(
+      'unchanged',
+    );
     expect(fetch).toHaveBeenNthCalledWith(
       2,
-      '/api/games/2/standings/days',
+      '/api/games/2/standings/days?from=2026-10-31T23%3A00%3A00.000Z&to=2026-11-30T23%3A00%3A00.000Z',
       expect.objectContaining({
-        headers: expect.objectContaining({ 'If-None-Match': '"7"' }),
+        headers: expect.objectContaining({ 'If-None-Match': '"7-1-2"' }),
       }),
     );
   });
@@ -832,29 +840,33 @@ describe('the API client', () => {
     );
   });
 
-  it('reads the quarter hours with drinks that count with their ETag, on condition of the last one; 304 means unchanged', async () => {
-    const instants = ['2026-11-14T20:00:00.000Z', '2026-11-14T20:15:00.000Z'];
+  it('reads the sessions with drinks that count of all time with their ETag, on condition of the last one; 304 means unchanged', async () => {
+    const spans = [
+      { from: '2026-11-14T20:00:00.000Z', to: '2026-11-14T20:30:00.000Z' },
+    ];
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ instants }), {
+        new Response(JSON.stringify({ spans }), {
           status: 200,
-          headers: { ETag: '"7"' },
+          headers: { ETag: '"7-all"' },
         }),
       )
       .mockResolvedValueOnce(
-        new Response(null, { status: 304, headers: { ETag: '"7"' } }),
+        new Response(null, { status: 304, headers: { ETag: '"7-all"' } }),
       );
     vi.stubGlobal('fetch', fetch);
 
-    await expect(getScoreboardDays()).resolves.toEqual({
-      instants,
-      etag: '"7"',
+    await expect(getScoreboardDays({ scope: 'all' })).resolves.toEqual({
+      spans,
+      etag: '"7-all"',
     });
-    await expect(getScoreboardDays('"7"')).resolves.toBe('unchanged');
+    await expect(getScoreboardDays({ scope: 'all' }, '"7-all"')).resolves.toBe(
+      'unchanged',
+    );
     expect(fetch).toHaveBeenNthCalledWith(
       1,
-      '/api/scoreboard/days',
+      '/api/scoreboard/days?scope=all',
       expect.objectContaining({
         headers: expect.not.objectContaining({
           'If-None-Match': expect.anything(),
@@ -863,9 +875,9 @@ describe('the API client', () => {
     );
     expect(fetch).toHaveBeenNthCalledWith(
       2,
-      '/api/scoreboard/days',
+      '/api/scoreboard/days?scope=all',
       expect.objectContaining({
-        headers: expect.objectContaining({ 'If-None-Match': '"7"' }),
+        headers: expect.objectContaining({ 'If-None-Match': '"7-all"' }),
       }),
     );
   });

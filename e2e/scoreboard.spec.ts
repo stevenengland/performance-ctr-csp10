@@ -487,7 +487,7 @@ test('the Rangliste reads this week from Monday’s to next Monday’s local mid
   await expect(place(page, anna)).toHaveCount(0);
 });
 
-test('Tag wählen dots today once an entry counts and picks yesterday; Gesamt says since when it counts, its days read again on condition', async ({
+test('Tag wählen reads the shown month’s window and dots today once an entry counts, then picks yesterday; Gesamt says since when it counts, its all-time read again on condition', async ({
   page,
   request,
 }) => {
@@ -506,7 +506,7 @@ test('Tag wählen dots today once an entry counts and picks yesterday; Gesamt sa
     page.waitForResponse((response) =>
       new URL(response.url()).pathname.endsWith('/api/scoreboard/days'),
     );
-  const [today, yesterday] = await page.evaluate(() => {
+  const [today, yesterday, month] = await page.evaluate(() => {
     const now = new Date();
     const name = new Intl.DateTimeFormat('de-DE', {
       weekday: 'long',
@@ -524,14 +524,22 @@ test('Tag wählen dots today once an entry counts and picks yesterday; Gesamt sa
         name: name.format(before),
         earlierMonth: before.getMonth() !== now.getMonth(),
       },
+      {
+        from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(),
+        to: new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString(),
+      },
     ];
   });
 
-  const first = daysRead();
+  const monthRead = daysRead();
   await page.getByRole('button', { name: 'Tag wählen: Heute' }).click();
-  expect((await first).status()).toBe(200);
-  const firstEtag = (await first).headers().etag;
-  expect(firstEtag).toMatch(/^"\d+"$/);
+  const asked = new URL((await monthRead).url()).searchParams;
+  expect([asked.get('from'), asked.get('to')]).toEqual([
+    month?.from,
+    month?.to,
+  ]);
+  expect((await monthRead).status()).toBe(200);
+  expect((await monthRead).headers().etag).toMatch(/^"\d+-\d+-\d+"$/);
   const todayInCalendar = dialog.getByRole('button', {
     name: today?.name,
     exact: true,
@@ -547,20 +555,25 @@ test('Tag wählen dots today once an entry counts and picks yesterday; Gesamt sa
   await expect(page.getByText('Gestern', { exact: true })).toBeVisible();
   await expect(place(page, anna)).toHaveCount(0);
 
-  const again = daysRead();
-  await page
-    .getByRole('group', { name: 'Zeitraum' })
-    .getByRole('button', { name: 'Gesamt' })
-    .click();
-  // Other tests write to the same stack in parallel, so the revision may have moved
-  // on: the read is conditional on the first answer, whatever the server says.
-  expect(await (await again).request().headerValue('if-none-match')).toBe(
-    firstEtag,
-  );
-  expect([200, 304]).toContain((await again).status());
+  const allRead = daysRead();
+  const periods = page.getByRole('group', { name: 'Zeitraum' });
+  await periods.getByRole('button', { name: 'Gesamt' }).click();
+  expect(new URL((await allRead).url()).search).toBe('?scope=all');
+  const allEtag = (await allRead).headers().etag;
+  expect(allEtag).toMatch(/^"\d+-all"$/);
   await expect(
     page.getByText(/^Alle Tage seit \d{2}\.\d{2}\.\d{4} · \d+ Abende?$/),
   ).toBeVisible();
+  await periods.getByRole('button', { name: 'Tag' }).click();
+
+  const again = daysRead();
+  await periods.getByRole('button', { name: 'Gesamt' }).click();
+  // Other tests write to the same stack in parallel, so the revision may have moved
+  // on: the read is conditional on the earlier answer, whatever the server says.
+  expect(await (await again).request().headerValue('if-none-match')).toBe(
+    allEtag,
+  );
+  expect([200, 304]).toContain((await again).status());
 });
 
 test('with nobody today the Rangliste says so and offers Zählen', async ({

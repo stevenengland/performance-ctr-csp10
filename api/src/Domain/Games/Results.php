@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Performance\Domain\Games;
 
-use DateTimeImmutable;
 use LogicException;
 use PDO;
 use PDOException;
@@ -24,6 +23,7 @@ use Performance\Domain\PersonDependentCounts;
 use Performance\Domain\PersonDependents;
 use Performance\Domain\QuarterHours;
 use Performance\Domain\RequestConflict;
+use Performance\Domain\Span;
 use Performance\Domain\Timestamp;
 use Performance\Domain\ValidationFailed;
 use Performance\Domain\VerifiableKind;
@@ -56,10 +56,7 @@ final readonly class Results implements GameDependents, PersonDependents
     private const MAX_POINTS = 9999;
     private const PERSON_ERROR = 'Person nicht gefunden.';
     private const POINTS_ERROR = 'Ganze Zahl von −9.999 bis 9.999.';
-    /**
-     * The results that can count, `r` of a person `p` who exists: the ranking and the days read
-     * both start here, so they cannot drift apart.
-     */
+    /** The results that can count, `r` of a person `p` who exists. */
     private const RANKED = 'results r JOIN persons p ON p.id = r.person_id';
     /**
      * Results with their game's and their person's names, as the audit log keeps them, read
@@ -188,14 +185,23 @@ final readonly class Results implements GameDependents, PersonDependents
     }
 
     /**
-     * The days the points game was played: the start instants, ascending, of the 15-minute UTC
-     * buckets with a verified result of any run, by its recording instant.
+     * The days the points game was played in the interval: the sessions of 15-minute UTC buckets
+     * with a verified result of any run, by its recording instant; the results the ranking of
+     * any window counts, as a result's person exists while it does (their deletion deletes it).
+     * A window seeks the verified results by time (`results_pending`: pending, recording
+     * instant) and keeps the game's.
      *
-     * @return list<DateTimeImmutable>
+     * @return list<Span>
      */
-    public function days(int $gameId): array
+    public function days(int $gameId, Interval $interval): array
     {
-        return QuarterHours::of($this->pdo, self::RANKED, 'r.created_at', 'r.game_id = ? AND r.pending = 0', [$gameId]);
+        return QuarterHours::spans(
+            $this->pdo,
+            'results r',
+            'r.created_at',
+            'r.game_id = ? AND r.pending = 0 AND ' . $interval->condition('r.created_at'),
+            [$gameId, ...$interval->parameters()],
+        );
     }
 
     /**

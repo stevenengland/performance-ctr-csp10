@@ -8,7 +8,7 @@ import {
   type Router,
 } from 'vue-router';
 import AppTopBar from '../../components/AppTopBar.vue';
-import type { Game, Standings } from '../../core/api-client';
+import type { Game, Span, Standings } from '../../core/api-client';
 import { refreshStandings } from '../../core/games';
 import { dismissSnackbar, useSnackbar } from '../../core/snackbar';
 import { createAppVuetify } from '../../theme';
@@ -792,10 +792,10 @@ describe('a game’s periods', () => {
   const ALL_SUM = `${ALL}&measure=sum`;
   const ALL_AVERAGE = `${ALL}&measure=average`;
   /** The quarter hours Rommé was played: 28.10. and 14.11. twice. */
-  const ROMME_DAYS = [
-    '2026-10-28T19:00:00.000Z',
-    '2026-11-14T20:00:00.000Z',
-    '2026-11-14T20:15:00.000Z',
+  /** Wednesday 28.10. and Saturday 14.11., 21:00 to 21:30 in Berlin. */
+  const ROMME_DAYS: Span[] = [
+    { from: '2026-10-28T19:00:00.000Z', to: '2026-10-28T19:15:00.000Z' },
+    { from: '2026-11-14T20:00:00.000Z', to: '2026-11-14T20:30:00.000Z' },
   ];
 
   beforeEach(() => {
@@ -853,12 +853,13 @@ describe('a game’s periods', () => {
   /**
   The API with the given games: each game's ranking by its query (`''` the current
   run; any other query without an answer is empty), tagged `"1<query>"` and 304 on
-  condition of it, and the days it was played; records each ranking request.
+  condition of it, and the sessions it was played (those that start in a days read's
+  window, all of them for `scope=all`); records each ranking request.
   */
   function serve(
     games: Game[],
     rankings: Record<number, Record<string, Standings>>,
-    days: Record<number, string[]> = {},
+    days: Record<number, Span[]> = {},
   ) {
     const asked: [string, string | undefined][] = [];
     vi.stubGlobal(
@@ -874,8 +875,15 @@ describe('a game’s periods', () => {
           ) ?? [];
         const subject = games.find((candidate) => candidate.id === Number(id));
         if (!subject) throw new Error(`unexpected ${url}`);
-        if (rest === '/days') {
-          return json({ instants: days[subject.id] ?? [] });
+        if (rest.startsWith('/days')) {
+          const window = new URLSearchParams(rest.slice('/days'.length));
+          const from = window.get('from') ?? '';
+          const to = window.get('to') ?? '\uffff';
+          return json({
+            spans: (days[subject.id] ?? []).filter(
+              (span) => span.from >= from && span.from < to,
+            ),
+          });
         }
         asked.push([`${String(subject.id)}${rest}`, ifNoneMatch]);
         const etag = `"1${rest}"`;
@@ -996,7 +1004,15 @@ describe('a game’s periods', () => {
   });
 
   it('counts a single day the game was played as 1 Spieltag', async () => {
-    serve([ROMME], {}, { 41: ['2026-11-14T20:00:00.000Z'] });
+    serve(
+      [ROMME],
+      {},
+      {
+        41: [
+          { from: '2026-11-14T20:00:00.000Z', to: '2026-11-14T22:00:00.000Z' },
+        ],
+      },
+    );
     wrapper = await spiel(41);
 
     await choose('Gesamt');

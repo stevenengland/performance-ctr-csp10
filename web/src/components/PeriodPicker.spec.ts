@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DaysAnswer } from '../core/api-client';
-import { createDaysRead, type DaysWithData } from '../core/days-with-data';
+import type { DaysAnswer, DaysSelection, Span } from '../core/api-client';
+import { createDaysReads, type DaysWithData } from '../core/days-with-data';
 import { messages } from '../core/messages';
 import {
   type CalendarDate,
@@ -257,19 +257,39 @@ describe('PeriodPicker', () => {
       vi.unstubAllGlobals();
     });
 
-    /** A days read that answers `instants` and counts its reads. */
-    function daysOf(instants: string[]) {
-      const read = vi.fn(async (): Promise<DaysAnswer> => ({
-        instants,
-        etag: '"1"',
-      }));
+    /** A span `[from, to)` in UTC, from minutes. */
+    const span = (from: string, to: string): Span => ({
+      from: `${from}:00.000Z`,
+      to: `${to}:00.000Z`,
+    });
+
+    /** The query of a selection: `scope=all` or `<from>/<to>`. */
+    const queryOf = (selection: DaysSelection) =>
+      'scope' in selection ? 'scope=all' : `${selection.from}/${selection.to}`;
+
+    /**
+    Days reads that answer the spans of a selection's query from `answers` (none
+    when it names none) and record each query they were asked.
+    */
+    function daysOf(answers: Record<string, Span[]>) {
+      const asked: string[] = [];
+      const read = vi.fn(
+        async (selection: DaysSelection): Promise<DaysAnswer> => {
+          const query = queryOf(selection);
+          asked.push(query);
+          return { spans: answers[query] ?? [], etag: '"1"' };
+        },
+      );
       const days: DaysWithData = {
-        read: createDaysRead(read),
+        reads: createDaysReads(read),
         summary: messages.rangliste.allDaysSince,
         mark: messages.rangliste.counted,
       };
-      return { days, read };
+      return { days, read, asked };
     }
+
+    const NOVEMBER = '2026-10-31T23:00:00.000Z/2026-11-30T23:00:00.000Z';
+    const OCTOBER = '2026-09-30T22:00:00.000Z/2026-10-31T23:00:00.000Z';
 
     async function open(
       period: Period,
@@ -391,15 +411,16 @@ describe('PeriodPicker', () => {
       expect(dialog()?.textContent).toContain('November 2026');
     });
 
-    it('dots the local days of the days read, which it reads only while the calendar is open', async () => {
-      const { days, read } = daysOf([
-        '2026-11-02T22:45:00.000Z', // 23:45 on Monday in Berlin
-        '2026-11-02T23:00:00.000Z', // Tuesday
-        '2026-11-14T19:30:00.000Z',
-      ]);
+    it('dots the local days of the shown month’s read, which it reads only while the calendar is open', async () => {
+      const { days, asked } = daysOf({
+        [NOVEMBER]: [
+          span('2026-11-02T22:45', '2026-11-02T23:15'), // Monday 23:45 to Tuesday 00:15 in Berlin
+          span('2026-11-14T19:30', '2026-11-14T22:00'),
+        ],
+      });
       opened = picker(day(16), ALL_KINDS, days);
       await flushPromises();
-      expect(read).not.toHaveBeenCalled();
+      expect(asked).toEqual([]);
 
       await opened.get('button.day-bar__day').trigger('click');
       await flushPromises();
@@ -414,15 +435,35 @@ describe('PeriodPicker', () => {
       window.dispatchEvent(new Event('focus'));
       await flushPromises();
 
-      expect(read).toHaveBeenCalledTimes(1);
+      expect(asked).toEqual([NOVEMBER]);
+    });
+
+    it('reads another month’s window when the calendar shows it, and shows a month read before at once on the way back', async () => {
+      const { days, asked } = daysOf({
+        [NOVEMBER]: [span('2026-11-14T19:30', '2026-11-14T22:00')],
+        [OCTOBER]: [span('2026-10-27T19:00', '2026-10-27T21:00')],
+      });
+      opened = picker(day(16), ALL_KINDS, days);
+      await opened.get('button.day-bar__day').trigger('click');
+      await flushPromises();
+
+      await click('Vorheriger Monat');
+      expect(marked()).toEqual(['Dienstag, 27. Oktober']);
+      button('Nächster Monat').click();
+      await opened.vm.$nextTick();
+      expect(marked()).toEqual(['Samstag, 14. November']);
+      await flushPromises();
+
+      expect(asked).toEqual([NOVEMBER, OCTOBER, NOVEMBER]);
     });
 
     it('says since when and over how many evenings Gesamt counts, reading the days while it is shown', async () => {
-      const { days, read } = daysOf([
-        '2026-10-27T19:00:00.000Z',
-        '2026-10-27T19:15:00.000Z',
-        '2026-11-14T19:30:00.000Z',
-      ]);
+      const { days, asked } = daysOf({
+        'scope=all': [
+          span('2026-10-27T19:00', '2026-10-27T21:30'),
+          span('2026-11-14T19:30', '2026-11-14T23:15'), // to 00:15 on Sunday in Berlin
+        ],
+      });
       opened = picker(day(16), ALL_KINDS, days);
       await flushPromises();
       expect(opened.find('.period-line').exists()).toBe(false);
@@ -431,21 +472,21 @@ describe('PeriodPicker', () => {
       await flushPromises();
 
       expect(opened.get('.period-line').text()).toBe(
-        'Alle Tage seit 27.10.2026 · 2 Abende',
+        'Alle Tage seit 27.10.2026 · 3 Abende',
       );
-      expect(read).toHaveBeenCalledTimes(1);
+      expect(asked).toEqual(['scope=all']);
     });
 
     it('keeps the Gesamt line live like the ranking: reads the days every 10 s while Gesamt is shown, and no longer after', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-      const first = ['2026-10-27T19:00:00.000Z'];
-      const later = [...first, '2026-11-14T19:30:00.000Z'];
+      const first = [span('2026-10-27T19:00', '2026-10-27T19:15')];
+      const later = [...first, span('2026-11-14T19:30', '2026-11-14T19:45')];
       const read = vi.fn(async (): Promise<DaysAnswer> => ({
-        instants: read.mock.calls.length > 1 ? later : first,
+        spans: read.mock.calls.length > 1 ? later : first,
         etag: '"1"',
       }));
       const days: DaysWithData = {
-        read: createDaysRead(read),
+        reads: createDaysReads(read),
         summary: messages.rangliste.allDaysSince,
         mark: messages.rangliste.counted,
       };
@@ -467,7 +508,9 @@ describe('PeriodPicker', () => {
     });
 
     it('counts one evening as 1 Abend, and shows no line before a day counts', async () => {
-      const one = daysOf(['2026-11-14T19:30:00.000Z']);
+      const one = daysOf({
+        'scope=all': [span('2026-11-14T19:30', '2026-11-14T19:45')],
+      });
       opened = picker({ kind: 'all' }, ALL_KINDS, one.days);
       await flushPromises();
       expect(opened.get('.period-line').text()).toBe(
@@ -475,7 +518,7 @@ describe('PeriodPicker', () => {
       );
       opened.unmount();
 
-      opened = picker({ kind: 'all' }, ALL_KINDS, daysOf([]).days);
+      opened = picker({ kind: 'all' }, ALL_KINDS, daysOf({}).days);
       await flushPromises();
       expect(opened.find('.period-line').exists()).toBe(false);
       expect(opened.find('.period-gap').exists()).toBe(true);

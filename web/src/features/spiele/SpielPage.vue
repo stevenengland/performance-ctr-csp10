@@ -129,7 +129,7 @@ const shownRanking = computed(() =>
   showsRun.value ? ranking.value : other.value,
 );
 const DAYS = computed<DaysWithData>(() => ({
-  read: gameDays(gameId.value),
+  reads: gameDays(gameId.value),
   summary: messages.spiele.allRunsSince,
   mark: messages.spiele.playedThatDay,
 }));

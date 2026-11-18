@@ -34,8 +34,9 @@ import type {
   FixtureResult,
   Fixtures,
 } from './fixtures';
-import { daysAnswer } from './fixtureDays';
+import { daysAnswer, LONGEST_DAYS_WINDOW } from './fixtureDays';
 import {
+  boundedWindowOrAllTime,
   contains,
   type Interval,
   queryText,
@@ -802,9 +803,15 @@ export function gameBackend({
       [
         'GET /api/games/{id}/standings/days',
         guarded((_me, _body, request) => {
+          // Like the API: the selection is checked before the game is looked up.
+          const interval = boundedWindowOrAllTime(
+            request.query,
+            LONGEST_DAYS_WINDOW,
+          );
+          if (interval instanceof Response) return interval;
           const game = find(request.id);
           if (!game) return problem(PROBLEMS.notFound);
-          // Like the API: one instant per verified match while a side names a person.
+          // Like the API: a verified match counts once while a side names a person.
           const counted = [
             ...fixtures.matches.filter(
               (match) =>
@@ -817,7 +824,8 @@ export function gameBackend({
             ),
           ];
           return daysAnswer(
-            request,
+            request.headers,
+            interval,
             revision(),
             counted.map(({ createdAt }) => createdAt),
           );

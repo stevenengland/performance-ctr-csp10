@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Performance\Http;
 
+use DateInterval;
 use Performance\Domain\Games\CurrentRun;
 use Performance\Domain\Interval;
 use Performance\Domain\ValidationFailed;
@@ -51,6 +52,30 @@ final class IntervalQuery
         }
 
         return Interval::allTime();
+    }
+
+    /**
+     * A window with an end at most `$longestDays` days after its start, or all time with
+     * `scope=all`, as the days-with-data reads take it: their cost and size grow with the
+     * window's length, so a window has an end and a bound.
+     *
+     * @throws ValidationFailed as windowOrAllTime(), and naming `to` when it is missing or more
+     *                          than `$longestDays` days after `from`
+     */
+    public static function boundedWindowOrAllTime(ServerRequestInterface $request, int $longestDays): Interval
+    {
+        $interval = self::windowOrAllTime($request);
+        if ($interval->from === null) {
+            return $interval;
+        }
+        if ($interval->to === null) {
+            throw new ValidationFailed(['to' => 'Zeitpunkt nach ISO 8601 mit Zeitzone.']);
+        }
+        if ($interval->to > $interval->from->add(new DateInterval("P{$longestDays}D"))) {
+            throw new ValidationFailed(['to' => "Höchstens {$longestDays} Tage nach from."]);
+        }
+
+        return $interval;
     }
 
     /**

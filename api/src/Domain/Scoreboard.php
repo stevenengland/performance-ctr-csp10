@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Performance\Domain;
 
-use DateTimeImmutable;
 use PDO;
 
 /**
@@ -23,10 +22,7 @@ use PDO;
 final readonly class Scoreboard
 {
     private const COUNTED = 'e.quantity * COALESCE(f.multiplier, 1)';
-    /**
-     * The entries that can count, of persons and drinks that exist: the ranking and the days
-     * read both start here, so they cannot drift apart.
-     */
+    /** The entries that can count, of persons and drinks that exist. */
     private const ENTRIES = 'entries e JOIN persons p ON p.id = e.person_id JOIN drinks d ON d.id = e.drink_id';
 
     public function __construct(
@@ -59,14 +55,23 @@ final readonly class Scoreboard
     }
 
     /**
-     * The days with drinks: the start instants, ascending, of the 15-minute UTC buckets with a
-     * verified entry, by its recording instant; the entries the ranking of any window counts.
+     * The days with drinks in the interval: the sessions of 15-minute UTC buckets with a verified
+     * entry, by its recording instant; the entries the ranking of any window counts, as an
+     * entry's person and drink exist while it does (their deletion deletes it). Read from the
+     * verified entries' index alone (`entries_pending`: pending, recording instant), which a
+     * window seeks by time.
      *
-     * @return list<DateTimeImmutable>
+     * @return list<Span>
      */
-    public function days(): array
+    public function days(Interval $interval): array
     {
-        return QuarterHours::of($this->pdo, self::ENTRIES, 'e.created_at', 'e.pending = 0');
+        return QuarterHours::spans(
+            $this->pdo,
+            'entries e',
+            'e.created_at',
+            'e.pending = 0 AND ' . $interval->condition('e.created_at'),
+            $interval->parameters(),
+        );
     }
 
     /**

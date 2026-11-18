@@ -9,11 +9,17 @@ use Performance\Domain\Timestamp;
 use Performance\Tests\Support\DatabaseTestCase;
 use Psr\Http\Message\ResponseInterface;
 
-/** The quarter hours a game was played in, at `GET /api/games/{id}/standings/days`, with their ETag. */
+/**
+ * The days a game was played, at `GET /api/games/{id}/standings/days`: the runs of consecutive
+ * quarter hours with a verified match or result of any run, for a bounded window or all time,
+ * with their ETag.
+ */
 final class StandingsDaysTest extends DatabaseTestCase
 {
     private const SCHACH = 1;
     private const ROMME = 2;
+    /** November 2026 in Berlin: 2026-10-31T23:00Z to 2026-11-30T23:00Z. */
+    private const NOVEMBER = 'from=2026-11-01T00:00:00%2B01:00&to=2026-12-01T00:00:00%2B01:00';
 
     private string $session;
     /** Another account's session, which verifies what the bootstrap admin records. */
@@ -33,7 +39,7 @@ final class StandingsDaysTest extends DatabaseTestCase
         $this->verifier = $this->signIn('pruefer', 'pruefers-passwort');
     }
 
-    public function testADuelGameListsTheQuarterHoursOfItsVerifiedMatchesInEveryRunAndOneForBothPlayers(): void
+    public function testADuelGameListsTheSessionsOfItsVerifiedMatchesInEveryRunOnceForBothPlayers(): void
     {
         $this->verify('matches', $this->match(1, 2, 'first'));  // 2026-11-14 20:00 UTC, run 1
         $this->clock->advance('PT10M');
@@ -48,10 +54,10 @@ final class StandingsDaysTest extends DatabaseTestCase
         $response = $this->days(self::SCHACH);
 
         self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
-        self::assertSame(['instants' => ['2026-11-14T20:00:00.000Z', '2026-11-15T20:00:00.000Z']], $this->body($response));
+        self::assertSame(['spans' => [self::span('2026-11-14T20:00', '2026-11-14T20:15'), self::span('2026-11-15T20:00', '2026-11-15T20:15')]], $this->body($response));
     }
 
-    public function testAPointsGameListsTheQuarterHoursOfItsVerifiedResultsInEveryRun(): void
+    public function testAPointsGameListsTheSessionsOfItsVerifiedResultsInEveryRun(): void
     {
         $this->verify('results', $this->score(1, 10));  // 2026-11-14 20:00 UTC, run 1
         $this->verify('results', $this->score(2, 7));
@@ -65,7 +71,7 @@ final class StandingsDaysTest extends DatabaseTestCase
         $response = $this->days(self::ROMME);
 
         self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
-        self::assertSame(['instants' => ['2026-11-14T20:00:00.000Z', '2026-11-14T20:45:00.000Z']], $this->body($response));
+        self::assertSame(['spans' => [self::span('2026-11-14T20:00', '2026-11-14T21:00')]], $this->body($response));
     }
 
     /**
@@ -87,8 +93,10 @@ final class StandingsDaysTest extends DatabaseTestCase
         $duel = $this->body($this->send('GET', '/api/games/1/standings', session: $this->session));
         $points = $this->body($this->send('GET', '/api/games/2/standings', session: $this->session));
 
-        self::assertSame(['instants' => ['2026-11-14T20:00:00.000Z']], $this->body($this->days(self::SCHACH)));
-        self::assertSame(['instants' => ['2026-11-14T20:15:00.000Z']], $this->body($this->days(self::ROMME)));
+        foreach (['scope=all', self::NOVEMBER] as $selection) {
+            self::assertSame(['spans' => [self::span('2026-11-14T20:00', '2026-11-14T20:15')]], $this->body($this->days(self::SCHACH, $selection)));
+            self::assertSame(['spans' => [self::span('2026-11-14T20:15', '2026-11-14T20:30')]], $this->body($this->days(self::ROMME, $selection)));
+        }
         self::assertSame(['Anna'], array_column(self::listOf($duel['rows']), 'name'));
         self::assertSame([['Anna', 10]], array_map(static fn(array $row): array => [$row['name'], $row['sum']], self::listOf($points['rows'])));
     }
@@ -102,12 +110,13 @@ final class StandingsDaysTest extends DatabaseTestCase
         $this->verify('matches', $match);
         $this->verify('results', $result);
 
-        self::assertSame(['instants' => ['2026-11-14T23:45:00.000Z']], $this->body($this->days(self::SCHACH)));
-        self::assertSame(['instants' => ['2026-11-14T23:45:00.000Z']], $this->body($this->days(self::ROMME)));
+        $quarter = ['spans' => [self::span('2026-11-14T23:45', '2026-11-15T00:00')]];
+        self::assertSame($quarter, $this->body($this->days(self::SCHACH)));
+        self::assertSame($quarter, $this->body($this->days(self::ROMME)));
     }
 
-    /** The size grows with the quarter hours that have rows, never with the rows. */
-    public function testManyRowsInOneQuarterHourAreOneInstant(): void
+    /** The size grows with the sessions that have rows, never with the rows or their quarter hours. */
+    public function testManyRowsInConsecutiveQuarterHoursAreOneSpan(): void
     {
         $matches = [];
         $results = [];
@@ -122,7 +131,7 @@ final class StandingsDaysTest extends DatabaseTestCase
         $session->exec('INSERT INTO matches (id, game_id, first_person_id, second_person_id, outcome, run, account_id, created_at, pending) VALUES ' . implode(', ', $matches));
         $session->exec('INSERT INTO results (id, game_id, person_id, points, run, account_id, created_at, pending) VALUES ' . implode(', ', $results));
 
-        $quarters = ['instants' => ['2026-11-14T20:00:00.000Z', '2026-11-14T20:15:00.000Z']];
+        $quarters = ['spans' => [self::span('2026-11-14T20:00', '2026-11-14T20:30')]];
         self::assertSame($quarters, $this->body($this->days(self::SCHACH)));
         self::assertSame($quarters, $this->body($this->days(self::ROMME)));
     }
@@ -137,41 +146,77 @@ final class StandingsDaysTest extends DatabaseTestCase
         self::assertSame(404, $unknown->getStatusCode());
         self::assertSame('urn:performance:problem:not-found', $this->body($unknown)['type']);
         self::assertSame(404, $deleted->getStatusCode());
-        self::assertSame(401, $this->send('GET', '/api/games/1/standings/days')->getStatusCode());
+        self::assertSame(401, $this->send('GET', '/api/games/1/standings/days?scope=all')->getStatusCode());
     }
 
-    public function testTheETagIsTheDataRevisionAndAnUnchangedOneAnswers304(): void
+    public function testTheETagNamesTheRevisionAndTheSelectionAndAnUnchangedOneAnswers304(): void
     {
         $this->verify('matches', $this->match(1, 2, 'first'));
-        $first = $this->days(self::SCHACH);
-        $tag = $first->getHeaderLine('ETag');
+        $all = $this->days(self::SCHACH)->getHeaderLine('ETag');
+        $november = $this->days(self::SCHACH, self::NOVEMBER)->getHeaderLine('ETag');
 
-        $conditional = $this->days(self::SCHACH, $tag);
+        $conditional = $this->days(self::SCHACH, 'scope=all', $all);
+        $otherSelection = $this->days(self::SCHACH, self::NOVEMBER, $all);
 
-        self::assertSame(sprintf('"%d"', $this->revision()), $tag);
-        self::assertSame(304, $conditional->getStatusCode());
-        self::assertSame('', (string) $conditional->getBody());
-        self::assertSame($tag, $conditional->getHeaderLine('ETag'));
+        self::assertSame(sprintf('"%d-all"', $this->revision()), $all);
+        self::assertSame(sprintf('"%d-1793487600000-1796079600000"', $this->revision()), $november);
+        self::assertSame([304, '', $all], [$conditional->getStatusCode(), (string) $conditional->getBody(), $conditional->getHeaderLine('ETag')]);
+        self::assertSame([200, $november], [$otherSelection->getStatusCode(), $otherSelection->getHeaderLine('ETag')]);
+    }
+
+    /** A window lists the spans of its own matches and results only, of any run. */
+    public function testAWindowListsTheSpansOfItsRowsOnly(): void
+    {
+        $session = $this->otherSession();
+        $session->exec(
+            "INSERT INTO matches (id, game_id, first_person_id, second_person_id, outcome, run, account_id, created_at, pending) VALUES
+             ('00000000-0000-4000-9000-000000000001', 1, 1, 2, 'first', 1, NULL, '2026-10-31 22:50:00.000', 0),
+             ('00000000-0000-4000-9000-000000000002', 1, 1, 2, 'first', 2, NULL, '2026-10-31 23:05:00.000', 0),
+             ('00000000-0000-4000-9000-000000000003', 1, 1, 2, 'first', 2, NULL, '2026-11-30 23:00:00.000', 0)",
+        );
+        $session->exec(
+            "INSERT INTO results (id, game_id, person_id, points, run, account_id, created_at, pending) VALUES
+             ('00000000-0000-4000-a000-000000000001', 2, 1, 5, 1, NULL, '2026-11-30 22:59:59.999', 0),
+             ('00000000-0000-4000-a000-000000000002', 2, 1, 5, 2, NULL, '2026-11-30 23:00:00.000', 0)",
+        );
+
+        self::assertSame(['spans' => [self::span('2026-10-31T23:00', '2026-10-31T23:15')]], $this->body($this->days(self::SCHACH, self::NOVEMBER)));
+        self::assertSame(['spans' => [self::span('2026-11-30T22:45', '2026-11-30T23:00')]], $this->body($this->days(self::ROMME, self::NOVEMBER)));
+        self::assertSame(
+            ['spans' => [self::span('2026-10-31T22:45', '2026-10-31T23:15'), self::span('2026-11-30T23:00', '2026-11-30T23:15')]],
+            $this->body($this->days(self::SCHACH)),
+        );
     }
 
     public function testAVerificationAndADeleteChangeTheTag(): void
     {
         $id = $this->score(1, 10);
-        $pending = $this->days(self::ROMME);
+        $pending = $this->days(self::ROMME, self::NOVEMBER);
 
         $this->verify('results', $id);
-        $verified = $this->days(self::ROMME, $pending->getHeaderLine('ETag'));
+        $verified = $this->days(self::ROMME, self::NOVEMBER, $pending->getHeaderLine('ETag'));
         $this->send('DELETE', "/api/results/{$id}", session: $this->session);
-        $deleted = $this->days(self::ROMME, $verified->getHeaderLine('ETag'));
+        $deleted = $this->days(self::ROMME, self::NOVEMBER, $verified->getHeaderLine('ETag'));
 
-        self::assertSame(['instants' => []], $this->body($pending));
-        self::assertSame(['instants' => ['2026-11-14T20:00:00.000Z']], $this->body($verified));
-        self::assertSame(['instants' => []], $this->body($deleted));
+        self::assertSame(['spans' => []], $this->body($pending));
+        self::assertSame(['spans' => [self::span('2026-11-14T20:00', '2026-11-14T20:15')]], $this->body($verified));
+        self::assertSame(['spans' => []], $this->body($deleted));
     }
 
-    private function days(int $game, ?string $ifNoneMatch = null): ResponseInterface
+    private function days(int $game, string $selection = 'scope=all', ?string $ifNoneMatch = null): ResponseInterface
     {
-        return $this->send('GET', "/api/games/{$game}/standings/days", session: $this->session, headers: $ifNoneMatch === null ? [] : ['If-None-Match' => $ifNoneMatch]);
+        return $this->send('GET', "/api/games/{$game}/standings/days?{$selection}", session: $this->session, headers: $ifNoneMatch === null ? [] : ['If-None-Match' => $ifNoneMatch]);
+    }
+
+    /**
+     * @param string $from minutes in UTC, `2026-11-14T20:00`
+     * @param string $to   minutes in UTC
+     *
+     * @return array{from: string, to: string}
+     */
+    private static function span(string $from, string $to): array
+    {
+        return ['from' => "{$from}:00.000Z", 'to' => "{$to}:00.000Z"];
     }
 
     private function revision(): int

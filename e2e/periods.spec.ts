@@ -146,15 +146,19 @@ async function shownInCalendar(page: Page, day: Day) {
   });
 }
 
-/** The quarter hours of the day that `GET /api/scoreboard/days` answers as holding counted drinks. */
-async function daysWithDataIn(page: Page, day: Day): Promise<string[]> {
-  const response = await page.request.get('/api/scoreboard/days');
-  expect(response.status()).toBe(200);
-  const { instants } = (await response.json()) as { instants: string[] };
-  return instants.filter((instant) => {
-    const at = Date.parse(instant);
-    return at >= day.start.getTime() && at < day.end.getTime();
+/** The sessions with counted drinks that `GET /api/scoreboard/days` answers for the day's window. */
+async function daysWithDataIn(
+  page: Page,
+  day: Day,
+): Promise<{ from: string; to: string }[]> {
+  const response = await page.request.get('/api/scoreboard/days', {
+    params: { from: day.start.toISOString(), to: day.end.toISOString() },
   });
+  expect(response.status()).toBe(200);
+  const { spans } = (await response.json()) as {
+    spans: { from: string; to: string }[];
+  };
+  return spans;
 }
 
 /**
@@ -316,7 +320,12 @@ test('a past day whose entries all wait lists them only under Noch nicht gewerte
   await expect(page.getByRole('dialog')).toBeHidden();
 
   await verify(entry);
-  expect(await daysWithDataIn(page, day)).toEqual([day.evening.toISOString()]);
+  expect(await daysWithDataIn(page, day)).toEqual([
+    {
+      from: day.evening.toISOString(),
+      to: new Date(day.evening.getTime() + 15 * 60_000).toISOString(),
+    },
+  ]);
   // A past day is read again on focus, not polled.
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(place(page, jule)).toHaveAccessibleName(

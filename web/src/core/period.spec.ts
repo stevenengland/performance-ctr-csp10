@@ -9,6 +9,9 @@ import {
   isToday,
   kindLabel,
   localDaysOf,
+  addMonths,
+  monthOf,
+  monthWindow,
   periodKey,
   queryOf,
   sameDate,
@@ -297,48 +300,99 @@ describe('the period module', () => {
     expect(sameDate(date(2026, 1, 2), date(2026, 2, 1))).toBe(false);
   });
 
-  it('buckets the quarter hours with data into the local days they fall on, each day once, ascending', () => {
-    const instants = [
-      '2026-11-13T22:45:00.000Z', // 23:45 on Friday in Berlin
-      '2026-11-13T23:00:00.000Z', // Saturday's first quarter hour
-      '2026-11-14T20:15:00.000Z',
-      '2026-11-16T19:00:00.000Z',
+  /** A span `[from, to)` in UTC, from minutes: `span('2026-11-13T22:45', '2026-11-13T23:15')`. */
+  const span = (from: string, to: string) => ({
+    from: `${from}:00.000Z`,
+    to: `${to}:00.000Z`,
+  });
+
+  it('finds the local days the sessions with data touch, each day once, ascending; a session over midnight touches both days', () => {
+    const spans = [
+      span('2026-11-13T22:45', '2026-11-13T23:15'), // Friday 23:45 to Saturday 00:15 in Berlin
+      span('2026-11-14T20:15', '2026-11-14T22:00'),
+      span('2026-11-16T19:00', '2026-11-16T19:15'),
     ];
 
-    expect(localDaysOf(instants)).toEqual([
+    expect(localDaysOf(spans)).toEqual([
       date(2026, 11, 13),
       date(2026, 11, 14),
       date(2026, 11, 16),
     ]);
     process.env.TZ = 'America/New_York';
-    expect(localDaysOf(instants)).toEqual([
+    expect(localDaysOf(spans)).toEqual([
       date(2026, 11, 13),
       date(2026, 11, 14),
       date(2026, 11, 16),
     ]);
-    process.env.TZ = 'Asia/Kathmandu';
-    expect(
-      localDaysOf(['2026-11-13T18:00:00.000Z', '2026-11-13T18:15:00.000Z']),
-    ).toEqual([date(2026, 11, 13), date(2026, 11, 14)]);
+    process.env.TZ = 'Asia/Kathmandu'; // +05:45: 18:15Z is midnight
+    expect(localDaysOf([span('2026-11-13T18:00', '2026-11-13T18:30')])).toEqual(
+      [date(2026, 11, 13), date(2026, 11, 14)],
+    );
+    expect(localDaysOf([span('2026-11-13T18:00', '2026-11-13T18:15')])).toEqual(
+      [date(2026, 11, 13)],
+    );
     expect(localDaysOf([])).toEqual([]);
   });
 
-  it('buckets the quarter hours of a day the clocks change on and of a year’s end into their local days', () => {
+  it('finds the local days of sessions on a day the clocks change on and over a year’s end', () => {
     expect(
       localDaysOf([
-        '2026-10-24T21:45:00.000Z', // 23:45 summer time, Saturday
-        '2026-10-24T22:00:00.000Z', // 00:00 summer time, Sunday
-        '2026-10-25T22:45:00.000Z', // 23:45 winter time, still Sunday
-        '2026-10-25T23:00:00.000Z', // Monday
-        '2026-12-31T22:45:00.000Z',
-        '2026-12-31T23:00:00.000Z',
+        span('2026-10-24T21:45', '2026-10-24T22:15'), // Saturday 23:45 summer time to Sunday 00:15
+        span('2026-10-25T22:45', '2026-10-25T23:00'), // 23:45 winter time, still Sunday
+        span('2026-12-31T22:45', '2027-01-01T00:00'), // New Year’s Eve 23:45 to 01:00
       ]),
     ).toEqual([
       date(2026, 10, 24),
       date(2026, 10, 25),
-      date(2026, 10, 26),
       date(2026, 12, 31),
       date(2027, 1, 1),
     ]);
+  });
+
+  it.each([
+    [
+      'Europe/Berlin',
+      date(2026, 11, 1),
+      '2026-10-31T23:00:00.000Z',
+      '2026-11-30T23:00:00.000Z',
+    ],
+    [
+      'Europe/Berlin',
+      date(2026, 10, 1),
+      '2026-09-30T22:00:00.000Z',
+      '2026-10-31T23:00:00.000Z',
+    ],
+    [
+      'Europe/Berlin',
+      date(2026, 12, 1),
+      '2026-11-30T23:00:00.000Z',
+      '2026-12-31T23:00:00.000Z',
+    ],
+    [
+      'Asia/Kathmandu',
+      date(2026, 2, 1),
+      '2026-01-31T18:15:00.000Z',
+      '2026-02-28T18:15:00.000Z',
+    ],
+    [
+      'Pacific/Marquesas',
+      date(2028, 2, 1),
+      '2028-02-01T09:30:00.000Z',
+      '2028-03-01T09:30:00.000Z',
+    ],
+  ])(
+    'builds a month’s window in %s from local midnight of its first day to the next month’s (%o)',
+    (zone, month, from, to) => {
+      process.env.TZ = zone;
+
+      expect(monthWindow(month)).toEqual({ from, to });
+      expect(monthWindow({ ...month, day: 17 })).toEqual({ from, to });
+    },
+  );
+
+  it('steps months by calendar addition over a year’s end', () => {
+    expect(addMonths(date(2026, 12, 1), 1)).toEqual(date(2027, 1, 1));
+    expect(addMonths(date(2026, 1, 1), -1)).toEqual(date(2025, 12, 1));
+    expect(monthOf(date(2026, 11, 17))).toEqual(date(2026, 11, 1));
   });
 });

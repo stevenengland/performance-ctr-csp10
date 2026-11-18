@@ -14,6 +14,7 @@ import {
   isLive,
   kindLabel,
   localDaysOf,
+  monthOf,
   type Period,
   type PeriodKind,
   sameDate,
@@ -31,9 +32,11 @@ never past the one that contains today. The selected option sits in
 `secondary-container`; `primary-container` stays the leader card's. `Tag` and
 `Woche` share the day last shown: switching shows that day or its week. The bar's
 day opens the calendar `Tag wählen`, where a picked day shows that day or its
-week; with the page's days-with-data read, the calendar dots the days with data
-that counts and `Gesamt` says since when and over how many days it counts. The
-read runs only while the calendar or `Gesamt` is shown, polled under `Gesamt`.
+week; with the page's days-with-data reads, the calendar dots the days of the month
+it shows with data that counts (that month's read, while the dialog is open: on
+opening, on another month, on focus and after the device's own writes, never
+polled), and `Gesamt` says since when and over how many days it counts (the
+all-time read, polled under `Gesamt` only).
 */
 const props = defineProps<{
   kinds: PeriodKind[];
@@ -100,9 +103,12 @@ function stepBy(by: number) {
 const calendarOpen = shallowRef(false);
 /** Each opening shows the calendar anew, on the shown day's month. */
 const openings = shallowRef(0);
+/** The month the calendar shows, as its first day. */
+const calendarMonth = shallowRef<CalendarDate>(monthOf(props.today));
 
 function openCalendar() {
   openings.value += 1;
+  calendarMonth.value = monthOf(dateShown());
   calendarOpen.value = true;
 }
 
@@ -114,41 +120,62 @@ function pick(date: CalendarDate) {
   calendarOpen.value = false;
 }
 
-/** The days read, while the calendar or the `Gesamt` line needs it; live under `Gesamt`, as its ranking is. */
-const neededRead = computed(() => {
-  const read = props.days?.read;
-  if (read === undefined) return undefined;
-  if (period.value.kind === 'all') return { read, live: true };
-  return calendarOpen.value ? { read, live: false } : undefined;
-});
-let running: { read: DaysRead; live: boolean } | undefined;
+/** The all-time read while `Gesamt` shows its line, live as its ranking is. */
+const allRead = computed(() =>
+  period.value.kind === 'all' ? props.days?.reads.all : undefined,
+);
+let runningAll: DaysRead | undefined;
 watch(
-  neededRead,
-  (needed) => {
-    if (needed?.read === running?.read && needed?.live === running?.live) {
-      return;
-    }
-    running?.read.stop(running.live);
-    running = needed;
-    running?.read.start(running.live);
+  allRead,
+  (read) => {
+    if (read === runningAll) return;
+    runningAll?.stop(true);
+    runningAll = read;
+    runningAll?.start(true);
   },
   { immediate: true },
 );
+
+/** The month the open calendar shows, with the read of its dots. */
+const shownMonth = computed(() =>
+  calendarOpen.value && props.days
+    ? { months: props.days.reads.months, month: calendarMonth.value }
+    : undefined,
+);
+watch(
+  shownMonth,
+  (shown, previous) => {
+    if (previous && previous.months !== shown?.months) {
+      previous.months.show(undefined);
+      previous.months.stop();
+    }
+    if (!shown) return;
+    shown.months.show(shown.month);
+    if (previous?.months !== shown.months) shown.months.start();
+  },
+  { immediate: true },
+);
+
 onScopeDispose(() => {
-  running?.read.stop(running.live);
+  runningAll?.stop(true);
+  const shown = shownMonth.value;
+  shown?.months.show(undefined);
+  shown?.months.stop();
 });
 
 const markedDays = computed(() =>
-  localDaysOf(props.days?.read.state.value.value ?? []),
+  shownMonth.value
+    ? localDaysOf(shownMonth.value.months.state.value.value ?? [])
+    : [],
+);
+const allDays = computed(() =>
+  localDaysOf(props.days?.reads.all.state.value.value ?? []),
 );
 /** `Alle Tage seit 27.10.2026 · 15 Abende`, once a day counts. */
 const allLine = computed(() => {
-  const first = markedDays.value[0];
+  const first = allDays.value[0];
   if (period.value.kind !== 'all' || !props.days || !first) return undefined;
-  return props.days.summary(
-    formatDate(startOf(first)),
-    markedDays.value.length,
-  );
+  return props.days.summary(formatDate(startOf(first)), allDays.value.length);
 });
 </script>
 
@@ -206,6 +233,7 @@ const allLine = computed(() => {
   >
     <DayCalendar
       :key="openings"
+      v-model:month="calendarMonth"
       :selected="dateShown()"
       :today="today"
       :marked="markedDays"

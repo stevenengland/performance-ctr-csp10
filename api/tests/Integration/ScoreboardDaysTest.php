@@ -6,17 +6,24 @@ namespace Performance\Tests\Integration;
 
 use DateTimeImmutable;
 use Performance\Domain\DataRevision;
+use Performance\Domain\Interval;
 use Performance\Domain\Scoreboard;
+use Performance\Domain\Span;
 use Performance\Domain\Timestamp;
 use Performance\Http\Instant;
 use Performance\Tests\Support\DatabaseTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\ResponseInterface;
 
-/** The quarter hours with drinks that count, at `GET /api/scoreboard/days`, with their ETag. */
+/**
+ * The days with drinks that count, at `GET /api/scoreboard/days`: the runs of consecutive
+ * quarter hours with a verified entry, for a bounded window or all time, with their ETag.
+ */
 final class ScoreboardDaysTest extends DatabaseTestCase
 {
     private const START = '2026-11-14T20:00:00Z';
+    /** November 2026 in Berlin: 2026-10-31T23:00Z to 2026-11-30T23:00Z. */
+    private const NOVEMBER = 'from=2026-11-01T00:00:00%2B01:00&to=2026-12-01T00:00:00%2B01:00';
 
     private string $session;
     private int $entries = 0;
@@ -32,7 +39,7 @@ final class ScoreboardDaysTest extends DatabaseTestCase
         $this->send('POST', '/api/drinks', ['name' => 'Aperol', 'points' => 2.5], $this->session);
     }
 
-    public function testListsTheStartOfEachQuarterHourWithAVerifiedEntryAscendingAndLeavesPendingEntriesOut(): void
+    public function testListsTheQuarterHoursWithAVerifiedEntryAsSpansAndLeavesPendingEntriesOut(): void
     {
         $this->add(1, 2);                  // 2026-11-14 20:00 UTC
         $this->clock->advance('P1D');      // 2026-11-15 20:00 UTC
@@ -48,16 +55,57 @@ final class ScoreboardDaysTest extends DatabaseTestCase
 
         self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
         self::assertSame(
-            ['instants' => ['2026-11-14T20:00:00.000Z', '2026-11-15T20:00:00.000Z', '2026-11-15T20:15:00.000Z']],
+            ['spans' => [self::span('2026-11-14T20:00', '2026-11-14T20:15'), self::span('2026-11-15T20:00', '2026-11-15T20:30')]],
             $this->body($response),
         );
     }
 
-    public function testWithoutAnEntryThatCountsThereIsNoInstant(): void
+    /**
+     * An evening is one span however many entries it has, over midnight and over pauses; a pause
+     * of 6 hours without an entry ends it.
+     */
+    public function testAnEveningIsOneSpanUntilAPauseOfSixHours(): void
+    {
+        $this->insert('2026-11-13 20:00:00.000', '2026-11-13 20:20:00.000', '2026-11-13 20:44:59.999', '2026-11-13 21:05:00.000');
+        $this->insert('2026-11-13 23:50:00.000', '2026-11-14 00:05:00.000'); // 2.5 hours later, over midnight
+        $this->insert('2026-11-14 06:14:59.999');                            // 5 hours 45 minutes later
+        $this->insert('2026-11-14 12:15:00.000');                            // 6 hours later
+
+        self::assertSame(
+            ['spans' => [self::span('2026-11-13T20:00', '2026-11-14T06:15'), self::span('2026-11-14T12:15', '2026-11-14T12:30')]],
+            $this->body($this->days()),
+        );
+    }
+
+    public function testWithoutAnEntryThatCountsThereIsNoSpan(): void
     {
         $this->record(1, 1);
 
-        self::assertSame(['instants' => []], $this->body($this->days()));
+        self::assertSame(['spans' => []], $this->body($this->days()));
+        self::assertSame(['spans' => []], $this->body($this->days(self::NOVEMBER)));
+    }
+
+    /**
+     * A window lists the spans of its own entries only: a span that runs over its start or
+     * end is cut there, as the entries outside are not read.
+     */
+    public function testAWindowListsTheSpansOfItsEntriesOnly(): void
+    {
+        $this->insert(
+            '2026-10-31 22:50:00.000', // Berlin 23:50 on 31 October, before the window
+            '2026-10-31 23:05:00.000', // 00:05 on 1 November
+            '2026-11-30 22:55:00.000', // 23:55 on 30 November
+            '2026-11-30 23:00:00.000', // midnight, the window's end
+        );
+
+        self::assertSame(
+            ['spans' => [self::span('2026-10-31T23:00', '2026-10-31T23:15'), self::span('2026-11-30T22:45', '2026-11-30T23:00')]],
+            $this->body($this->days(self::NOVEMBER)),
+        );
+        self::assertSame(
+            ['spans' => [self::span('2026-10-31T22:45', '2026-10-31T23:15'), self::span('2026-11-30T22:45', '2026-11-30T23:15')]],
+            $this->body($this->days()),
+        );
     }
 
     /**
@@ -80,7 +128,13 @@ final class ScoreboardDaysTest extends DatabaseTestCase
         $this->send('DELETE', '/api/drinks/2', session: $this->session);
         $ranked = $this->body($this->send('GET', '/api/scoreboard?scope=all', session: $this->session));
 
-        self::assertSame(['instants' => ['2026-11-14T20:00:00.000Z', '2026-11-14T21:00:00.000Z']], $this->body($this->days()));
+        // 21:00 is less than 6 hours after 20:00: one session, without the quarter hours that count nowhere.
+        $spans = ['spans' => [self::span('2026-11-14T20:00', '2026-11-14T21:15')]];
+        self::assertSame($spans, $this->body($this->days()));
+        self::assertSame($spans, $this->body($this->days(self::NOVEMBER)));
+        self::assertSame(['spans' => [self::span('2026-11-14T20:00', '2026-11-14T20:15')]], $this->body($this->days(
+            'from=2026-11-14T20:00:00Z&to=2026-11-14T21:00:00Z',
+        )));
         self::assertSame([['Ben', 1], ['Daniel', 1]], array_map(
             static fn(array $row): array => [$row['name'], $row['count']],
             self::listOf($ranked['rows']),
@@ -97,11 +151,11 @@ final class ScoreboardDaysTest extends DatabaseTestCase
         $verification = $this->send('PUT', "/api/entries/{$late}/verification", [], $anna);
 
         self::assertSame(204, $verification->getStatusCode(), (string) $verification->getBody());
-        self::assertSame(['instants' => ['2026-11-14T23:45:00.000Z']], $this->body($this->days()));
+        self::assertSame(['spans' => [self::span('2026-11-14T23:45', '2026-11-15T00:00')]], $this->body($this->days()));
     }
 
-    /** The size grows with the quarter hours that have entries, never with the entries. */
-    public function testManyEntriesInOneQuarterHourAreOneInstant(): void
+    /** The size grows with the evenings that have entries, never with the entries. */
+    public function testManyEntriesInConsecutiveQuarterHoursAreOneSpan(): void
     {
         $values = [];
         for ($i = 1; $i <= 3000; ++$i) {
@@ -113,10 +167,7 @@ final class ScoreboardDaysTest extends DatabaseTestCase
         $this->otherSession()->exec('INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at, pending) VALUES ' . implode(', ', $values));
 
         self::assertEquals(3000, $this->rows('SELECT COUNT(*) AS n FROM entries')[0]['n']);
-        self::assertSame(
-            ['instants' => ['2026-11-14T20:00:00.000Z', '2026-11-14T20:15:00.000Z', '2026-11-14T20:30:00.000Z']],
-            $this->body($this->days()),
-        );
+        self::assertSame(['spans' => [self::span('2026-11-14T20:00', '2026-11-14T20:45')]], $this->body($this->days()));
     }
 
     /**
@@ -133,35 +184,41 @@ final class ScoreboardDaysTest extends DatabaseTestCase
     public function testTheQuarterHoursDoNotDependOnTheSessionsTimeZone(string $timeZone): void
     {
         $session = $this->otherSession();
-        $session->exec(
-            "INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at, pending) VALUES
-             ('00000000-0000-4000-9000-000000000001', 1, 1, 1, NULL, '2026-11-15 00:00:00.000', 0),
-             ('00000000-0000-4000-9000-000000000002', 2, 1, 1, NULL, '2026-11-14 23:59:59.999', 0)",
-        );
+        $this->insert('2026-11-15 00:00:00.000', '2026-11-14 23:59:59.999', '2026-11-15 07:00:00.000');
         $session->exec("SET time_zone = '{$timeZone}'");
+        $scoreboard = new Scoreboard($session, new DataRevision($session));
 
-        $instants = (new Scoreboard($session, new DataRevision($session)))->days();
+        $all = $scoreboard->days(Interval::allTime());
+        $window = $scoreboard->days(Interval::window(new DateTimeImmutable('2026-11-15T00:00:00Z'), new DateTimeImmutable('2026-11-15T01:00:00Z')));
 
-        self::assertSame(['2026-11-14T23:45:00.000Z', '2026-11-15T00:00:00.000Z'], array_map(Instant::format(...), $instants));
+        self::assertSame(
+            [['2026-11-14T23:45:00.000Z', '2026-11-15T00:15:00.000Z'], ['2026-11-15T07:00:00.000Z', '2026-11-15T07:15:00.000Z']],
+            array_map(static fn(Span $span): array => [Instant::format($span->from), Instant::format($span->to)], $all),
+        );
+        self::assertSame(
+            [['2026-11-15T00:00:00.000Z', '2026-11-15T00:15:00.000Z']],
+            array_map(static fn(Span $span): array => [Instant::format($span->from), Instant::format($span->to)], $window),
+        );
     }
 
     public function testTheDaysNeedASession(): void
     {
-        self::assertSame(401, $this->send('GET', '/api/scoreboard/days')->getStatusCode());
+        self::assertSame(401, $this->send('GET', '/api/scoreboard/days?scope=all')->getStatusCode());
     }
 
-    public function testTheETagIsTheDataRevisionAndAnUnchangedOneAnswers304(): void
+    public function testTheETagNamesTheRevisionAndTheSelectionAndAnUnchangedOneAnswers304(): void
     {
         $this->add(1, 1);
-        $first = $this->days();
-        $tag = $first->getHeaderLine('ETag');
+        $all = $this->days()->getHeaderLine('ETag');
+        $november = $this->days(self::NOVEMBER)->getHeaderLine('ETag');
 
-        $conditional = $this->days($tag);
+        $conditional = $this->days('scope=all', $all);
+        $otherSelection = $this->days(self::NOVEMBER, $all);
 
-        self::assertSame(sprintf('"%d"', $this->revision()), $tag);
-        self::assertSame(304, $conditional->getStatusCode());
-        self::assertSame('', (string) $conditional->getBody());
-        self::assertSame($tag, $conditional->getHeaderLine('ETag'));
+        self::assertSame(sprintf('"%d-all"', $this->revision()), $all);
+        self::assertSame(sprintf('"%d-1793487600000-1796079600000"', $this->revision()), $november);
+        self::assertSame([304, '', $all], [$conditional->getStatusCode(), (string) $conditional->getBody(), $conditional->getHeaderLine('ETag')]);
+        self::assertSame([200, $november], [$otherSelection->getStatusCode(), $otherSelection->getHeaderLine('ETag')]);
     }
 
     public function testAVerificationAndADeleteChangeTheTag(): void
@@ -169,21 +226,43 @@ final class ScoreboardDaysTest extends DatabaseTestCase
         $this->createAccount('anna', 'annas-startpasswort');
         $anna = $this->signIn('anna', 'annas-startpasswort');
         $id = $this->record(1, 1);
-        $pending = $this->days();
+        $pending = $this->days(self::NOVEMBER);
 
         $this->send('PUT', "/api/entries/{$id}/verification", [], $anna);
-        $verified = $this->days($pending->getHeaderLine('ETag'));
+        $verified = $this->days(self::NOVEMBER, $pending->getHeaderLine('ETag'));
         $this->send('DELETE', "/api/entries/{$id}", session: $this->session);
-        $deleted = $this->days($verified->getHeaderLine('ETag'));
+        $deleted = $this->days(self::NOVEMBER, $verified->getHeaderLine('ETag'));
 
-        self::assertSame(['instants' => []], $this->body($pending));
-        self::assertSame(['instants' => ['2026-11-14T20:00:00.000Z']], $this->body($verified));
-        self::assertSame(['instants' => []], $this->body($deleted));
+        self::assertSame(['spans' => []], $this->body($pending));
+        self::assertSame(['spans' => [self::span('2026-11-14T20:00', '2026-11-14T20:15')]], $this->body($verified));
+        self::assertSame(['spans' => []], $this->body($deleted));
     }
 
-    private function days(?string $ifNoneMatch = null): ResponseInterface
+    /**
+     * @param string $from minutes in UTC, `2026-11-14T20:00`
+     * @param string $to   minutes in UTC
+     *
+     * @return array{from: string, to: string}
+     */
+    private static function span(string $from, string $to): array
     {
-        return $this->send('GET', '/api/scoreboard/days', session: $this->session, headers: $ifNoneMatch === null ? [] : ['If-None-Match' => $ifNoneMatch]);
+        return ['from' => "{$from}:00.000Z", 'to' => "{$to}:00.000Z"];
+    }
+
+    /** Verified entries recorded at the given UTC `DATETIME(3)`s, by Daniel. */
+    private function insert(string ...$recordedAt): void
+    {
+        $values = [];
+        foreach ($recordedAt as $at) {
+            ++$this->entries;
+            $values[] = sprintf("('00000000-0000-4000-9000-%012d', 1, 1, 1, NULL, '%s', 0)", $this->entries, $at);
+        }
+        $this->otherSession()->exec('INSERT INTO entries (id, person_id, drink_id, quantity, account_id, created_at, pending) VALUES ' . implode(', ', $values));
+    }
+
+    private function days(string $selection = 'scope=all', ?string $ifNoneMatch = null): ResponseInterface
+    {
+        return $this->send('GET', "/api/scoreboard/days?{$selection}", session: $this->session, headers: $ifNoneMatch === null ? [] : ['If-None-Match' => $ifNoneMatch]);
     }
 
     private function revision(): int

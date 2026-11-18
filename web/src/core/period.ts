@@ -1,4 +1,5 @@
 import { formatDayRange, formatFullDay, formatWeekdayDay } from './format';
+import type { Span } from './api-client';
 import { messages } from './messages';
 
 /**
@@ -59,18 +60,50 @@ export function weekOf(date: CalendarDate): Extract<Period, { kind: 'week' }> {
   return { kind: 'week', date: addDays(date, -((weekday + 6) % 7)) };
 }
 
+const QUARTER_HOUR_MS = 900_000;
+
 /**
-The local days that the quarter hours of a days-with-data read (their UTC start
-instants, ascending) fall on, each once, ascending. Every UTC offset in use is a
-multiple of 15 minutes, so a quarter hour never spans two local days.
+The local days that the sessions of a days-with-data read (ascending) touch, each
+once, ascending: every local day a quarter hour of a span lies in. Every UTC offset in
+use is a multiple of 15 minutes, so a quarter hour never spans two local days, and
+a span over local midnight touches both. A span's pauses (shorter than 6 hours)
+never hold a whole local day, so the days are those of the quarter hours with data.
 */
-export function localDaysOf(instants: readonly string[]): CalendarDate[] {
+export function localDaysOf(spans: readonly Span[]): CalendarDate[] {
   const days = new Map<string, CalendarDate>();
-  for (const instant of instants) {
-    const day = calendarDateOf(new Date(instant));
-    days.set(isoDate(day), day);
+  for (const span of spans) {
+    const end = Date.parse(span.to);
+    for (let at = Date.parse(span.from); at < end; at += QUARTER_HOUR_MS) {
+      const day = calendarDateOf(new Date(at));
+      days.set(isoDate(day), day);
+    }
   }
   return [...days.values()];
+}
+
+/** The month `date` lies in, held as its first day. */
+export function monthOf(date: CalendarDate): CalendarDate {
+  return { ...date, day: 1 };
+}
+
+/** The month `months` calendar months after `month` (before when negative), as its first day. */
+export function addMonths(month: CalendarDate, months: number): CalendarDate {
+  return calendarDateOf(new Date(month.year, month.month - 1 + months, 1));
+}
+
+/**
+A month's window `[from, to)` of UTC instants: local midnight of its first day to
+local midnight of the next month's first day, built anew at every call.
+*/
+export function monthWindow(month: CalendarDate): {
+  from: string;
+  to: string;
+} {
+  const first = monthOf(month);
+  return {
+    from: startOf(first).toISOString(),
+    to: startOf(addMonths(first, 1)).toISOString(),
+  };
 }
 
 export function sameDate(a: CalendarDate, b: CalendarDate): boolean {

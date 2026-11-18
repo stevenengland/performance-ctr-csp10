@@ -14,7 +14,7 @@ import type {
   NewGame,
   Standings,
 } from './api-client';
-import { createDaysRead, type DaysRead } from './days-with-data';
+import { createDaysReads, type DaysReads } from './days-with-data';
 import { calendarDateOf, isLive, type Period, periodKey } from './period';
 import {
   createPeriodResource,
@@ -171,14 +171,16 @@ export function usePeriodStandings(
   return state;
 }
 
-/** The quarter hours each game was played, created when a screen first needs them. */
-const playedDays = new Map<number, DaysRead>();
+/** The sessions each game was played, created when a screen first needs them. */
+const playedDays = new Map<number, DaysReads>();
 
-/** The quarter hours the game was played, all runs: its calendar's dots and its `Gesamt` line. */
-export function gameDays(gameId: number): DaysRead {
+/** The sessions the game was played, all runs: its calendar's dots (a month at a time) and its `Gesamt` line. */
+export function gameDays(gameId: number): DaysReads {
   let days = playedDays.get(gameId);
   if (!days) {
-    days = createDaysRead((etag) => api.getStandingsDays(gameId, etag));
+    days = createDaysReads((selection, etag) =>
+      api.getStandingsDays(gameId, selection, etag),
+    );
     playedDays.set(gameId, days);
   }
   return days;

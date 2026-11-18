@@ -7,9 +7,10 @@ import type {
 } from '../src/core/api-client';
 
 type DrinkCount = Scoreboard['rows'][number]['drinks'][number];
-import { daysAnswer } from './fixtureDays';
+import { daysAnswer, LONGEST_DAYS_WINDOW } from './fixtureDays';
 import { gameBackend } from './fixtureGames';
 import {
+  boundedWindowOrAllTime,
   contains,
   type Interval,
   tagOf,
@@ -765,15 +766,18 @@ function routesOf(fixtures: Fixtures, revision: () => number) {
     ],
     [
       'GET /api/scoreboard/days',
-      guarded((_me, _body, request) =>
-        daysAnswer(
-          request,
+      guarded((_me, _body, { query, headers }) => {
+        const interval = boundedWindowOrAllTime(query, LONGEST_DAYS_WINDOW);
+        if (interval instanceof Response) return interval;
+        return daysAnswer(
+          headers,
+          interval,
           revision(),
           fixtures.entries
             .filter((entry) => !entry.pending && counts(fixtures, entry))
             .map(({ createdAt }) => createdAt),
-        ),
-      ),
+        );
+      }),
     ],
   ]);
 }
