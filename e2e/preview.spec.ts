@@ -424,10 +424,10 @@ test('the fixture preview shows and deletes entries on a person’s Verlauf', as
     .getByRole('listitem');
   await expect(entries).toHaveCount(5);
   await expect(entries.first()).toContainText(
-    /^2× BierKein Faktor · \d\d:\d\d · anna/,
+    /^2× BierKein Faktor · \d\d\.\d\d\., \d\d:\d\d · anna/,
   );
   await expect(entries.nth(2)).toContainText(
-    /^2× SchnapsGeburtstag ×1,5 · \d\d:\d\d · gelöschtes Konto/,
+    /^2× SchnapsGeburtstag ×1,5 · \d\d\.\d\d\., \d\d:\d\d · gelöschtes Konto/,
   );
   await page
     .getByRole('button', { name: /^2× Bier um .* löschen$/ })
@@ -460,12 +460,16 @@ test('the fixture preview opens Anna’s Verlauf of yesterday from its Rangliste
   await expect(page).toHaveURL(/#\/verlauf\/\d+\?tag=\d{4}-\d{2}-\d{2}$/);
   const context = page.getByRole('banner').locator('.top-bar__context');
   await expect(context).toHaveText(/^\p{L}+, \d{2}\.\d{2}\.\d{4}$/u);
+  // The rows name yesterday as `dd.MM.`, the day the top bar names in full.
+  const yesterday = ((await context.textContent()) ?? '')
+    .slice(-10, -4)
+    .replaceAll('.', '\\.');
   const entries = page
     .getByRole('list', { name: 'Einträge von Anna' })
     .getByRole('listitem');
   await expect(entries).toHaveText([
-    /^1× AperolKein Faktor · 21:30 · annaoffen/,
-    /^2× WeinKein Faktor · 19:25 · anna/,
+    new RegExp(`^1× AperolKein Faktor · ${yesterday}, 21:30 · annaoffen`),
+    new RegExp(`^2× WeinKein Faktor · ${yesterday}, 19:25 · anna`),
   ]);
   await page.getByRole('button', { name: '2× Wein um 19:25 löschen' }).click();
   await page

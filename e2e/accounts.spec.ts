@@ -201,7 +201,7 @@ test('deleting an account after the dialog ends its sessions and keeps its entri
       .getByRole('listitem'),
   ).toHaveText([
     new RegExp(
-      `^2× ${drink.name}Kein Faktor · \\d\\d:\\d\\d · gelöschtes Konto$`,
+      `^2× ${drink.name}Kein Faktor · \\d\\d\\.\\d\\d\\., \\d\\d:\\d\\d · gelöschtes Konto$`,
     ),
   ]);
   await device.context.close();
