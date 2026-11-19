@@ -317,36 +317,22 @@ final class IdempotencyTest extends DatabaseTestCase
     }
 
     /**
-     * Keys stored before the shared store existed stay in `entry_requests` (ADR 0006: expand,
-     * not rename) under the entry fingerprint of that time: sha256 of `[personId,drinkId,quantity]`.
+     * `entry_requests` held the keys before the shared store and is retired (ADR 0006, contract
+     * step from PRD #27): a key left there is no longer looked up, and the table is no longer
+     * purged. It stays until a later release drops it, because the previous release still
+     * reads it during a rollout.
      */
-    public function testAKeyStoredBeforeTheSharedStoreStillReplaysAndNeverRecreatesItsUndoneEntry(): void
+    public function testTheRetiredEntryRequestsTableIsNeitherReadNorPurged(): void
     {
-        $this->otherSession()->prepare('INSERT INTO entry_requests (id, fingerprint, created_at) VALUES (?, ?, ?)')
-            ->execute([self::ENTRY, hash('sha256', '[1,1,2]'), '2026-11-14 20:00:00.000']);
-        $this->clock->advance('PT1H');
+        $legacy = $this->otherSession()->prepare('INSERT INTO entry_requests (id, fingerprint, created_at) VALUES (?, ?, ?)');
+        $legacy->execute([self::ENTRY, hash('sha256', '[1,1,3]'), '2026-11-14 19:00:00.000']);
+        $legacy->execute(['0b8f5e3a-1c2d-4e5f-9a0b-1c2d3e4f5a6b', hash('sha256', '[1,1,1]'), '2026-11-01 20:00:00.000']);
 
-        $replay = $this->put(self::TWO_BEERS);
-        $changed = $this->put(['personId' => 1, 'drinkId' => 1, 'quantity' => 3]);
+        $created = $this->put(self::TWO_BEERS);
 
-        self::assertSame(200, $replay->getStatusCode());
-        self::assertSame('2026-11-14T20:00:00.000Z', $this->body($replay)['createdAt'], 'the original instant');
-        self::assertSame(409, $changed->getStatusCode());
-        self::assertSame([], $this->rows('SELECT id FROM entries UNION ALL SELECT id FROM idempotency_keys'));
-    }
-
-    public function testKeysStoredBeforeTheSharedStoreArePurgedAfterSevenDaysToo(): void
-    {
-        $this->otherSession()->prepare('INSERT INTO entry_requests (id, fingerprint, created_at) VALUES (?, ?, ?)')
-            ->execute([self::ENTRY, hash('sha256', '[1,1,2]'), '2026-11-14 20:00:00.000']);
-        $this->clock->advance('P7D');
-        $this->clock->advance('PT1S');
-
-        $afterTheWindow = $this->put(self::TWO_BEERS);
-
-        self::assertSame(201, $afterTheWindow->getStatusCode());
-        self::assertSame([], $this->rows('SELECT id FROM entry_requests'));
+        self::assertSame(201, $created->getStatusCode(), 'a key there with other content is no conflict');
         self::assertSame([['id' => self::ENTRY]], $this->rows('SELECT id FROM idempotency_keys'));
+        self::assertCount(2, $this->rows('SELECT id FROM entry_requests'), 'an expired key there is not purged');
     }
 
     /**
